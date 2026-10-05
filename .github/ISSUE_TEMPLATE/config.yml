@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/hasanalaaa/keyra/security/advisories/new
+    about: Please report vulnerabilities privately, never in a public issue. See SECURITY.md.
+  - name: Ask a question or share an idea
+    url: https://github.com/hasanalaaa/keyra/discussions
+    about: For usage questions and open-ended ideas. (Requires Discussions to be enabled on the repository.)

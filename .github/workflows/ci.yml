@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-tests:
+    name: Host tests (vault, HID keymap, API state machine)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # keyra_vault host tests link OpenSSL 3 for the reference crypto backend.
+      - name: Install OpenSSL 3 headers
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libssl-dev
+      - name: Configure
+        run: cmake -S firmware/test/host -B build/host
+      - name: Build
+        run: cmake --build build/host --parallel
+      - name: Test
+        run: ctest --test-dir build/host --output-on-failure
+
+  web:
+    name: Web app (typecheck, unit tests, build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm --prefix web ci
+      - run: npm --prefix web run typecheck
+      - run: npm --prefix web test
+      - run: npm --prefix web run build
+
+  firmware:
+    name: Firmware build (${{ matrix.profile }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: dev
+            command: idf.py build
+            build_dir: build
+          - profile: release
+            command: idf.py -B build-release -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.release" build
+            build_dir: build-release
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build with ESP-IDF v6.0.2
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v6.0.2
+          target: esp32s3
+          path: firmware
+          command: ${{ matrix.command }}
+      - name: Upload firmware images
+        uses: actions/upload-artifact@v4
+        with:
+          name: keyra-firmware-${{ matrix.profile }}
+          if-no-files-found: error
+          path: |
+            firmware/${{ matrix.build_dir }}/keyra.bin
+            firmware/${{ matrix.build_dir }}/bootloader/bootloader.bin
+            firmware/${{ matrix.build_dir }}/partition_table/partition-table.bin
+            firmware/${{ matrix.build_dir }}/ota_data_initial.bin
+            firmware/${{ matrix.build_dir }}/flasher_args.json

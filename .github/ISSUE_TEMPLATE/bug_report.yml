@@ -1,0 +1,62 @@
+name: Bug report
+description: Something does not work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping. **Never paste real passwords, passphrases or backup files.**
+        Security problems go through a [private advisory](https://github.com/hasanalaaa/keyra/security/advisories/new), not here.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, what did you get?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Plug Keyra into ...
+        2. Open http://keyra.local ...
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Keyra version
+      description: The release tag you flashed, or the `device.version` field at http://keyra.local/api/state.
+    validations:
+      required: true
+  - type: dropdown
+    id: profile
+    attributes:
+      label: Firmware profile
+      options: [Release, Dev (USB CDC logs), Built from source (not sure)]
+    validations:
+      required: true
+  - type: input
+    id: board
+    attributes:
+      label: Board
+      description: For example ESP32-S3-DevKitC-1 N16R8, and which USB port you used.
+    validations:
+      required: true
+  - type: input
+    id: host
+    attributes:
+      label: Computer and keyboard layout
+      description: OS the board is plugged into, and the active keyboard layout (Keyra types US layout).
+  - type: input
+    id: phone
+    attributes:
+      label: Phone and browser
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Dev-profile serial log, if you have one. Remove anything secret.
+      render: text
