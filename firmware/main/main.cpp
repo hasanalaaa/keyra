@@ -1,0 +1,51 @@
+// Boot wiring only (SPEC §4): bring components up in dependency order.
+#include "esp_log.h"
+#include "keyra/api.hpp"
+#include "keyra/hid.hpp"
+#include "keyra/io.hpp"
+#include "keyra/net.hpp"
+#include "keyra/settings.hpp"
+#include "keyra/vault.hpp"
+#include "nvs_flash.h"
+#include "sdkconfig.h"
+
+namespace {
+
+const char* TAG = "main";
+
+#if defined(CONFIG_KEYRA_DEV_CDC)
+constexpr bool kDevCdc = true;
+#else
+constexpr bool kDevCdc = false;
+#endif
+
+void initNvs() {
+  esp_err_t err = nvs_flash_init();
+  if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+    // The NVS layout itself is unusable (not just a missing key): start clean
+    // rather than boot-loop. Vault data lives in LittleFS and is unaffected.
+    ESP_LOGW(TAG, "NVS unusable (%s); erasing", esp_err_to_name(err));
+    ESP_ERROR_CHECK(nvs_flash_erase());
+    err = nvs_flash_init();
+  }
+  ESP_ERROR_CHECK(err);
+}
+
+}  // namespace
+
+extern "C" void app_main() {
+  initNvs();
+  keyra::io::init();
+  // A vault that fails to mount must not stop the device: the API reports it and
+  // factory reset (button-gated) stays reachable.
+  const keyra::vault::Status vs = keyra::vault::init();
+  if (vs != keyra::vault::Status::Ok) ESP_LOGE(TAG, "vault init: %s", keyra::vault::statusName(vs));
+  keyra::hid::init(kDevCdc);
+
+  ESP_ERROR_CHECK(keyra::settings::load());
+  const keyra::settings::Settings s = keyra::settings::get();
+  keyra::io::brightness(s.ledBrightness);
+  ESP_ERROR_CHECK(keyra::net::start({keyra::settings::ssid(s), s.wifiPassword, 6}));
+  ESP_ERROR_CHECK(keyra::api::start());
+  ESP_LOGI(TAG, "Keyra up: http://keyra.local");
+}

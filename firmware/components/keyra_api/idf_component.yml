@@ -1,0 +1,4 @@
+dependencies:
+  idf: ">=6.0"
+  # IDF 6 no longer bundles the json (cJSON) component.
+  espressif/cjson: "^1.7.19"

@@ -1,0 +1,11 @@
+menu "Keyra"
+
+config KEYRA_DEV_CDC
+    bool "Developer USB CDC (log mirror + 1200-baud reboot to ROM)"
+    default y
+    help
+        Adds a CDC-ACM interface next to the HID keyboard so tools/devctl.py can
+        read logs and reboot into download mode. Release builds disable it so the
+        device enumerates as a plain keyboard.
+
+endmenu

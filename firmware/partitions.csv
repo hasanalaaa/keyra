@@ -1,0 +1,8 @@
+# Keyra partition table: 8 MB baseline (SPEC §7); a 16 MB board simply leaves the tail unused.
+# Name,   Type, SubType,  Offset,   Size
+nvs,      data, nvs,      0x9000,   24K
+otadata,  data, ota,      0xF000,   8K
+phy_init, data, phy,      0x11000,  4K
+app0,     app,  ota_0,    0x20000,  3M
+app1,     app,  ota_1,    0x320000, 3M
+vault,    data, littlefs, 0x620000, 0x1E0000

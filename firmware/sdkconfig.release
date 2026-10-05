@@ -1,0 +1,7 @@
+# Keyra release profile, layered on sdkconfig.defaults:
+#   idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.release" build
+# HID-only USB descriptor, no logs.
+# CONFIG_KEYRA_DEV_CDC is not set
+# CONFIG_TINYUSB_CDC_ENABLED is not set
+CONFIG_LOG_DEFAULT_LEVEL_NONE=y
+CONFIG_BOOTLOADER_LOG_LEVEL_NONE=y
