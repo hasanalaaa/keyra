@@ -1,0 +1,11 @@
+menu "Keyra I/O"
+
+    config KEYRA_LED_GPIO
+        int "Onboard WS2812 RGB LED GPIO"
+        range 0 48
+        default 38
+        help
+            Data pin of the board's addressable status LED.
+            ESP32-S3-DevKitC-1 v1.1 uses GPIO38; v1.0 uses GPIO48.
+
+endmenu

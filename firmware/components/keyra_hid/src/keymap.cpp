@@ -1,0 +1,78 @@
+#include "keymap.hpp"
+
+#include "keyra/hid.hpp"
+
+namespace keyra::hid {
+namespace {
+
+// Indexed by (c - 0x20). Encoded as keycode | 0x80 when Shift is required;
+// every HID usage we need is < 0x80 so the high bit is free.
+constexpr uint8_t S = 0x80;
+constexpr uint8_t kTable[95] = {
+    0x2C,      // ' '
+    0x1E | S,  // !
+    0x34 | S,  // "
+    0x20 | S,  // #
+    0x21 | S,  // $
+    0x22 | S,  // %
+    0x24 | S,  // &
+    0x34,      // '
+    0x26 | S,  // (
+    0x27 | S,  // )
+    0x25 | S,  // *
+    0x2E | S,  // +
+    0x36,      // ,
+    0x2D,      // -
+    0x37,      // .
+    0x38,      // /
+    0x27,      // 0
+    0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26,  // 1-9
+    0x33 | S,  // :
+    0x33,      // ;
+    0x36 | S,  // <
+    0x2E,      // =
+    0x37 | S,  // >
+    0x38 | S,  // ?
+    0x1F | S,  // @
+    // A-Z: usages 0x04..0x1D with Shift
+    0x04 | S, 0x05 | S, 0x06 | S, 0x07 | S, 0x08 | S, 0x09 | S, 0x0A | S,
+    0x0B | S, 0x0C | S, 0x0D | S, 0x0E | S, 0x0F | S, 0x10 | S, 0x11 | S,
+    0x12 | S, 0x13 | S, 0x14 | S, 0x15 | S, 0x16 | S, 0x17 | S, 0x18 | S,
+    0x19 | S, 0x1A | S, 0x1B | S, 0x1C | S, 0x1D | S,
+    0x2F,      // [
+    0x31,      // backslash
+    0x30,      // ]
+    0x23 | S,  // ^
+    0x2D | S,  // _
+    0x35,      // `
+    // a-z
+    0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
+    0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D,
+    0x2F | S,  // {
+    0x31 | S,  // |
+    0x30 | S,  // }
+    0x35 | S,  // ~
+};
+static_assert(sizeof(kTable) == 0x7E - 0x20 + 1, "keymap must cover exactly 0x20..0x7E");
+
+}  // namespace
+
+bool keystrokeFor(char c, KeyStroke& out) {
+  const auto u = static_cast<unsigned char>(c);
+  if (u < 0x20 || u > 0x7E) return false;
+  const uint8_t v = kTable[u - 0x20];
+  out.keycode = static_cast<uint8_t>(v & 0x7F);
+  out.shift = (v & S) != 0;
+  return true;
+}
+
+bool typeable(const char* text) {
+  if (text == nullptr) return false;
+  KeyStroke ks{};
+  for (const char* p = text; *p != '\0'; ++p) {
+    if (!keystrokeFor(*p, ks)) return false;
+  }
+  return true;
+}
+
+}  // namespace keyra::hid
