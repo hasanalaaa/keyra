@@ -1,0 +1,19 @@
+# ESP-IDF
+firmware/build*/
+firmware/sdkconfig
+firmware/sdkconfig.old
+firmware/managed_components/
+firmware/test/host/build/
+# Web
+web/node_modules/
+web/dist/
+# OS / editors
+.DS_Store
+.vscode/
+.idea/
+*.swp
+# Secrets
+*.pem
+*.key
+.env
+.env.*
