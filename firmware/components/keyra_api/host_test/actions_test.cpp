@@ -176,6 +176,38 @@ void baseIndicators() {
   CHECK(m.indicator(true, true) == Indicator::Off);  // blink
 }
 
+void presenceOutcomesAreReported() {
+  auto m = make();
+  CHECK(!m.opResult().has_value());
+
+  m.awaitPresence(Op::Wifi, [] { return false; });
+  Decision d = m.onButton(Button::Short, true);
+  m.commitFinished(d.commit());
+  auto r = m.opResult();
+  CHECK(r && r->op == Op::Wifi && r->code == OpCode::Failed);
+
+  m.awaitPresence(Op::Setup, [] { return true; });
+  d = m.onButton(Button::Short, false);
+  m.commitFinished(d.commit());
+  CHECK(m.opResult()->code == OpCode::Done);
+  g_now += 250;
+  CHECK_EQ(m.opResult()->agoMs, 250);
+
+  m.awaitPresence(Op::RestoreReplace, [] { return true; });
+  g_now += kExpiryMs;
+  r = m.opResult();
+  CHECK(r && r->op == Op::RestoreReplace && r->code == OpCode::Expired && r->agoMs == 0);
+
+  m.awaitPresence(Op::FactoryReset, [] { return true; });
+  m.onButton(Button::Long, true);
+  CHECK(m.opResult()->code == OpCode::Cancelled);
+
+  m.awaitPresence(Op::Wifi, [] { return true; });
+  m.dropSessionItems();
+  CHECK(m.opResult()->op == Op::Wifi && m.opResult()->code == OpCode::Cancelled);
+  CHECK(std::string(opCodeName(OpCode::Done)) == "done");
+}
+
 void names() {
   CHECK(parseWhat("both") == What::Both);
   CHECK(!parseWhat("test").has_value());
@@ -201,6 +233,7 @@ int main() {
   lockDropsSessionItemsOnly();
   failureFlashesError();
   baseIndicators();
+  presenceOutcomesAreReported();
   names();
   return KEYRA_TEST_RESULT();
 }

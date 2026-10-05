@@ -24,7 +24,6 @@ namespace {
 const char* TAG = "actions";
 constexpr const char* kTestString = "Keyra test 123 !@#";
 constexpr int64_t kNetDelayMs = 3000;
-constexpr int kRestartWaitTicks = 150;  // × 100 ms = 15 s
 
 using actions::Code;
 using actions::What;
@@ -211,9 +210,13 @@ void lockAll() {
 void reconfigureNetSoon() { g_netAt = monoMs() + kNetDelayMs; }
 
 void safeRestart() {
-  int waited = 0;
-  while (!io::bootPinHigh() && waited++ < kRestartWaitTicks) vTaskDelay(pdMS_TO_TICKS(100));
-  if (!io::bootPinHigh()) ESP_LOGW(TAG, "GPIO0 still low after 15 s; restarting anyway");
+  // Resetting with GPIO0 low latches ROM download mode and the device looks
+  // dead, so there is deliberately no timeout: wait for the button release.
+  for (int waited = 0; !io::bootPinHigh(); ++waited) {
+    if (waited % 50 == 0) ESP_LOGW(TAG, "restart waiting for the button (GPIO0) to be released");
+    vTaskDelay(pdMS_TO_TICKS(100));
+  }
+  vTaskDelay(pdMS_TO_TICKS(100));
   esp_restart();
 }
 

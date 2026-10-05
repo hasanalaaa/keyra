@@ -42,6 +42,16 @@ struct Result {
   What what = What::Username;
 };
 
+enum class OpCode { Done, Failed, Expired, Cancelled };
+
+// Outcome of the last presence-gated op, so a client that armed it can tell a
+// failed commit or an expiry apart from success once `presence` disappears.
+struct OpResult {
+  Op op = Op::Setup;
+  OpCode code = OpCode::Done;
+  int64_t agoMs = 0;
+};
+
 struct Presence {
   Op op = Op::Setup;
   bool awaiting = false;  // false while the approved op is running
@@ -83,6 +93,7 @@ class Machine {
   std::optional<Pending> pending();
   std::optional<Result> last();
   std::optional<Presence> presence();
+  std::optional<OpResult> opResult();
   Indicator indicator(bool initialized, bool unlocked);
 
  private:
@@ -90,6 +101,7 @@ class Machine {
   void expireLocked(int64_t now);
   void clearSlotLocked();
   void flashLocked(Indicator ind, int64_t now, int64_t ms);
+  void recordOpLocked(Op op, OpCode code, int64_t at);
 
   Clock now_;
   std::mutex mu_;
@@ -103,6 +115,8 @@ class Machine {
   bool hasLast_ = false;
   Result last_;
   int64_t lastAt_ = 0;
+  std::optional<OpResult> opResult_;
+  int64_t opResultAt_ = 0;
   Indicator flash_ = Indicator::Off;
   int64_t flashUntil_ = 0;
 };
@@ -111,5 +125,6 @@ const char* whatName(What w);
 std::optional<What> parseWhat(const std::string& s);
 const char* opName(Op op);
 const char* codeName(Code c);
+const char* opCodeName(OpCode c);
 
 }  // namespace keyra::actions

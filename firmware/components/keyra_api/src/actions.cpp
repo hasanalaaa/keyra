@@ -54,6 +54,7 @@ void Machine::dropSessionItems() {
     last_ = {false, Code::Cancelled, 0, req_.title, req_.what};
     lastAt_ = now_();
   }
+  if (sessionOp) recordOpLocked(op_, OpCode::Cancelled, now_());
   if (kind_ == Kind::Type || sessionOp) clearSlotLocked();
 }
 
@@ -85,6 +86,7 @@ Decision Machine::onButton(Button b, bool unlocked) {
     last_ = {false, Code::Cancelled, 0, req_.title, req_.what};
     lastAt_ = now;
   }
+  if (kind_ == Kind::Presence) recordOpLocked(op_, OpCode::Cancelled, now);
   if (kind_ != Kind::None) {
     d.effect = Effect::Cancelled;
     clearSlotLocked();
@@ -111,8 +113,25 @@ void Machine::typingFinished(const TypeRequest& req, Code code) {
 
 void Machine::commitFinished(bool ok) {
   std::lock_guard<std::mutex> lock(mu_);
+  const int64_t now = now_();
+  if (running_) recordOpLocked(*running_, ok ? OpCode::Done : OpCode::Failed, now);
   running_.reset();
-  flashLocked(ok ? Indicator::Success : Indicator::Error, now_(), kFlashMs);
+  flashLocked(ok ? Indicator::Success : Indicator::Error, now, kFlashMs);
+}
+
+std::optional<OpResult> Machine::opResult() {
+  std::lock_guard<std::mutex> lock(mu_);
+  const int64_t now = now_();
+  expireLocked(now);
+  if (!opResult_) return std::nullopt;
+  OpResult r = *opResult_;
+  r.agoMs = now - opResultAt_;
+  return r;
+}
+
+void Machine::recordOpLocked(Op op, OpCode code, int64_t at) {
+  opResult_ = OpResult{op, code, 0};
+  opResultAt_ = at;
 }
 
 std::optional<Pending> Machine::pending() {
@@ -160,6 +179,8 @@ void Machine::expireLocked(int64_t now) {
     hasLast_ = true;
     last_ = {false, Code::Expired, 0, req_.title, req_.what};
     lastAt_ = deadline_;
+  } else {
+    recordOpLocked(op_, OpCode::Expired, deadline_);
   }
   clearSlotLocked();
 }
@@ -203,6 +224,16 @@ const char* opName(Op op) {
     case Op::FactoryReset: return "factory_reset";
   }
   return "setup";
+}
+
+const char* opCodeName(OpCode c) {
+  switch (c) {
+    case OpCode::Done: return "done";
+    case OpCode::Failed: return "failed";
+    case OpCode::Expired: return "expired";
+    case OpCode::Cancelled: return "cancelled";
+  }
+  return "failed";
 }
 
 const char* codeName(Code c) {

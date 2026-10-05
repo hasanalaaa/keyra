@@ -8,6 +8,10 @@
 namespace keyra::api::http {
 
 constexpr size_t kMaxBody = 64 * 1024;
+// A backup is one encrypted blob that can't be split into batches, so restore
+// gets a larger cap; it is only affordable when PSRAM backs big allocations.
+constexpr size_t kMaxRestoreBodyPsram = 2 * 1024 * 1024;
+constexpr size_t kMaxRestoreBodyInternal = 128 * 1024;
 
 constexpr const char* k200 = "200 OK";
 constexpr const char* k201 = "201 Created";

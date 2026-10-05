@@ -167,11 +167,15 @@ Conventions
 - Clock: clients send `X-Keyra-Time: <unix ms>` on every request; the device
   adopts it if it has no time or drifts > 5 s (device has no RTC).
 - Max 4 concurrent sessions; `lock` (or auto-lock) ends all.
-- Request bodies > 64 KiB → 413 (import uses batches).
+- Request bodies > 64 KiB → 413 `too_large` (import uses batches). Exception:
+  `/api/restore` accepts up to 2 MiB when PSRAM is present (128 KiB without).
+- Other error codes: 405 `method_not_allowed`; 409 `busy` (setup/factory reset
+  while another item awaits the button); 503 `busy` (worker queue full);
+  507 `full`; 403 `csrf` also when `Origin` is foreign.
 
 | Method & path | Auth | Body → Response |
 |---|---|---|
-| GET `/api/state` | none | `{device:{name,version,model,mac}, initialized, unlocked, session:bool, autoLockMin, host:{usb:bool, capsLock:bool}, pending:Pending\|null, last:Result\|null, presence:{awaiting:bool, op:string\|null, expiresIn:ms}, timeValid:bool}` — polled ~1 s while something is pending, else ~5 s |
+| GET `/api/state` | none | `{device:{name,version,model,mac}, initialized, unlocked, session:bool, autoLockMin, host:{usb:bool, capsLock:bool}, pending:Pending\|null, last:Result\|null, presence:{awaiting:bool, op:string\|null, expiresIn:ms, result:{op, ok:bool, code:"done"\|"failed"\|"expired"\|"cancelled", at:ms_ago}\|null}, timeValid:bool}` — polled ~1 s while something is pending, else ~5 s |
 | POST `/api/setup` | none, only if !initialized | `{passphrase, wifiPassword, deviceName?}` → 202 `{awaiting:"button", expiresIn}`; completes when the button is pressed (watch `state.presence` / `state.initialized`). passphrase 10–128 chars; wifiPassword 8–63 printable ASCII and ≠ `keyra1234`. The client then calls unlock. AP restarts with the new password ~3 s after commit. |
 | POST `/api/unlock` | none | `{passphrase}` → 200 `{csrf}` / 401 `{error:"wrong", retryAfterMs}` / 429 `{error:"rate_limited", retryAfterMs}` |
 | POST `/api/lock` | session | → 204 |

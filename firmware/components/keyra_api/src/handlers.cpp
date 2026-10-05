@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "esp_app_desc.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "freertos/FreeRTOS.h"
@@ -272,6 +273,15 @@ esp_err_t getState(Ctx& c) {
     cJSON_AddNullToObject(pr, "op");
   }
   cJSON_AddNumberToObject(pr, "expiresIn", presence ? static_cast<double>(presence->expiresInMs) : 0);
+  if (const auto res = machine().opResult()) {
+    cJSON* rj = cJSON_AddObjectToObject(pr, "result");
+    cJSON_AddStringToObject(rj, "op", actions::opName(res->op));
+    cJSON_AddBoolToObject(rj, "ok", res->code == actions::OpCode::Done);
+    cJSON_AddStringToObject(rj, "code", actions::opCodeName(res->code));
+    cJSON_AddNumberToObject(rj, "at", static_cast<double>(res->agoMs));
+  } else {
+    cJSON_AddNullToObject(pr, "result");
+  }
   cJSON_AddBoolToObject(o.get(), "timeValid", timeValid());
   return http::sendJson(c.r, http::k200, o.get());
 }
@@ -730,8 +740,12 @@ esp_err_t dispatch(Ctx& c) {
 }  // namespace
 
 esp_err_t handleApi(httpd_req_t* r, Method method, std::string_view path) {
-  if (r->content_len > http::kMaxBody) {
-    http::sendError(r, http::k413, "too_large", "Request body over 64 KiB");
+  const bool restore = path == "/api/restore";
+  const size_t cap = !restore ? http::kMaxBody
+                     : heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0 ? http::kMaxRestoreBodyPsram
+                                                                      : http::kMaxRestoreBodyInternal;
+  if (r->content_len > cap) {
+    http::sendError(r, http::k413, "too_large", "Request body too large");
     return ESP_FAIL;  // closes the socket instead of draining an oversized body
   }
   Ctx c{r, matchApi(method, path), false, {}, nullptr};
