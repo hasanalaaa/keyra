@@ -1,0 +1,109 @@
+// The vault state machine, independent of ESP-IDF. The public free functions in
+// keyra/vault.hpp forward to one instance built from the device adapters.
+//
+// On-flash layout (paths relative to the vault filesystem root):
+//
+//   meta.bin   "KYR1" | u8 version=1 | u32 kdfIterations (LE) | salt[16] | iv[12]
+//              | wrappedDEK[32] | tag[16]                                  (85 bytes)
+//              wrappedDEK = AES-256-GCM(KEK, iv, AAD "keyra/meta/v1", DEK),
+//              KEK = PBKDF2-HMAC-SHA256(passphrase, salt, kdfIterations, 32)
+//   e/<id>.bin u8 version=1 | iv[12] | ciphertext | tag[16]
+//              <id> = 8 lowercase hex digits; AAD = "keyra/e/v1/" + <id>;
+//              plaintext = entry_codec.hpp encoding
+//   *.tmp      in-flight atomic writes (write tmp → close → rename); any found at
+//              init are leftovers of an interrupted write and are deleted.
+//
+// Unlock throttling: the failure counter is persisted before the KDF runs, so
+// pulling power mid-attempt still counts it. Delay after n consecutive failures
+// is 0 for n ≤ 4, then 2^(n-4) s, capped at 900 s. The device has no RTC, so the
+// window is measured on the monotonic clock; after a reboot the full delay for
+// the stored count applies again from boot (a reboot can never shorten it).
+#pragma once
+
+#include <array>
+#include <atomic>
+#include <mutex>
+#include <vector>
+
+#include "keyra/vault.hpp"
+#include "platform.hpp"
+#include "secure_buf.hpp"
+
+namespace keyra::vault {
+
+uint32_t unlockDelayMs(uint32_t failures);
+
+class Vault {
+ public:
+  struct Options {
+    uint32_t kdfIterations = 0;  // 0: calibrate at setup to ≈1.2 s; tests pass a small count
+  };
+  static constexpr uint32_t kMinIterations = 60000, kMaxIterations = 2000000;
+
+  Vault(Platform platform, Options options);
+  ~Vault();
+  Vault(const Vault&) = delete;
+  Vault& operator=(const Vault&) = delete;
+
+  Status init();
+  bool initialized() const { return initialized_; }
+  bool unlocked() const { return unlocked_; }
+  Status setup(const std::string& passphrase);
+  Status unlock(const std::string& passphrase, uint32_t* retryAfterMs);
+  void lock();
+  Status list(std::vector<Entry>& out);
+  Status get(uint32_t id, Entry& out);
+  Status put(Entry& e);
+  Status remove(uint32_t id);
+  Status touch(uint32_t id, int64_t now);
+  Status changePassphrase(const std::string& cur, const std::string& next);
+  Status exportBackup(const std::string& backupPass, std::string& outJson);
+  Status importBackup(const std::string& backupPass, const std::string& json, bool replace,
+                      size_t* added, size_t* updated);
+  Status factoryReset();
+
+  Crypto& crypto() { return p_.crypto; }
+
+ private:
+  struct Meta {
+    uint32_t iterations = 0;
+    uint8_t salt[16] = {};
+    uint8_t iv[12] = {};
+    uint8_t wrapped[48] = {};  // DEK ciphertext || tag
+  };
+  struct Slot {
+    uint32_t id;
+    SecureBuf plain;  // entry_codec encoding
+  };
+  using Key = std::array<uint8_t, 32>;
+
+  Status ready() const;  // init succeeded and storage is usable
+  Status requireUnlocked() const;
+  Status loadMeta();
+  Status writeMeta(const Meta& m);
+  Status writeAtomic(const std::string& path, const uint8_t* data, size_t n);
+  Status removeAllEntryFiles();
+  uint32_t calibrateIterations();
+  Status deriveKey(const std::string& pass, const uint8_t salt[16], uint32_t iters, Key& out);
+  Status wrapDek(const std::string& pass, uint32_t iters, const Key& dek, Meta& out);
+  // Rate limit + counter + KDF + unwrap. Ok → dek holds the key.
+  Status attempt(const std::string& pass, Key& dek, uint32_t* retryAfterMs);
+  Status loadEntries();
+  Status persist(uint32_t id, const SecureBuf& plain);
+  Status store(Entry& rec);  // encode + persist + update RAM slot
+  Slot* find(uint32_t id);
+  bool newId(uint32_t& id);
+  void wipeKeys();
+
+  Platform p_;
+  Options opt_;
+  std::mutex m_;  // backed by FreeRTOS on device; std::atomic flags keep state polls lock-free
+  std::atomic<bool> ready_{false}, initialized_{false}, unlocked_{false};
+  Meta meta_;
+  Key dek_{};
+  std::vector<Slot, ZeroingAllocator<Slot>> slots_;
+  uint32_t failures_ = 0;
+  uint64_t lockedUntilMs_ = 0;
+};
+
+}  // namespace keyra::vault
