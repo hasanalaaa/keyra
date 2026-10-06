@@ -165,8 +165,8 @@ function ListPane({ selected, desktop }: { selected: number | null; desktop: boo
       )}
       <header class="top-bar glass">
         <span class={`chip ${d?.host.output ? 'chip-ok' : 'chip-neutral'}`}>
-          <Icon name={d?.host.output === 'ble' ? 'bluetooth' : 'usb'} size={16} />
-          {d?.host.output === 'ble' ? t('bleOn') : d?.host.output === 'usb' ? t('usbOn') : t('usbOff')}
+          <Icon name={d?.host.output === 'ble' || (d && !d.host.output && d.host.usb) ? 'bluetooth' : 'usb'} size={16} />
+          {d?.host.output === 'ble' ? t('bleOn') : d?.host.output === 'usb' ? t('usbOn') : d?.host.usb ? t('bleNone') : t('usbOff')}
         </span>
         <span class="spacer" />
         <IconButton icon="settings" label={t('settings')} onClick={() => go('/settings')} />
