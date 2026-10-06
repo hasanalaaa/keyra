@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { Icon } from '../components/Icon';
 import { Button, CopyButton, IconButton, Section, SecretField, Segmented, Slider, Spinner, StrengthMeter, SwitchRow, TextField } from '../components/ui';
 import { Alert, Sheet, useMedia, type SheetCtl } from '../components/Sheet';
-import { ErrorCard, HostNotice, Ready } from '../components/Ready';
+import { ErrorCard, HostNotice, Ready, readyText } from '../components/Ready';
+import { storedTarget, validTarget } from '../lib/ble';
 import { ApiError, api, isAwaiting } from '../lib/api';
 import { usePresence, useTypeAction } from '../lib/actions';
 import { errorText, isLockedError } from '../lib/errors';
@@ -405,7 +406,7 @@ function TypeTestSheet({ onClose }: { onClose: () => void }) {
   const action = useTypeAction(0);
   const active = useRef(false);
   useEffect(() => {
-    if (action.phase.kind === 'idle') void action.start('test').then((ok) => !ok && onClose());
+    if (action.phase.kind === 'idle') void action.start('test', validTarget(storedTarget(), app.ble) ?? undefined).then((ok) => !ok && onClose());
   }, []);
   // Close once the test has run its course (typed dwell finished, or cancelled on the device).
   useEffect(() => {
@@ -421,7 +422,7 @@ function TypeTestSheet({ onClose }: { onClose: () => void }) {
           tone={p.code === 'no_usb' || p.code === 'no_host' || p.code === 'expired' ? 'warn' : 'err'}
           title={p.code === 'no_usb' ? t('errNoUsbTitle') : p.code === 'no_host' ? t('errNoHostTitle') : p.code === 'expired' ? t('errExpiredTitle') : t('errFailedTitle')}
           body={p.code === 'no_usb' ? t('errNoUsbBody') : p.code === 'no_host' ? t('errNoHostBody') : p.code === 'expired' ? t('errExpiredBody') : t('errFailedBody')}
-          primary={{ label: t('tryAgain'), run: () => void action.start('test') }}
+          primary={{ label: t('tryAgain'), run: () => void action.start('test', validTarget(storedTarget(), app.ble) ?? undefined) }}
           ghost={{ label: t('close'), run: onClose }}
         />
       ) : (
@@ -429,8 +430,7 @@ function TypeTestSheet({ onClose }: { onClose: () => void }) {
           state={p.kind === 'idle' ? 'ready' : p.kind}
           deadline={p.kind === 'ready' ? p.deadline : Date.now() + 60000}
           total={p.kind === 'ready' ? p.total : 60000}
-          title={t('readyTitle')}
-          body={t('typeTestBody')}
+          {...readyText(app.device, t('typeTestBody'))}
           chip={t('typeTest')}
           notice={app.device ? <HostNotice device={app.device} ble={app.ble} /> : undefined}
           onCancel={() => {

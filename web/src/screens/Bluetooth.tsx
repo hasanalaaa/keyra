@@ -44,7 +44,11 @@ export function BluetoothSection({ s, save }: { s: Settings; save: (patch: Parti
   };
 
   return (
-    <Section id="bluetooth" title={t('groupBluetooth')} footer={s.bleEnabled ? (full ? t('footBondsFull') : t('footOutput')) : t('footBleOff')}>
+    <Section
+      id="bluetooth"
+      title={t('groupBluetooth')}
+      footer={s.bleEnabled ? `${t('footOutput')} ${t(s.bleConnect === 'always' ? 'footAlways' : 'footOnDemand')}${full ? ` ${t('footBondsFull')}` : ''}` : t('footBleOff')}
+    >
       <SwitchRow label={t('bleKeyboard')} checked={s.bleEnabled} onChange={(v) => void save({ bleEnabled: v })} />
       {s.bleEnabled && (
         <>
@@ -59,6 +63,18 @@ export function BluetoothSection({ s, save }: { s: Settings; save: (patch: Parti
               ]}
               value={s.output}
               onChange={(v) => void save({ output: v })}
+            />
+          </div>
+          <div class="row stack-row">
+            <span class="row-label">{t('bleConnectLabel')}</span>
+            <Segmented<Settings['bleConnect']>
+              label={t('bleConnectLabel')}
+              options={[
+                { value: 'on_demand', label: t('bleOnDemand') },
+                { value: 'always', label: t('bleAlways') },
+              ]}
+              value={s.bleConnect}
+              onChange={(v) => void save({ bleConnect: v })}
             />
           </div>
           {bonds.map((b) => (

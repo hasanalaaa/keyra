@@ -99,11 +99,11 @@ export function useTypeAction(id: number) {
     return () => clearTimeout(h);
   }, [outcome]);
 
-  const start = async (what: TypeWhat | 'test'): Promise<boolean> => {
+  const start = async (what: TypeWhat | 'test', target?: string): Promise<boolean> => {
     setOutcome(null);
     try {
       const startedAt = Date.now();
-      const r = what === 'test' ? await api.typeTest() : await api.type(id, what);
+      const r = what === 'test' ? await api.typeTest(target) : await api.type(id, what, target);
       const total = Math.max(1000, r.pending.expiresIn);
       setAct({ what, startedAt, deadline: Date.now() + r.pending.expiresIn, total, goneAt: 0 });
       return true;

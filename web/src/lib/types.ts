@@ -10,6 +10,7 @@ export interface Pending {
   what: TypeWhat | 'test';
   submit: boolean;
   expiresIn: number;
+  target?: string | null; // "usb" or a Bluetooth device address
 }
 
 export interface TypeResult {
@@ -43,7 +44,11 @@ export interface DeviceState {
   session: boolean;
   autoLockMin: number;
   /** `output`: where a typed action would go right now; null = nothing connected on the selected output. */
-  host: { usb: boolean; ble: boolean; capsLock: boolean; output: 'usb' | 'ble' | null };
+  /**
+   * `ble`: a Bluetooth host is connected right now. `output`: the kind of host a new action would use (null = none).
+   * `bleTarget`: the device the armed action will type into; `connecting`: still waiting for it to connect.
+   */
+  host: { usb: boolean; ble: boolean; capsLock: boolean; output: 'usb' | 'ble' | null; bleTarget: BlePeer | null; connecting: boolean };
   pending: Pending | null;
   last: TypeResult | null;
   presence: Presence;
@@ -113,6 +118,7 @@ export interface Settings {
   apMode: 'always' | 'fallback';
   bleEnabled: boolean;
   output: Output;
+  bleConnect: 'on_demand' | 'always';
 }
 
 /** Where typing goes: `auto` = USB when plugged in, else the connected Bluetooth device. */

@@ -120,8 +120,9 @@ export const api = {
   importBatch: (entries: Partial<EntryInput>[]) =>
     json<{ added: number; skipped: number }>('POST', '/entries/import', { entries }, 30000),
   totp: (id: number) => json<Totp>('GET', `/entries/${id}/totp`),
-  type: (id: number, what: TypeWhat) => json<{ pending: Pending }>('POST', '/type', { id, what }),
-  typeTest: () => json<{ pending: Pending }>('POST', '/type', { test: true }),
+  /** `target`: "usb" or a paired device's address; omitted = the device's own choice (SPEC §8.1). */
+  type: (id: number, what: TypeWhat, target?: string) => json<{ pending: Pending }>('POST', '/type', { id, what, target }),
+  typeTest: (target?: string) => json<{ pending: Pending }>('POST', '/type', { test: true, target }),
   cancelType: () => json<void>('POST', '/type/cancel'),
   settings: () => json<Settings>('GET', '/settings'),
   /** 200 → Settings; 202 → presence required (Wi-Fi changes). */

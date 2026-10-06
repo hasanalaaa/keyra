@@ -217,6 +217,7 @@ export function startApp(): void {
     if (d && d.unlocked && d.session && hasCsrf()) {
       setState({ authed: true });
       void loadEntries();
+      void loadBle();
     }
   });
 }
@@ -229,7 +230,7 @@ export async function unlock(passphrase: string): Promise<Awaiting | null> {
   if (awaiting) return awaiting;
   markActivity();
   setState({ authed: true, lockReason: null });
-  await Promise.all([pollNow(), loadEntries()]);
+  await Promise.all([pollNow(), loadEntries(), loadBle()]);
   return null;
 }
 

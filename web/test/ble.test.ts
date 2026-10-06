@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deviceLabel, newBond, sortBonds } from '../src/lib/ble';
+import { defaultTarget, deviceLabel, newBond, sortBonds, validTarget } from '../src/lib/ble';
 
 const bond = (addr: string, name = '', lastSeen = 0) => ({ addr, name, lastSeen });
 
@@ -26,5 +26,28 @@ describe('sortBonds', () => {
     const list = [bond('A', 'old', 100), bond('B', 'new', 300), bond('C', 'live', 200), bond('D', 'never', 0)];
     expect(sortBonds(list, 'C').map((b) => b.name)).toEqual(['live', 'new', 'old', 'never']);
     expect(sortBonds(list, null).map((b) => b.name)).toEqual(['new', 'live', 'old', 'never']);
+  });
+});
+
+describe('targets', () => {
+  const info = (bonds: ReturnType<typeof bond>[], connected: string | null = null, enabled = true) => ({
+    enabled,
+    pairing: { active: false, expiresIn: 0 },
+    connected: connected ? { addr: connected, name: '' } : null,
+    bonds,
+  });
+  const two = [bond('A', 'Mac', 100), bond('B', 'iPad', 300)];
+  it('keeps a remembered choice only while it still exists', () => {
+    expect(validTarget('usb', null)).toBe('usb');
+    expect(validTarget('A', info(two))).toBe('A');
+    expect(validTarget('C', info(two))).toBeNull(); // forgotten device
+    expect(validTarget('A', info(two, null, false))).toBeNull(); // Bluetooth off
+    expect(validTarget(null, info(two))).toBeNull();
+  });
+  it('mirrors the device default: USB, else the connected or most recent device', () => {
+    expect(defaultTarget('usb', info(two))).toBe('usb');
+    expect(defaultTarget('ble', info(two))).toBe('B');
+    expect(defaultTarget('ble', info(two, 'A'))).toBe('A');
+    expect(defaultTarget(null, info(two))).toBeNull();
   });
 });

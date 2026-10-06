@@ -5,7 +5,7 @@ import { Icon, KeyGlyph, type IconName } from './Icon';
 import { Button, Notice } from './ui';
 import { clock, t } from '../lib/i18n';
 import { useNow } from '../lib/actions';
-import { deviceLabel } from '../lib/ble';
+import { defaultTarget, deviceLabel } from '../lib/ble';
 import type { BleInfo, DeviceState } from '../lib/types';
 
 const C = 553; // 2πr for r = 88
@@ -108,20 +108,38 @@ export function Ready({ state, deadline = 0, total = 60000, title, body, chip, n
   );
 }
 
-/** Under the Ready ring: where the keystrokes will go (SPEC §8.1 `state.host.output`). USB, the default, needs no note. */
+/** Ready's title and body; while the Bluetooth device is still connecting, say so instead of asking for the press. */
+export function readyText(device: DeviceState | null, body: string): { title: string; body: string } {
+  if (device?.host.connecting)
+    return { title: t('connectingTitle', { name: deviceLabel(device.host.bleTarget, t('bleDevice')) }), body: t('connectingBody') };
+  return { title: t('readyTitle'), body };
+}
+
+/** Under the Ready ring: where the keystrokes will go (SPEC §8.1). USB, the default, needs no note. */
 export function HostNotice({ device, ble }: { device: DeviceState; ble: BleInfo | null }) {
+  if (device.host.connecting) return null; // the title already says it
+  const target = device.host.bleTarget;
+  if (target)
+    return (
+      <Notice tone="accent" icon="bluetooth">
+        {t('readyViaBle', { name: deviceLabel(target, t('bleDevice')) })}
+      </Notice>
+    );
+  if (device.pending?.target === 'usb') return null;
   if (device.host.output === null)
     return (
       <Notice tone="warn" icon="usb">
         {t('readyNoHost')}
       </Notice>
     );
-  if (device.host.output === 'ble')
+  if (device.host.output === 'ble') {
+    const addr = defaultTarget('ble', ble);
     return (
       <Notice tone="accent" icon="bluetooth">
-        {t('readyViaBle', { name: deviceLabel(ble?.connected, t('bleDevice')) })}
+        {t('readyViaBle', { name: deviceLabel(ble?.bonds.find((b) => b.addr === addr), t('bleDevice')) })}
       </Notice>
     );
+  }
   return null;
 }
 

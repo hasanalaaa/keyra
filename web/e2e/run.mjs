@@ -314,12 +314,22 @@ async function bleFlow(base, opts) {
   await page.locator('.layer .sheet').waitFor({ state: 'detached', timeout: 6000 });
   await section.locator('.bond-row', { hasText: "Hasan's iPad" }).waitFor();
 
-  // Unplugged, so Auto types into the iPad, and Ready says so.
+  // On demand: once the pairing link is let go, typing connects just for the action.
+  const mock = (body) => fetch(`${base}/__mock/ble`, { method: 'POST', body: JSON.stringify(body) });
+  await mock({ connected: false });
+  await mock({ autoConnect: false }); // connect by hand below, so the "Connecting…" state can be seen
   await fetch(`${base}/__mock/usb`, { method: 'POST', body: JSON.stringify({ usb: false }) });
   await page.evaluate(() => (location.hash = '#/'));
   await page.locator('.top-bar .chip', { hasText: /Bluetooth|بلوتوث/ }).waitFor({ timeout: 8000 });
   await row(page, 'GitHub').click();
+  // Pick the iPad in the account sheet's "Type into" picker (remembered per browser).
+  await page.locator('.target-picker button', { hasText: "Hasan's iPad" }).click();
+  check((await page.evaluate(() => localStorage.getItem('keyra.target'))) !== null, 'target remembered');
   await page.locator('.act-both').click();
+  await page.locator('.ready-ready .ready-title', { hasText: "Hasan's iPad" }).waitFor({ timeout: 5000 });
+  await shot(page, `ready-connecting${tag}`, 1200);
+  check((await button(base)) === 'connecting (blink)', 'a press before the host connects does nothing');
+  await mock({ connected: true });
   await page.locator('.ready-ready .notice', { hasText: "Hasan's iPad" }).waitFor({ timeout: 5000 });
   await shot(page, `ready-ble${tag}`, 1200);
   check((await button(base)).startsWith('typing both'), 'button types over Bluetooth');
