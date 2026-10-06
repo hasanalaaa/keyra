@@ -4,9 +4,9 @@ idf_component_register(
          "src/clock.cpp" "src/validate.cpp" "src/settings.cpp"
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "src"
-    REQUIRES esp_common
+    REQUIRES esp_common keyra_hid
     PRIV_REQUIRES esp_http_server esp_timer esp_hw_support esp_app_format nvs_flash heap mbedtls
-                  log freertos keyra_vault keyra_hid keyra_io keyra_net
+                  log freertos keyra_vault keyra_hid keyra_io keyra_net keyra_ble
     # Built by web/ (`npm run build`); committed so the firmware builds without Node.
     EMBED_FILES "www/index.html.gz" "www/manifest.webmanifest" "www/icon-192.png" "www/icon-512.png"
                 "www/apple-touch-icon.png" "www/favicon.svg"

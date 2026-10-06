@@ -46,6 +46,8 @@ Settings sanitized(Settings s) {
   if (s.keyDelayMs < kMinKeyDelayMs || s.keyDelayMs > kMaxKeyDelayMs) s.keyDelayMs = d.keyDelayMs;
   if (s.bothSeparator != Separator::Tab && s.bothSeparator != Separator::Enter) s.bothSeparator = d.bothSeparator;
   if (s.ledBrightness > kMaxLedBrightness) s.ledBrightness = d.ledBrightness;
+  if (s.output != hid::Output::Auto && s.output != hid::Output::Usb && s.output != hid::Output::Ble)
+    s.output = d.output;
   return s;
 }
 
@@ -65,6 +67,8 @@ esp_err_t load() {
         readInt<uint8_t>(h, "bothSep", static_cast<uint8_t>(s.bothSeparator), nvs_get_u8));
     s.submitAfterBoth = readInt<uint8_t>(h, "submitBoth", s.submitAfterBoth, nvs_get_u8) != 0;
     s.ledBrightness = readInt<uint8_t>(h, "ledBright", s.ledBrightness, nvs_get_u8);
+    s.bleEnabled = readInt<uint8_t>(h, "bleOn", s.bleEnabled, nvs_get_u8) != 0;
+    s.output = static_cast<hid::Output>(readInt<uint8_t>(h, "output", static_cast<uint8_t>(s.output), nvs_get_u8));
     nvs_close(h);
   } else if (err != ESP_ERR_NVS_NOT_FOUND) {
     ESP_LOGE(TAG, "nvs_open: %s", esp_err_to_name(err));
@@ -92,6 +96,8 @@ esp_err_t save(const Settings& s) {
   if (err == ESP_OK) err = nvs_set_u8(h, "bothSep", static_cast<uint8_t>(s.bothSeparator));
   if (err == ESP_OK) err = nvs_set_u8(h, "submitBoth", s.submitAfterBoth ? 1 : 0);
   if (err == ESP_OK) err = nvs_set_u8(h, "ledBright", s.ledBrightness);
+  if (err == ESP_OK) err = nvs_set_u8(h, "bleOn", s.bleEnabled ? 1 : 0);
+  if (err == ESP_OK) err = nvs_set_u8(h, "output", static_cast<uint8_t>(s.output));
   if (err == ESP_OK) err = nvs_commit(h);
   nvs_close(h);
   ESP_RETURN_ON_ERROR(err, TAG, "write");

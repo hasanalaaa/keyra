@@ -5,6 +5,7 @@
 
 #include "check.hpp"
 #include "keymap.hpp"
+#include "route.hpp"
 #include "typer.hpp"
 
 using namespace keyra::hid;
@@ -51,8 +52,8 @@ Options opt(uint16_t d = 12) {
 
 void testPlainTyping() {
   FakeHost h;
-  Typer t(h);
-  CHECK(t.type("aB!", opt()) == Result::Ok);
+  Typer t;
+  CHECK(t.type(h, "aB!", opt()) == Result::Ok);
   const std::vector<Report> want = {{0, 0x04}, kRelease, {MOD_LEFT_SHIFT, 0x05}, kRelease,
                                     {MOD_LEFT_SHIFT, 0x1E}, kRelease, kRelease};
   CHECK(h.sent == want);
@@ -63,34 +64,34 @@ void testPlainTyping() {
 
 void testRepeatedCharIsReleasedBetween() {
   FakeHost h;
-  Typer t(h);
-  CHECK(t.type("aa", opt(1)) == Result::Ok);
+  Typer t;
+  CHECK(t.type(h, "aa", opt(1)) == Result::Ok);
   const std::vector<Report> want = {{0, 0x04}, kRelease, {0, 0x04}, kRelease, kRelease};
   CHECK(h.sent == want);
 }
 
 void testEmptyText() {
   FakeHost h;
-  Typer t(h);
-  CHECK(t.type("", opt()) == Result::Ok);
+  Typer t;
+  CHECK(t.type(h, "", opt()) == Result::Ok);
   CHECK(h.sent == std::vector<Report>{kRelease});
 }
 
 void testUnsupportedTouchesNothing() {
   FakeHost h;
-  Typer t(h);
-  CHECK(t.type("abc\n", opt()) == Result::Unsupported);
-  CHECK(t.type("كلمة", opt()) == Result::Unsupported);
-  CHECK(t.type(nullptr, opt()) == Result::Unsupported);
+  Typer t;
+  CHECK(t.type(h, "abc\n", opt()) == Result::Unsupported);
+  CHECK(t.type(h, "كلمة", opt()) == Result::Unsupported);
+  CHECK(t.type(h, nullptr, opt()) == Result::Unsupported);
   CHECK_EQ(h.attempts, 0);
 }
 
 void testNotMounted() {
   FakeHost h;
   h.mounted = false;
-  Typer t(h);
-  CHECK(t.type("abc", opt()) == Result::NotMounted);
-  CHECK(t.tap(KEY_TAB, opt()) == Result::NotMounted);
+  Typer t;
+  CHECK(t.type(h, "abc", opt()) == Result::NotMounted);
+  CHECK(t.tap(h, KEY_TAB, opt()) == Result::NotMounted);
   CHECK_EQ(h.attempts, 0);
 }
 
@@ -114,8 +115,8 @@ void testAbortOnFirstFailureThenRelease() {
         return h.send(m, k);
       }
     } tr(h, failAt);
-    Typer t(tr);
-    CHECK(t.type("abc", opt()) == Result::Failed);
+    Typer t;
+    CHECK(t.type(tr, "abc", opt()) == Result::Failed);
     CHECK(!h.anyKeyHeldAtEnd());
     CHECK(!h.sent.empty() && h.sent.back() == kRelease);
     // Nothing typed after the failure point other than releases.
@@ -126,8 +127,8 @@ void testAbortOnFirstFailureThenRelease() {
 void testReleaseRetriedThreeTimes() {
   FakeHost h;
   h.failFromSend = 1;  // press 'a' succeeds, everything after fails
-  Typer t(h);
-  CHECK(t.type("ab", opt()) == Result::Failed);
+  Typer t;
+  CHECK(t.type(h, "ab", opt()) == Result::Failed);
   // 1 press + 1 failed release (in the stroke) + 3 release-all attempts.
   CHECK_EQ(h.attempts, 1 + 1 + Typer::kReleaseAttempts);
 }
@@ -150,8 +151,8 @@ void testReleaseRecoversOnRetry() {
       return h.send(m, k);
     }
   } tr(h);
-  Typer t(tr);
-  CHECK(t.type("ab", opt()) == Result::Failed);  // aborted mid-text even though release recovered
+  Typer t;
+  CHECK(t.type(tr, "ab", opt()) == Result::Failed);  // aborted mid-text even though release recovered
   CHECK(!h.anyKeyHeldAtEnd());
   CHECK_EQ(h.attempts, 4);
 }
@@ -159,8 +160,8 @@ void testReleaseRecoversOnRetry() {
 void testCapsLockWrap() {
   FakeHost h;
   h.caps = true;
-  Typer t(h);
-  CHECK(t.type("aB", opt(5)) == Result::Ok);
+  Typer t;
+  CHECK(t.type(h, "aB", opt(5)) == Result::Ok);
   const std::vector<Report> want = {{0, KEY_CAPS_LOCK}, kRelease,                         // caps off
                                     {0, 0x04},          kRelease, {MOD_LEFT_SHIFT, 0x05}, kRelease,
                                     kRelease,                                             // release-all
@@ -176,8 +177,8 @@ void testCapsIgnoredByHostAborts() {
   FakeHost h;
   h.caps = true;
   h.hostHonoursCaps = false;
-  Typer t(h);
-  CHECK(t.type("abc", opt()) == Result::Failed);
+  Typer t;
+  CHECK(t.type(h, "abc", opt()) == Result::Failed);
   // Only the caps tap and releases: no letters with inverted case, no restore tap.
   int capsTaps = 0;
   for (const auto& r : h.sent) {
@@ -206,8 +207,8 @@ void testCapsRestoredAfterMidTextFailure() {
       return h.send(m, k);
     }
   } tr(h);
-  Typer t(tr);
-  CHECK(t.type("abc", opt()) == Result::Failed);
+  Typer t;
+  CHECK(t.type(tr, "abc", opt()) == Result::Failed);
   CHECK(h.caps);  // turned off for typing, back on after the abort
   CHECK(h.sent.back() == kRelease);
   for (const auto& r : h.sent) CHECK(r.key != 0x06);  // 'c' never typed
@@ -215,39 +216,142 @@ void testCapsRestoredAfterMidTextFailure() {
 
 void testCapsOffNoWrap() {
   FakeHost h;
-  Typer t(h);
-  CHECK(t.type("a", opt()) == Result::Ok);
+  Typer t;
+  CHECK(t.type(h, "a", opt()) == Result::Ok);
   for (const auto& r : h.sent) CHECK(r.key != KEY_CAPS_LOCK);
 }
 
 void testTapKey() {
   FakeHost h;
   h.caps = true;  // taps never touch Caps Lock
-  Typer t(h);
-  CHECK(t.tap(KEY_TAB, opt()) == Result::Ok);
-  CHECK(t.tap(KEY_ENTER, opt()) == Result::Ok);
+  Typer t;
+  CHECK(t.tap(h, KEY_TAB, opt()) == Result::Ok);
+  CHECK(t.tap(h, KEY_ENTER, opt()) == Result::Ok);
   const std::vector<Report> want = {{0, 0x2B}, kRelease, kRelease, {0, 0x28}, kRelease, kRelease};
   CHECK(h.sent == want);
-  CHECK(t.tap(0, opt()) == Result::Unsupported);
-  CHECK(t.tap(0xE1, opt()) == Result::Unsupported);  // modifier, not a key
+  CHECK(t.tap(h, 0, opt()) == Result::Unsupported);
+  CHECK(t.tap(h, 0xE1, opt()) == Result::Unsupported);  // modifier, not a key
 }
 
 void testBusy() {
   FakeHost h;
-  Typer t(h);
+  Typer t;
   Result inner = Result::Ok;
   bool once = false;
   h.onSend = [&] {
     if (!once) {
       once = true;
-      inner = t.type("x", opt());
+      inner = t.type(h, "x", opt());
     }
   };
-  CHECK(t.type("ab", opt()) == Result::Ok);
+  CHECK(t.type(h, "ab", opt()) == Result::Ok);
   CHECK(inner == Result::Busy);
   // After finishing, the engine is free again.
   h.onSend = nullptr;
-  CHECK(t.tap(KEY_ENTER, opt()) == Result::Ok);
+  CHECK(t.tap(h, KEY_ENTER, opt()) == Result::Ok);
+}
+
+// A BLE host: keystrokes arrive as notifications and its LED report comes
+// back one connection event later, not instantly as over USB.
+class FakeBleHost : public FakeHost {
+ public:
+  uint32_t ledLatencyMs = 45;  // a 30 ms connection interval plus processing
+  uint32_t sinceToggleMs = 0;
+  bool pending = false;
+  bool capsLock() override { return caps; }
+  void delayMs(uint32_t ms) override {
+    FakeHost::delayMs(ms);
+    if (pending && (sinceToggleMs += ms) >= ledLatencyMs) {
+      caps = !caps;
+      pending = false;
+    }
+  }
+  bool send(uint8_t mod, uint8_t key) override {
+    const bool wasCaps = caps;
+    const bool honours = hostHonoursCaps;
+    hostHonoursCaps = false;  // toggle later, from delayMs()
+    const bool ok = FakeHost::send(mod, key);
+    hostHonoursCaps = honours;
+    caps = wasCaps;
+    if (ok && key == KEY_CAPS_LOCK && honours) {
+      pending = true;
+      sinceToggleMs = 0;
+    }
+    return ok;
+  }
+};
+
+void testRouting() {
+  // SPEC §8.1: auto = USB when mounted, else the connected BLE host.
+  CHECK(route(Output::Auto, true, true) == Host::Usb);
+  CHECK(route(Output::Auto, true, false) == Host::Usb);
+  CHECK(route(Output::Auto, false, true) == Host::Ble);
+  CHECK(route(Output::Auto, false, false) == Host::None);
+  // A forced output never falls back to the other transport.
+  CHECK(route(Output::Usb, false, true) == Host::None);
+  CHECK(route(Output::Usb, true, true) == Host::Usb);
+  CHECK(route(Output::Ble, true, false) == Host::None);
+  CHECK(route(Output::Ble, true, true) == Host::Ble);
+}
+
+void testBleTypesOnlyToBle() {
+  FakeHost usb;
+  FakeBleHost ble;
+  Typer t;
+  CHECK(t.type(ble, "aB", opt()) == Result::Ok);
+  CHECK(usb.attempts == 0);
+  const std::vector<Report> want = {{0, 0x04}, kRelease, {MOD_LEFT_SHIFT, 0x05}, kRelease, kRelease};
+  CHECK(ble.sent == want);
+}
+
+void testBleCapsWrapWithLatency() {
+  FakeBleHost ble;
+  ble.caps = true;
+  Typer t;
+  CHECK(t.type(ble, "ab", opt(5)) == Result::Ok);
+  // Caps off, letters lowercase, everything released, Caps back on.
+  CHECK(ble.sent.front() == (Report{0, KEY_CAPS_LOCK}));
+  for (const auto& r : ble.sent) CHECK(r.mod == 0);
+  CHECK(ble.sent.back() == kRelease);
+  // The restore tap is sent; its LED echo lands after one more interval.
+  ble.delayMs(ble.ledLatencyMs);
+  CHECK(ble.caps);
+}
+
+void testBleSlowLedReportAborts() {
+  FakeBleHost ble;
+  ble.caps = true;
+  // The host confirms only after the hold, the key delay and the whole settle window.
+  ble.ledLatencyMs = Typer::kCapsHoldMs + 12 + Typer::kCapsSettleMs + 100;
+  Typer t;
+  CHECK(t.type(ble, "abc", opt()) == Result::Failed);
+  for (const auto& r : ble.sent) CHECK(r.key == 0 || r.key == KEY_CAPS_LOCK);  // no inverted letters
+  CHECK(ble.sent.back() == kRelease);
+}
+
+void testBleLinkLostMidText() {
+  FakeBleHost ble;
+  ble.failFromSend = 3;  // link drops after 'a' and the press of 'b'
+  Typer t;
+  CHECK(t.type(ble, "abc", opt()) == Result::Failed);
+  for (const auto& r : ble.sent) CHECK(r.key != 0x06);
+}
+
+void testBusySpansTransports() {
+  FakeHost usb;
+  FakeBleHost ble;
+  Typer t;
+  Result inner = Result::Ok;
+  bool once = false;
+  usb.onSend = [&] {
+    if (once) return;
+    once = true;
+    inner = t.type(ble, "x", opt());
+  };
+  CHECK(t.type(usb, "ab", opt()) == Result::Ok);
+  CHECK(inner == Result::Busy);
+  CHECK(ble.attempts == 0);
+  CHECK(t.type(ble, "x", opt()) == Result::Ok);
 }
 
 }  // namespace
@@ -267,5 +371,11 @@ int main() {
   testCapsOffNoWrap();
   testTapKey();
   testBusy();
+  testRouting();
+  testBleTypesOnlyToBle();
+  testBleCapsWrapWithLatency();
+  testBleSlowLedReportAborts();
+  testBleLinkLostMidText();
+  testBusySpansTransports();
   TEST_MAIN_END();
 }

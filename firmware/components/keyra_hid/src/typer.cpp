@@ -4,33 +4,33 @@
 
 namespace keyra::hid {
 
-Result Typer::type(const char* text, const Options& opt) {
+Result Typer::type(Transport& t, const char* text, const Options& opt) {
   if (!typeable(text)) return Result::Unsupported;
-  return run(text, 0, opt);
+  return run(t, text, 0, opt);
 }
 
-Result Typer::tap(uint8_t keycode, const Options& opt) {
+Result Typer::tap(Transport& t, uint8_t keycode, const Options& opt) {
   // 0 is "no event" and >= 0xE0 are modifiers; neither is a tappable key.
   if (keycode == 0 || keycode >= 0xE0) return Result::Unsupported;
-  return run(nullptr, keycode, opt);
+  return run(t, nullptr, keycode, opt);
 }
 
-bool Typer::stroke(uint8_t modifier, uint8_t keycode, uint32_t holdMs, uint32_t gapMs) {
-  if (!t_.send(modifier, keycode)) return false;
-  t_.delayMs(holdMs);
-  if (!t_.send(0, 0)) return false;
-  t_.delayMs(gapMs);
+bool Typer::stroke(Transport& t, uint8_t modifier, uint8_t keycode, uint32_t holdMs, uint32_t gapMs) {
+  if (!t.send(modifier, keycode)) return false;
+  t.delayMs(holdMs);
+  if (!t.send(0, 0)) return false;
+  t.delayMs(gapMs);
   return true;
 }
 
-bool Typer::releaseAll() {
+bool Typer::releaseAll(Transport& t) {
   for (int i = 0; i < kReleaseAttempts; ++i) {
-    if (t_.send(0, 0)) return true;
+    if (t.send(0, 0)) return true;
   }
   return false;
 }
 
-Result Typer::run(const char* text, uint8_t tapKeycode, const Options& opt) {
+Result Typer::run(Transport& t, const char* text, uint8_t tapKeycode, const Options& opt) {
   bool expected = false;
   if (!busy_.compare_exchange_strong(expected, true)) return Result::Busy;
   struct Unbusy {
@@ -38,25 +38,25 @@ Result Typer::run(const char* text, uint8_t tapKeycode, const Options& opt) {
     ~Unbusy() { b.store(false); }
   } unbusy{busy_};
 
-  if (!t_.ready()) return Result::NotMounted;
+  if (!t.ready()) return Result::NotMounted;
 
   const uint32_t delay = opt.keyDelayMs;
   bool ok = true;
   bool capsTurnedOff = false;
 
-  if (text != nullptr && *text != '\0' && t_.capsLock()) {
-    if (t_.send(0, KEY_CAPS_LOCK)) {
+  if (text != nullptr && *text != '\0' && t.capsLock()) {
+    if (t.send(0, KEY_CAPS_LOCK)) {
       capsTurnedOff = true;  // hosts toggle on key-down: restore from here on
-      t_.delayMs(kCapsHoldMs);
-      ok = t_.send(0, 0);
+      t.delayMs(kCapsHoldMs);
+      ok = t.send(0, 0);
       if (ok) {
-        t_.delayMs(delay);
+        t.delayMs(delay);
         uint32_t waited = 0;
-        while (t_.capsLock() && waited < kCapsSettleMs) {
-          t_.delayMs(kCapsPollMs);
+        while (t.capsLock() && waited < kCapsSettleMs) {
+          t.delayMs(kCapsPollMs);
           waited += kCapsPollMs;
         }
-        if (t_.capsLock()) {
+        if (t.capsLock()) {
           // Host ignored the tap (or never reports LEDs): its state is
           // unchanged, so there is nothing to restore — and typing now would
           // invert letter case.
@@ -74,19 +74,19 @@ Result Typer::run(const char* text, uint8_t tapKeycode, const Options& opt) {
       KeyStroke ks{};
       for (const char* p = text; ok && *p != '\0'; ++p) {
         keystrokeFor(*p, ks);  // cannot fail: typeable() was checked
-        ok = stroke(ks.shift ? MOD_LEFT_SHIFT : 0, ks.keycode, delay, delay);
+        ok = stroke(t, ks.shift ? MOD_LEFT_SHIFT : 0, ks.keycode, delay, delay);
       }
     } else {
-      ok = stroke(0, tapKeycode, delay, delay);
+      ok = stroke(t, 0, tapKeycode, delay, delay);
     }
   }
 
   // Every exit after we own the bus: nothing may stay pressed, then put the
   // user's Caps Lock back exactly as we found it.
-  if (!releaseAll()) ok = false;
+  if (!releaseAll(t)) ok = false;
   if (capsTurnedOff) {
-    if (!stroke(0, KEY_CAPS_LOCK, kCapsHoldMs, delay)) ok = false;
-    if (!releaseAll()) ok = false;
+    if (!stroke(t, 0, KEY_CAPS_LOCK, kCapsHoldMs, delay)) ok = false;
+    if (!releaseAll(t)) ok = false;
   }
   return ok ? Result::Ok : Result::Failed;
 }

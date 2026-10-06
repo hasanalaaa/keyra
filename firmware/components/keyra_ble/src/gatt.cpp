@@ -111,6 +111,9 @@ constexpr ble_gatt_chr_flags kWrite = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRIT
 constexpr ble_gatt_chr_flags kNotify = BLE_GATT_CHR_F_NOTIFY | BLE_GATT_CHR_F_NOTIFY_INDICATE_ENC;
 constexpr uint8_t kDscRead = BLE_ATT_F_READ | BLE_ATT_F_READ_ENC;
 
+// NimBLE tables are meant to leave unused fields zero (designated initializers).
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+
 // NimBLE takes non-const descriptor arrays; each ends with a zeroed entry.
 ble_gatt_dsc_def s_inputDscs[] = {
     {.uuid = &kUuidReportRef.u, .att_flags = kDscRead, .min_key_size = 0, .access_cb = access, .arg = tag(Attr::InputRef)},

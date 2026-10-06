@@ -4,6 +4,7 @@
 #include <string>
 
 #include "esp_err.h"
+#include "keyra/hid.hpp"
 
 namespace keyra::settings {
 
@@ -18,6 +19,8 @@ struct Settings {
   Separator bothSeparator = Separator::Tab;
   bool submitAfterBoth = false;
   uint8_t ledBrightness = 50;  // percent
+  bool bleEnabled = true;
+  hid::Output output = hid::Output::Auto;
 };
 
 constexpr uint8_t kMinAutoLockMin = 1, kMaxAutoLockMin = 120;

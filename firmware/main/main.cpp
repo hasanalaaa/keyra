@@ -1,5 +1,7 @@
 // Boot wiring only (SPEC §4): bring components up in dependency order.
+#include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "keyra/ble.hpp"
 #include "keyra/api.hpp"
 #include "keyra/hid.hpp"
 #include "keyra/io.hpp"
@@ -45,7 +47,13 @@ extern "C" void app_main() {
   ESP_ERROR_CHECK(keyra::settings::load());
   const keyra::settings::Settings s = keyra::settings::get();
   keyra::io::brightness(s.ledBrightness);
+  keyra::hid::setOutput(s.output);
   ESP_ERROR_CHECK(keyra::net::start({keyra::settings::ssid(s), s.wifiPassword, 6}));
+  // Bluetooth is an extra: if it cannot start, Keyra keeps typing over USB.
+  const esp_err_t be = keyra::ble::init(s.deviceName, s.bleEnabled);
+  if (be != ESP_OK) ESP_LOGE(TAG, "Bluetooth unavailable: %s", esp_err_to_name(be));
   ESP_ERROR_CHECK(keyra::api::start());
-  ESP_LOGI(TAG, "Keyra up: http://keyra.local");
+  ESP_LOGI(TAG, "Keyra up: http://keyra.local (internal heap free %u, largest block %u)",
+           static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+           static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)));
 }
