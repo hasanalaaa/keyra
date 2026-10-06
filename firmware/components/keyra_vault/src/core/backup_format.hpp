@@ -1,15 +1,17 @@
-// Backup file format (version 1). Outer JSON, UTF-8:
+// Backup file format (version 2; version 1 files are still imported). Outer JSON, UTF-8:
 //
-//   {"format":"keyra-backup","v":1,
+//   {"format":"keyra-backup","v":2,
 //    "kdf":{"alg":"pbkdf2-sha256","iter":N,"salt":"<b64 16 bytes>"},
 //    "iv":"<b64 12 bytes>","data":"<b64 ciphertext||tag16>"}
 //
 // data = AES-256-GCM(key = PBKDF2-HMAC-SHA256(backupPass, salt, iter, 32 bytes),
 //                    iv, no AAD, plaintext = JSON array of entry objects):
 //   {"id":n,"title":s,"url":s,"username":s,"password":s,"totp":s,"notes":s,
-//    "favorite":b,"created":n,"updated":n,"lastUsed":n}
-// On import, missing members default to empty/false/0 and unknown members are
-// ignored (forward compatible); a member of the wrong type rejects the backup.
+//    "favorite":b,"created":n,"updated":n,"lastUsed":n,
+//    "history":[{"password":s,"changedAt":n},…]}          (v2: newest first, ≤ 10)
+// v1 differs only in lacking "history". On import, missing members default to
+// empty/false/0 and unknown members are ignored (forward compatible); a member
+// of the wrong type rejects the backup.
 #pragma once
 
 #include <string>
@@ -21,6 +23,7 @@
 namespace keyra::vault::backup {
 
 inline constexpr uint32_t kMaxIterations = 10000000;  // bounds import cost on a hostile file
+inline constexpr int64_t kVersion = 2;                // written; 1 and 2 are read
 
 struct Envelope {
   uint32_t iterations = 0;

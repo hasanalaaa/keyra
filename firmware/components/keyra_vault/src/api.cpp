@@ -61,6 +61,7 @@ void wipe(std::string& s) {
 
 void wipe(Entry& e) {
   for (std::string* f : {&e.title, &e.url, &e.username, &e.password, &e.totp, &e.notes}) wipe(*f);
+  for (OldPassword& h : e.history) wipe(h.password);
   e = Entry{};
 }
 

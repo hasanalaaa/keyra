@@ -11,11 +11,18 @@
 
 namespace keyra::vault {
 
+// A password the entry used to have (SPEC §9.3). Kept inside the encrypted entry.
+struct OldPassword {
+  std::string password;
+  int64_t changedAt = 0;  // unix seconds it was replaced (0 = unknown)
+};
+
 struct Entry {
   uint32_t id = 0;  // random non-zero, stable
   std::string title, url, username, password, totp /*otpauth URI or base32*/, notes;
   bool favorite = false;
   int64_t created = 0, updated = 0, lastUsed = 0;  // unix seconds (0 = unknown)
+  std::vector<OldPassword> history;               // newest first, at most kMaxHistory
 };
 
 enum class Status {
@@ -46,6 +53,10 @@ Status get(uint32_t id, Entry& out);
 // The vault has no wall clock: timestamps are stored as the caller sets them,
 // except that on update a zero created/lastUsed keeps the stored value.
 // All string fields must be valid UTF-8 within the limits below (else Invalid).
+// History is owned by the vault, so a client can neither forge nor erase it:
+// e.history is ignored; a create starts empty, and an update that changes the
+// password moves the stored one to the front (changedAt = e.updated), keeping
+// the newest kMaxHistory.
 Status put(Entry& e);
 Status remove(uint32_t id);
 Status touch(uint32_t id, int64_t now);  // lastUsed
@@ -63,7 +74,7 @@ void wipe(std::string& s);
 void wipe(Entry& e);
 
 // Field limits in bytes (UTF-8); put()/importBackup() return Invalid beyond them.
-inline constexpr size_t kMaxEntries = 1000;
+inline constexpr size_t kMaxEntries = 1000, kMaxHistory = 10;
 inline constexpr size_t kMaxTitle = 128, kMaxUrl = 512, kMaxUsername = 256, kMaxPassword = 256,
                         kMaxTotp = 512, kMaxNotes = 2048;
 inline constexpr size_t kMinBackupPass = 12;

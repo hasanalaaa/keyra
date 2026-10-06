@@ -1,4 +1,6 @@
 // Lifecycle, unlock throttling, CRUD, limits, wiping, crash safety, tamper detection.
+#include <cstdio>
+
 #include "check.hpp"
 #include "rig.hpp"
 
@@ -432,6 +434,110 @@ TEST(public_api_smoke) {
   char code[11];
   CHECK(keyra::totp::code("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", 59, code, nullptr, nullptr));
   CHECK(std::string(code) == "287082");
+}
+
+// SPEC §9.3: an update that changes the password keeps the old one, newest first.
+TEST(password_history) {
+  auto r = Rig::ready();
+  Vault& v = *r->v;
+  Entry e = sample("mail");
+  e.history.push_back({"forged", 1});  // clients cannot plant history
+  CHECK(v.put(e) == Status::Ok);
+  Entry got;
+  CHECK(v.get(e.id, got) == Status::Ok && got.history.empty());
+
+  // Same password, or only other fields: nothing moves.
+  got.notes = "edited";
+  got.updated = 1800000000;
+  CHECK(v.put(got) == Status::Ok);
+  CHECK(v.get(e.id, got) == Status::Ok && got.history.empty());
+
+  for (int i = 1; i <= 12; ++i) {
+    got.password = "pw-" + std::to_string(i);
+    got.updated = 1800000000 + i;
+    got.history.clear();  // what the caller sends is ignored either way
+    CHECK(v.put(got) == Status::Ok);
+    CHECK(v.get(e.id, got) == Status::Ok);
+  }
+  CHECK(got.password == "pw-12");
+  CHECK(got.history.size() == kMaxHistory);
+  for (size_t i = 0; i < got.history.size(); ++i) {
+    // pw-11 replaced at t+12 … pw-2 replaced at t+3; "pw-mail" and pw-1 fell off the end.
+    CHECK(got.history[i].password == "pw-" + std::to_string(11 - i));
+    CHECK(got.history[i].changedAt == int64_t(1800000012 - i));
+  }
+
+  // Clearing the password keeps the last one; an empty password is never kept.
+  got.password.clear();
+  got.updated = 1900000000;
+  CHECK(v.put(got) == Status::Ok && v.get(e.id, got) == Status::Ok);
+  CHECK(got.history[0].password == "pw-12" && got.history.size() == kMaxHistory);
+  got.password = "fresh";
+  CHECK(v.put(got) == Status::Ok && v.get(e.id, got) == Status::Ok);
+  CHECK(got.history[0].password == "pw-12");
+
+  // touch() keeps history, and it survives a reboot (it is inside the ciphertext).
+  CHECK(v.touch(e.id, 1950000000) == Status::Ok);
+  Entry before = got;
+  before.lastUsed = 1950000000;
+  r->reboot();
+  CHECK((*r)->init() == Status::Ok && (*r)->unlock(kPass, nullptr) == Status::Ok);
+  CHECK((*r)->get(e.id, got) == Status::Ok && same(got, before));
+  for (const auto& f : r->storage.files) {
+    const std::string bytes(f.second.begin(), f.second.end());
+    CHECK(bytes.find("pw-1") == std::string::npos);  // no plaintext on flash
+  }
+}
+
+// An entry file written by v1.0/v1.1 firmware (plaintext format 1, no history)
+// is read as-is and rewritten in the current format on its next write.
+TEST(v1_entry_on_flash_migrates_on_write) {
+  auto r = Rig::ready();
+  Entry e = sample("legacy");
+  CHECK((*r)->put(e) == Status::Ok);
+
+  // Recover the DEK the way unlock does (meta.bin layout in vault_core.hpp) ...
+  const auto& meta = r->storage.files.at("meta.bin");
+  uint8_t kek[32], dek[32];
+  CHECK(r->crypto.pbkdf2Sha256(kPass, meta.data() + 9, 16, kTestIterations, kek, 32));
+  const std::string metaAad = "keyra/meta/v1";
+  CHECK(r->crypto.gcmOpen(kek, meta.data() + 25, reinterpret_cast<const uint8_t*>(metaAad.data()),
+                          metaAad.size(), meta.data() + 37, 48, dek) == Crypto::Open::Ok);
+  // ... and overwrite the entry with a format-1 plaintext, as old firmware wrote it.
+  std::vector<uint8_t> plain = {1};
+  for (int i = 0; i < 4; ++i) plain.push_back(uint8_t(e.id >> (8 * i)));
+  plain.push_back(0);
+  for (int64_t t : {e.created, e.updated, int64_t(0)})
+    for (int i = 0; i < 8; ++i) plain.push_back(uint8_t(uint64_t(t) >> (8 * i)));
+  for (const std::string* f : {&e.title, &e.url, &e.username, &e.password, &e.totp, &e.notes}) {
+    plain.push_back(uint8_t(f->size()));
+    plain.push_back(uint8_t(f->size() >> 8));
+    plain.insert(plain.end(), f->begin(), f->end());
+  }
+  char hex[9];
+  std::snprintf(hex, sizeof hex, "%08x", static_cast<unsigned>(e.id));
+  const std::string aad = std::string("keyra/e/v1/") + hex;
+  std::vector<uint8_t> file(1 + 12 + plain.size() + 16, 0);
+  file[0] = 1;
+  CHECK(r->crypto.random(file.data() + 1, 12));
+  CHECK(r->crypto.gcmSeal(dek, file.data() + 1, reinterpret_cast<const uint8_t*>(aad.data()), aad.size(),
+                          plain.data(), plain.size(), file.data() + 13));
+  r->storage.files[std::string("e/") + hex + ".bin"] = file;
+
+  r->reboot();
+  CHECK((*r)->init() == Status::Ok && (*r)->unlock(kPass, nullptr) == Status::Ok);
+  Entry got;
+  CHECK((*r)->get(e.id, got) == Status::Ok && same(got, e) && got.history.empty());
+  got.password = "new one";
+  got.updated = 1800000000;
+  CHECK((*r)->put(got) == Status::Ok);
+  r->reboot();
+  CHECK((*r)->init() == Status::Ok && (*r)->unlock(kPass, nullptr) == Status::Ok);
+  CHECK((*r)->get(e.id, got) == Status::Ok && got.password == "new one");
+  CHECK(got.history.size() == 1 && got.history[0].password == e.password &&
+        got.history[0].changedAt == 1800000000);
+  // The file grew by the history block: it is format 2 now.
+  CHECK(r->storage.files.at(std::string("e/") + hex + ".bin").size() > file.size());
 }
 
 TEST_MAIN()
