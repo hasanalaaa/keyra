@@ -225,6 +225,53 @@ async function vaultShots(base, opts) {
   await ctx.close();
 }
 
+// ---------- flow 3: Bluetooth — pair a device, type into it, forget it ----------
+
+async function bleFlow(base, opts) {
+  const { ctx, page, tag } = await open(base, opts);
+  console.log(`bluetooth ${tag || '(phone, ar, light)'}`);
+  await page.locator('input[type=password]').waitFor();
+  await unlockUi(page);
+  await page.evaluate(() => (location.hash = '#/settings'));
+  const section = page.locator('#bluetooth');
+  await section.locator('.bond-row').first().waitFor();
+  await section.scrollIntoViewIfNeeded();
+  await shot(page, `bluetooth${tag}`);
+
+  // Pair: press the button, then the phone/computer picks Keyra from its list.
+  await section.locator('.pair-row').click();
+  await page.locator('.ready-ready').waitFor();
+  check((await button(base)) === 'approved ble_pair', 'button opens the pairing window');
+  await page.locator('.ready-ready .ready-title', { hasText: '“Keyra”' }).waitFor({ timeout: 5000 });
+  await shot(page, `ble-pair${tag}`, 900);
+  const r = await fetch(`${base}/__mock/ble`, { method: 'POST', body: JSON.stringify({ pair: "Hasan's iPad" }) });
+  check((await r.json()).paired === true, 'mock device pairs inside the window');
+  await page.locator('.ready-typed').waitFor({ timeout: 5000 });
+  await page.locator('.layer .sheet').waitFor({ state: 'detached', timeout: 6000 });
+  await section.locator('.bond-row', { hasText: "Hasan's iPad" }).waitFor();
+
+  // Unplugged, so Auto types into the iPad, and Ready says so.
+  await fetch(`${base}/__mock/usb`, { method: 'POST', body: JSON.stringify({ usb: false }) });
+  await page.evaluate(() => (location.hash = '#/'));
+  await page.locator('.top-bar .chip', { hasText: /Bluetooth|بلوتوث/ }).waitFor({ timeout: 8000 });
+  await row(page, 'GitHub').click();
+  await page.locator('.act-both').click();
+  await page.locator('.ready-ready .notice', { hasText: "Hasan's iPad" }).waitFor({ timeout: 5000 });
+  await shot(page, `ready-ble${tag}`, 1200);
+  check((await button(base)).startsWith('typing both'), 'button types over Bluetooth');
+  await page.locator('.ready-typed').waitFor({ timeout: 5000 });
+  await page.locator('.actions').waitFor({ timeout: 5000 });
+  await page.keyboard.press('Escape');
+
+  // Forget it again.
+  await page.evaluate(() => (location.hash = '#/settings'));
+  await section.locator('.bond-row', { hasText: "Hasan's iPad" }).locator('.icon-btn').click();
+  await page.locator('.alert-actions button').first().click();
+  await section.locator('.bond-row', { hasText: "Hasan's iPad" }).waitFor({ state: 'detached' });
+  console.log('  ✓ Bluetooth flow passed');
+  await ctx.close();
+}
+
 /** Shrinks the PNGs for the README when pngquant is on PATH (they are committed). */
 function quantizeShots() {
   const files = readdirSync(SHOTS).filter((f) => f.endsWith('.png')).map((f) => SHOTS + f);
@@ -260,6 +307,9 @@ try {
   ]) {
     await vaultShots(seeded, opts);
   }
+
+  await bleFlow(await startMock(8794), {});
+  await bleFlow(await startMock(8795), { lang: 'en' });
 
   quantizeShots();
   if (errors.length) {

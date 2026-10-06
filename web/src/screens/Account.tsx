@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Icon } from '../components/Icon';
 import { Button, ColoredSecret, CopyButton, IconButton, MiniRing, Monogram } from '../components/ui';
-import { ErrorCard, Ready, UsbNotice } from '../components/Ready';
+import { ErrorCard, HostNotice, Ready } from '../components/Ready';
 import { ApiError, api } from '../lib/api';
 import { useTypeAction, type ErrorCode } from '../lib/actions';
 import { copyText } from '../lib/clipboard';
@@ -84,7 +84,7 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
             {t(CHIP[what])} · <bdi>{e.title}</bdi>
           </>
         }
-        notice={app.device && !app.device.host.usb ? <UsbNotice /> : undefined}
+        notice={app.device ? <HostNotice device={app.device} ble={app.ble} /> : undefined}
         onCancel={() => void action.cancel()}
       />
     );
@@ -158,6 +158,8 @@ function ActionTile({ icon, label, disabled, onType, copy }: { icon: 'user' | 'k
 function ActionError({ code, retry, copy, edit, close }: { code: ErrorCode; retry: () => void; copy: () => void; edit: () => void; close: () => void }) {
   if (code === 'no_usb')
     return <ErrorCard icon="usb" tone="warn" title={t('errNoUsbTitle')} body={t('errNoUsbBody')} primary={{ label: t('tryAgain'), run: retry }} ghost={{ label: t('copyInstead'), run: copy }} />;
+  if (code === 'no_host')
+    return <ErrorCard icon="bluetooth" tone="warn" title={t('errNoHostTitle')} body={t('errNoHostBody')} primary={{ label: t('tryAgain'), run: retry }} ghost={{ label: t('copyInstead'), run: copy }} />;
   if (code === 'expired')
     return <ErrorCard icon="clock" tone="warn" title={t('errExpiredTitle')} body={t('errExpiredBody')} primary={{ label: t('tryAgain'), run: retry }} ghost={{ label: t('close'), run: close }} />;
   if (code === 'unsupported_char')

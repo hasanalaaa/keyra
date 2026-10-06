@@ -1,4 +1,4 @@
-import type { DeviceState, Entry, EntryInput, EntrySummary, Settings, Totp, TypeWhat, Pending } from './types';
+import type { BleInfo, DeviceState, Entry, EntryInput, EntrySummary, Settings, Totp, TypeWhat, Pending } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -132,6 +132,9 @@ export const api = {
   restore: (passphrase: string, backup: unknown, mode: 'merge' | 'replace') =>
     json<{ added: number; updated: number } | Awaiting>('POST', '/restore', { passphrase, backup, mode }, 60000),
   factoryReset: () => json<Awaiting>('POST', '/factory-reset'),
+  ble: () => json<BleInfo>('GET', '/ble'),
+  blePair: () => json<Awaiting>('POST', '/ble/pair'),
+  bleForget: (addr: string) => json<void>('DELETE', `/ble/bonds/${encodeURIComponent(addr)}`),
 };
 
 export const isAwaiting = (r: unknown): r is Awaiting =>

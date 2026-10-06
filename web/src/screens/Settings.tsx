@@ -1,10 +1,10 @@
-// Settings (DESIGN §5.9): every change saves immediately; Wi-Fi and erase need the button.
+// Settings (DESIGN §5.9): every change saves immediately; Wi-Fi, Bluetooth pairing and erase need the button.
 import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Icon } from '../components/Icon';
 import { Button, CopyButton, IconButton, Section, SecretField, Segmented, Slider, Spinner, StrengthMeter, SwitchRow, TextField } from '../components/ui';
 import { Alert, Sheet, useMedia, type SheetCtl } from '../components/Sheet';
-import { ErrorCard, Ready, UsbNotice } from '../components/Ready';
+import { ErrorCard, HostNotice, Ready } from '../components/Ready';
 import { ApiError, api, isAwaiting } from '../lib/api';
 import { usePresence, useTypeAction } from '../lib/actions';
 import { errorText, isLockedError } from '../lib/errors';
@@ -13,6 +13,7 @@ import { back, go, replace } from '../lib/router';
 import { holdFastPolling, lockNow, setLangPref, setThemePref, toast, useApp } from '../lib/store';
 import type { Settings as S } from '../lib/types';
 import { validWifi } from './Setup';
+import { BluetoothSection } from './Bluetooth';
 import { minHint } from './common';
 
 const SPEEDS = [
@@ -113,6 +114,7 @@ export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void 
             <SwitchRow label={t('submitAfterBoth')} checked={s.submitAfterBoth} onChange={(v) => void save({ submitAfterBoth: v })} />
             <NavRow label={t('typeTest')} onClick={() => setSub('test')} />
           </Section>
+          <BluetoothSection s={s} save={save} />
           <Section title={t('groupLight')}>
             <div class="row slider-row">
               <span class="row-label">{t('ledBrightness')}</span>
@@ -403,10 +405,10 @@ function TypeTestSheet({ onClose }: { onClose: () => void }) {
     <Sheet title={t('typeTest')} size="md" onClose={onClose} dismissible={p.kind !== 'ready'} hideTitle>
       {p.kind === 'error' ? (
         <ErrorCard
-          icon={p.code === 'no_usb' ? 'usb' : p.code === 'expired' ? 'clock' : 'triangle-alert'}
-          tone={p.code === 'no_usb' || p.code === 'expired' ? 'warn' : 'err'}
-          title={p.code === 'no_usb' ? t('errNoUsbTitle') : p.code === 'expired' ? t('errExpiredTitle') : t('errFailedTitle')}
-          body={p.code === 'no_usb' ? t('errNoUsbBody') : p.code === 'expired' ? t('errExpiredBody') : t('errFailedBody')}
+          icon={p.code === 'no_usb' ? 'usb' : p.code === 'no_host' ? 'bluetooth' : p.code === 'expired' ? 'clock' : 'triangle-alert'}
+          tone={p.code === 'no_usb' || p.code === 'no_host' || p.code === 'expired' ? 'warn' : 'err'}
+          title={p.code === 'no_usb' ? t('errNoUsbTitle') : p.code === 'no_host' ? t('errNoHostTitle') : p.code === 'expired' ? t('errExpiredTitle') : t('errFailedTitle')}
+          body={p.code === 'no_usb' ? t('errNoUsbBody') : p.code === 'no_host' ? t('errNoHostBody') : p.code === 'expired' ? t('errExpiredBody') : t('errFailedBody')}
           primary={{ label: t('tryAgain'), run: () => void action.start('test') }}
           ghost={{ label: t('close'), run: onClose }}
         />
@@ -418,7 +420,7 @@ function TypeTestSheet({ onClose }: { onClose: () => void }) {
           title={t('readyTitle')}
           body={t('typeTestBody')}
           chip={t('typeTest')}
-          notice={app.device && !app.device.host.usb ? <UsbNotice /> : undefined}
+          notice={app.device ? <HostNotice device={app.device} ble={app.ble} /> : undefined}
           onCancel={() => {
             void action.cancel();
             onClose();

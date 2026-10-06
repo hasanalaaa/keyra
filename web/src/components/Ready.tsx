@@ -5,6 +5,8 @@ import { Icon, KeyGlyph, type IconName } from './Icon';
 import { Button, Notice } from './ui';
 import { clock, t } from '../lib/i18n';
 import { useNow } from '../lib/actions';
+import { deviceLabel } from '../lib/ble';
+import type { BleInfo, DeviceState } from '../lib/types';
 
 const C = 553; // 2πr for r = 88
 
@@ -106,12 +108,21 @@ export function Ready({ state, deadline = 0, total = 60000, title, body, chip, n
   );
 }
 
-export function UsbNotice() {
-  return (
-    <Notice tone="warn" icon="usb">
-      {t('readyNoUsb')}
-    </Notice>
-  );
+/** Under the Ready ring: where the keystrokes will go (SPEC §8.1 `state.host.output`). USB, the default, needs no note. */
+export function HostNotice({ device, ble }: { device: DeviceState; ble: BleInfo | null }) {
+  if (device.host.output === null)
+    return (
+      <Notice tone="warn" icon="usb">
+        {t('readyNoHost')}
+      </Notice>
+    );
+  if (device.host.output === 'ble')
+    return (
+      <Notice tone="accent" icon="bluetooth">
+        {t('readyViaBle', { name: deviceLabel(ble?.connected, t('bleDevice')) })}
+      </Notice>
+    );
+  return null;
 }
 
 export interface ErrorCardProps {
