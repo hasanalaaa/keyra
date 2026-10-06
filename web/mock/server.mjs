@@ -7,18 +7,22 @@
 //   MOCK_AUTO_BUTTON=1 npm run mock    approves every pending item 3 s after it is armed
 //   MOCK_USB=0                         start "not plugged in"
 //   MOCK_BLE=0                         no paired Bluetooth device in the seed
+//   MOCK_VIA=home                      every request arrives "through the home network" (SPEC §8.2);
+//                                      without it, requests to http://127.0.0.1:PORT do, localhost is the AP
 //   PORT=8787                          listen port
 //
 // Simulated hardware: POST /__mock/button {press:"short"|"long"} · POST /__mock/usb {usb:bool}
 //   POST /__mock/ble {pair:"<device name>"} (a device pairs while the window is open) · {connected:bool}
+// Home Wi‑Fi: any network joins ~2 s after the press, except with the password "wrong-password".
 import { createServer } from 'node:http';
-import { createCipheriv, createDecipheriv, createHmac, pbkdf2Sync, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, createHmac, pbkdf2Sync, randomBytes, timingSafeEqual } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const PORT = Number(process.env.PORT || 8787);
 const FRESH = process.env.MOCK_FRESH === '1';
 const AUTO_BUTTON = process.env.MOCK_AUTO_BUTTON === '1';
+const VIA_HOME = process.env.MOCK_VIA === 'home';
 const DEMO_PASSPHRASE = 'keyra demo vault';
 
 const EXPIRY_MS = 60000;
@@ -46,6 +50,8 @@ const defaultSettings = () => ({
   ledBrightness: 60,
   bleEnabled: true,
   output: 'auto',
+  homeWifi: { enabled: false, ssid: '', password: '' }, // password is write-only, never sent
+  apMode: 'always',
 });
 
 const host = { usb: process.env.MOCK_USB !== '0', capsLock: false };
@@ -79,7 +85,17 @@ let failures = 0;
 let lockedUntil = 0;
 let timeValid = false;
 let lastActivity = Date.now();
-const sessions = new Map(); // token → { csrf, lastUsed }
+const sessions = new Map(); // token → { csrf, lastUsed, trustId }
+const trusted = new Map(); // sha256(kt) → { id, name, created, lastSeen }
+const MAX_TRUSTED = 8;
+const homeLink = { connected: false, ip: null, rssi: null, timer: null };
+const NETWORKS = [
+  { ssid: 'Al-Rashid Home', rssi: -48, secure: true, channel: 11 },
+  { ssid: 'Al-Rashid Home 5G', rssi: -61, secure: true, channel: 1 },
+  { ssid: 'TP-Link_3F2A', rssi: -72, secure: true, channel: 6 },
+  { ssid: 'Cafe Baghdad Free', rssi: -80, secure: false, channel: 6 },
+  { ssid: 'زين فايبر', rssi: -84, secure: true, channel: 3 },
+];
 
 // One slot (SPEC §5 button semantics): a type action or a presence op, 60 s expiry.
 const machine = {
@@ -124,7 +140,7 @@ function dropSessionItems() {
   if (s.kind === 'type') {
     machine.last = { ok: false, code: 'cancelled', at: Date.now(), title: s.req.title, what: s.req.what };
     machine.slot = null;
-  } else if (s.op === 'wifi' || s.op === 'restore' || s.op === 'ble_pair') {
+  } else if (s.op === 'wifi' || s.op === 'restore' || s.op === 'home_wifi' || s.op === 'ble_pair') {
     machine.opResult = { op: s.op, code: 'cancelled', at: Date.now() };
     machine.slot = null;
   }
@@ -503,6 +519,40 @@ function originAllowed(req) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** SPEC §8.2 `via`: the firmware reads the socket's local address; the mock uses the Host. */
+const viaOf = (req) => (VIA_HOME || /^127\.0\.0\.1(:|$)/.test(req.headers.host ?? '') ? 'home' : 'ap');
+const sha = (s) => createHash('sha256').update(String(s)).digest('hex');
+const KT_RE = /^[0-9a-f]{64}$/;
+
+/** Short "Safari on iPhone"-style label, like trust.cpp browserName(). */
+function browserName(ua = '') {
+  const has = (x) => ua.includes(x);
+  const b = has('Edg') ? 'Edge' : has('OPR/') ? 'Opera' : has('Firefox/') || has('FxiOS/') ? 'Firefox' : has('SamsungBrowser/') ? 'Samsung Internet' : has('CriOS/') || has('Chrome/') ? 'Chrome' : has('Safari/') ? 'Safari' : null;
+  const p = has('iPhone') ? 'iPhone' : has('iPad') ? 'iPad' : has('Android') ? 'Android' : has('CrOS') ? 'ChromeOS' : has('Macintosh') ? 'Mac' : has('Windows') ? 'Windows' : has('Linux') ? 'Linux' : null;
+  if (b && p) return `${b} on ${p}`;
+  return b ?? (p ? `Browser on ${p}` : ua.replace(/[^\x20-\x7e]/g, '').slice(0, 32) || 'Browser');
+}
+
+function knownBrowser(req) {
+  const kt = cookie(req, 'kt');
+  return kt && KT_RE.test(kt) ? trusted.get(sha(kt)) : undefined;
+}
+
+/** Simulates the station joining (or failing to join) after a home_wifi commit. */
+function applyHome() {
+  clearTimeout(homeLink.timer);
+  Object.assign(homeLink, { connected: false, ip: null, rssi: null });
+  const h = settings.homeWifi;
+  if (!h.enabled) return;
+  homeLink.timer = setTimeout(() => {
+    if (h.password === 'wrong-password') return console.log(`[mock] joining ${h.ssid} keeps failing (backoff)`);
+    const net = NETWORKS.find((n) => n.ssid === h.ssid);
+    Object.assign(homeLink, { connected: true, ip: '192.168.1.42', rssi: net?.rssi ?? -60 });
+    timeValid = true; // SNTP
+    console.log(`[mock] joined ${h.ssid} as 192.168.1.42`);
+  }, 2000);
+}
+
 // ---------- routes (routes.cpp matchApi) ----------
 
 function match(method, path) {
@@ -524,6 +574,9 @@ function match(method, path) {
     case 'entries':
       return method === 'GET' ? { route: 'list' } : method === 'POST' ? { route: 'create' } : { notAllowed: true };
     case 'entries/import': return one('POST', 'import');
+    case 'wifi/scan': return one('GET', 'wifiScan');
+    case 'wifi/home': return one('PUT', 'wifiHome');
+    case 'trusted': return one('GET', 'trusted');
     case 'ble': return one('GET', 'ble');
     case 'ble/pair': return one('POST', 'blePair');
   }
@@ -532,6 +585,8 @@ function match(method, path) {
     if (!/^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/.test(bond[1])) return null;
     return method === 'DELETE' ? { route: 'bleForget', addr: bond[1].toUpperCase() } : { notAllowed: true };
   }
+  const tr = /^trusted\/([0-9]{1,10})$/.exec(p);
+  if (tr) return Number(tr[1]) > 0 && Number(tr[1]) <= 0xffffffff ? (method === 'DELETE' ? { route: 'untrust', id: Number(tr[1]) } : { notAllowed: true }) : null;
   const m = /^entries\/([0-9]{1,10})(\/totp)?$/.exec(p);
   const id = m ? Number(m[1]) : 0;
   if (!m || id === 0 || id > 0xffffffff) return null;
@@ -543,7 +598,7 @@ function match(method, path) {
 }
 
 const OPEN = new Set(['state', 'setup', 'unlock', 'factoryReset']);
-const BODY = new Set(['setup', 'unlock', 'create', 'update', 'import', 'type', 'putSettings', 'passphrase', 'backup', 'restore']);
+const BODY = new Set(['setup', 'unlock', 'create', 'update', 'import', 'type', 'putSettings', 'passphrase', 'backup', 'restore', 'wifiHome']);
 
 const validPassphrase = (s) => typeof s === 'string' && [...s].length >= 10 && [...s].length <= 128;
 const validWifi = (s) => typeof s === 'string' && s.length >= 8 && s.length <= 63 && /^[\x20-\x7e]+$/.test(s) && s !== 'keyra1234';
@@ -558,6 +613,7 @@ function getEntry(id) {
 
 async function api(req, res, path) {
   const method = req.method;
+  const via = viaOf(req);
   const cap = path === '/api/restore' ? MAX_RESTORE_BODY : MAX_BODY;
   if (Number(req.headers['content-length'] || 0) > cap) fail(413, 'too_large', 'Request body too large');
   const m = match(method, path);
@@ -615,6 +671,13 @@ async function api(req, res, path) {
             ? { op: machine.opResult.op, ok: machine.opResult.code === 'done', code: machine.opResult.code, at: Date.now() - machine.opResult.at }
             : null,
         },
+        net: {
+          ap: { on: !(settings.apMode === 'fallback' && homeLink.connected), ssid: settings.wifiSsid || defaultSsid(), clients: via === 'ap' ? 1 : 0 },
+          home: settings.homeWifi.enabled
+            ? { enabled: true, connected: homeLink.connected, ssid: settings.homeWifi.ssid, ip: homeLink.ip, rssi: homeLink.rssi }
+            : null,
+          via,
+        },
         timeValid,
       });
     }
@@ -658,6 +721,28 @@ async function api(req, res, path) {
       }
       failures = 0;
       lockedUntil = 0;
+      const known = knownBrowser(req);
+      if (via === 'home' && !known) {
+        // SPEC §8.2: right passphrase, unknown browser on the home network → the button first.
+        const kt = randomBytes(32).toString('hex');
+        const name = browserName(req.headers['user-agent']);
+        const exp = awaitPresence(
+          'trust_browser',
+          () => {
+            if (trusted.size >= MAX_TRUSTED) {
+              const [h, old] = [...trusted.entries()].sort((x, y) => Math.max(x[1].lastSeen, x[1].created) - Math.max(y[1].lastSeen, y[1].created))[0];
+              trusted.delete(h);
+              for (const [tok, s] of sessions) if (s.trustId === old.id) sessions.delete(tok);
+            }
+            trusted.set(sha(kt), { id: randomBytes(4).readUInt32BE() || 1, name, created: nowSec(), lastSeen: nowSec() });
+            console.log(`[mock] trusted ${name}`);
+          },
+          { tryOnly: true },
+        );
+        if (exp === null) busy409();
+        return send(res, 202, { awaiting: 'button', op: 'trust_browser', expiresIn: exp }, { 'Set-Cookie': `kt=${kt}; HttpOnly; SameSite=Strict; Path=/` });
+      }
+      if (known) known.lastSeen = nowSec();
       unlocked = true;
       lastActivity = Date.now();
       if (sessions.size >= MAX_SESSIONS) {
@@ -666,8 +751,10 @@ async function api(req, res, path) {
       }
       const tok = randomBytes(32).toString('hex');
       const csrf = randomBytes(32).toString('hex');
-      sessions.set(tok, { csrf, lastUsed: Date.now() });
-      return send(res, 200, { csrf }, { 'Set-Cookie': `ks=${tok}; HttpOnly; SameSite=Strict; Path=/` });
+      sessions.set(tok, { csrf, lastUsed: Date.now(), trustId: known?.id ?? 0 });
+      const cookies = [`ks=${tok}; HttpOnly; SameSite=Strict; Path=/`];
+      if (known) cookies.push(`kt=${cookie(req, 'kt')}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000`);
+      return send(res, 200, { csrf }, { 'Set-Cookie': cookies });
     }
 
     case 'lock':
@@ -798,6 +885,11 @@ async function api(req, res, path) {
         if (typeof b.submitAfterBoth !== 'boolean') bad('submitAfterBoth must be a boolean');
         next.submitAfterBoth = b.submitAfterBoth;
       }
+      if (b.apMode !== undefined) {
+        if (b.apMode !== 'always' && b.apMode !== 'fallback') bad('apMode must be "always" or "fallback"');
+        next.apMode = b.apMode;
+      }
+      if (b.homeWifi !== undefined) bad('home Wi-Fi changes go through PUT /api/wifi/home');
       let ssid = '';
       let pw = '';
       if (b.wifiSsid !== undefined) {
@@ -872,6 +964,42 @@ async function api(req, res, path) {
       return send(res, 200, r);
     }
 
+    case 'wifiScan':
+      await sleep(1800); // the radio scan
+      return send(res, 200, { networks: NETWORKS });
+
+    case 'wifiHome': {
+      if (typeof b.enabled !== 'boolean') bad('"enabled" (boolean) is required');
+      if (b.ssid !== undefined && !validName(b.ssid)) bad('ssid must be 1-32 bytes without control characters');
+      if (b.password !== undefined && !(typeof b.password === 'string' && b.password.length >= 8 && b.password.length <= 63 && /^[\x20-\x7e]+$/.test(b.password)))
+        bad('password must be 8-63 printable ASCII characters');
+      const cur = settings.homeWifi;
+      const ssid = b.ssid ?? cur.ssid;
+      if (b.enabled) {
+        if (!ssid) bad('ssid is required');
+        if (!b.password && (ssid !== cur.ssid || !cur.password)) bad('password is required for a new network');
+      }
+      const exp = awaitPresence('home_wifi', () => {
+        settings.homeWifi = { enabled: b.enabled, ssid: ssid || cur.ssid, password: b.password || cur.password };
+        applyHome();
+      });
+      return send(res, 202, { awaiting: 'button', op: 'home_wifi', expiresIn: exp });
+    }
+
+    case 'trusted': {
+      const mine = knownBrowser(req);
+      return send(res, 200, { browsers: [...trusted.values()].map((t) => ({ ...t, current: t === mine })) });
+    }
+
+    case 'untrust': {
+      const entry = [...trusted.entries()].find(([, t]) => t.id === m.id);
+      if (!entry) fail(404, 'not_found', 'No such trusted browser');
+      const wasMine = knownBrowser(req) === entry[1];
+      trusted.delete(entry[0]);
+      for (const [tok, s] of sessions) if (s.trustId === m.id) sessions.delete(tok);
+      return send(res, 204, undefined, wasMine ? { 'Set-Cookie': 'kt=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' } : {});
+    }
+
     case 'factoryReset': {
       const exp = awaitPresence(
         'factory_reset',
@@ -880,6 +1008,8 @@ async function api(req, res, path) {
           vault = null;
           settings = defaultSettings();
           Object.assign(ble, { pairingUntil: 0, bonds: [], connected: null });
+          trusted.clear();
+          applyHome();
           failures = 0;
           lockedUntil = 0;
           machine.last = null;
@@ -935,6 +1065,8 @@ const publicSettings = () => ({
   ledBrightness: settings.ledBrightness,
   bleEnabled: settings.bleEnabled,
   output: settings.output,
+  homeWifi: { enabled: settings.homeWifi.enabled, ssid: settings.homeWifi.ssid },
+  apMode: settings.apMode,
 });
 
 // ---------- static (exactly what the firmware embeds) + captive probes ----------

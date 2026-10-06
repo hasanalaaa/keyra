@@ -8,6 +8,31 @@ All notable changes to Keyra are documented here. The format follows
 
 ### Added
 
+- Web app: **Scan QR from a photo** next to the 2FA field. Reads a plain
+  `otpauth://totp/` QR in the browser (jsQR, Apache-2.0; photos are downscaled on
+  a scratch canvas, never uploaded) and fills the key, plus the name and user name
+  when empty.
+- Web app: **Google Authenticator export** card in Import. Decodes
+  `otpauth-migration://` QR codes (hand-written protobuf reader, several QR codes
+  per export), previews the accounts, and adds them as new accounts or adds the
+  key to existing accounts that match by name and user name.
+- Unsupported codes (HOTP, MD5, digits other than 6 or 8, periods other than 30
+  or 60 s) are rejected with a message, matching what the firmware can compute.
+  The 2FA field now applies the same rules to pasted `otpauth://` links.
+- The embedded web app grows from about 78 KB to about 133 KB gzipped (the QR
+  decoder is inlined in the single file; home Wi-Fi screens add about 4 KB).
+- Home Wi-Fi (optional): Keyra joins a WPA2/WPA3 home network so
+  `http://keyra.local` opens from any device on it. Joining, changing and
+  turning it off need a button press. Retries back off from 2 s to 5 min.
+  "Keep Keyra's own Wi-Fi on" can be turned off: Keyra's Wi-Fi then switches
+  off while the home network is connected and comes back after 60 s without it
+  (30 s after power-up). Network picker with signal and lock icons, live status
+  (connected, address, signal).
+- Trusted browsers: the first unlock from each browser on the home network needs
+  a button press; up to 8 are remembered (hashed) and can be removed in Settings.
+- Clock from NTP while the home network is connected.
+- API: `GET /api/wifi/scan`, `PUT /api/wifi/home`, `GET /api/trusted`,
+  `DELETE /api/trusted/{id}`, `state.net`, settings `homeWifi` and `apMode`.
 - Bluetooth LE keyboard (HID over GATT on NimBLE) with the same typing engine,
   Caps Lock handling and key-release guarantees as USB. Pairing needs a button
   press and stays open for 2 minutes (LED pulses cyan); LE Secure Connections
@@ -23,6 +48,8 @@ All notable changes to Keyra are documented here. The format follows
 
 ### Changed
 
+- The captive DNS answers only clients on Keyra's own Wi-Fi, and connectivity
+  probes are answered only there.
 - Factory reset also forgets every paired Bluetooth device.
 - Locking the vault closes an open Bluetooth pairing window.
 

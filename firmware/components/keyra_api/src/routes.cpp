@@ -69,6 +69,15 @@ Match matchApi(Method m, std::string_view path) {
     if (!ble::parseAddr(p.substr(kBonds.size()), r.addr)) return {};
     return m == Method::Delete ? r : notAllowed();
   }
+  if (p == "wifi/scan") return only(m, Method::Get, Route::WifiScan);
+  if (p == "wifi/home") return only(m, Method::Put, Route::WifiHome);
+  if (p == "trusted") return only(m, Method::Get, Route::ListTrusted);
+  constexpr std::string_view kTrusted = "trusted/";
+  if (p.substr(0, kTrusted.size()) == kTrusted) {
+    uint32_t id = 0;
+    if (!parseId(p.substr(kTrusted.size()), id)) return {};
+    return m == Method::Delete ? found(Route::DeleteTrusted, id) : notAllowed();
+  }
 
   constexpr std::string_view kEntries = "entries/";
   if (p.substr(0, kEntries.size()) != kEntries) return {};
@@ -95,22 +104,23 @@ bool needsCsrf(Method m, Route r) {
   return m != Method::Get && r != Route::Unlock && r != Route::Setup && r != Route::FactoryReset;
 }
 
-bool isOwnHost(std::string_view host) {
+bool isOwnHost(std::string_view host, std::string_view homeIp) {
   if (host.empty()) return true;  // HTTP/1.0 clients: nothing to redirect on
   if (host.front() != '[') {
     const size_t colon = host.rfind(':');
     if (colon != std::string_view::npos) host = host.substr(0, colon);
   }
   if (!host.empty() && host.back() == '.') host.remove_suffix(1);
-  return host == "192.168.4.1" || equalsIgnoreCase(host, "keyra.local") || equalsIgnoreCase(host, "keyra");
+  return host == "192.168.4.1" || (!homeIp.empty() && host == homeIp) || equalsIgnoreCase(host, "keyra.local") ||
+         equalsIgnoreCase(host, "keyra");
 }
 
-bool isAllowedOrigin(std::string_view origin, bool present) {
+bool isAllowedOrigin(std::string_view origin, bool present, std::string_view homeIp) {
   if (!present) return true;  // non-browser clients and same-origin GET-style requests
   constexpr std::string_view kScheme = "http://";
   if (origin.substr(0, kScheme.size()) != kScheme) return false;  // includes "null"
   origin.remove_prefix(kScheme.size());
-  return !origin.empty() && origin.find('/') == std::string_view::npos && isOwnHost(origin);
+  return !origin.empty() && origin.find('/') == std::string_view::npos && isOwnHost(origin, homeIp);
 }
 
 std::optional<Probe> probeFor(std::string_view path) {

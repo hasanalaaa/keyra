@@ -5,7 +5,9 @@
 import { chromium } from 'playwright';
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
+import { createServer as createNetServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
+import { migrationUri, qrPng } from './fixtures.mjs';
 
 const WEB = fileURLToPath(new URL('..', import.meta.url));
 const SHOTS = fileURLToPath(new URL('../screenshots/', import.meta.url));
@@ -21,7 +23,21 @@ mkdirSync(SHOTS, { recursive: true });
 // ---------- mock processes ----------
 
 const mocks = [];
-async function startMock(port, env = {}) {
+
+/** A port nobody is listening on, so parallel e2e runs on one machine never collide. */
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const srv = createNetServer();
+    srv.on('error', reject);
+    srv.listen(0, () => {
+      const { port } = srv.address();
+      srv.close(() => resolve(port));
+    });
+  });
+}
+
+async function startMock(env = {}) {
+  const port = await freePort();
   const p = spawn(process.execPath, ['mock/server.mjs'], { cwd: WEB, env: { ...process.env, PORT: String(port), ...env }, stdio: ['ignore', 'pipe', 'inherit'] });
   mocks.push(p);
   await new Promise((resolve, reject) => {
@@ -168,6 +184,54 @@ async function firstRunFlow(base, opts) {
   await page.locator('.layer .sheet').waitFor({ state: 'detached' });
   check((await page.locator('.acc-row').count()) >= 4, 'list shows imported rows');
 
+  // 2FA from a QR photo: a plain otpauth:// QR in the Edit form …
+  await page.evaluate(() => (location.hash = '#/new'));
+  await page.locator('.edit-form').waitFor();
+  await page.locator('.edit-form input[type=file]').setInputFiles({
+    name: 'qr.png',
+    mimeType: 'image/png',
+    buffer: await qrPng('otpauth://totp/Acme%20Cloud:dev%40acme.io?secret=GEZDGNBVGY3TQOJQ&issuer=Acme%20Cloud&digits=8'),
+  });
+  await page.waitForFunction(() => document.querySelector('.mono-input')?.value.startsWith('otpauth://totp/Acme%20Cloud'));
+  const formInputs = page.locator('.edit-form input');
+  check((await formInputs.nth(0).inputValue()) === 'Acme Cloud', 'QR fills the empty name');
+  check((await formInputs.nth(2).inputValue()) === 'dev@acme.io', 'QR fills the empty user name');
+  check((await page.locator('.mono-input').inputValue()).includes('digits=8'), 'QR keeps 8 digits');
+  await page.locator('.edit-form .file-btn').scrollIntoViewIfNeeded();
+  await shot(page, `edit-qr${tag}`, 2800); // after the toast has gone
+  await page.locator('.save-btn').click();
+  await row(page, 'Acme Cloud').waitFor();
+  await page.locator('.layer .sheet').waitFor({ state: 'detached' });
+
+  // … and a Google Authenticator export QR (one existing account to attach to, one new, one HOTP that is skipped).
+  await page.evaluate(() => (location.hash = '#/import'));
+  await page.locator('.source-wide').click();
+  await page.locator('.import input[type=file]').setInputFiles({
+    name: 'export.png',
+    mimeType: 'image/png',
+    buffer: await qrPng(
+      migrationUri([
+        { secret: Buffer.from('12345678901234567890'), name: 'GitHub:hasanalaaa', issuer: 'GitHub' },
+        { secret: Buffer.from('linear-secret-key!'), name: 'Linear:dev@acme.io', issuer: 'Linear', algorithm: 2 },
+        { secret: Buffer.from('counter-based-key'), name: 'Old:hotp', issuer: 'Old', type: 1 },
+      ]),
+    ),
+  });
+  await page.locator('.qr-list').waitFor();
+  check((await page.locator('.qr-list li').count()) === 2, 'migration preview lists the 2 TOTP accounts');
+  check(await page.locator('.seg').isVisible(), 'attach/new choice is offered when an account matches');
+  await shot(page, `import-qr${tag}`);
+  await page.locator('.import .btn-primary').click();
+  await page.locator('.import .notice').waitFor();
+  const qrDone = (await page.locator('.import .t2').allTextContents()).join(' | ');
+  check(/1/.test(qrDone) && (qrDone.match(/\|/g) ?? []).length === 1, `QR import added 1 and attached 1 (got "${qrDone}")`);
+  await page.locator('.import .btn-primary').click();
+  await page.locator('.layer .sheet').waitFor({ state: 'detached' });
+  await row(page, 'Linear').waitFor();
+  await row(page, 'GitHub').click();
+  await page.locator('.code-card .code').waitFor();
+  await page.keyboard.press('Escape');
+
   // Backup download
   await page.evaluate(() => (location.hash = '#/backup'));
   await page.locator('.backup input[type=password]').first().fill('backup passphrase 2026');
@@ -276,6 +340,43 @@ async function bleFlow(base, opts) {
   await ctx.close();
 }
 
+// ---------- flow 3: home Wi‑Fi + trusted browser (SPEC §8.2), phone, English ----------
+
+async function homeFlow(base, opts) {
+  const { ctx, page, tag } = await open(base, opts);
+  console.log(`home Wi‑Fi ${tag}`);
+  // Through the home network an unknown browser must be trusted with the button first.
+  await page.locator('input[type=password]').fill(PASS);
+  await page.locator('button[type=submit]').click();
+  await page.locator('.ready-ready').waitFor();
+  check((await page.locator('.ready-title').textContent())?.includes('trust this browser'), 'trust prompt shown');
+  await shot(page, `unlock-trust${tag}`, 1200);
+  check((await button(base)) === 'approved trust_browser', 'button approves trust');
+  await page.locator('.list-pane').waitFor({ timeout: 10000 }); // retried unlock succeeds
+
+  await page.evaluate(() => (location.hash = '#/settings'));
+  await page.locator('.nav-row', { hasText: /Home Wi.Fi/ }).click();
+  await page.getByRole('switch', { name: /Use home Wi.Fi/ }).click(); // off → pick a network
+  await page.locator('.net-row', { hasText: 'Al-Rashid Home' }).first().waitFor({ timeout: 8000 });
+  check(await page.locator('.net-row', { hasText: 'Cafe Baghdad Free' }).isDisabled(), 'open network not joinable');
+  await shot(page, `home-wifi-pick${tag}`);
+  await page.locator('.net-row', { hasText: 'Al-Rashid Home' }).first().click();
+  await page.locator('input[type=password]').fill('home-secret-42');
+  await page.locator('form button[type=submit]').click();
+  await page.locator('.ready-ready').waitFor();
+  check((await button(base)) === 'approved home_wifi', 'button approves home_wifi');
+  await page.locator('.home-status .chip-ok').waitFor({ timeout: 10000 });
+  await page.locator('.home-hint').waitFor();
+  await shot(page, `home-wifi${tag}`);
+  await page.keyboard.press('Escape');
+
+  await page.locator('.nav-row', { hasText: 'Trusted browsers' }).click();
+  await page.locator('.trusted-row .chip-accent').waitFor();
+  await shot(page, `trusted${tag}`);
+  console.log('  ✓ flow passed');
+  await ctx.close();
+}
+
 /** Shrinks the PNGs for the README when pngquant is on PATH (they are committed). */
 function quantizeShots() {
   const files = readdirSync(SHOTS).filter((f) => f.endsWith('.png')).map((f) => SHOTS + f);
@@ -293,9 +394,10 @@ function quantizeShots() {
 const t0 = Date.now();
 try {
   browser = await chromium.launch();
-  const seeded = await startMock(8791);
-  const fresh1 = await startMock(8792, { MOCK_FRESH: '1' });
-  const fresh2 = await startMock(8793, { MOCK_FRESH: '1' });
+  const seeded = await startMock();
+  const fresh1 = await startMock({ MOCK_FRESH: '1' });
+  const fresh2 = await startMock({ MOCK_FRESH: '1' });
+  const home = await startMock({ MOCK_VIA: 'home' });
 
   await firstRunFlow(fresh1, {});
   await firstRunFlow(fresh2, { desktop: true, lang: 'en', dark: true });
@@ -312,8 +414,9 @@ try {
     await vaultShots(seeded, opts);
   }
 
-  await bleFlow(await startMock(8794), {});
-  await bleFlow(await startMock(8795), { lang: 'en' });
+  await bleFlow(await startMock(), {});
+  await bleFlow(await startMock(), { lang: 'en' });
+  await homeFlow(home, { lang: 'en' });
 
   quantizeShots();
   if (errors.length) {

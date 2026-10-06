@@ -23,6 +23,8 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 CONFIG_HTTPD_MAX_REQ_HDR_LEN=2048
 # httpd needs max_open_sockets(7) + 3 internal, plus DNS and mDNS.
 CONFIG_LWIP_MAX_SOCKETS=16
+# SNTP (SPEC §8.2): pool.ntp.org and time.google.com.
+CONFIG_LWIP_SNTP_MAX_SERVERS=2
 
 # USB (keyra_hid): one HID keyboard; CDC compiled in for the dev log/ROM-reboot port.
 CONFIG_TINYUSB_HID_COUNT=1

@@ -20,7 +20,7 @@ export interface TypeResult {
   what?: TypeWhat | 'test';
 }
 
-export type PresenceOp = 'setup' | 'wifi' | 'restore' | 'factory_reset' | 'ble_pair';
+export type PresenceOp = 'setup' | 'wifi' | 'restore' | 'factory_reset' | 'home_wifi' | 'trust_browser' | 'ble_pair';
 
 export interface PresenceResult {
   op: PresenceOp;
@@ -47,7 +47,30 @@ export interface DeviceState {
   pending: Pending | null;
   last: TypeResult | null;
   presence: Presence;
+  net?: NetState; // absent on firmware before v1.1
   timeValid: boolean;
+}
+
+/** SPEC §8.2 state.net. `via`: how this very request reached Keyra. */
+export interface NetState {
+  ap: { on: boolean; ssid: string; clients: number };
+  home: { enabled: boolean; connected: boolean; ssid: string; ip: string | null; rssi: number | null } | null;
+  via: 'ap' | 'home';
+}
+
+export interface Network {
+  ssid: string;
+  rssi: number;
+  secure: boolean;
+  channel: number;
+}
+
+export interface TrustedBrowser {
+  id: number;
+  name: string;
+  created: number; // unix seconds, 0 = unknown
+  lastSeen: number;
+  current: boolean;
 }
 
 export interface EntrySummary {
@@ -86,6 +109,8 @@ export interface Settings {
   bothSeparator: 'tab' | 'enter';
   submitAfterBoth: boolean;
   ledBrightness: number;
+  homeWifi: { enabled: boolean; ssid: string };
+  apMode: 'always' | 'fallback';
   bleEnabled: boolean;
   output: Output;
 }

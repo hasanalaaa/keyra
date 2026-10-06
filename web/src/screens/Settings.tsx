@@ -15,6 +15,8 @@ import type { Settings as S } from '../lib/types';
 import { validWifi } from './Setup';
 import { BluetoothSection } from './Bluetooth';
 import { minHint } from './common';
+import { HomeWifiSheet } from './HomeWifi';
+import { TrustedSheet } from './Trusted';
 
 const SPEEDS = [
   { value: 30, key: 'slow' },
@@ -23,7 +25,7 @@ const SPEEDS = [
 ] as const;
 const AUTOLOCK = [1, 5, 15, 30, 60, 120];
 
-type Sub = 'wifi' | 'autolock' | 'passphrase' | 'test' | 'erase' | null;
+type Sub = 'wifi' | 'home' | 'trusted' | 'autolock' | 'passphrase' | 'test' | 'erase' | null;
 
 export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void }) {
   const app = useApp();
@@ -85,10 +87,18 @@ export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void 
               />
             </div>
             <NavRow label={t('wifiNetwork')} value={<bdi dir="ltr">{s.wifiSsid}</bdi>} onClick={() => setSub('wifi')} />
+            {s.homeWifi && (
+              <NavRow
+                label={t('homeWifi')}
+                value={s.homeWifi.enabled ? <bdi dir="ltr">{s.homeWifi.ssid}</bdi> : t('homeOff')}
+                onClick={() => setSub('home')}
+              />
+            )}
           </Section>
           <Section title={t('groupSecurity')}>
             <NavRow label={t('autoLock')} value={t('autoLockAfter', { n: s.autoLockMin })} onClick={() => setSub('autolock')} />
             <NavRow label={t('changePassphrase')} onClick={() => setSub('passphrase')} />
+            {s.homeWifi && <NavRow label={t('trustedRow')} onClick={() => setSub('trusted')} />}
             <button type="button" class="row nav-row" onClick={() => void lockNow()}>
               <span class="row-label accent">{t('lockNow')}</span>
               <Icon name="lock" size={20} class="row-chev" />
@@ -185,6 +195,8 @@ export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void 
           }}
         />
       )}
+      {sub === 'home' && s && <HomeWifiSheet settings={s} onChange={() => void load()} onClose={() => setSub(null)} />}
+      {sub === 'trusted' && <TrustedSheet onClose={() => setSub(null)} />}
       {sub === 'autolock' && s && (
         <AutoLockSheet
           value={s.autoLockMin}

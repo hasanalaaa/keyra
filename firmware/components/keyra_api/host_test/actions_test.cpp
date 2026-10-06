@@ -244,6 +244,25 @@ void pairingIndicatorYields() {
   CHECK(m.indicator(true, true, true) == Indicator::AwaitPresence);
 }
 
+void netOps() {
+  auto m = make();
+  // Changing the home network is armed through a session, so lock drops it.
+  m.awaitPresence(Op::HomeWifi, [] { return true; });
+  m.dropSessionItems();
+  CHECK(!m.presence().has_value());
+  CHECK(m.opResult()->op == Op::HomeWifi && m.opResult()->code == OpCode::Cancelled);
+  // Trusting a browser is requested before any session exists: it never
+  // displaces a pending action and survives a lock.
+  m.arm(req(13));
+  CHECK(!m.tryAwaitPresence(Op::TrustBrowser, [] { return true; }).has_value());
+  m.cancel();
+  CHECK(m.tryAwaitPresence(Op::TrustBrowser, [] { return true; }).has_value());
+  m.dropSessionItems();
+  CHECK(m.presence() && m.presence()->op == Op::TrustBrowser);
+  CHECK(std::string(opName(Op::HomeWifi)) == "home_wifi");
+  CHECK(std::string(opName(Op::TrustBrowser)) == "trust_browser");
+}
+
 void names() {
   CHECK(parseWhat("both") == What::Both);
   CHECK(!parseWhat("test").has_value());
@@ -274,6 +293,7 @@ int main() {
   presenceOutcomesAreReported();
   blePairOp();
   pairingIndicatorYields();
+  netOps();
   names();
   return KEYRA_TEST_RESULT();
 }

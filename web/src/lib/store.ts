@@ -1,6 +1,6 @@
 // App-wide state: device state polling, session/lock tracking, entries cache, toasts, preferences.
 import { useEffect, useState } from 'preact/hooks';
-import { api, hasCsrf, setLockedHandler, forgetSession } from './api';
+import { api, hasCsrf, setLockedHandler, forgetSession, type Awaiting } from './api';
 import { detectLang, setLang, type Lang, type LangPref } from './i18n';
 import type { BleInfo, DeviceState, EntrySummary } from './types';
 
@@ -223,11 +223,14 @@ export function startApp(): void {
 
 // ---------- session ----------
 
-export async function unlock(passphrase: string): Promise<void> {
-  await api.unlock(passphrase);
+/** Resolves to Awaiting when the device wants this browser trusted first (the caller shows the button wait and retries). */
+export async function unlock(passphrase: string): Promise<Awaiting | null> {
+  const awaiting = await api.unlock(passphrase);
+  if (awaiting) return awaiting;
   markActivity();
   setState({ authed: true, lockReason: null });
   await Promise.all([pollNow(), loadEntries()]);
+  return null;
 }
 
 export async function lockNow(): Promise<void> {

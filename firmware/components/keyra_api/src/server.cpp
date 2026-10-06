@@ -10,6 +10,7 @@
 #include "esp_log.h"
 #include "handlers.hpp"
 #include "http.hpp"
+#include "keyra/net.hpp"
 #include "runtime.hpp"
 
 #include <sys/time.h>
@@ -63,7 +64,7 @@ Method toMethod(int m) {
 
 void adoptClientClock(httpd_req_t* r) {
   const auto client = clock::parse(http::header(r, "X-Keyra-Time", 20));
-  if (!client || !clock::shouldAdopt(unixMs(), *client)) return;
+  if (!client || !clock::shouldAdopt(unixMs(), *client, net::timeSynced())) return;
   const timeval tv{static_cast<time_t>(*client / 1000), static_cast<suseconds_t>((*client % 1000) * 1000)};
   if (settimeofday(&tv, nullptr) == 0) {
     ESP_LOGI(TAG, "clock set from client");
@@ -103,11 +104,16 @@ esp_err_t handleAny(httpd_req_t* r) {
   const std::string_view path(r->uri, q ? static_cast<size_t>(q - r->uri) : std::strlen(r->uri));
   adoptClientClock(r);
 
-  if (const auto probe = probeFor(path)) return sendProbe(r, *probe);
+  // Captive-probe answers belong to Keyra's own Wi-Fi only; on the home network
+  // the phone's real internet check must never be answered by Keyra.
+  const bool viaAp = net::viaForSocket(httpd_req_to_sockfd(r)) == net::Via::Ap;
+  if (viaAp) {
+    if (const auto probe = probeFor(path)) return sendProbe(r, *probe);
+  }
   // Requests for other hosts (via the catch-all DNS) go to the app; this also
   // keeps DNS-rebinding pages from reaching the API under a foreign origin.
   const size_t hostLen = httpd_req_get_hdr_value_len(r, "Host");
-  if (hostLen > kMaxHostLen || !isOwnHost(http::header(r, "Host", kMaxHostLen))) return redirectHome(r);
+  if (hostLen > kMaxHostLen || !isOwnHost(http::header(r, "Host", kMaxHostLen), net::homeIp())) return redirectHome(r);
 
   const Method method = toMethod(r->method);
   if (path.substr(0, 5) == "/api/") return handleApi(r, method, path);

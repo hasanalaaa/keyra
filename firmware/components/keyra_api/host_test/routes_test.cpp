@@ -33,6 +33,15 @@ void apiRoutes() {
   CHECK(is(matchApi(Method::Post, "/api/backup"), Route::Backup));
   CHECK(is(matchApi(Method::Post, "/api/restore"), Route::Restore));
   CHECK(is(matchApi(Method::Post, "/api/factory-reset"), Route::FactoryReset));
+  CHECK(is(matchApi(Method::Get, "/api/wifi/scan"), Route::WifiScan));
+  CHECK(is(matchApi(Method::Put, "/api/wifi/home"), Route::WifiHome));
+  CHECK(is(matchApi(Method::Get, "/api/trusted"), Route::ListTrusted));
+  CHECK(is(matchApi(Method::Delete, "/api/trusted/77"), Route::DeleteTrusted, 77));
+  CHECK(matchApi(Method::Post, "/api/wifi/scan").kind == K::MethodNotAllowed);
+  CHECK(matchApi(Method::Get, "/api/wifi/home").kind == K::MethodNotAllowed);
+  CHECK(matchApi(Method::Get, "/api/trusted/77").kind == K::MethodNotAllowed);
+  CHECK(matchApi(Method::Delete, "/api/trusted/0").kind == K::NotFound);
+  CHECK(matchApi(Method::Delete, "/api/trusted/x").kind == K::NotFound);
 
   CHECK(is(matchApi(Method::Get, "/api/ble"), Route::GetBle));
   CHECK(is(matchApi(Method::Post, "/api/ble/pair"), Route::BlePair));
@@ -77,6 +86,10 @@ void policy() {
   CHECK(needsSession(Route::GetBle) && needsSession(Route::BlePair) && needsSession(Route::BleForget));
   CHECK(needsCsrf(Method::Post, Route::BlePair));
   CHECK(needsCsrf(Method::Delete, Route::BleForget));
+  CHECK(needsSession(Route::WifiScan) && needsSession(Route::WifiHome));
+  CHECK(needsSession(Route::ListTrusted) && needsSession(Route::DeleteTrusted));
+  CHECK(needsCsrf(Method::Put, Route::WifiHome) && needsCsrf(Method::Delete, Route::DeleteTrusted));
+  CHECK(!needsCsrf(Method::Get, Route::WifiScan));
 }
 
 void hosts() {
@@ -89,6 +102,12 @@ void hosts() {
   CHECK(!isOwnHost("captive.apple.com"));
   CHECK(!isOwnHost("keyra.local.evil.com"));
   CHECK(!isOwnHost("192.168.4.10"));
+  // Joined to the home network: its current IP addresses the device too.
+  CHECK(isOwnHost("192.168.1.42", "192.168.1.42"));
+  CHECK(isOwnHost("192.168.1.42:80", "192.168.1.42"));
+  CHECK(!isOwnHost("192.168.1.42"));
+  CHECK(!isOwnHost("192.168.1.43", "192.168.1.42"));
+  CHECK(!isOwnHost("192.168.1.4", "192.168.1.42"));
 }
 
 void origins() {
@@ -102,6 +121,9 @@ void origins() {
   CHECK(!isAllowedOrigin("http://evil.example", true));
   CHECK(!isAllowedOrigin("http://keyra.local.evil.example", true));
   CHECK(!isAllowedOrigin("http://", true));
+  CHECK(isAllowedOrigin("http://192.168.1.42", true, "192.168.1.42"));
+  CHECK(!isAllowedOrigin("http://192.168.1.42", true));
+  CHECK(!isAllowedOrigin("http://192.168.1.99", true, "192.168.1.42"));
 }
 
 void probes() {
@@ -129,6 +151,9 @@ void clockAdoption() {
   CHECK(!clock::parse("-5").has_value());
   CHECK(!clock::parse("17900000000001234").has_value());
   CHECK(!clock::parse("12.5").has_value());
+  // Once SNTP has set the clock, the phone's clock is only a fallback.
+  CHECK(!clock::shouldAdopt(t, t + 60000, true));
+  CHECK(clock::shouldAdopt(0, t, true));  // synced flag without a valid clock: still adopt
 }
 
 void inputRules() {
@@ -152,6 +177,9 @@ void inputRules() {
   CHECK(!validate::wifiPassword(std::string(64, 'a')));
   CHECK(!validate::wifiPassword("caf\xC3\xA9 au lait"));
   CHECK(!validate::wifiPassword("tab\there!"));
+  CHECK(validate::homePassword("keyra1234"));  // the home router may use anything WPA allows
+  CHECK(!validate::homePassword("1234567"));
+  CHECK(!validate::homePassword(std::string(64, 'a')));
   CHECK(validate::ssid("Keyra-1A2B"));
   CHECK(!validate::ssid(""));
   CHECK(!validate::ssid(std::string(33, 'a')));

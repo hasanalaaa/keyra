@@ -4,7 +4,8 @@ add_executable(keyra_api_routes_test routes_test.cpp ../src/routes.cpp ../src/cl
                ../../keyra_ble/src/policy.cpp)
 # routes.cpp parses bond addresses with keyra::ble::parseAddr (stub/ supplies esp_err.h).
 target_include_directories(keyra_api_routes_test PRIVATE ../../keyra_ble/include ../../keyra_ble/host_test/stub)
-foreach(t actions sessions routes)
+add_executable(keyra_api_trust_test trust_test.cpp ../src/trust.cpp)
+foreach(t actions sessions routes trust)
   target_include_directories(keyra_api_${t}_test PRIVATE ../src)
   add_test(NAME keyra_api_${t} COMMAND keyra_api_${t}_test)
 endforeach()

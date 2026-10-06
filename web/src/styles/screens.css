@@ -209,6 +209,10 @@
   font-size:var(--fs-headline); font-weight:600; transition:transform var(--d-fast) var(--ease-out);
 }
 .source-card:active { transform:scale(.97); }
+.source-wide { grid-column:1 / -1; min-block-size:0; flex-direction:row; align-items:center; gap:var(--s-3); color:var(--accent); }
+.source-wide .source-name { flex:1; color:var(--text); }
+.qr-list li { display:flex; flex-direction:column; white-space:normal; }
+.qr-tag { color:var(--accent); }
 .source-name { line-height:1.3; }
 @media (hover:hover) { .source-card:hover { background:var(--surface-2); } }
 .howto { counter-reset:step; display:flex; flex-direction:column; gap:var(--s-3); }
@@ -235,3 +239,19 @@
 .settings .group { margin-block-end:var(--s-5); }
 .danger-text { color:var(--err); font-weight:500; }
 .danger-group { margin-block-end:var(--s-8); }
+
+/* Home Wi‑Fi & trusted browsers (SPEC §8.2) */
+.bars { flex:none; color:var(--text-3); }
+.bars rect { fill:var(--ring-track); }
+.bars rect.on { fill:currentColor; }
+.net-row .bars, .kv-value .bars { color:var(--accent); }
+.net-row .row-label, .trusted-row .row-label { display:flex; flex-direction:column; gap:2px; min-inline-size:0; }
+.net-row .row-label bdi, .trusted-row .row-label bdi { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.net-row:disabled { opacity:1; cursor:default; }
+.net-row:disabled bdi, .net-row:disabled .bars { opacity:.45; }
+.net-open, .trusted-row .caption { color:var(--text-3); }
+.home-status .chip { flex:none; }
+.home-hint { color:var(--text-2); }
+.trusted-row { gap:8px; }
+.trusted-row .chip { flex:none; }
+.kv-row > .chip { grid-row:1 / span 2; align-self:center; }

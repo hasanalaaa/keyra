@@ -12,6 +12,7 @@ constexpr int64_t kMaxDriftMs = 5000;
 
 bool valid(int64_t unixMs);
 std::optional<int64_t> parse(std::string_view header);
-bool shouldAdopt(int64_t deviceMs, int64_t clientMs);
+// `networkSynced`: SNTP set the clock recently, so the client is not trusted over it.
+bool shouldAdopt(int64_t deviceMs, int64_t clientMs, bool networkSynced = false);
 
 }  // namespace keyra::api::clock

@@ -48,7 +48,8 @@ std::optional<int64_t> Machine::tryAwaitPresence(Op op, Commit commit) {
 
 void Machine::dropSessionItems() {
   std::lock_guard<std::mutex> lock(mu_);
-  const bool sessionOp = kind_ == Kind::Presence && (op_ == Op::Wifi || op_ == Op::RestoreReplace || op_ == Op::BlePair);
+  const bool sessionOp = kind_ == Kind::Presence &&
+                         (op_ == Op::Wifi || op_ == Op::RestoreReplace || op_ == Op::HomeWifi || op_ == Op::BlePair);
   if (kind_ == Kind::Type) {
     hasLast_ = true;
     last_ = {false, Code::Cancelled, 0, req_.title, req_.what};
@@ -223,6 +224,8 @@ const char* opName(Op op) {
     case Op::Wifi: return "wifi";
     case Op::RestoreReplace: return "restore";
     case Op::FactoryReset: return "factory_reset";
+    case Op::HomeWifi: return "home_wifi";
+    case Op::TrustBrowser: return "trust_browser";
     case Op::BlePair: return "ble_pair";
   }
   return "setup";
