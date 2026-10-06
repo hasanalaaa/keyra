@@ -56,7 +56,7 @@ Keyra is a convenience-and-isolation device, not a magic shield. Read the [secur
 
 A long press (1.5 seconds) cancels a pending action, or locks the vault if nothing is pending.
 
-**Bluetooth.** In **Settings → Bluetooth**, tap **Pair a new device** and press Keyra's button. For the next 2 minutes Keyra shows up as a keyboard in your phone's, tablet's or computer's Bluetooth settings, and its light pulses cyan; pick it there. After that, **Type into: Auto** types over USB when Keyra is plugged in and otherwise into the connected Bluetooth device, and the Ready screen tells you which one.
+**Bluetooth.** In **Settings → Bluetooth**, tap **Pair a new device** and press Keyra's button. For the next 2 minutes Keyra shows up as a keyboard in your phone's, tablet's or computer's Bluetooth settings, and its light pulses cyan; pick it there. After that, **Type into: Auto** types over USB when Keyra is plugged in and otherwise into the Bluetooth device you used last (or pick one in the account sheet). Keyra connects to it only for the action, and the Ready screen tells you which device it is.
 
 ## Features
 
@@ -251,7 +251,7 @@ On purpose. Keyra answers your phone's connectivity checks as "online" so the ph
 Today, Keyra types as a **US-layout** keyboard. If your computer is set to another layout, characters will come out differently. Switch the computer to US for the login field, or keep to characters that are the same on both layouts. Characters outside printable ASCII are refused with a clear message instead of typing the wrong thing. More layouts are on the roadmap.
 
 **Can Keyra type into my phone or tablet?**
-Yes, over Bluetooth. Pair it once from **Settings → Bluetooth** (see [How it works](#how-it-works)). While a Bluetooth keyboard is connected, iPhone and iPad hide the on-screen keyboard; tap the keyboard button at the bottom of the screen to bring it back, or turn Bluetooth off in Keyra's settings when you do not need it.
+Yes, over Bluetooth. Pair it once from **Settings → Bluetooth** (see [How it works](#how-it-works)). iPhone and iPad hide their on-screen keyboard while any Bluetooth keyboard is connected, so by default (**Connect: When typing**, recommended) Keyra connects only for each action: it shows "Connecting to your device…" for a moment, types after your press, and lets go about 20 seconds later. Choose **Always** if you prefer instant typing and do not mind the hidden on-screen keyboard. The account sheet's **Type into** picker chooses USB or a paired device; this browser remembers the choice.
 
 **I forgot my master passphrase. Can I recover my passwords?**
 No. That is the point of encryption, and there is no backdoor. You can **erase the device and start over**: on the unlock screen choose **Forgot passphrase?**, then press Keyra's button to confirm. All accounts are deleted. Restore from a backup if you have one.

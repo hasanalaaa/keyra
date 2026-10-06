@@ -825,6 +825,9 @@ range with firmware; UI never offers 0 so the "ready" light can't be turned off)
 | | Type test (button) | اختبار الكتابة | Type test |
 | Bluetooth | On/off (switch) | لوحة مفاتيح بلوتوث | Bluetooth keyboard |
 | | Type into (segmented) | الكتابة في: تلقائي · USB · بلوتوث | Type into: Auto · USB · Bluetooth |
+| | Connect (segmented, footer explains the iOS on-screen keyboard) | الاتصال: عند الكتابة · دائماً | Connect: When typing · Always |
+| Account sheet | Type into (segmented above the actions: USB · each paired device; remembered per browser) | الكتابة في | Type into |
+| Ready | while `host.connecting` | جارٍ الاتصال بـ {name}… | Connecting to {name}… |
 | | Paired devices (rows: name, "Connected"/"Last used {date}", forget) | متصل · آخر استخدام {date} · إلغاء الإقران | Connected · Last used {date} · Forget |
 | | Pair a new device (sheet: Ready for the button → Ready "Now pick “{name}” in your phone or computer’s Bluetooth settings", 120 s ring → "Paired") | إقران جهاز جديد | Pair a new device |
 | Light | LED brightness (slider) | سطوع ضوء Keyra | Keyra light brightness |

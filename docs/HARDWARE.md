@@ -185,4 +185,5 @@ you have locked.
 | Keyra does not appear in a phone's Bluetooth list | Open the pairing window first (**Settings → Bluetooth → Pair a new device**, then press the button; LED pulses cyan). Outside the window Keyra is invisible to new devices. |
 | A paired device stopped connecting | Forget Keyra on that device and forget the device in Keyra's app, then pair again. |
 | "Pair a new device" is greyed out | Keyra remembers up to 4 devices. Forget one first. |
-| iPhone/iPad on-screen keyboard disappeared | iOS hides it while a hardware keyboard is connected. Tap the keyboard button at the bottom of the screen, or turn Bluetooth off in Keyra's settings. |
+| iPhone/iPad on-screen keyboard disappeared | iOS hides it while a hardware keyboard is connected. With **Connect: When typing** (default) Keyra lets go about 20 s after typing; with **Always** set it back to When typing, or tap the keyboard button at the bottom of the screen. |
+| Ready says "Connecting to …" for a long time | The chosen device is off, asleep with Bluetooth off, or out of range. Wake it and keep it near Keyra; after 60 s the action ends with "Nothing to type into". |

@@ -36,15 +36,24 @@ All notable changes to Keyra are documented here. The format follows
 - Bluetooth LE keyboard (HID over GATT on NimBLE) with the same typing engine,
   Caps Lock handling and key-release guarantees as USB. Pairing needs a button
   press and stays open for 2 minutes (LED pulses cyan); LE Secure Connections
-  only, Just Works, up to 4 bonded devices. Outside the window Keyra advertises
-  only to bonded devices.
-- Settings `bleEnabled` and `output` (`auto`, `usb`, `ble`); `auto` types over USB
-  when plugged in, otherwise into the connected Bluetooth device.
+  only, Just Works, up to 4 bonded devices. Outside the window only bonded
+  devices can connect.
+- Settings `bleEnabled`, `output` (`auto`, `usb`, `ble`) and `bleConnect`;
+  `auto` types over USB when plugged in, otherwise into the most recently used
+  Bluetooth device.
 - API: `GET /api/ble`, `POST /api/ble/pair` (presence op `ble_pair`),
   `DELETE /api/ble/bonds/{addr}`; `state.host.ble` and `state.host.output`;
   result code `no_host`.
-- Web app: Settings → Bluetooth (on/off, Type into, paired devices, Pair a new
-  device), and the Ready screen says when it will type over Bluetooth and to which device.
+- Bluetooth connects on demand by default (`bleConnect: "on_demand"`): idle
+  Keyra neither advertises nor holds a link (iPhone and iPad hide their
+  on-screen keyboard while a keyboard is connected); an armed action makes it
+  advertise to its host alone, a press types once that host is connected, and
+  the link ends about 20 s after typing. `"always"` keeps paired hosts connected.
+- `POST /api/type` takes `target` (`"usb"` or a paired device); `state.host`
+  gains `bleTarget` and `connecting`, `pending` gains `target`.
+- Web app: Settings → Bluetooth (on/off, Type into, Connect, paired devices,
+  Pair a new device); a Type-into picker in the account sheet, remembered per
+  browser; Ready shows "Connecting to <device>…" and then where it will type.
 
 ### Changed
 

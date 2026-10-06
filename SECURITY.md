@@ -214,9 +214,11 @@ same button rule applies: nothing is typed over Bluetooth without a press.
   can see who is around, and forget anything you do not recognise.
 - **A paired device that is compromised.** It receives the keystrokes you send
   it, exactly like a USB computer would. Forget devices you no longer use.
-- **Radio tracking.** While devices are paired, Keyra advertises with its fixed
-  public Bluetooth address, so a nearby scanner can tell the same device is
-  around. Turn Bluetooth off in Settings if that matters to you.
+- **Radio tracking.** When it advertises, Keyra uses its fixed public Bluetooth
+  address, so a nearby scanner can tell the same device is around. With the
+  default **Connect: When typing** it advertises only while an action waits for
+  a host (and during pairing); with **Always** it advertises whenever it has
+  paired devices. Turn Bluetooth off in Settings if that matters to you.
 - **The device name a host reports** (shown in the app) is chosen by that host
   and cannot be trusted as proof of identity.
 
