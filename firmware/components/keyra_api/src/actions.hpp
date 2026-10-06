@@ -10,7 +10,11 @@
 #include <optional>
 #include <string>
 
+#include "target.hpp"
+
 namespace keyra::actions {
+
+using api::Target;
 
 constexpr int64_t kExpiryMs = 60000;
 constexpr int64_t kFlashMs = 1500;  // Success/Error LED after a finished action
@@ -32,6 +36,7 @@ struct TypeRequest {
   std::string title;
   What what = What::Username;
   bool submit = false;
+  Target target;  // chosen when armed; a Bluetooth host must connect before the press counts
 };
 
 struct Pending {
@@ -91,6 +96,10 @@ class Machine {
   // Lock ends every session, so items armed through a session must not outlive it.
   void dropSessionItems();
 
+  // Whether the armed action's Bluetooth host is connected and ready. Until it
+  // is, a short press does nothing (the action stays armed) and expiry
+  // reports no_host instead of expired.
+  void setLinkReady(bool ready);
   Decision onButton(Button b, bool unlocked);
   void typingFinished(const TypeRequest& req, Code code);
   void commitFinished(bool ok);
@@ -118,6 +127,7 @@ class Machine {
   Commit commit_;
   int64_t deadline_ = 0;
   bool typing_ = false;
+  bool linkReady_ = false;
   std::optional<Op> running_;
   bool hasLast_ = false;
   Result last_;

@@ -3,6 +3,7 @@
 // advertise, who may pair, the pairing window, name and address text.
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -16,8 +17,49 @@ enum class Adv {
   BondedOnly,  // not discoverable; the controller's filter accept list admits bonded hosts only
 };
 
-// One host at a time: nothing is advertised while a link is up.
-Adv advertising(bool enabled, bool pairing, size_t bonds, bool connected);
+// One host at a time: nothing is advertised while a link is up. `wanted`: an
+// armed action is waiting for one bonded host (then only that host is put on
+// the accept list). OnDemand advertises for nothing else; Always also lets
+// any bonded host reconnect while idle.
+Adv advertising(bool enabled, bool pairing, size_t bonds, bool connected, Connect mode, bool wanted);
+
+// Whether an established link may stay up. Untrusted links (not yet bonded and
+// encrypted) only live inside the pairing window. A trusted link must be the
+// wanted host when an action waits for one; with nothing wanted, OnDemand
+// drops it (iOS hides its on-screen keyboard while a keyboard is connected).
+bool keepLink(Connect mode, bool pairing, bool trusted, const std::optional<Addr>& wanted, const Addr& peer);
+
+// The host Keyra should be connected to for typing: set when an action is
+// armed for it, held kLingerMs after typing so a quick second action reuses
+// the link, cleared at once on cancel / expiry / lock.
+class Demand {
+ public:
+  static constexpr int64_t kLingerMs = 20000;
+  void want(const Addr& a) {
+    addr_ = a;
+    active_ = true;
+    lingerUntil_ = 0;
+  }
+  void done(int64_t nowMs) {
+    if (!active_) return;
+    active_ = false;
+    lingerUntil_ = nowMs + kLingerMs;
+  }
+  void drop() {
+    active_ = false;
+    lingerUntil_ = 0;
+  }
+  std::optional<Addr> target(int64_t nowMs) const {
+    if (active_ || nowMs < lingerUntil_) return addr_;
+    return std::nullopt;
+  }
+  int64_t lingerLeftMs(int64_t nowMs) const { return !active_ && nowMs < lingerUntil_ ? lingerUntil_ - nowMs : 0; }
+
+ private:
+  Addr addr_{};
+  bool active_ = false;
+  int64_t lingerUntil_ = 0;
+};
 
 // Whether a pairing request may proceed. `known`: this host already has a
 // bond here and is re-pairing (its old keys get replaced, so it never needs a

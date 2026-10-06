@@ -4,10 +4,17 @@
 
 namespace keyra::ble {
 
-Adv advertising(bool enabled, bool pairing, size_t bonds, bool connected) {
+Adv advertising(bool enabled, bool pairing, size_t bonds, bool connected, Connect mode, bool wanted) {
   if (!enabled || connected) return Adv::Off;
   if (pairing) return Adv::Open;
-  return bonds > 0 ? Adv::BondedOnly : Adv::Off;
+  if (wanted) return Adv::BondedOnly;
+  return mode == Connect::Always && bonds > 0 ? Adv::BondedOnly : Adv::Off;
+}
+
+bool keepLink(Connect mode, bool pairing, bool trusted, const std::optional<Addr>& wanted, const Addr& peer) {
+  if (!trusted) return pairing;
+  if (wanted) return *wanted == peer;
+  return mode == Connect::Always || pairing;
 }
 
 bool mayPair(bool windowOpen, bool known, size_t bonds) {

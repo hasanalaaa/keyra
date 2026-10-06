@@ -1,5 +1,5 @@
 // keyra::hid public API: TinyUSB and keyra_ble transports under one typing
-// engine, routed by settings.output (SPEC §4.1, §8.1).
+// engine; the caller picks the transport per job (SPEC §4.1, §8.1).
 #include "keyra/hid.hpp"
 
 #include <atomic>
@@ -9,7 +9,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "keyra/ble.hpp"
-#include "route.hpp"
 #include "tinyusb.h"
 #include "typer.hpp"
 #include "usb_desc.hpp"
@@ -25,7 +24,6 @@ constexpr int64_t kReportReadyTimeoutUs = 100 * 1000;
 
 std::atomic<uint8_t> s_leds{0};
 std::atomic<bool> s_started{false};
-std::atomic<Output> s_output{Output::Auto};
 
 void sleepMs(uint32_t ms) {
   if (ms == 0) return;
@@ -58,28 +56,13 @@ class BleTransport final : public Transport {
   bool send(uint8_t modifier, uint8_t keycode) override { return ble::sendKey(modifier, keycode); }
 };
 
-// Nothing connected on the chosen output: the engine reports NotMounted
-// after its usual checks (unsupported text still wins).
-class NoTransport final : public Transport {
- public:
-  bool ready() override { return false; }
-  bool capsLock() override { return false; }
-  void delayMs(uint32_t) override {}
-  bool send(uint8_t, uint8_t) override { return false; }
-};
-
 TinyUsbTransport s_usb;
 BleTransport s_ble;
-NoTransport s_none;
 Typer s_typer;
 
 Transport& transportFor(const Options& opt) {
-  switch (opt.via == Host::None ? host() : opt.via) {
-    case Host::Usb: return s_usb;
-    case Host::Ble: return s_ble;
-    case Host::None: break;
-  }
-  return s_none;
+  if (opt.via == Host::Ble) return s_ble;
+  return s_usb;
 }
 
 }  // namespace
@@ -99,20 +82,7 @@ bool mounted() { return s_usb.ready(); }
 
 bool bleConnected() { return s_ble.ready(); }
 
-void setOutput(Output o) { s_output.store(o); }
-
-Output output() { return s_output.load(); }
-
-Host host() { return route(s_output.load(), s_usb.ready(), s_ble.ready()); }
-
-bool capsLock() {
-  switch (host()) {
-    case Host::Usb: return s_usb.capsLock();
-    case Host::Ble: return s_ble.capsLock();
-    case Host::None: break;
-  }
-  return false;
-}
+bool capsLock() { return s_usb.capsLock(); }
 
 Result typeText(const char* text, const Options& opt) { return s_typer.type(transportFor(opt), text, opt); }
 

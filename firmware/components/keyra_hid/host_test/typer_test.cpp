@@ -5,7 +5,6 @@
 
 #include "check.hpp"
 #include "keymap.hpp"
-#include "route.hpp"
 #include "typer.hpp"
 
 using namespace keyra::hid;
@@ -281,19 +280,6 @@ class FakeBleHost : public FakeHost {
   }
 };
 
-void testRouting() {
-  // SPEC §8.1: auto = USB when mounted, else the connected BLE host.
-  CHECK(route(Output::Auto, true, true) == Host::Usb);
-  CHECK(route(Output::Auto, true, false) == Host::Usb);
-  CHECK(route(Output::Auto, false, true) == Host::Ble);
-  CHECK(route(Output::Auto, false, false) == Host::None);
-  // A forced output never falls back to the other transport.
-  CHECK(route(Output::Usb, false, true) == Host::None);
-  CHECK(route(Output::Usb, true, true) == Host::Usb);
-  CHECK(route(Output::Ble, true, false) == Host::None);
-  CHECK(route(Output::Ble, true, true) == Host::Ble);
-}
-
 void testBleTypesOnlyToBle() {
   FakeHost usb;
   FakeBleHost ble;
@@ -371,7 +357,6 @@ int main() {
   testCapsOffNoWrap();
   testTapKey();
   testBusy();
-  testRouting();
   testBleTypesOnlyToBle();
   testBleCapsWrapWithLatency();
   testBleSlowLedReportAborts();

@@ -263,6 +263,41 @@ void netOps() {
   CHECK(std::string(opName(Op::TrustBrowser)) == "trust_browser");
 }
 
+// On demand: the action waits for its Bluetooth host before a press types.
+void bluetoothTargetWaitsForLink() {
+  auto m = make();
+  TypeRequest r = req(21);
+  r.target = {Target::Kind::Ble, {0xA4, 0xC1, 0x38, 0x0B, 0x7F, 0x3A}};
+  m.arm(r);
+  CHECK(m.onButton(Button::Short, true).effect == Effect::Blink);  // connecting: press ignored
+  CHECK(m.pending().has_value());                                  // ... and still armed
+  m.setLinkReady(true);
+  Decision d = m.onButton(Button::Short, true);
+  CHECK(d.effect == Effect::Run && d.run.target == r.target);
+  m.typingFinished(d.run, Code::Typed);
+
+  // Never connected within 60 s: no_host, not a generic expiry.
+  m.setLinkReady(false);
+  m.arm(r);
+  g_now += kExpiryMs;
+  CHECK(!m.pending().has_value());
+  CHECK(m.last()->code == Code::NoHost);
+
+  // Connected but nobody pressed: an ordinary expiry.
+  m.arm(r);
+  m.setLinkReady(true);
+  g_now += kExpiryMs;
+  m.pending();
+  CHECK(m.last()->code == Code::Expired);
+
+  // USB targets never wait.
+  m.setLinkReady(false);
+  TypeRequest u = req(22);
+  u.target = {Target::Kind::Usb, {}};
+  m.arm(u);
+  CHECK(m.onButton(Button::Short, true).effect == Effect::Run);
+}
+
 void names() {
   CHECK(parseWhat("both") == What::Both);
   CHECK(!parseWhat("test").has_value());
@@ -294,6 +329,7 @@ int main() {
   blePairOp();
   pairingIndicatorYields();
   netOps();
+  bluetoothTargetWaitsForLink();
   names();
   return KEYRA_TEST_RESULT();
 }

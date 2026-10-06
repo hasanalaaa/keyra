@@ -71,6 +71,8 @@ std::mutex g_mu;
 bool g_started = false;  // nimble_port_init() succeeded and the events exist
 bool g_synced = false;   // host and controller in sync: advertising possible
 bool g_enabled = false;
+Connect g_mode = Connect::OnDemand;
+Demand g_demand;
 std::string g_name;
 Window g_window;
 Link g_link;
@@ -91,6 +93,7 @@ uint16_t t_repairing = BLE_HS_CONN_HANDLE_NONE;  // link whose old bond was drop
 ble_npl_event t_kickEv;
 ble_npl_event t_forgetEv;
 ble_npl_callout t_windowEnd;
+ble_npl_callout t_lingerEnd;
 
 int64_t monoMs() { return esp_timer_get_time() / 1000; }
 
@@ -204,26 +207,48 @@ int startAdvertising(Adv mode, const std::string& name, const std::vector<peers:
 void reconcile() {
   bool enabled, pairing, trusted;
   uint16_t conn;
-  int64_t leftMs;
+  int64_t leftMs, lingerMs;
   std::string name;
   std::vector<peers::Key> keys;
+  std::optional<Addr> wanted;
+  Connect mode;
+  Addr peer;
   {
     std::lock_guard<std::mutex> lock(g_mu);
     if (!g_synced) return;
     const int64_t now = monoMs();
     enabled = g_enabled;
-    if (!enabled) g_window.close();
+    if (!enabled) {
+      g_window.close();
+      g_demand.drop();
+    }
     pairing = g_window.active(now);
     leftMs = g_window.leftMs(now);
+    lingerMs = g_demand.lingerLeftMs(now);
     conn = g_link.conn;
     trusted = g_link.trusted();
+    peer = g_link.peer.addr;
     name = g_name;
     keys = g_bondKeys;
+    mode = g_mode;
+    wanted = g_demand.target(now);
   }
+  // A wanted host that is no longer bonded (forgotten meanwhile) is nobody.
+  std::vector<peers::Key> accept;
+  for (const peers::Key& k : keys) {
+    if (!wanted || k.addr == *wanted) accept.push_back(k);
+  }
+  if (wanted && accept.empty()) wanted.reset();
+
   if (pairing) {
     ble_npl_callout_reset(&t_windowEnd, ble_npl_time_ms_to_ticks32(static_cast<uint32_t>(leftMs)));
   } else {
     ble_npl_callout_stop(&t_windowEnd);
+  }
+  if (lingerMs > 0) {
+    ble_npl_callout_reset(&t_lingerEnd, ble_npl_time_ms_to_ticks32(static_cast<uint32_t>(lingerMs)));
+  } else {
+    ble_npl_callout_stop(&t_lingerEnd);
   }
   if (name != t_gapName) {
     const int rc = ble_svc_gap_device_name_set(name.c_str());
@@ -233,26 +258,29 @@ void reconcile() {
 
   const bool connected = conn != BLE_HS_CONN_HANDLE_NONE;
   // A link can outlive the reason it was let in: Bluetooth was switched off,
-  // or the window closed on a host that never finished pairing.
-  if (connected && (!enabled || (!pairing && !trusted))) {
-    ESP_LOGI(TAG, "dropping link (%s)", enabled ? "pairing window closed" : "Bluetooth off");
+  // the window closed on a host that never finished pairing, the action that
+  // wanted it is over (on demand), or another host is wanted now.
+  if (connected && (!enabled || !keepLink(mode, pairing, trusted, wanted, peer))) {
+    ESP_LOGI(TAG, "letting the link go");
     ble_gap_terminate(conn, BLE_ERR_REM_USER_CONN_TERM);
   }
 
-  const Adv want = advertising(enabled, pairing, keys.size(), connected);
-  const bool same = want == t_adv && name == t_advName && keys == t_advKeys;
+  const Adv want = advertising(enabled, pairing, keys.size(), connected, mode, wanted.has_value());
+  const bool same = want == t_adv && name == t_advName && accept == t_advKeys;
   if (same && (want == Adv::Off || ble_gap_adv_active())) return;
   if (ble_gap_adv_active()) ble_gap_adv_stop();
   t_adv = Adv::Off;
   if (want == Adv::Off) return;
-  if (startAdvertising(want, name, keys) == 0) {
+  if (startAdvertising(want, name, accept) == 0) {
     t_adv = want;
     t_advName = name;
-    t_advKeys = keys;
+    t_advKeys = accept;
   }
 }
 
 void onKick(ble_npl_event*) { reconcile(); }
+
+void onLingerEnd(ble_npl_event*) { reconcile(); }
 
 void onWindowEnd(ble_npl_event*) {
   ESP_LOGI(TAG, "pairing window closed");
@@ -387,7 +415,15 @@ void onEncrypted(uint16_t conn, int status) {
     g_link.encrypted = d.sec_state.encrypted;
     g_link.bonded = d.sec_state.bonded;
     // One approval, one pairing: close the window once a host has paired.
-    if (d.sec_state.bonded && (!known || repaired)) g_window.close();
+    // Keep the new link a little (its name is read next; a first action may
+    // follow) before on-demand mode lets it go.
+    if (d.sec_state.bonded && (!known || repaired)) {
+      g_window.close();
+      if (!g_demand.target(monoMs())) {
+        g_demand.want(k.addr);
+        g_demand.done(monoMs());
+      }
+    }
   }
   if (!d.sec_state.bonded) return;
   ESP_LOGI(TAG, "%s %s", known && !repaired ? "reconnected" : "paired", formatAddr(k.addr).c_str());
@@ -532,11 +568,12 @@ esp_err_t runForget(const ForgetReq& req) {
 
 }  // namespace
 
-esp_err_t init(const std::string& deviceName, bool enabled) {
+esp_err_t init(const std::string& deviceName, bool enabled, Connect mode) {
   {
     std::lock_guard<std::mutex> lock(g_mu);
     g_name = deviceName;
     g_enabled = enabled;
+    g_mode = mode;
   }
   g_forgetMu = xSemaphoreCreateMutex();
   g_forgetDone = xSemaphoreCreateBinary();
@@ -576,6 +613,7 @@ esp_err_t init(const std::string& deviceName, bool enabled) {
   ble_npl_event_init(&t_kickEv, onKick, nullptr);
   ble_npl_event_init(&t_forgetEv, onForget, nullptr);
   ble_npl_callout_init(&t_windowEnd, nimble_port_get_dflt_eventq(), onWindowEnd, nullptr);
+  ble_npl_callout_init(&t_lingerEnd, nimble_port_get_dflt_eventq(), onLingerEnd, nullptr);
   {
     std::lock_guard<std::mutex> lock(g_mu);
     g_started = true;
@@ -598,6 +636,47 @@ void setName(const std::string& deviceName) {
     g_name = deviceName;
   }
   kick();
+}
+
+void setConnect(Connect mode) {
+  {
+    std::lock_guard<std::mutex> lock(g_mu);
+    g_mode = mode;
+  }
+  kick();
+}
+
+void want(const Addr& host) {
+  {
+    std::lock_guard<std::mutex> lock(g_mu);
+    const auto cur = g_demand.target(monoMs());
+    g_demand.want(host);
+    if (cur == host) return;  // already wanted (polled every 100 ms): nothing to redo
+  }
+  kick();
+}
+
+void done() {
+  {
+    std::lock_guard<std::mutex> lock(g_mu);
+    g_demand.done(monoMs());
+  }
+  kick();
+}
+
+void drop() {
+  {
+    std::lock_guard<std::mutex> lock(g_mu);
+    if (!g_demand.target(monoMs())) return;
+    g_demand.drop();
+  }
+  kick();
+}
+
+std::optional<Addr> linked() {
+  std::lock_guard<std::mutex> lock(g_mu);
+  if (!g_link.trusted()) return std::nullopt;
+  return g_link.peer.addr;
 }
 
 PairResult canPair() {

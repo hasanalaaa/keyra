@@ -1,5 +1,6 @@
 // keyra_ble decisions: advertising mode, pairing gate, window, names, addresses,
 // and the report map shared with USB.
+#include <initializer_list>
 #include <string>
 
 #include "keyra_test.hpp"
@@ -11,14 +12,72 @@ using namespace keyra::ble;
 
 namespace {
 
+constexpr auto kAlways = Connect::Always;
+constexpr auto kOnDemand = Connect::OnDemand;
+const Addr kIpad = {0xA4, 0xC1, 0x38, 0x0B, 0x7F, 0x3A};
+const Addr kMac = {0xF0, 0x2B, 0x7C, 0x41, 0x9A, 0xD3};
+
 void advertisingModes() {
-  CHECK(advertising(false, true, 2, false) == Adv::Off);   // Bluetooth off wins
-  CHECK(advertising(true, false, 0, false) == Adv::Off);   // nobody to reconnect, no window
-  CHECK(advertising(true, false, 1, false) == Adv::BondedOnly);
-  CHECK(advertising(true, true, 0, false) == Adv::Open);
-  CHECK(advertising(true, true, 3, false) == Adv::Open);
-  CHECK(advertising(true, true, 3, true) == Adv::Off);     // one host at a time
-  CHECK(advertising(true, false, 2, true) == Adv::Off);
+  for (Connect m : {kAlways, kOnDemand}) {
+    CHECK(advertising(false, true, 2, false, m, true) == Adv::Off);  // Bluetooth off wins
+    CHECK(advertising(true, true, 0, false, m, false) == Adv::Open);
+    CHECK(advertising(true, true, 3, false, m, true) == Adv::Open);  // the window is open to all
+    CHECK(advertising(true, true, 3, true, m, false) == Adv::Off);   // one host at a time
+    CHECK(advertising(true, false, 2, true, m, true) == Adv::Off);
+    CHECK(advertising(true, false, 1, false, m, true) == Adv::BondedOnly);  // an action waits for a host
+    CHECK(advertising(true, false, 0, false, m, false) == Adv::Off);
+  }
+  // Idle with bonds: Always lets them reconnect, OnDemand stays silent.
+  CHECK(advertising(true, false, 2, false, kAlways, false) == Adv::BondedOnly);
+  CHECK(advertising(true, false, 2, false, kOnDemand, false) == Adv::Off);
+}
+
+void linkKeeping() {
+  // Untrusted links live only inside the pairing window.
+  CHECK(keepLink(kOnDemand, true, false, std::nullopt, kIpad));
+  CHECK(!keepLink(kAlways, false, false, std::nullopt, kIpad));
+  // A waiting action wants one host: any other bonded host makes room.
+  CHECK(keepLink(kOnDemand, false, true, kIpad, kIpad));
+  CHECK(!keepLink(kAlways, false, true, kIpad, kMac));
+  // Idle: OnDemand lets go, Always holds on.
+  CHECK(!keepLink(kOnDemand, false, true, std::nullopt, kIpad));
+  CHECK(keepLink(kAlways, false, true, std::nullopt, kIpad));
+}
+
+// The on-demand life of one action: arm → advertise → connect → press → type
+// → linger → disconnect, and the cancel / expiry paths.
+void onDemandLifecycle() {
+  Demand d;
+  int64_t now = 1000;
+  CHECK(!d.target(now));
+  CHECK(advertising(true, false, 2, false, kOnDemand, d.target(now).has_value()) == Adv::Off);
+
+  d.want(kIpad);  // armed for the iPad
+  CHECK(d.target(now) == kIpad);
+  CHECK(advertising(true, false, 2, false, kOnDemand, true) == Adv::BondedOnly);
+  // The Mac (also bonded) is not wanted: if it were connected it would be dropped.
+  CHECK(!keepLink(kOnDemand, false, true, d.target(now), kMac));
+  // The iPad connects: advertising stops, the link stays for the press.
+  CHECK(advertising(true, false, 2, true, kOnDemand, true) == Adv::Off);
+  CHECK(keepLink(kOnDemand, false, true, d.target(now), kIpad));
+
+  now += 4000;
+  d.done(now);  // typed
+  CHECK(d.target(now + Demand::kLingerMs - 1) == kIpad);  // a quick second action reuses the link
+  CHECK_EQ(d.lingerLeftMs(now), Demand::kLingerMs);
+  CHECK(keepLink(kOnDemand, false, true, d.target(now + 5000), kIpad));
+  CHECK(!d.target(now + Demand::kLingerMs));  // then Keyra lets go
+  CHECK(!keepLink(kOnDemand, false, true, d.target(now + Demand::kLingerMs), kIpad));
+
+  // A second action inside the linger keeps the same link.
+  d.want(kIpad);
+  CHECK(d.target(now + 10 * Demand::kLingerMs) == kIpad);  // armed: no time limit here
+  // Cancelled or expired: no linger, the radio goes quiet at once.
+  d.drop();
+  CHECK(!d.target(now));
+  CHECK_EQ(d.lingerLeftMs(now), 0);
+  d.done(now);  // a late "done" after a drop does not resurrect it
+  CHECK(!d.target(now));
 }
 
 void pairingGate() {
@@ -95,6 +154,8 @@ void reportMapMatchesUsb() {
 
 int main() {
   advertisingModes();
+  linkKeeping();
+  onDemandLifecycle();
   pairingGate();
   window();
   names();

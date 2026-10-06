@@ -4,6 +4,12 @@
 // pairing window that the API opens after a button press; outside it Keyra
 // advertises only to bonded hosts and refuses new pairings.
 //
+// Connect::OnDemand (default): idle Keyra neither advertises nor holds a link;
+// an armed action wants one bonded host (want()), Keyra advertises to that
+// host alone until it connects, and lets go ~20 s after typing (done()) or at
+// once on cancel/expiry (drop()). Connect::Always: bonded hosts may reconnect
+// whenever they are around.
+//
 // Thread-safe: every call may come from any task. Stack operations run on the
 // NimBLE host task; these functions only post to it or read a snapshot.
 #include <array>
@@ -23,6 +29,8 @@ using Addr = std::array<uint8_t, 6>;
 constexpr size_t kMaxBonds = 4;
 constexpr uint32_t kPairingWindowMs = 120000;
 
+enum class Connect { OnDemand, Always };
+
 struct Peer {
   Addr addr{};
   std::string name;      // the host's own GAP device name; empty until read
@@ -39,9 +47,16 @@ struct Status {
 
 // Starts NimBLE once. A failure leaves Bluetooth unavailable (logged); USB
 // typing is unaffected.
-esp_err_t init(const std::string& deviceName, bool enabled);
+esp_err_t init(const std::string& deviceName, bool enabled, Connect mode);
 void setEnabled(bool enabled);              // off: stop advertising, drop the link
 void setName(const std::string& deviceName);
+void setConnect(Connect mode);
+
+// Typing demand (driven by the pending action in keyra_api).
+void want(const Addr& host);  // an action is armed for this bonded host
+void done();                  // typed (or failed): keep the link briefly, then let go
+void drop();                  // cancelled / expired / locked: let go now
+std::optional<Addr> linked(); // the bonded host on an encrypted link, if any
 
 enum class PairResult { Ok, Disabled, BondsFull, Unavailable };
 PairResult canPair();       // checked before arming the button press

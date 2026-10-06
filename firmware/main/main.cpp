@@ -47,10 +47,11 @@ extern "C" void app_main() {
   ESP_ERROR_CHECK(keyra::settings::load());
   const keyra::settings::Settings s = keyra::settings::get();
   keyra::io::brightness(s.ledBrightness);
-  keyra::hid::setOutput(s.output);
   ESP_ERROR_CHECK(keyra::net::start({keyra::settings::ssid(s), s.wifiPassword, 6}, keyra::settings::home(s)));
   // Bluetooth is an extra: if it cannot start, Keyra keeps typing over USB.
-  const esp_err_t be = keyra::ble::init(s.deviceName, s.bleEnabled);
+  const esp_err_t be = keyra::ble::init(
+      s.deviceName, s.bleEnabled,
+      s.bleConnect == keyra::settings::BleConnect::Always ? keyra::ble::Connect::Always : keyra::ble::Connect::OnDemand);
   if (be != ESP_OK) ESP_LOGE(TAG, "Bluetooth unavailable: %s", esp_err_to_name(be));
   ESP_ERROR_CHECK(keyra::api::start());
   ESP_LOGI(TAG, "Keyra up: http://keyra.local (internal heap free %u, largest block %u)",

@@ -4,12 +4,17 @@
 #include <string>
 
 #include "esp_err.h"
-#include "keyra/hid.hpp"
 #include "keyra/net.hpp"
 
 namespace keyra::settings {
 
 enum class Separator : uint8_t { Tab, Enter };
+// Where a new type action goes (SPEC §8.1): Auto = USB when plugged in, else
+// the most recently used Bluetooth device.
+enum class Output : uint8_t { Auto, Usb, Ble };
+// OnDemand: Bluetooth links only while an action needs one (default; an
+// iPhone/iPad hides its on-screen keyboard while a keyboard is connected).
+enum class BleConnect : uint8_t { OnDemand, Always };
 
 struct Settings {
   std::string deviceName = "Keyra";
@@ -21,7 +26,8 @@ struct Settings {
   bool submitAfterBoth = false;
   uint8_t ledBrightness = 50;  // percent
   bool bleEnabled = true;
-  hid::Output output = hid::Output::Auto;
+  Output output = Output::Auto;
+  BleConnect bleConnect = BleConnect::OnDemand;
   // Home network (SPEC §8.2). The password is write-only: never returned by the
   // API and never logged.
   bool homeEnabled = false;

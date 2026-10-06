@@ -59,6 +59,11 @@ void Machine::dropSessionItems() {
   if (kind_ == Kind::Type || sessionOp) clearSlotLocked();
 }
 
+void Machine::setLinkReady(bool ready) {
+  std::lock_guard<std::mutex> lock(mu_);
+  linkReady_ = ready;
+}
+
 Decision Machine::onButton(Button b, bool unlocked) {
   std::lock_guard<std::mutex> lock(mu_);
   const int64_t now = now_();
@@ -71,6 +76,10 @@ Decision Machine::onButton(Button b, bool unlocked) {
       d.commit = std::move(commit_);
       running_ = op_;
       clearSlotLocked();
+    } else if (kind_ == Kind::Type && !typing_ && req_.target.kind == Target::Kind::Ble && !linkReady_) {
+      // Still connecting: typing now could only fail. Keep the action armed.
+      d.effect = Effect::Blink;
+      flashLocked(Indicator::Off, now, kBlinkMs);
     } else if (kind_ == Kind::Type && !typing_) {
       d.effect = Effect::Run;
       d.run = req_;
@@ -178,8 +187,10 @@ Indicator Machine::indicator(bool initialized, bool unlocked, bool blePairing) {
 void Machine::expireLocked(int64_t now) {
   if (kind_ == Kind::None || now < deadline_) return;
   if (kind_ == Kind::Type) {
+    // A Bluetooth host that never showed up is the more useful explanation.
+    const bool noHost = req_.target.kind == Target::Kind::Ble && !linkReady_;
     hasLast_ = true;
-    last_ = {false, Code::Expired, 0, req_.title, req_.what};
+    last_ = {false, noHost ? Code::NoHost : Code::Expired, 0, req_.title, req_.what};
     lastAt_ = deadline_;
   } else {
     recordOpLocked(op_, OpCode::Expired, deadline_);
