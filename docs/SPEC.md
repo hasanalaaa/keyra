@@ -321,3 +321,72 @@ Wi-Fi.
   reply, and Apple/Windows resolvers otherwise wait ~5 s on it — long enough
   for phones on the home network to time out). `via` treats a native IPv6
   request as AP only when its local address is the AP's link-local address.
+
+---
+
+## 9. v1.2 — Generator, typing any text, and Keyra Companion
+
+### 9.1 Password generator (hardware randomness)
+
+Where it lives: a **Generate** button on the main vault screen (top bar, always
+one tap away) opening a generator sheet; the same generator component appears
+inside Add/Edit next to the password field. Rationale: when you sign up or
+change a password on a website you need the new password *before* it is saved
+in Keyra, so generation must not be buried inside "Add account".
+
+- `POST /api/generate` (session) `{length:8..128, lower, upper, digits, symbols:bool, minDigits?, minSymbols?, avoidAmbiguous?:bool, symbolSet?:string}`
+  → `{password, entropyBits}`. Generated **on the device** from the ESP32-S3
+  hardware RNG (`esp_fill_random` with the radio on), uniform per character by
+  rejection sampling, class minimums satisfied by rejecting whole candidates
+  (no positional bias), never logged, never stored until the user saves it.
+  At least one class must be enabled; minimums must fit in the length.
+  Ambiguous set: `0 O o 1 l I | \` ' "`.
+- Sheet actions on the generated password:
+  - **Type it** → `POST /api/type {text}` (§9.2); variant **Type twice**
+    (`{text, repeat:2, separator:"tab"}`) for "confirm password" fields.
+  - **Save** → new account (prefilled password; title/URL/username fields) or
+    **update an existing account** (old password moves to that entry's history).
+  - **Copy**, **Regenerate**; entropy + strength label; last settings remembered
+    per browser.
+
+### 9.2 Type any text (remote keyboard)
+
+`POST /api/type {text, repeat?:1|2, separator?:"tab"|"enter"}` (session) arms a
+pending action exactly like an entry action: one-shot, 60 s, button press
+required, Caps Lock wrap, keys always released. `text` ≤ 256 printable
+characters for the active layout (control characters rejected), wiped from RAM
+after typing/cancel/expiry. Pending shows `{kind:"type", what:"text", title:null}`.
+The UI offers it in the generator and as "Type text…" in the vault menu.
+
+### 9.3 Password history
+
+Each entry keeps up to 10 previous passwords `{password, changedAt}` inside the
+encrypted entry (no plaintext metadata on flash). `PUT /api/entries/{id}` with a
+new `password` pushes the old one. `GET /api/entries/{id}` returns `history`.
+
+### 9.4 Keyra Companion (browser extension)
+
+A Manifest V3 extension (`extension/`, Chrome/Edge/Firefox; Safari via
+`xcrun safari-web-extension-converter`). Needs Keyra reachable from the computer
+(home Wi-Fi mode, or the computer on Keyra's own Wi-Fi).
+
+- **Pairing:** in the extension, enter `keyra.local` (or IP) → `POST /api/ext/pair {name}`
+  → 202 presence op `ext_pair` → after the press the extension receives a
+  bearer token (shown once, stored in `chrome.storage.local`; device keeps a
+  SHA-256 hash; up to 8; listed/revoked in Settings → Companion). Requests
+  carry `Authorization: Bearer <token>`; CORS allows `chrome-extension://*`,
+  `moz-extension://*`, `safari-web-extension://*` origins **only** with a valid
+  token. The vault must be unlocked (else 401 `locked` → the extension links
+  to the web app).
+- **Save prompt (Apple-style):** the content script watches login/sign-up form
+  submissions (password fields, including new-password + confirm), and shows a
+  small in-page card: "Save to Keyra?" — **Save** / **Not now** / **Never for
+  this site**. Save → `POST /api/ext/save {url, username, password}`: creates
+  an entry, or if one matches (same host + username) offers **Update
+  password** (old → history). Never-list is stored in the extension only.
+- **Fill by typing:** a small Keyra badge in username/password fields; click →
+  list of matching entries for the page's host (`POST /api/ext/match {host}` →
+  `{entries:[{id,title,username}]}`, no secrets) → pick one → Keyra arms
+  username/password/both → the user presses the button → Keyra types. The
+  extension never receives stored passwords.
+- Privacy: only the hostname is sent for matching; full URL only on Save.
