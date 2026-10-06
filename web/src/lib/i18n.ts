@@ -14,7 +14,7 @@ const en = {
   busyOther: "Keyra is waiting for another request. Hold its button to cancel it, then try again.",
   busyNow: 'Keyra is busy. Try again in a moment.',
   tooLarge: 'This file is too large for Keyra.',
-  offline: "Lost connection to Keyra. Check your phone is on the Keyra‑XXXX Wi‑Fi.",
+  offline: "Lost connection to Keyra. Check your phone is on Keyra‑XXXX or on the same home Wi‑Fi as Keyra.",
   reconnecting: 'Reconnecting…',
   skipToAccounts: 'Skip to accounts',
 
@@ -350,7 +350,7 @@ const ar: Record<Key, string> = {
   busyOther: 'Keyra ينتظر طلباً آخر. اضغط زرّه مطوّلاً لإلغائه، ثم حاول مجدداً.',
   busyNow: 'Keyra مشغول الآن. حاول بعد لحظة.',
   tooLarge: 'هذا الملف أكبر مما يتّسع له Keyra.',
-  offline: 'انقطع الاتصال بـ Keyra. تأكد أن هاتفك على شبكة Keyra‑XXXX.',
+  offline: 'انقطع الاتصال بـ Keyra. تأكد أن هاتفك على شبكة Keyra‑XXXX أو على نفس شبكة البيت المتصل بها Keyra.',
   reconnecting: 'نعيد الاتصال…',
   skipToAccounts: 'انتقل إلى الحسابات',
 

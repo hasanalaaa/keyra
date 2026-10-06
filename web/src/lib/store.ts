@@ -169,6 +169,8 @@ function nextDelay(): number {
   return 5000;
 }
 
+let stateFailures = 0;
+
 export async function pollNow(): Promise<void> {
   if (inFlight) {
     rerun = true;
@@ -182,8 +184,10 @@ export async function pollNow(): Promise<void> {
     const authed = d.unlocked && d.session && hasCsrf();
     if (state.authed && !authed) becameLocked(d);
     setState({ device: d, deviceAt: sent, online: true });
+    stateFailures = 0;
   } catch {
-    setState({ online: false });
+    // One slow or dropped poll (e.g. right after a Wi-Fi switch) is not an outage.
+    if (++stateFailures >= 2) setState({ online: false });
   } finally {
     inFlight = false;
   }

@@ -316,3 +316,8 @@ Wi-Fi.
   trusted browser replaces the least recently used one. `PUT /api/wifi/home`
   reuses the stored password when re-enabling the same `ssid`. Changing
   `apMode` (`PUT /api/settings`) needs no press; `homeWifi` there is refused.
+- Both interfaces get an IPv6 link-local address so mDNS answers the AAAA
+  question for `keyra.local` immediately (the mdns component sends no negative
+  reply, and Apple/Windows resolvers otherwise wait ~5 s on it — long enough
+  for phones on the home network to time out). `via` treats a native IPv6
+  request as AP only when its local address is the AP's link-local address.

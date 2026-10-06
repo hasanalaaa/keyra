@@ -96,7 +96,9 @@ export interface Awaiting {
 }
 
 export const api = {
-  state: () => json<DeviceState>('GET', '/state', undefined, 6000),
+  // Generous: a phone that just switched networks may need a few seconds to
+  // resolve keyra.local again before the request can even start.
+  state: () => json<DeviceState>('GET', '/state', undefined, 12000),
   setup: (passphrase: string, wifiPassword: string) => json<Awaiting>('POST', '/setup', { passphrase, wifiPassword }),
   /** null = unlocked; Awaiting = this browser must first be trusted with the button (home network, SPEC §8.2). */
   async unlock(passphrase: string): Promise<Awaiting | null> {

@@ -75,6 +75,8 @@ bool g_started = false;
 QueueHandle_t g_q = nullptr;
 Link g_link;
 Config g_ap;
+esp_netif_t* g_apNetif = nullptr;
+esp_netif_t* g_staNetif = nullptr;
 Home g_home;  // what the driver is configured with
 bool g_apOn = false;
 uint8_t g_homeChannel = 0;
@@ -122,9 +124,23 @@ void post(const Msg& m) {
   if (xQueueSend(g_q, &m, 0) != pdTRUE) ESP_LOGE(TAG, "event queue full; dropped event %d", int(m.ev));
 }
 
+// Apple and Windows resolvers ask mDNS for both A and AAAA for "keyra.local"
+// and wait ~5 s on the AAAA question when nobody answers it (the mdns component
+// sends no negative/NSEC reply). A link-local IPv6 address on each interface
+// lets mDNS answer both at once, so the name resolves instantly.
+void addLinkLocal(esp_netif_t* netif, const char* which) {
+  const esp_err_t err = esp_netif_create_ip6_linklocal(netif);
+  if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) ESP_LOGW(TAG, "%s IPv6 link-local: %s", which, esp_err_to_name(err));
+}
+
 void onEvent(void*, esp_event_base_t base, int32_t id, void* data) {
   Msg m;
+  if (base == WIFI_EVENT && id == WIFI_EVENT_AP_START) {
+    addLinkLocal(g_apNetif, "AP");
+    return;
+  }
   if (base == WIFI_EVENT && id == WIFI_EVENT_STA_CONNECTED) {
+    addLinkLocal(g_staNetif, "home");
     m.ev = Ev::StaConnected;
     m.channel = static_cast<const wifi_event_sta_connected_t*>(data)->channel;
   } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
@@ -408,8 +424,10 @@ esp_err_t start(const Config& c, const Home& home) {
   ESP_RETURN_ON_ERROR(esp_netif_init(), TAG, "netif init");
   const esp_err_t loop = esp_event_loop_create_default();
   ESP_RETURN_ON_FALSE(loop == ESP_OK || loop == ESP_ERR_INVALID_STATE, loop, TAG, "event loop");
-  ESP_RETURN_ON_FALSE(esp_netif_create_default_wifi_ap() != nullptr, ESP_FAIL, TAG, "ap netif");
+  g_apNetif = esp_netif_create_default_wifi_ap();
+  ESP_RETURN_ON_FALSE(g_apNetif != nullptr, ESP_FAIL, TAG, "ap netif");
   esp_netif_t* sta = esp_netif_create_default_wifi_sta();
+  g_staNetif = sta;
   ESP_RETURN_ON_FALSE(sta != nullptr, ESP_FAIL, TAG, "sta netif");
   // How Keyra shows up in the router's client list.
   if (esp_netif_set_hostname(sta, "keyra") != ESP_OK) ESP_LOGW(TAG, "DHCP hostname not set");
@@ -519,7 +537,14 @@ Via viaForSocket(int fd) {
   socklen_t len = sizeof ss;
   if (fd < 0 || getsockname(fd, reinterpret_cast<sockaddr*>(&ss), &len) != 0) return Via::Home;
   if (ss.ss_family == AF_INET) return classify(ntohl(reinterpret_cast<const sockaddr_in*>(&ss)->sin_addr.s_addr));
-  if (ss.ss_family == AF_INET6) return classify(fromV4Mapped(reinterpret_cast<const sockaddr_in6*>(&ss)->sin6_addr.s6_addr));
+  if (ss.ss_family == AF_INET6) {
+    const uint8_t* a = reinterpret_cast<const sockaddr_in6*>(&ss)->sin6_addr.s6_addr;
+    if (const uint32_t v4 = fromV4Mapped(a)) return classify(v4);
+    // Native IPv6 (link-local): it came in on the AP only if it is the AP's own address.
+    esp_ip6_addr_t ap{};
+    if (g_apNetif && esp_netif_get_ip6_linklocal(g_apNetif, &ap) == ESP_OK && std::memcmp(ap.addr, a, 16) == 0)
+      return Via::Ap;
+  }
   return Via::Home;
 }
 
