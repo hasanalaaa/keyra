@@ -17,6 +17,7 @@ constexpr Color kBlue{0.0f, 0.25f, 1.0f};
 constexpr Color kViolet{0.6f, 0.0f, 1.0f};
 constexpr Color kWhite{1.0f, 1.0f, 1.0f};
 constexpr Color kAmber{1.0f, 0.5f, 0.0f};
+constexpr Color kCyan{0.0f, 0.8f, 1.0f};
 
 // Smooth 0..1..0 over one period, starting dark.
 float wave(uint32_t t, uint32_t periodMs) {
@@ -42,6 +43,7 @@ Level levelFor(Pattern p, uint32_t t) {
     case Pattern::Success:       return {kGreen, flash(t)};
     case Pattern::Error:         return {kRed, flash(t)};
     case Pattern::Setup:         return {kAmber, 0.08f + 0.62f * wave(t, 3000)};
+    case Pattern::Pairing:       return {kCyan, 0.1f + 0.9f * wave(t, 1200)};  // Bluetooth pairing window
   }
   return {kWhite, 0.0f};
 }

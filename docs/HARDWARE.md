@@ -39,10 +39,11 @@ PSRAM, so they are not available for other uses.
 | Dim red, slow breathing | Locked |
 | Brief soft green blink every 4 s | Unlocked and idle |
 | Blue, pulsing | A typing action is ready and waiting for the button |
-| Violet, pulsing | Waiting for a button press to approve setup, a Wi-Fi change, a replacing restore or a factory reset |
+| Violet, pulsing | Waiting for a button press to approve setup, a Wi-Fi change, Bluetooth pairing, a replacing restore or a factory reset |
+| Cyan, pulsing | Bluetooth pairing window open (up to 2 minutes): pick Keyra in your device's Bluetooth settings |
 | White, steady | Typing |
 | Green flash | Typed successfully |
-| Red flash | Error (expired, no USB host, character not typable) |
+| Red flash | Error (expired, nothing connected to type into, character not typable) |
 | Amber, slow breathing | First-time setup |
 
 Exact patterns are defined in `firmware/components/keyra_io/` and are the source of truth.
@@ -56,7 +57,23 @@ Most ESP32-S3-DevKitC-1 boards have two USB-C connectors:
 | **USB** | the S3's native USB (GPIO19/20) | **Plug this into the computer you want Keyra to type into.** Also usable for flashing. |
 | **UART** | a USB-to-serial bridge (CP210x) | Flashing and the serial console. Does not make Keyra a keyboard. |
 
-Power through either port. Keyra only types through the **USB** port.
+Power through either port. Over a cable, Keyra only types through the **USB** port.
+
+## Bluetooth
+
+The ESP32-S3's radio also runs Bluetooth LE, so Keyra can type into phones,
+tablets and computers without a cable (pair it from **Settings → Bluetooth** in
+the app). No extra hardware is needed. Notes:
+
+- Wi-Fi (Keyra's access point) and Bluetooth share one 2.4 GHz radio and antenna.
+  The firmware enables ESP-IDF software coexistence, which time-shares the radio,
+  so Wi-Fi throughput can drop while Bluetooth is busy.
+- Bluetooth adds about 220 KB to the firmware image (still under half of the
+  3 MB app slot) and roughly 25 KB of static RAM, plus the Bluetooth controller's
+  heap at run time. It works without PSRAM; the boot log prints the free internal
+  heap ("Keyra up … internal heap free").
+- Turning Bluetooth off in the app stops advertising and drops the link; the
+  Bluetooth stack itself stays loaded.
 
 ## Flashing
 
@@ -165,3 +182,8 @@ you have locked.
 | macOS shows "Keyboard Setup Assistant" | Expected the first time any new keyboard connects; closing it is fine. Keyra types US layout regardless of the answer you choose. |
 | LED is the wrong colour or dark | Your board is probably v1.0: set `KEYRA_LED_GPIO` to 48 and rebuild. |
 | Board stuck in download mode after reset | BOOT (GPIO0) was held low at reset. Release it and reset again. |
+| Keyra does not appear in a phone's Bluetooth list | Open the pairing window first (**Settings → Bluetooth → Pair a new device**, then press the button; LED pulses cyan). Outside the window Keyra is invisible to new devices. |
+| A paired device stopped connecting | Forget Keyra on that device and forget the device in Keyra's app, then pair again. |
+| "Pair a new device" is greyed out | Keyra remembers up to 4 devices. Forget one first. |
+| iPhone/iPad on-screen keyboard disappeared | iOS hides it while a hardware keyboard is connected. With **Connect: When typing** (default) Keyra lets go about 20 s after typing; with **Always** set it back to When typing, or tap the keyboard button at the bottom of the screen. |
+| Ready says "Connecting to …" for a long time | The chosen device is off, asleep with Bluetooth off, or out of range. Wake it and keep it near Keyra; after 60 s the action ends with "Nothing to type into". |

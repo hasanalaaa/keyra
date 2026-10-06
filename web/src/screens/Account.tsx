@@ -1,8 +1,9 @@
 // Account detail (DESIGN §5.5): type actions → Ready, copy, reveal, TOTP, favorite, edit.
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Icon } from '../components/Icon';
-import { Button, ColoredSecret, CopyButton, IconButton, MiniRing, Monogram } from '../components/ui';
-import { ErrorCard, Ready, UsbNotice } from '../components/Ready';
+import { Button, ColoredSecret, CopyButton, IconButton, MiniRing, Monogram, Segmented } from '../components/ui';
+import { ErrorCard, HostNotice, Ready, readyText } from '../components/Ready';
+import { defaultTarget, deviceLabel, storeTarget, storedTarget, validTarget } from '../lib/ble';
 import { ApiError, api } from '../lib/api';
 import { useTypeAction, type ErrorCode } from '../lib/actions';
 import { copyText } from '../lib/clipboard';
@@ -26,6 +27,9 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
   const [entry, setEntry] = useState<Entry | null>(null);
   const [missing, setMissing] = useState(false);
   const action = useTypeAction(id);
+  const [, setPicked] = useState(0); // re-render after the picker stores a choice
+  const chosen = validTarget(storedTarget(), app.ble);
+  const startAction = (what: TypeWhat) => void action.start(what, chosen ?? undefined);
   const totpRef = useRef<Totp | null>(null);
 
   useEffect(() => {
@@ -77,23 +81,36 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
         state={phase.kind}
         deadline={phase.kind === 'ready' ? phase.deadline : 0}
         total={phase.kind === 'ready' ? phase.total : 60000}
-        title={t('readyTitle')}
-        body={t('readyBody')}
+        {...readyText(app.device, t('readyBody'))}
         chip={
           <>
             {t(CHIP[what])} · <bdi>{e.title}</bdi>
           </>
         }
-        notice={app.device && !app.device.host.usb ? <UsbNotice /> : undefined}
+        notice={app.device ? <HostNotice device={app.device} ble={app.ble} /> : undefined}
         onCancel={() => void action.cancel()}
       />
     );
   } else if (phase.kind === 'error') {
-    area = <ActionError code={phase.code} retry={() => void action.start(what as TypeWhat)} copy={() => copyValue(valueFor(what))} edit={() => go(`/a/${id}/edit`)} close={action.dismiss} />;
+    area = <ActionError code={phase.code} retry={() => startAction(what as TypeWhat)} copy={() => copyValue(valueFor(what))} edit={() => go(`/a/${id}/edit`)} close={action.dismiss} />;
   } else {
     area = (
       <div class="actions">
-        <button type="button" class="act-both" disabled={!e.hasPassword} onClick={() => void action.start('both')}>
+        {app.ble?.enabled && app.ble.bonds.length > 0 && (
+          <div class="target-picker">
+            <span class="caption">{t('typeInto')}</span>
+            <Segmented<string>
+              label={t('typeInto')}
+              options={[{ value: 'usb', label: 'USB' }, ...app.ble.bonds.map((b) => ({ value: b.addr, label: deviceLabel(b, t('bleDevice')) }))]}
+              value={chosen ?? defaultTarget(app.device?.host.output ?? null, app.ble)}
+              onChange={(v) => {
+                storeTarget(v);
+                setPicked((n) => n + 1);
+              }}
+            />
+          </div>
+        )}
+        <button type="button" class="act-both" disabled={!e.hasPassword} onClick={() => startAction('both')}>
           <span class="both-icons" aria-hidden="true">
             <Icon name="user" size={24} />
             <Icon name="key-round" size={24} />
@@ -104,10 +121,10 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
           </span>
         </button>
         <div class="act-pair">
-          <ActionTile icon="user" label={t('username')} disabled={!e.username} onType={() => void action.start('username')} copy={() => entry?.username ?? ''} />
-          <ActionTile icon="key-round" label={t('password')} disabled={!e.hasPassword} onType={() => void action.start('password')} copy={() => entry?.password ?? ''} />
+          <ActionTile icon="user" label={t('username')} disabled={!e.username} onType={() => startAction('username')} copy={() => entry?.username ?? ''} />
+          <ActionTile icon="key-round" label={t('password')} disabled={!e.hasPassword} onType={() => startAction('password')} copy={() => entry?.password ?? ''} />
         </div>
-        {e.hasTotp && <CodeCard id={id} onType={() => void action.start('totp')} codeRef={totpRef} timeValid={app.device?.timeValid ?? true} />}
+        {e.hasTotp && <CodeCard id={id} onType={() => startAction('totp')} codeRef={totpRef} timeValid={app.device?.timeValid ?? true} />}
         <p class="helper-line">{e.hasPassword ? t('helper') : t('noPassword')}</p>
       </div>
     );
@@ -158,6 +175,8 @@ function ActionTile({ icon, label, disabled, onType, copy }: { icon: 'user' | 'k
 function ActionError({ code, retry, copy, edit, close }: { code: ErrorCode; retry: () => void; copy: () => void; edit: () => void; close: () => void }) {
   if (code === 'no_usb')
     return <ErrorCard icon="usb" tone="warn" title={t('errNoUsbTitle')} body={t('errNoUsbBody')} primary={{ label: t('tryAgain'), run: retry }} ghost={{ label: t('copyInstead'), run: copy }} />;
+  if (code === 'no_host')
+    return <ErrorCard icon="bluetooth" tone="warn" title={t('errNoHostTitle')} body={t('errNoHostBody')} primary={{ label: t('tryAgain'), run: retry }} ghost={{ label: t('copyInstead'), run: copy }} />;
   if (code === 'expired')
     return <ErrorCard icon="clock" tone="warn" title={t('errExpiredTitle')} body={t('errExpiredBody')} primary={{ label: t('tryAgain'), run: retry }} ghost={{ label: t('close'), run: close }} />;
   if (code === 'unsupported_char')

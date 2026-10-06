@@ -13,6 +13,7 @@ where it does not. If you find a problem, see [Reporting a vulnerability](#repor
 | Can other devices on my home network reach Keyra? | Only if you turn on home Wi-Fi. They can load the page, but unlocking from a new browser there also needs a press of Keyra's button. |
 | Can malware on the computer make Keyra type? | No. Every typing action needs a physical button press. |
 | Can malware on the computer read the vault? | Not through Keyra. It sees only what is typed into it, like any keyboard input. |
+| Can a stranger pair with Keyra over Bluetooth? | Only during a 2-minute window you open with a button press, and only Just Works pairing (no code). See [Bluetooth](#bluetooth). |
 | Is there a secure element? | No. |
 | Is flash encryption or secure boot on by default? | No. They are optional and irreversible; see [docs/HARDWARE.md](docs/HARDWARE.md). |
 
@@ -171,9 +172,56 @@ runs PBKDF2 elsewhere. Only passphrase strength does.
 
 Nothing is typed without a button press, and the press must happen within 60
 seconds of the request. Setup, Wi-Fi credential changes, joining, changing or
-leaving the home network, trusting a browser on the home network, a replacing
-restore and factory reset also need a button press. The button is GPIO0 (the BOOT button),
+leaving the home network, trusting a browser on the home network, opening the
+Bluetooth pairing window, a replacing restore and factory reset also need a button press. The button is GPIO0 (the BOOT button),
 and the firmware never restarts while it is held low, to avoid latching ROM download mode.
+
+## Bluetooth
+
+Keyra can also type as a Bluetooth LE keyboard (HID over GATT, NimBLE). The
+same button rule applies: nothing is typed over Bluetooth without a press.
+
+**How pairing is gated.**
+
+- A new device can pair only inside a **120-second window** that opens after an
+  authenticated request (`POST /api/ble/pair`) *and* a press of Keyra's button.
+  The LED pulses cyan while it is open. The window closes early as soon as one
+  device has paired, when the vault is locked, and when Bluetooth is switched off.
+- Outside the window Keyra is not discoverable. It advertises only for paired
+  devices (by default only while an action waits for one, and then for that
+  device alone), with a filter accept list in the radio controller, so only
+  those devices can scan or connect. Their identity keys are in the
+  controller's resolving list, so phones with rotating private addresses still match.
+  The firmware checks the same rule again in software when a link comes up, refuses
+  a paired device asking for new keys (re-pairing) outside the window, and removes
+  any bond that appears outside the window.
+- Pairing uses **LE Secure Connections only** (legacy pairing is refused) with
+  bonding. Keys are stored in NVS. At most **4** devices; when full, Keyra refuses
+  new pairings instead of silently forgetting an old device, and you forget one in
+  the app (`DELETE /api/ble/bonds/{addr}`). Factory reset forgets all of them.
+- Every HID characteristic (report map, keystrokes, LED report) requires an
+  encrypted link, and Keyra sends keystrokes only to a **bonded** device on an
+  encrypted link that has subscribed to keyboard reports.
+
+**What it does not protect against.**
+
+- **Man-in-the-middle during the pairing window.** Keyra has no screen or
+  keypad, so pairing is "Just Works": it is encrypted but not authenticated. An
+  attacker in radio range during those 2 minutes could pair a device of their own,
+  or relay between Keyra and your device. If that happens they receive what Keyra
+  types to that bond. Mitigations: the window is short, needs the button and an
+  unlocked session, closes after the first pairing, and the app lists every paired
+  device with its name so an unexpected one stands out. Pair in a place where you
+  can see who is around, and forget anything you do not recognise.
+- **A paired device that is compromised.** It receives the keystrokes you send
+  it, exactly like a USB computer would. Forget devices you no longer use.
+- **Radio tracking.** When it advertises, Keyra uses its fixed public Bluetooth
+  address, so a nearby scanner can tell the same device is around. With the
+  default **Connect: When typing** it advertises only while an action waits for
+  a host (and during pairing); with **Always** it advertises whenever it has
+  paired devices. Turn Bluetooth off in Settings if that matters to you.
+- **The device name a host reports** (shown in the app) is chosen by that host
+  and cannot be trusted as proof of identity.
 
 ## Optional hardening (not enabled by default)
 

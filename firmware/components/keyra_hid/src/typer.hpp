@@ -1,5 +1,5 @@
 #pragma once
-// Typing engine. Pure C++ over a Transport so the safety rules (release on
+// Typing engine. Pure C++ over a Transport (USB or BLE) so the safety rules (release on
 // every exit, abort on first failure, Caps Lock wrap, busy) are host-tested.
 #include <atomic>
 #include <cstdint>
@@ -28,17 +28,16 @@ class Typer {
   static constexpr uint32_t kCapsHoldMs = 150;
   static constexpr int kReleaseAttempts = 3;
 
-  explicit Typer(Transport& t) : t_(t) {}
-
-  Result type(const char* text, const Options& opt);
-  Result tap(uint8_t keycode, const Options& opt);
+  // The transport is per call (USB or BLE); `busy` spans both, so only one
+  // typing operation runs at a time whichever host it targets.
+  Result type(Transport& t, const char* text, const Options& opt);
+  Result tap(Transport& t, uint8_t keycode, const Options& opt);
 
  private:
-  Result run(const char* text, uint8_t tapKeycode, const Options& opt);
-  bool stroke(uint8_t modifier, uint8_t keycode, uint32_t holdMs, uint32_t gapMs);
-  bool releaseAll();
+  Result run(Transport& t, const char* text, uint8_t tapKeycode, const Options& opt);
+  static bool stroke(Transport& t, uint8_t modifier, uint8_t keycode, uint32_t holdMs, uint32_t gapMs);
+  static bool releaseAll(Transport& t);
 
-  Transport& t_;
   std::atomic<bool> busy_{false};
 };
 

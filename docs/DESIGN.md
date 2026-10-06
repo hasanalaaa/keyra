@@ -503,6 +503,7 @@ morph/ripple/scale; ring colour change + check appear instantly, same 1.9 s dwel
 | typed | `Success` | green `#22C55E` 100 % for 700 ms then off |
 | expired / no_usb / failed | `Error` | red `#EF4444` three blinks, 150 ms on / 150 ms off |
 | cancelled | `Idle` | off |
+| Bluetooth pairing window (Settings → Bluetooth) | `Pairing` | cyan, sinusoidal breathe, period 1200 ms, up to 120 s |
 Brightness follows Settings → LED brightness. If the firmware differs, change the UI constants `--d-breath` and
 colours — the structure stays.
 
@@ -703,7 +704,7 @@ slim glass "Ready · GitHub" pill (tap returns to the sheet). Star toggles `PUT 
 | **Ready** title | جاهز — اضغط زرّ Keyra | Ready — press Keyra's button |
 | ready body | انقر على خانة الدخول في الكمبيوتر، ثم اضغط الزر. | Click the login field on your computer, then press the button. |
 | ready chips | كلمة المرور · {title} / الاثنان · {title} / اسم المستخدم · {title} / رمز التحقق · {title} | Password · {title} / Both · {title} / Username · {title} / Code · {title} |
-| ready no-USB notice | Keyra غير موصول بكمبيوتر حتى الآن. | Keyra isn't plugged into a computer yet. |
+| ready target notice | Keyra غير متصل بعد — وصّله بمنفذ USB أو اربط جهازاً مقترناً عبر البلوتوث. / سيكتب عبر البلوتوث في {name} | Keyra isn't connected yet — plug it in, or connect a paired Bluetooth device. / Types via Bluetooth — {name} |
 | ready footer | أو اضغط الزر مطوّلاً ثانيتين للإلغاء. | Or hold the button for 2 seconds to cancel. |
 | cancel | إلغاء | Cancel |
 | typing | جارٍ الكتابة… | Typing… |
@@ -822,6 +823,13 @@ range with firmware; UI never offers 0 so the "ready" light can't be turned off)
 | | Between fields (segmented) | بين الخانتين: Tab · Enter | Between fields: Tab · Enter |
 | | Submit after both (switch) | اضغط Enter بعد الاثنين | Press Enter after both |
 | | Type test (button) | اختبار الكتابة | Type test |
+| Bluetooth | On/off (switch) | لوحة مفاتيح بلوتوث | Bluetooth keyboard |
+| | Type into (segmented) | الكتابة في: تلقائي · USB · بلوتوث | Type into: Auto · USB · Bluetooth |
+| | Connect (segmented, footer explains the iOS on-screen keyboard) | الاتصال: عند الكتابة · دائماً | Connect: When typing · Always |
+| Account sheet | Type into (segmented above the actions: USB · each paired device; remembered per browser) | الكتابة في | Type into |
+| Ready | while `host.connecting` | جارٍ الاتصال بـ {name}… | Connecting to {name}… |
+| | Paired devices (rows: name, "Connected"/"Last used {date}", forget) | متصل · آخر استخدام {date} · إلغاء الإقران | Connected · Last used {date} · Forget |
+| | Pair a new device (sheet: Ready for the button → Ready "Now pick “{name}” in your phone or computer’s Bluetooth settings", 120 s ring → "Paired") | إقران جهاز جديد | Pair a new device |
 | Light | LED brightness (slider) | سطوع ضوء Keyra | Keyra light brightness |
 | Appearance | Language (segmented) | اللغة: تلقائي · العربية · English | Language: Auto · العربية · English |
 | | Theme (segmented) | المظهر: تلقائي · فاتح · داكن | Appearance: Auto · Light · Dark |

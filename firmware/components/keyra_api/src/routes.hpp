@@ -1,6 +1,7 @@
 #pragma once
 // Request classification (SPEC §5): API routes, captive probes, own-host check.
 // Pure functions, host-tested.
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string_view>
@@ -14,12 +15,14 @@ enum class Route {
   ListEntries, CreateEntry, ImportEntries, GetEntry, UpdateEntry, DeleteEntry, EntryTotp,
   Type, TypeCancel, GetSettings, PutSettings, Passphrase, Backup, Restore, FactoryReset,
   WifiScan, WifiHome, ListTrusted, DeleteTrusted,
+  GetBle, BlePair, BleForget,
 };
 
 struct Match {
   enum class Kind { Found, NotFound, MethodNotAllowed } kind = Kind::NotFound;
   Route route = Route::State;
   uint32_t id = 0;  // entry and trusted-browser routes
+  std::array<uint8_t, 6> addr{};  // BleForget: the bond's address
 };
 
 // `path` is the URI path without query string, e.g. "/api/entries/42/totp".

@@ -10,7 +10,11 @@
 #include <optional>
 #include <string>
 
+#include "target.hpp"
+
 namespace keyra::actions {
+
+using api::Target;
 
 constexpr int64_t kExpiryMs = 60000;
 constexpr int64_t kFlashMs = 1500;  // Success/Error LED after a finished action
@@ -19,16 +23,20 @@ constexpr int64_t kBlinkMs = 150;   // "nothing to do" acknowledgement
 enum class What { Username, Password, Both, Totp, Test };
 // HomeWifi: join/change/leave the home network (session). TrustBrowser: approve a
 // browser that unlocks through the home network (no session yet, SPEC §8.2).
-enum class Op { Setup, Wifi, RestoreReplace, FactoryReset, HomeWifi, TrustBrowser };
-enum class Code { Typed, Cancelled, Expired, NoUsb, UnsupportedChar, Failed };
+// BlePair: open the Bluetooth pairing window (session, SPEC §8.1).
+enum class Op { Setup, Wifi, RestoreReplace, FactoryReset, HomeWifi, TrustBrowser, BlePair };
+// NoUsb: output is USB-only and no computer is plugged in. NoHost: nothing
+// connected on the selected output (auto or Bluetooth).
+enum class Code { Typed, Cancelled, Expired, NoUsb, NoHost, UnsupportedChar, Failed };
 enum class Button { Short, Long };
-enum class Indicator { Setup, Locked, Idle, Pending, Typing, AwaitPresence, Success, Error, Off };
+enum class Indicator { Setup, Locked, Idle, Pending, Typing, AwaitPresence, Success, Error, Off, Pairing };
 
 struct TypeRequest {
   uint32_t id = 0;  // 0 for the test string
   std::string title;
   What what = What::Username;
   bool submit = false;
+  Target target;  // chosen when armed; a Bluetooth host must connect before the press counts
 };
 
 struct Pending {
@@ -88,6 +96,10 @@ class Machine {
   // Lock ends every session, so items armed through a session must not outlive it.
   void dropSessionItems();
 
+  // Whether the armed action's Bluetooth host is connected and ready. Until it
+  // is, a short press does nothing (the action stays armed) and expiry
+  // reports no_host instead of expired.
+  void setLinkReady(bool ready);
   Decision onButton(Button b, bool unlocked);
   void typingFinished(const TypeRequest& req, Code code);
   void commitFinished(bool ok);
@@ -96,7 +108,9 @@ class Machine {
   std::optional<Result> last();
   std::optional<Presence> presence();
   std::optional<OpResult> opResult();
-  Indicator indicator(bool initialized, bool unlocked);
+  // `blePairing`: the Bluetooth pairing window is open. It shows only when
+  // nothing more urgent (a prompt, typing, a result flash) does.
+  Indicator indicator(bool initialized, bool unlocked, bool blePairing);
 
  private:
   enum class Kind { None, Type, Presence };
@@ -113,6 +127,7 @@ class Machine {
   Commit commit_;
   int64_t deadline_ = 0;
   bool typing_ = false;
+  bool linkReady_ = false;
   std::optional<Op> running_;
   bool hasLast_ = false;
   Result last_;

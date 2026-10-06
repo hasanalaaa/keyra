@@ -7,7 +7,7 @@
 namespace keyra::io {
 
 enum class Button { Short, Long };
-enum class Led { Off, Locked, Idle, Pending, Typing, Success, Error, AwaitPresence, Setup };
+enum class Led { Off, Locked, Idle, Pending, Typing, Success, Error, AwaitPresence, Setup, Pairing };
 
 void init();                                   // LED + button task
 bool nextButton(Button& out, TickType_t wait); // event queue

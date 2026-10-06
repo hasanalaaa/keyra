@@ -12,6 +12,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "keyra/ble.hpp"
 #include "keyra/hid.hpp"
 #include "keyra/io.hpp"
 #include "keyra/net.hpp"
@@ -30,14 +31,19 @@ using actions::What;
 
 TaskHandle_t g_typeTask = nullptr;
 actions::TypeRequest g_job;  // written by the actions task only while no job runs
+std::atomic<bool> g_typing{false};
+bool g_bleArmed = false;  // actions task only: an armed action asked keyra_ble for its host
+
+using Kind = Target::Kind;
 std::atomic<int64_t> g_netAt{0};
 
 void fillRandom(uint8_t* p, size_t n) { esp_fill_random(p, n); }
 
-Code fromHid(hid::Result r) {
+Code fromHid(hid::Result r, const hid::Options& o) {
   switch (r) {
     case hid::Result::Ok: return Code::Typed;
-    case hid::Result::NotMounted: return Code::NoUsb;
+    case hid::Result::NotMounted:  // the chosen host went away mid-job
+      return o.via == hid::Host::Usb ? Code::NoUsb : Code::NoHost;
     case hid::Result::Unsupported: return Code::UnsupportedChar;
     case hid::Result::Busy:
     case hid::Result::Failed: return Code::Failed;
@@ -56,6 +62,7 @@ io::Led toLed(actions::Indicator i) {
     case actions::Indicator::Success: return io::Led::Success;
     case actions::Indicator::Error: return io::Led::Error;
     case actions::Indicator::Off: return io::Led::Off;
+    case actions::Indicator::Pairing: return io::Led::Pairing;
   }
   return io::Led::Off;
 }
@@ -65,14 +72,27 @@ io::Led toLed(actions::Indicator i) {
 Code typeOne(const std::string& text, const hid::Options& o) {
   if (text.empty()) return Code::Failed;
   if (!hid::typeable(text.c_str())) return Code::UnsupportedChar;
-  return fromHid(hid::typeText(text.c_str(), o));
+  return fromHid(hid::typeText(text.c_str(), o), o);
 }
 
+bool bleReadyFor(const BtAddr& addr) { return hid::bleConnected() && ble::linked() == addr; }
+
 Code runJob(const actions::TypeRequest& job) {
-  if (!hid::mounted()) return Code::NoUsb;
+  // The computer was chosen when the action was armed: every part of this
+  // job (username, Tab, password, Enter) goes to it even if a cable is
+  // plugged in halfway.
+  switch (job.target.kind) {
+    case Kind::None: return Code::NoHost;
+    case Kind::Usb:
+      if (!hid::mounted()) return Code::NoUsb;
+      break;
+    case Kind::Ble:
+      if (!bleReadyFor(job.target.addr)) return Code::NoHost;
+      break;
+  }
   const settings::Settings s = settings::get();
-  const hid::Options o{s.keyDelayMs};
-  if (job.what == What::Test) return fromHid(hid::typeText(kTestString, o));
+  const hid::Options o{s.keyDelayMs, job.target.kind == Kind::Ble ? hid::Host::Ble : hid::Host::Usb};
+  if (job.what == What::Test) return fromHid(hid::typeText(kTestString, o), o);
 
   vault::Entry e;
   if (vault::get(job.id, e) != vault::Status::Ok) return Code::Failed;
@@ -87,7 +107,7 @@ Code runJob(const actions::TypeRequest& job) {
       }
       c = typeOne(e.username, o);
       if (c == Code::Typed)
-        c = fromHid(hid::tapKey(s.bothSeparator == settings::Separator::Enter ? hid::KEY_ENTER : hid::KEY_TAB, o));
+        c = fromHid(hid::tapKey(s.bothSeparator == settings::Separator::Enter ? hid::KEY_ENTER : hid::KEY_TAB, o), o);
       if (c == Code::Typed) c = typeOne(e.password, o);
       break;
     case What::Totp: {
@@ -99,7 +119,7 @@ Code runJob(const actions::TypeRequest& job) {
     case What::Test: break;
   }
   vault::wipe(e);
-  if (c == Code::Typed && job.submit) c = fromHid(hid::tapKey(hid::KEY_ENTER, o));
+  if (c == Code::Typed && job.submit) c = fromHid(hid::tapKey(hid::KEY_ENTER, o), o);
   if (c == Code::Typed) {
     const int64_t now = unixSecondsOrZero();
     if (now != 0 && vault::touch(job.id, now) != vault::Status::Ok) ESP_LOGW(TAG, "touch failed");
@@ -113,6 +133,9 @@ void typeTask(void*) {
     const actions::TypeRequest job = g_job;
     const Code c = runJob(job);
     ESP_LOGI(TAG, "type %s: %s", actions::whatName(job.what), actions::codeName(c));
+    // Keep the Bluetooth link a little for a quick second action, then let go.
+    if (job.target.kind == Kind::Ble) ble::done();
+    g_typing = false;
     machine().typingFinished(job, c);
     sessions().activity(monoMs());
   }
@@ -125,6 +148,8 @@ void onButton(io::Button b) {
   switch (d.effect) {
     case actions::Effect::Run:
       g_job = d.run;
+      g_typing = true;
+      g_bleArmed = false;  // the job owns the link now; typeTask releases it
       xTaskNotifyGive(g_typeTask);
       break;
     case actions::Effect::Approve: {
@@ -160,15 +185,34 @@ void maybeReconfigureNet() {
   if (err != ESP_OK) ESP_LOGE(TAG, "AP reconfigure failed: %s", esp_err_to_name(err));
 }
 
+// Keeps keyra_ble's demand in step with the armed action: ask for its host
+// while it waits, let go at once when it is cancelled, expires or is replaced.
+void syncBleDemand() {
+  const auto p = machine().pending();
+  if (p && p->req.target.kind == Kind::Ble) {
+    ble::want(p->req.target.addr);
+    machine().setLinkReady(bleReadyFor(p->req.target.addr));
+    g_bleArmed = true;
+  } else if (g_bleArmed && !g_typing) {
+    ble::drop();
+    g_bleArmed = false;
+  }
+}
+
 void actionsTask(void*) {
   bool first = true;
   io::Led shown = io::Led::Off;
   for (;;) {
     io::Button b;
-    if (io::nextButton(b, pdMS_TO_TICKS(100))) onButton(b);
+    syncBleDemand();
+    const bool pressed = io::nextButton(b, pdMS_TO_TICKS(100));
+    if (pressed) {
+      syncBleDemand();  // the link may have come up while we waited
+      onButton(b);
+    }
     maybeAutoLock();
     maybeReconfigureNet();
-    const io::Led want = toLed(machine().indicator(vault::initialized(), vault::unlocked()));
+    const io::Led want = toLed(machine().indicator(vault::initialized(), vault::unlocked(), ble::pairing()));
     if (first || want != shown) {
       io::led(want);
       shown = want;
@@ -205,6 +249,8 @@ void lockAll() {
   vault::lock();
   sessions().clear();
   machine().dropSessionItems();
+  // Locking means "I'm walking away": no new host may pair after that.
+  ble::closePairing();
 }
 
 void reconfigureNetSoon() { g_netAt = monoMs() + kNetDelayMs; }
