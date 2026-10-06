@@ -209,6 +209,10 @@
   font-size:var(--fs-headline); font-weight:600; transition:transform var(--d-fast) var(--ease-out);
 }
 .source-card:active { transform:scale(.97); }
+.source-wide { grid-column:1 / -1; min-block-size:0; flex-direction:row; align-items:center; gap:var(--s-3); color:var(--accent); }
+.source-wide .source-name { flex:1; color:var(--text); }
+.qr-list li { display:flex; flex-direction:column; white-space:normal; }
+.qr-tag { color:var(--accent); }
 .source-name { line-height:1.3; }
 @media (hover:hover) { .source-card:hover { background:var(--surface-2); } }
 .howto { counter-reset:step; display:flex; flex-direction:column; gap:var(--s-3); }
