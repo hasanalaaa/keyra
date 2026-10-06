@@ -233,7 +233,7 @@ async function bleFlow(base, opts) {
   await page.locator('input[type=password]').waitFor();
   await unlockUi(page);
   await page.evaluate(() => (location.hash = '#/settings'));
-  const section = page.locator('#bluetooth');
+  const section = page.locator('section.group:has(#bluetooth)');
   await section.locator('.bond-row').first().waitFor();
   await section.scrollIntoViewIfNeeded();
   await shot(page, `bluetooth${tag}`);
@@ -242,7 +242,7 @@ async function bleFlow(base, opts) {
   await section.locator('.pair-row').click();
   await page.locator('.ready-ready').waitFor();
   check((await button(base)) === 'approved ble_pair', 'button opens the pairing window');
-  await page.locator('.ready-ready .ready-title', { hasText: '“Keyra”' }).waitFor({ timeout: 5000 });
+  await page.locator('.ready-ready .ready-title', { hasText: /[“«]Keyra[”»]/ }).waitFor({ timeout: 5000 });
   await shot(page, `ble-pair${tag}`, 900);
   const r = await fetch(`${base}/__mock/ble`, { method: 'POST', body: JSON.stringify({ pair: "Hasan's iPad" }) });
   check((await r.json()).paired === true, 'mock device pairs inside the window');
@@ -262,10 +262,14 @@ async function bleFlow(base, opts) {
   await page.locator('.ready-typed').waitFor({ timeout: 5000 });
   await page.locator('.actions').waitFor({ timeout: 5000 });
   await page.keyboard.press('Escape');
+  await page.locator('.layer .sheet').waitFor({ state: 'detached' });
 
   // Forget it again.
   await page.evaluate(() => (location.hash = '#/settings'));
-  await section.locator('.bond-row', { hasText: "Hasan's iPad" }).locator('.icon-btn').click();
+  const ipad = section.locator('.bond-row', { hasText: "Hasan's iPad" });
+  await ipad.waitFor();
+  await page.waitForTimeout(400); // let the page transition finish before opening the alert
+  await ipad.locator('.icon-btn').click();
   await page.locator('.alert-actions button').first().click();
   await section.locator('.bond-row', { hasText: "Hasan's iPad" }).waitFor({ state: 'detached' });
   console.log('  ✓ Bluetooth flow passed');
