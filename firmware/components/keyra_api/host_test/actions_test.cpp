@@ -15,20 +15,20 @@ void shortPressRunsPendingOnce() {
   auto m = make();
   m.arm(req(7));
   CHECK(m.pending().has_value());
-  CHECK(m.indicator(true, true) == Indicator::Pending);
+  CHECK(m.indicator(true, true, false) == Indicator::Pending);
   Decision d = m.onButton(Button::Short, true);
   CHECK(d.effect == Effect::Run);
   CHECK_EQ(d.run.id, 7u);
   CHECK(!m.pending().has_value());
-  CHECK(m.indicator(true, true) == Indicator::Typing);
+  CHECK(m.indicator(true, true, false) == Indicator::Typing);
   // A second press while typing must not start another run.
   CHECK(m.onButton(Button::Short, true).effect == Effect::None);
   m.typingFinished(d.run, Code::Typed);
   auto last = m.last();
   CHECK(last && last->ok && last->code == Code::Typed && last->title == "Mail");
-  CHECK(m.indicator(true, true) == Indicator::Success);
+  CHECK(m.indicator(true, true, false) == Indicator::Success);
   g_now += kFlashMs;
-  CHECK(m.indicator(true, true) == Indicator::Idle);
+  CHECK(m.indicator(true, true, false) == Indicator::Idle);
   // One-shot: nothing left to run.
   CHECK(m.onButton(Button::Short, true).effect == Effect::Blink);
 }
@@ -78,7 +78,7 @@ void presenceApproveRunsCommitOnce() {
   m.awaitPresence(Op::Setup, [&runs] { ++runs; return true; });
   auto pr = m.presence();
   CHECK(pr && pr->awaiting && pr->op == Op::Setup && pr->expiresInMs == kExpiryMs);
-  CHECK(m.indicator(false, false) == Indicator::AwaitPresence);
+  CHECK(m.indicator(false, false, false) == Indicator::AwaitPresence);
   Decision d = m.onButton(Button::Short, false);
   CHECK(d.effect == Effect::Approve && d.op == Op::Setup && d.commit);
   pr = m.presence();
@@ -159,7 +159,7 @@ void failureFlashesError() {
   m.arm(req(11));
   Decision d = m.onButton(Button::Short, true);
   m.typingFinished(d.run, Code::NoUsb);
-  CHECK(m.indicator(true, true) == Indicator::Error);
+  CHECK(m.indicator(true, true, false) == Indicator::Error);
   CHECK(!m.last()->ok);
   CHECK(m.last()->code == Code::NoUsb);
   g_now += 500;
@@ -169,11 +169,11 @@ void failureFlashesError() {
 void baseIndicators() {
   auto m = make();
   g_now += 10 * kFlashMs;
-  CHECK(m.indicator(false, false) == Indicator::Setup);
-  CHECK(m.indicator(true, false) == Indicator::Locked);
-  CHECK(m.indicator(true, true) == Indicator::Idle);
+  CHECK(m.indicator(false, false, false) == Indicator::Setup);
+  CHECK(m.indicator(true, false, false) == Indicator::Locked);
+  CHECK(m.indicator(true, true, false) == Indicator::Idle);
   m.onButton(Button::Short, true);
-  CHECK(m.indicator(true, true) == Indicator::Off);  // blink
+  CHECK(m.indicator(true, true, false) == Indicator::Off);  // blink
 }
 
 void presenceOutcomesAreReported() {
@@ -208,12 +208,50 @@ void presenceOutcomesAreReported() {
   CHECK(std::string(opCodeName(OpCode::Done)) == "done");
 }
 
+void blePairOp() {
+  auto m = make();
+  int opened = 0;
+  m.awaitPresence(Op::BlePair, [&opened] { ++opened; return true; });
+  CHECK(m.presence()->op == Op::BlePair);
+  CHECK(m.indicator(true, true, false) == Indicator::AwaitPresence);
+  Decision d = m.onButton(Button::Short, true);
+  CHECK(d.effect == Effect::Approve && d.op == Op::BlePair);
+  m.commitFinished(d.commit());
+  CHECK_EQ(opened, 1);
+  CHECK(m.opResult()->op == Op::BlePair && m.opResult()->code == OpCode::Done);
+  // Armed through a session: locking drops it like a Wi-Fi change.
+  m.awaitPresence(Op::BlePair, [] { return true; });
+  m.dropSessionItems();
+  CHECK(!m.presence().has_value());
+  CHECK(m.opResult()->code == OpCode::Cancelled);
+}
+
+void pairingIndicatorYields() {
+  auto m = make();
+  g_now += 10 * kFlashMs;
+  CHECK(m.indicator(true, true, true) == Indicator::Pairing);
+  CHECK(m.indicator(true, false, true) == Indicator::Pairing);
+  CHECK(m.indicator(false, false, true) == Indicator::Pairing);
+  m.arm(req(3));
+  CHECK(m.indicator(true, true, true) == Indicator::Pending);  // a ready action wins
+  Decision d = m.onButton(Button::Short, true);
+  CHECK(m.indicator(true, true, true) == Indicator::Typing);
+  m.typingFinished(d.run, Code::NoHost);
+  CHECK(m.indicator(true, true, true) == Indicator::Error);    // the result flash wins
+  g_now += kFlashMs;
+  CHECK(m.indicator(true, true, true) == Indicator::Pairing);
+  m.awaitPresence(Op::Wifi, [] { return true; });
+  CHECK(m.indicator(true, true, true) == Indicator::AwaitPresence);
+}
+
 void names() {
   CHECK(parseWhat("both") == What::Both);
   CHECK(!parseWhat("test").has_value());
   CHECK(!parseWhat("").has_value());
   CHECK(std::string(codeName(Code::UnsupportedChar)) == "unsupported_char");
   CHECK(std::string(codeName(Code::NoUsb)) == "no_usb");
+  CHECK(std::string(codeName(Code::NoHost)) == "no_host");
+  CHECK(std::string(opName(Op::BlePair)) == "ble_pair");
   CHECK(std::string(opName(Op::FactoryReset)) == "factory_reset");
   CHECK(std::string(whatName(What::Totp)) == "totp");
 }
@@ -234,6 +272,8 @@ int main() {
   failureFlashesError();
   baseIndicators();
   presenceOutcomesAreReported();
+  blePairOp();
+  pairingIndicatorYields();
   names();
   return KEYRA_TEST_RESULT();
 }

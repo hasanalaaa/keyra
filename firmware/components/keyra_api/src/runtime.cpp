@@ -12,6 +12,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "keyra/ble.hpp"
 #include "keyra/hid.hpp"
 #include "keyra/io.hpp"
 #include "keyra/net.hpp"
@@ -37,7 +38,8 @@ void fillRandom(uint8_t* p, size_t n) { esp_fill_random(p, n); }
 Code fromHid(hid::Result r) {
   switch (r) {
     case hid::Result::Ok: return Code::Typed;
-    case hid::Result::NotMounted: return Code::NoUsb;
+    case hid::Result::NotMounted:  // the chosen host went away mid-job
+      return hid::output() == hid::Output::Usb ? Code::NoUsb : Code::NoHost;
     case hid::Result::Unsupported: return Code::UnsupportedChar;
     case hid::Result::Busy:
     case hid::Result::Failed: return Code::Failed;
@@ -56,6 +58,7 @@ io::Led toLed(actions::Indicator i) {
     case actions::Indicator::Success: return io::Led::Success;
     case actions::Indicator::Error: return io::Led::Error;
     case actions::Indicator::Off: return io::Led::Off;
+    case actions::Indicator::Pairing: return io::Led::Pairing;
   }
   return io::Led::Off;
 }
@@ -69,9 +72,12 @@ Code typeOne(const std::string& text, const hid::Options& o) {
 }
 
 Code runJob(const actions::TypeRequest& job) {
-  if (!hid::mounted()) return Code::NoUsb;
+  // Pick the computer once: every part of this job (username, Tab, password,
+  // Enter) goes to the same host even if a cable is plugged in halfway.
+  const hid::Host host = hid::host();
+  if (host == hid::Host::None) return hid::output() == hid::Output::Usb ? Code::NoUsb : Code::NoHost;
   const settings::Settings s = settings::get();
-  const hid::Options o{s.keyDelayMs};
+  const hid::Options o{s.keyDelayMs, host};
   if (job.what == What::Test) return fromHid(hid::typeText(kTestString, o));
 
   vault::Entry e;
@@ -168,7 +174,7 @@ void actionsTask(void*) {
     if (io::nextButton(b, pdMS_TO_TICKS(100))) onButton(b);
     maybeAutoLock();
     maybeReconfigureNet();
-    const io::Led want = toLed(machine().indicator(vault::initialized(), vault::unlocked()));
+    const io::Led want = toLed(machine().indicator(vault::initialized(), vault::unlocked(), ble::pairing()));
     if (first || want != shown) {
       io::led(want);
       shown = want;
@@ -205,6 +211,8 @@ void lockAll() {
   vault::lock();
   sessions().clear();
   machine().dropSessionItems();
+  // Locking means "I'm walking away": no new host may pair after that.
+  ble::closePairing();
 }
 
 void reconfigureNetSoon() { g_netAt = monoMs() + kNetDelayMs; }

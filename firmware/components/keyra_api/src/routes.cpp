@@ -2,6 +2,8 @@
 
 #include <cctype>
 
+#include "keyra/ble.hpp"
+
 namespace keyra::api {
 namespace {
 
@@ -17,8 +19,8 @@ bool parseId(std::string_view s, uint32_t& out) {
   return true;
 }
 
-Match found(Route r, uint32_t id = 0) { return {Match::Kind::Found, r, id}; }
-Match notAllowed() { return {Match::Kind::MethodNotAllowed, Route::State, 0}; }
+Match found(Route r, uint32_t id = 0) { return {Match::Kind::Found, r, id, {}}; }
+Match notAllowed() { return {Match::Kind::MethodNotAllowed, Route::State, 0, {}}; }
 
 // One path, one method: the common case.
 Match only(Method m, Method want, Route r) { return m == want ? found(r) : notAllowed(); }
@@ -59,6 +61,14 @@ Match matchApi(Method m, std::string_view path) {
     return notAllowed();
   }
   if (p == "entries/import") return only(m, Method::Post, Route::ImportEntries);
+  if (p == "ble") return only(m, Method::Get, Route::GetBle);
+  if (p == "ble/pair") return only(m, Method::Post, Route::BlePair);
+  constexpr std::string_view kBonds = "ble/bonds/";
+  if (p.substr(0, kBonds.size()) == kBonds) {
+    Match r = found(Route::BleForget);
+    if (!ble::parseAddr(p.substr(kBonds.size()), r.addr)) return {};
+    return m == Method::Delete ? r : notAllowed();
+  }
 
   constexpr std::string_view kEntries = "entries/";
   if (p.substr(0, kEntries.size()) != kEntries) return {};

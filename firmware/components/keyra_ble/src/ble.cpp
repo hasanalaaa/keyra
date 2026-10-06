@@ -629,6 +629,11 @@ void closePairing() {
   kick();
 }
 
+bool pairing() {
+  std::lock_guard<std::mutex> lock(g_mu);
+  return g_window.active(monoMs());
+}
+
 Status status() {
   std::lock_guard<std::mutex> lock(g_mu);
   const int64_t now = monoMs();

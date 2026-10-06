@@ -47,6 +47,7 @@ enum class PairResult { Ok, Disabled, BondsFull, Unavailable };
 PairResult canPair();       // checked before arming the button press
 PairResult openPairing();   // opens the 120 s window (call after the press)
 void closePairing();        // lock / factory reset: no window may outlive them
+bool pairing();             // window open (cheap; polled for the LED)
 Status status();
 
 // Typing transport (used by keyra_hid).

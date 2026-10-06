@@ -48,7 +48,7 @@ std::optional<int64_t> Machine::tryAwaitPresence(Op op, Commit commit) {
 
 void Machine::dropSessionItems() {
   std::lock_guard<std::mutex> lock(mu_);
-  const bool sessionOp = kind_ == Kind::Presence && (op_ == Op::Wifi || op_ == Op::RestoreReplace);
+  const bool sessionOp = kind_ == Kind::Presence && (op_ == Op::Wifi || op_ == Op::RestoreReplace || op_ == Op::BlePair);
   if (kind_ == Kind::Type) {
     hasLast_ = true;
     last_ = {false, Code::Cancelled, 0, req_.title, req_.what};
@@ -161,7 +161,7 @@ std::optional<Presence> Machine::presence() {
   return std::nullopt;
 }
 
-Indicator Machine::indicator(bool initialized, bool unlocked) {
+Indicator Machine::indicator(bool initialized, bool unlocked, bool blePairing) {
   std::lock_guard<std::mutex> lock(mu_);
   const int64_t now = now_();
   expireLocked(now);
@@ -169,6 +169,7 @@ Indicator Machine::indicator(bool initialized, bool unlocked) {
   if (typing_ || running_) return Indicator::Typing;
   if (kind_ == Kind::Type) return Indicator::Pending;
   if (now < flashUntil_) return flash_;
+  if (blePairing) return Indicator::Pairing;
   if (!initialized) return Indicator::Setup;
   return unlocked ? Indicator::Idle : Indicator::Locked;
 }
@@ -222,6 +223,7 @@ const char* opName(Op op) {
     case Op::Wifi: return "wifi";
     case Op::RestoreReplace: return "restore";
     case Op::FactoryReset: return "factory_reset";
+    case Op::BlePair: return "ble_pair";
   }
   return "setup";
 }
@@ -242,6 +244,7 @@ const char* codeName(Code c) {
     case Code::Cancelled: return "cancelled";
     case Code::Expired: return "expired";
     case Code::NoUsb: return "no_usb";
+    case Code::NoHost: return "no_host";
     case Code::UnsupportedChar: return "unsupported_char";
     case Code::Failed: return "failed";
   }

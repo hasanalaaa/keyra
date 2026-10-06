@@ -17,10 +17,12 @@ constexpr int64_t kFlashMs = 1500;  // Success/Error LED after a finished action
 constexpr int64_t kBlinkMs = 150;   // "nothing to do" acknowledgement
 
 enum class What { Username, Password, Both, Totp, Test };
-enum class Op { Setup, Wifi, RestoreReplace, FactoryReset };
-enum class Code { Typed, Cancelled, Expired, NoUsb, UnsupportedChar, Failed };
+enum class Op { Setup, Wifi, RestoreReplace, FactoryReset, BlePair };
+// NoUsb: output is USB-only and no computer is plugged in. NoHost: nothing
+// connected on the selected output (auto or Bluetooth).
+enum class Code { Typed, Cancelled, Expired, NoUsb, NoHost, UnsupportedChar, Failed };
 enum class Button { Short, Long };
-enum class Indicator { Setup, Locked, Idle, Pending, Typing, AwaitPresence, Success, Error, Off };
+enum class Indicator { Setup, Locked, Idle, Pending, Typing, AwaitPresence, Success, Error, Off, Pairing };
 
 struct TypeRequest {
   uint32_t id = 0;  // 0 for the test string
@@ -94,7 +96,9 @@ class Machine {
   std::optional<Result> last();
   std::optional<Presence> presence();
   std::optional<OpResult> opResult();
-  Indicator indicator(bool initialized, bool unlocked);
+  // `blePairing`: the Bluetooth pairing window is open. It shows only when
+  // nothing more urgent (a prompt, typing, a result flash) does.
+  Indicator indicator(bool initialized, bool unlocked, bool blePairing);
 
  private:
   enum class Kind { None, Type, Presence };

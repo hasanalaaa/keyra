@@ -14,6 +14,7 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "http.hpp"
+#include "keyra/ble.hpp"
 #include "keyra/hid.hpp"
 #include "keyra/io.hpp"
 #include "keyra/settings.hpp"
@@ -140,6 +141,22 @@ bool readEntry(const cJSON* src, vault::Entry& e, bool withTimestamps, std::stri
   return true;
 }
 
+const char* outputName(hid::Output o) {
+  switch (o) {
+    case hid::Output::Usb: return "usb";
+    case hid::Output::Ble: return "ble";
+    case hid::Output::Auto: break;
+  }
+  return "auto";
+}
+
+std::optional<hid::Output> parseOutput(const std::string& s) {
+  if (s == "auto") return hid::Output::Auto;
+  if (s == "usb") return hid::Output::Usb;
+  if (s == "ble") return hid::Output::Ble;
+  return std::nullopt;
+}
+
 std::string dedupeKey(const vault::Entry& e) { return e.title + '\x1f' + e.username + '\x1f' + e.url; }
 
 cJSON* settingsJson(const settings::Settings& s) {
@@ -151,6 +168,8 @@ cJSON* settingsJson(const settings::Settings& s) {
   cJSON_AddStringToObject(o, "bothSeparator", s.bothSeparator == settings::Separator::Enter ? "enter" : "tab");
   cJSON_AddBoolToObject(o, "submitAfterBoth", s.submitAfterBoth);
   cJSON_AddNumberToObject(o, "ledBrightness", s.ledBrightness);
+  cJSON_AddBoolToObject(o, "bleEnabled", s.bleEnabled);
+  cJSON_AddStringToObject(o, "output", outputName(s.output));
   return o;
 }
 
@@ -179,6 +198,7 @@ bool commitSetup(SetupJob& j) {
   s.wifiPassword = j.wifiPassword.s;
   if (!j.deviceName.empty()) s.deviceName = j.deviceName;
   if (settings::save(s) != ESP_OK) return false;
+  ble::setName(s.deviceName);
   sessions().activity(monoMs());  // the vault is left unlocked for the client's unlock call
   reconfigureNetSoon();
   return true;
@@ -215,6 +235,9 @@ bool commitRestoreReplace(RestoreJob& j) {
 
 [[noreturn]] void commitFactoryReset() {
   lockAll();
+  // A reset Keyra may be given away: no computer it knew may reconnect.
+  const esp_err_t berr = ble::forgetAll();
+  if (berr != ESP_OK) ESP_LOGE(TAG, "forgetting Bluetooth hosts: %s", esp_err_to_name(berr));
   const Status st = vault::factoryReset();
   if (st != Status::Ok) ESP_LOGE(TAG, "vault factory reset: %s", vault::statusName(st));
   const esp_err_t err = settings::erase();
@@ -238,7 +261,13 @@ esp_err_t getState(Ctx& c) {
   cJSON_AddNumberToObject(o.get(), "autoLockMin", s.autoLockMin);
   cJSON* host = cJSON_AddObjectToObject(o.get(), "host");
   cJSON_AddBoolToObject(host, "usb", hid::mounted());
+  cJSON_AddBoolToObject(host, "ble", hid::bleConnected());
   cJSON_AddBoolToObject(host, "capsLock", hid::capsLock());
+  switch (hid::host()) {  // where a typed action would go right now
+    case hid::Host::Usb: cJSON_AddStringToObject(host, "output", "usb"); break;
+    case hid::Host::Ble: cJSON_AddStringToObject(host, "output", "ble"); break;
+    case hid::Host::None: cJSON_AddNullToObject(host, "output"); break;
+  }
 
   // Titles of pending/finished actions are only shown to an unlocked session.
   const auto pending = c.session ? machine().pending() : std::nullopt;
@@ -576,6 +605,11 @@ esp_err_t putSettings(Ctx& c) {
   if ((f = json::getInt(b, "ledBrightness", 0, settings::kMaxLedBrightness, n)) == Field::BadType)
     return badRequest(c.r, "ledBrightness must be 0-100");
   if (f == Field::Ok) next.ledBrightness = static_cast<uint8_t>(n);
+  if (json::getBool(b, "bleEnabled", next.bleEnabled) == Field::BadType)
+    return badRequest(c.r, "bleEnabled must be a boolean");
+  if ((f = json::getString(b, "output", str)) == Field::BadType || (f == Field::Ok && !parseOutput(str)))
+    return badRequest(c.r, "output must be \"auto\", \"usb\" or \"ble\"");
+  if (f == Field::Ok) next.output = *parseOutput(str);
 
   auto wifi = std::make_shared<WifiJob>();
   if ((f = json::getString(b, "wifiSsid", wifi->ssid)) == Field::BadType || (f == Field::Ok && !validate::ssid(wifi->ssid)))
@@ -588,6 +622,9 @@ esp_err_t putSettings(Ctx& c) {
 
   if (settings::save(next) != ESP_OK) return http::sendError(c.r, http::k500, "storage", "Could not save settings");
   if (next.ledBrightness != cur.ledBrightness) io::brightness(next.ledBrightness);
+  if (next.output != cur.output) hid::setOutput(next.output);
+  if (next.bleEnabled != cur.bleEnabled) ble::setEnabled(next.bleEnabled);
+  if (next.deviceName != cur.deviceName) ble::setName(next.deviceName);
 
   if (!wifi->ssid.empty() || !wifi->password.s.empty()) {
     const int64_t expires = machine().awaitPresence(actions::Op::Wifi, [wifi] { return commitWifi(*wifi); });
@@ -668,6 +705,62 @@ esp_err_t postFactoryReset(Ctx& c) {
   return sendAwaitingButton(c.r, *expires);
 }
 
+void addPeer(cJSON* o, const ble::Peer& p) {
+  cJSON_AddStringToObject(o, "addr", ble::formatAddr(p.addr).c_str());
+  cJSON_AddStringToObject(o, "name", p.name.c_str());
+}
+
+esp_err_t getBle(Ctx& c) {
+  const ble::Status st = ble::status();
+  json::Ptr o(cJSON_CreateObject());
+  cJSON_AddBoolToObject(o.get(), "enabled", st.enabled);
+  cJSON* pairing = cJSON_AddObjectToObject(o.get(), "pairing");
+  cJSON_AddBoolToObject(pairing, "active", st.pairing);
+  cJSON_AddNumberToObject(pairing, "expiresIn", static_cast<double>(st.pairingLeftMs));
+  if (st.connected) {
+    addPeer(cJSON_AddObjectToObject(o.get(), "connected"), *st.connected);
+  } else {
+    cJSON_AddNullToObject(o.get(), "connected");
+  }
+  cJSON* bonds = cJSON_AddArrayToObject(o.get(), "bonds");
+  for (const ble::Peer& p : st.bonds) {
+    cJSON* b = cJSON_CreateObject();
+    addPeer(b, p);
+    cJSON_AddNumberToObject(b, "lastSeen", static_cast<double>(p.lastSeen));
+    cJSON_AddItemToArray(bonds, b);
+  }
+  return http::sendJson(c.r, http::k200, o.get());
+}
+
+// Refusals the user can act on, checked before asking for the button.
+esp_err_t sendPairRefusal(httpd_req_t* r, ble::PairResult res) {
+  switch (res) {
+    case ble::PairResult::Disabled:
+      return http::sendError(r, http::k409, "ble_disabled", "Bluetooth is turned off");
+    case ble::PairResult::BondsFull:
+      return http::sendError(r, http::k409, "bonds_full", "Keyra already knows 4 devices; forget one first");
+    case ble::PairResult::Unavailable:
+    case ble::PairResult::Ok: break;
+  }
+  return http::sendError(r, http::k503, "ble_unavailable", "Bluetooth is not available");
+}
+
+esp_err_t postBlePair(Ctx& c) {
+  const ble::PairResult now = ble::canPair();
+  if (now != ble::PairResult::Ok) return sendPairRefusal(c.r, now);
+  const int64_t expires =
+      machine().awaitPresence(actions::Op::BlePair, [] { return ble::openPairing() == ble::PairResult::Ok; });
+  return sendAwaitingButton(c.r, expires);
+}
+
+esp_err_t deleteBleBond(Ctx& c) {
+  const esp_err_t err = ble::forget(c.match.addr);
+  if (err == ESP_OK) return http::sendEmpty(c.r, http::k204);
+  if (err == ESP_ERR_NOT_FOUND) return http::sendError(c.r, http::k404, "not_found", "No such device");
+  ESP_LOGE(TAG, "forget bond: %s", esp_err_to_name(err));
+  return http::sendError(c.r, http::k500, "ble_failed", "Bluetooth did not respond");
+}
+
 bool takesBody(Route r) {
   switch (r) {
     case Route::Setup: case Route::Unlock: case Route::CreateEntry: case Route::UpdateEntry:
@@ -733,6 +826,9 @@ esp_err_t dispatch(Ctx& c) {
     case Route::Backup: return postBackup(c);
     case Route::Restore: return postRestore(c);
     case Route::FactoryReset: return postFactoryReset(c);
+    case Route::GetBle: return getBle(c);
+    case Route::BlePair: return postBlePair(c);
+    case Route::BleForget: return deleteBleBond(c);
   }
   return http::sendError(c.r, http::k404, "not_found", "No such endpoint");
 }
