@@ -1,4 +1,4 @@
-import type { DeviceState, Entry, EntryInput, EntrySummary, Settings, Totp, TypeWhat, Pending } from './types';
+import type { DeviceState, Entry, EntryInput, EntrySummary, Network, Settings, Totp, TrustedBrowser, TypeWhat, Pending, PresenceOp } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -92,14 +92,18 @@ async function json<T>(method: string, path: string, body?: unknown, timeoutMs?:
 export interface Awaiting {
   awaiting: 'button';
   expiresIn: number;
+  op?: PresenceOp;
 }
 
 export const api = {
   state: () => json<DeviceState>('GET', '/state', undefined, 6000),
   setup: (passphrase: string, wifiPassword: string) => json<Awaiting>('POST', '/setup', { passphrase, wifiPassword }),
-  async unlock(passphrase: string): Promise<void> {
-    const r = await json<{ csrf: string }>('POST', '/unlock', { passphrase }, 30000);
+  /** null = unlocked; Awaiting = this browser must first be trusted with the button (home network, SPEC §8.2). */
+  async unlock(passphrase: string): Promise<Awaiting | null> {
+    const r = await json<{ csrf: string } | Awaiting>('POST', '/unlock', { passphrase }, 30000);
+    if (isAwaiting(r)) return r;
     setCsrf(r.csrf);
+    return null;
   },
   async lock(): Promise<void> {
     try {
@@ -132,6 +136,11 @@ export const api = {
   restore: (passphrase: string, backup: unknown, mode: 'merge' | 'replace') =>
     json<{ added: number; updated: number } | Awaiting>('POST', '/restore', { passphrase, backup, mode }, 60000),
   factoryReset: () => json<Awaiting>('POST', '/factory-reset'),
+  /** Blocks a few seconds on the device while the radio scans. */
+  wifiScan: async () => (await json<{ networks: Network[] }>('GET', '/wifi/scan', undefined, 45000)).networks,
+  putHomeWifi: (b: { enabled: boolean; ssid?: string; password?: string }) => json<Awaiting>('PUT', '/wifi/home', b),
+  trusted: async () => (await json<{ browsers: TrustedBrowser[] }>('GET', '/trusted')).browsers,
+  revokeTrusted: (id: number) => json<void>('DELETE', `/trusted/${id}`),
 };
 
 export const isAwaiting = (r: unknown): r is Awaiting =>
