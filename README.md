@@ -63,10 +63,10 @@ A long press (1.5 seconds) cancels a pending action, or locks the vault if nothi
 | **Types like a keyboard** | USB HID keyboard (US layout). Handles Caps Lock and always releases keys, even on errors. |
 | **Phone-first web app** | Installable to the home screen. Search, favorites, recents, password generator and strength meter. |
 | **Arabic and English** | Full RTL support, auto-detected, switchable at any time. |
-| **2FA codes** | Built-in TOTP (SHA-1/256/512, 6 or 8 digits). Keyra can type the code too. |
+| **2FA codes** | Built-in TOTP (SHA-1/256/512, 6 or 8 digits, 30 or 60 seconds). Keyra can type the code too. Add the key by pasting a setup key or `otpauth://` link, or with **Scan QR from a photo**. |
 | **Encrypted vault** | PBKDF2-HMAC-SHA256 (about 1.2 s on the device) and per-entry AES-256-GCM. |
 | **Unlock rate limiting** | Failed attempts are counted before the key derivation runs; power-cycling does not reset the delay. |
-| **Import** | Move from Apple Passwords, Chrome, Bitwarden or 1Password CSV exports. |
+| **Import** | Move from Apple Passwords, Chrome, Bitwarden or 1Password CSV exports, or move 2FA keys from a Google Authenticator export QR. |
 | **Encrypted backup** | A passphrase-protected JSON file; restore by merging or replacing. |
 | **Physical confirmation** | Typing, setup, Wi-Fi changes and factory reset all need a button press. |
 | **Status LED** | Locked, ready, typing, success and error, readable at a glance. |
@@ -239,6 +239,9 @@ The action is armed for 60 seconds and runs once on the press. Click the right f
 
 **Why HTTP and not HTTPS?**
 A device on its own network cannot get a certificate that browsers trust without installing something on each phone, and a browser warning teaches people to ignore warnings. The link is protected by WPA2 and a private Wi-Fi password instead. This is a real limit: see [SECURITY.md](SECURITY.md).
+
+**Can I add a 2FA key from a QR code?**
+Yes. In the account form, tap **Scan QR from a photo**, then take a photo of the QR or choose a saved picture. The picture is decoded inside your phone's browser; it is never sent to Keyra or anywhere else. Keyra's page is plain HTTP, so browsers do not allow a live camera view there, hence the photo. Plain `otpauth://totp/…` QR codes fill the 2FA field (and the name and user name if they are empty). For Google Authenticator, use **Import**, then **Google Authenticator export**: it lists the accounts in the export QR (several QR codes for big exports, one scan each) and either adds them as new accounts or adds the key to existing accounts that match by name and user name. Keyra only makes time-based codes, so counter-based (HOTP) entries, MD5 and unusual digit counts or periods are rejected or skipped with a message. Delete any photo or screenshot of the QR afterwards: it holds your keys unencrypted.
 
 **Do I need an internet connection?**
 No. Keyra creates its own Wi-Fi network, and your phone does not need internet while connected to it (it may keep using mobile data for other apps).
