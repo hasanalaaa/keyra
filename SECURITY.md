@@ -187,9 +187,10 @@ same button rule applies: nothing is typed over Bluetooth without a press.
   authenticated request (`POST /api/ble/pair`) *and* a press of Keyra's button.
   The LED pulses cyan while it is open. The window closes early as soon as one
   device has paired, when the vault is locked, and when Bluetooth is switched off.
-- Outside the window Keyra is not discoverable. It advertises only when it has
-  paired devices, and then with a filter accept list in the radio controller, so
-  only those devices can scan or connect. Their identity keys are in the
+- Outside the window Keyra is not discoverable. It advertises only for paired
+  devices (by default only while an action waits for one, and then for that
+  device alone), with a filter accept list in the radio controller, so only
+  those devices can scan or connect. Their identity keys are in the
   controller's resolving list, so phones with rotating private addresses still match.
   The firmware checks the same rule again in software when a link comes up, refuses
   a paired device asking for new keys (re-pairing) outside the window, and removes
