@@ -305,3 +305,14 @@ Wi-Fi.
 - AP and home network share one radio: when the home network is on another
   channel the AP follows it (phones on the AP reconnect once). Documented in
   the UI next to the setting.
+- Implementation notes (v1.1): only WPA2/WPA3-personal networks are joined
+  (password 8–63 printable ASCII); the scan lists open networks with
+  `secure:false` and drops ones Keyra can never join (WEP, WPA1, enterprise).
+  In `fallback` the AP turns off 15 s after the home link is up (so the phone
+  that made the change sees the result). Joins retry with backoff 2 s → 5 min,
+  reset on success; a join with no result after 20 s counts as failed. The
+  `202` of a `trust_browser` unlock already sets a session-only `kt` cookie; the
+  press makes it trusted and the retried unlock renews it with `Max-Age`. A ninth
+  trusted browser replaces the least recently used one. `PUT /api/wifi/home`
+  reuses the stored password when re-enabling the same `ssid`. Changing
+  `apMode` (`PUT /api/settings`) needs no press; `homeWifi` there is refused.

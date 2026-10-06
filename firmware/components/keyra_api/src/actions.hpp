@@ -17,7 +17,9 @@ constexpr int64_t kFlashMs = 1500;  // Success/Error LED after a finished action
 constexpr int64_t kBlinkMs = 150;   // "nothing to do" acknowledgement
 
 enum class What { Username, Password, Both, Totp, Test };
-enum class Op { Setup, Wifi, RestoreReplace, FactoryReset };
+// HomeWifi: join/change/leave the home network (session). TrustBrowser: approve a
+// browser that unlocks through the home network (no session yet, SPEC §8.2).
+enum class Op { Setup, Wifi, RestoreReplace, FactoryReset, HomeWifi, TrustBrowser };
 enum class Code { Typed, Cancelled, Expired, NoUsb, UnsupportedChar, Failed };
 enum class Button { Short, Long };
 enum class Indicator { Setup, Locked, Idle, Pending, Typing, AwaitPresence, Success, Error, Off };

@@ -69,6 +69,7 @@ A long press (1.5 seconds) cancels a pending action, or locks the vault if nothi
 | **Import** | Move from Apple Passwords, Chrome, Bitwarden or 1Password CSV exports, or move 2FA keys from a Google Authenticator export QR. |
 | **Encrypted backup** | A passphrase-protected JSON file; restore by merging or replacing. |
 | **Physical confirmation** | Typing, setup, Wi-Fi changes and factory reset all need a button press. |
+| **Home Wi-Fi (optional)** | Keyra can join your home network so `keyra.local` opens from any device on it. Each new browser there is approved once with the button. |
 | **Status LED** | Locked, ready, typing, success and error, readable at a glance. |
 | **Auto-lock** | Locks after idle (1 to 120 minutes) and zeroizes keys in RAM. |
 | **No lock-in** | Standard formats, open protocol ([docs/SPEC.md](docs/SPEC.md)), MIT license. |
@@ -167,6 +168,17 @@ npm --prefix web ci && npm --prefix web run build
 4. Follow the three steps: choose a **master passphrase** (10 characters or more; longer is better), choose a **new Wi-Fi password**, then **press the button on Keyra** to prove you are holding it.
 5. Add accounts, or import a CSV from your current password manager (delete the CSV afterwards, it is unencrypted).
 
+### Home Wi-Fi (optional)
+
+Keyra can also join your home network, so you can open it from any phone or laptop at home without switching Wi-Fi.
+
+1. In **Settings → Home Wi-Fi**, turn on **Use home Wi-Fi** and pick your network. Keyra only joins password-protected (WPA2/WPA3) networks.
+2. Enter the network's password, tap **Join**, then **press Keyra's button**. The sheet shows **Connected**, Keyra's address on your network and the signal strength.
+3. From any device on that network, open **http://keyra.local**. If a device cannot resolve `.local` names, use the address shown in the sheet.
+4. The first time each browser unlocks Keyra through the home network, Keyra asks you to **press its button to trust that browser**. Trusted browsers (up to 8) are listed in **Settings → Trusted browsers**, where you can remove them. Removing one signs it out.
+
+**Keep Keyra's own Wi-Fi on** is on by default. Turn it off and Keyra's own Wi-Fi switches off about 15 seconds after Keyra joins your home network; it comes back if the home network has been unavailable for 60 seconds, or 30 seconds after power-up if Keyra has not joined by then, so Keyra stays reachable. Keyra has one radio: its own Wi-Fi moves to your home network's channel, and phones joined to it may reconnect once. While home Wi-Fi is connected, Keyra sets its clock from the internet (NTP), so 2FA codes work without a phone having set the time.
+
 ## Project layout
 
 ```
@@ -244,7 +256,10 @@ A device on its own network cannot get a certificate that browsers trust without
 Yes. In the account form, tap **Scan QR from a photo**, then take a photo of the QR or choose a saved picture. The picture is decoded inside your phone's browser; it is never sent to Keyra or anywhere else. Keyra's page is plain HTTP, so browsers do not allow a live camera view there, hence the photo. Plain `otpauth://totp/…` QR codes fill the 2FA field (and the name and user name if they are empty). For Google Authenticator, use **Import**, then **Google Authenticator export**: it lists the accounts in the export QR (several QR codes for big exports, one scan each) and either adds them as new accounts or adds the key to existing accounts that match by name and user name. Keyra only makes time-based codes, so counter-based (HOTP) entries, MD5 and unusual digit counts or periods are rejected or skipped with a message. Delete any photo or screenshot of the QR afterwards: it holds your keys unencrypted.
 
 **Do I need an internet connection?**
-No. Keyra creates its own Wi-Fi network, and your phone does not need internet while connected to it (it may keep using mobile data for other apps).
+No. Keyra creates its own Wi-Fi network, and your phone does not need internet while connected to it (it may keep using mobile data for other apps). If you turn on home Wi-Fi, Keyra uses the internet only to set its clock (NTP); your vault never leaves the device.
+
+**Do I still need Keyra's own Wi-Fi once home Wi-Fi works?**
+Not for everyday use at home: open http://keyra.local on your home network instead. Keyra's own Wi-Fi is still useful. It is how you set Keyra up and how you reach it when the home network is down (with **Keep Keyra's own Wi-Fi on** turned off, it comes back after a minute without the home network). It is also the safer way to unlock on a network you do not fully trust, because traffic on it is visible only to devices that know Keyra's Wi-Fi password (see [SECURITY.md](SECURITY.md#home-wi-fi-optional)). If you never want it while at home, turn **Keep Keyra's own Wi-Fi on** off.
 
 **Can the computer read my vault?**
 Keyra presents only a keyboard to the computer. It has no storage interface and no network path to it. The computer sees what gets typed, and nothing else.

@@ -14,8 +14,8 @@ std::optional<int64_t> parse(std::string_view h) {
   return v;
 }
 
-bool shouldAdopt(int64_t deviceMs, int64_t clientMs) {
-  if (!valid(clientMs)) return false;
+bool shouldAdopt(int64_t deviceMs, int64_t clientMs, bool networkSynced) {
+  if (!valid(clientMs) || (networkSynced && valid(deviceMs))) return false;
   if (!valid(deviceMs)) return true;
   const int64_t drift = deviceMs > clientMs ? deviceMs - clientMs : clientMs - deviceMs;
   return drift > kMaxDriftMs;

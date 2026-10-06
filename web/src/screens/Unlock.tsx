@@ -6,6 +6,7 @@ import { Alert } from '../components/Sheet';
 import { Ready } from '../components/Ready';
 import { ApiError, api } from '../lib/api';
 import { useNow, usePresence } from '../lib/actions';
+import { errorText } from '../lib/errors';
 import { clock, t } from '../lib/i18n';
 import { replace } from '../lib/router';
 import { toast, unlock, useApp, type LockReason } from '../lib/store';
@@ -103,6 +104,9 @@ export function Unlock({ reason }: { reason: LockReason }) {
 
 function UnlockForm({ onForgot }: { onForgot: () => void }) {
   const [pass, setPass] = useState('');
+  // Home network (SPEC §8.2): a new browser is trusted with one press, then the unlock is retried.
+  const trust = usePresence('trust_browser');
+  const retried = useRef(false);
   const [busy, setBusy] = useState(false);
   const [slow, setSlow] = useState(false);
   const [wrong, setWrong] = useState(false);
@@ -118,24 +122,65 @@ function UnlockForm({ onForgot }: { onForgot: () => void }) {
     return () => clearTimeout(h);
   }, [busy]);
 
-  const submit = async (e: Event) => {
-    e.preventDefault();
-    if (!pass || busy || waiting) return;
+  useEffect(() => {
+    const k = trust.phase.kind;
+    if (k === 'done') {
+      trust.abandon();
+      if (retried.current) {
+        // Approved, yet the device asked again: don't loop on the button.
+        toast(t('trustFailed'), 'error');
+        return;
+      }
+      retried.current = true;
+      void attempt();
+    } else if (k === 'failed' || k === 'expired' || k === 'cancelled') {
+      trust.abandon();
+      toast(t('trustFailed'), 'error');
+    }
+  }, [trust.phase.kind]);
+
+  const attempt = async () => {
     setBusy(true);
     setSlow(false);
     setWrong(false);
     try {
-      await unlock(pass);
+      const sent = Date.now();
+      const awaiting = await unlock(pass);
+      if (awaiting) {
+        trust.watch(sent, awaiting);
+        setBusy(false);
+      }
     } catch (err) {
       if (err instanceof ApiError && (err.code === 'wrong' || err.code === 'rate_limited')) {
         setWrong(err.code === 'wrong');
         if (err.retryAfterMs > 0) setRetryUntil(Date.now() + err.retryAfterMs);
         setShake(1);
         input.current?.select();
-      } else if (!(err instanceof ApiError && err.status === 0)) toast(t('genericError'), 'error');
+      } else if (err instanceof ApiError && err.code === 'busy') toast(errorText(err), 'error');
+      else if (!(err instanceof ApiError && err.status === 0)) toast(t('genericError'), 'error');
       setBusy(false);
     }
   };
+
+  const submit = (e: Event) => {
+    e.preventDefault();
+    if (!pass || busy || waiting) return;
+    retried.current = false;
+    void attempt();
+  };
+
+  if (trust.phase.kind === 'ready') {
+    return (
+      <Ready
+        state="ready"
+        deadline={trust.phase.deadline}
+        total={trust.phase.total}
+        title={t('trustTitle')}
+        body={t('trustBody')}
+        onCancel={trust.abandon}
+      />
+    );
+  }
 
   const error = waiting ? t('rateLimited', { t: clock(retryUntil - now) }) : wrong ? t('wrongPassphrase') : null;
 

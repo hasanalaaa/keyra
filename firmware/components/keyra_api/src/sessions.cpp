@@ -22,7 +22,7 @@ std::string Sessions::randomHex() {
   return out;
 }
 
-Sessions::Issued Sessions::create(int64_t nowMs) {
+Sessions::Issued Sessions::create(int64_t nowMs, uint32_t trustId) {
   std::lock_guard<std::mutex> lock(mu_);
   Slot* target = &slots_[0];
   for (Slot& s : slots_) {
@@ -36,6 +36,7 @@ Sessions::Issued Sessions::create(int64_t nowMs) {
   target->token = randomHex();
   target->csrf = randomHex();
   target->lastUsed = nowMs;
+  target->trustId = trustId;
   lastActivity_ = nowMs;
   return {target->token, target->csrf};
 }
@@ -56,6 +57,18 @@ std::optional<std::string> Sessions::csrfFor(std::string_view token, int64_t now
 void Sessions::clear() {
   std::lock_guard<std::mutex> lock(mu_);
   for (Slot& s : slots_) s = Slot{};
+}
+
+size_t Sessions::endTrusted(uint32_t trustId) {
+  std::lock_guard<std::mutex> lock(mu_);
+  size_t n = 0;
+  for (Slot& s : slots_) {
+    if (trustId != 0 && s.used && s.trustId == trustId) {
+      s = Slot{};
+      ++n;
+    }
+  }
+  return n;
 }
 
 size_t Sessions::size() {

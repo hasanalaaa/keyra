@@ -6,6 +6,7 @@
 #include <array>
 #include <cerrno>
 
+#include "addr.hpp"
 #include "dns_packet.hpp"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -16,7 +17,7 @@ namespace keyra::net {
 namespace {
 
 const char* TAG = "dns";
-constexpr std::array<uint8_t, 4> kApIp = {192, 168, 4, 1};
+constexpr std::array<uint8_t, 4> kAnswer = {kApIp >> 24, (kApIp >> 16) & 0xFF, (kApIp >> 8) & 0xFF, kApIp & 0xFF};
 // Bounded so a query flood cannot starve other tasks of the same priority.
 constexpr int kMaxPerWake = 32;
 
@@ -40,7 +41,9 @@ void dnsTask(void* arg) {
         if (errno != EWOULDBLOCK && errno != EAGAIN) ESP_LOGW(TAG, "recvfrom failed: errno %d", errno);
         break;
       }
-      const size_t len = dns::reply(in, static_cast<size_t>(n), kApIp, out, sizeof out);
+      // Belt and braces next to the AP-only bind: never answer the home network.
+      if (!inApSubnet(ntohl(from.sin_addr.s_addr))) continue;
+      const size_t len = dns::reply(in, static_cast<size_t>(n), kAnswer, out, sizeof out);
       // Non-blocking send: when the stack is out of buffers the client simply retries.
       if (len > 0) sendto(fd, out, len, MSG_DONTWAIT, reinterpret_cast<sockaddr*>(&from), fromLen);
     }
@@ -58,7 +61,9 @@ esp_err_t startDns() {
   sockaddr_in addr{};
   addr.sin_family = AF_INET;
   addr.sin_port = htons(53);
-  addr.sin_addr.s_addr = htonl(INADDR_ANY);
+  // Bound to the AP address, not INADDR_ANY: the catch-all resolver must only
+  // exist on Keyra's own Wi-Fi, never on the home network (SPEC §8.2).
+  addr.sin_addr.s_addr = htonl(kApIp);
   if (bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof addr) < 0 ||
       fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK) < 0) {
     ESP_LOGE(TAG, "bind/fcntl failed: errno %d", errno);

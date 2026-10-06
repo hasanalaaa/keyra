@@ -11,6 +11,7 @@ constexpr const char* kDefaultWifiPassword = "keyra1234";
 long utf8Length(std::string_view s);
 bool passphrase(std::string_view s);    // 10–128 characters
 bool wifiPassword(std::string_view s);  // 8–63 printable ASCII, not the factory default
+bool homePassword(std::string_view s);  // 8–63 printable ASCII (a WPA2/WPA3 passphrase)
 bool ssid(std::string_view s);          // 1–32 bytes UTF-8, no control characters
 bool deviceName(std::string_view s);    // 1–32 bytes UTF-8, no control characters
 

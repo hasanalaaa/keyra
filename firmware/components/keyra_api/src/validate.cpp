@@ -55,13 +55,15 @@ bool passphrase(std::string_view s) {
   return n >= 10 && n <= 128;
 }
 
-bool wifiPassword(std::string_view s) {
-  if (s.size() < 8 || s.size() > 63 || s == kDefaultWifiPassword) return false;
+bool homePassword(std::string_view s) {
+  if (s.size() < 8 || s.size() > 63) return false;
   for (unsigned char c : s) {
     if (c < 0x20 || c > 0x7E) return false;
   }
   return true;
 }
+
+bool wifiPassword(std::string_view s) { return s != kDefaultWifiPassword && homePassword(s); }
 
 bool ssid(std::string_view s) { return printableUtf8(s, 32); }
 bool deviceName(std::string_view s) { return printableUtf8(s, 32); }

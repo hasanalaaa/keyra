@@ -4,6 +4,7 @@
 #include <string>
 
 #include "esp_err.h"
+#include "keyra/net.hpp"
 
 namespace keyra::settings {
 
@@ -18,6 +19,12 @@ struct Settings {
   Separator bothSeparator = Separator::Tab;
   bool submitAfterBoth = false;
   uint8_t ledBrightness = 50;  // percent
+  // Home network (SPEC §8.2). The password is write-only: never returned by the
+  // API and never logged.
+  bool homeEnabled = false;
+  std::string homeSsid;
+  std::string homePassword;
+  net::ApMode apMode = net::ApMode::Always;
 };
 
 constexpr uint8_t kMinAutoLockMin = 1, kMaxAutoLockMin = 120;
@@ -30,5 +37,6 @@ esp_err_t save(const Settings&);   // persists every field and updates the cache
 esp_err_t erase();                 // factory reset: back to defaults
 std::string defaultSsid();         // "Keyra-XXXX" from the last two SoftAP MAC bytes
 std::string ssid(const Settings&); // effective SSID
+net::Home home(const Settings&);   // what keyra_net should join
 
 }  // namespace keyra::settings

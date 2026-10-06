@@ -274,6 +274,43 @@ async function vaultShots(base, opts) {
   await ctx.close();
 }
 
+// ---------- flow 3: home Wi‑Fi + trusted browser (SPEC §8.2), phone, English ----------
+
+async function homeFlow(base, opts) {
+  const { ctx, page, tag } = await open(base, opts);
+  console.log(`home Wi‑Fi ${tag}`);
+  // Through the home network an unknown browser must be trusted with the button first.
+  await page.locator('input[type=password]').fill(PASS);
+  await page.locator('button[type=submit]').click();
+  await page.locator('.ready-ready').waitFor();
+  check((await page.locator('.ready-title').textContent())?.includes('trust this browser'), 'trust prompt shown');
+  await shot(page, `unlock-trust${tag}`, 1200);
+  check((await button(base)) === 'approved trust_browser', 'button approves trust');
+  await page.locator('.list-pane').waitFor({ timeout: 10000 }); // retried unlock succeeds
+
+  await page.evaluate(() => (location.hash = '#/settings'));
+  await page.locator('.nav-row', { hasText: /Home Wi.Fi/ }).click();
+  await page.getByRole('switch', { name: /Use home Wi.Fi/ }).click(); // off → pick a network
+  await page.locator('.net-row', { hasText: 'Al-Rashid Home' }).first().waitFor({ timeout: 8000 });
+  check(await page.locator('.net-row', { hasText: 'Cafe Baghdad Free' }).isDisabled(), 'open network not joinable');
+  await shot(page, `home-wifi-pick${tag}`);
+  await page.locator('.net-row', { hasText: 'Al-Rashid Home' }).first().click();
+  await page.locator('input[type=password]').fill('home-secret-42');
+  await page.locator('form button[type=submit]').click();
+  await page.locator('.ready-ready').waitFor();
+  check((await button(base)) === 'approved home_wifi', 'button approves home_wifi');
+  await page.locator('.home-status .chip-ok').waitFor({ timeout: 10000 });
+  await page.locator('.home-hint').waitFor();
+  await shot(page, `home-wifi${tag}`);
+  await page.keyboard.press('Escape');
+
+  await page.locator('.nav-row', { hasText: 'Trusted browsers' }).click();
+  await page.locator('.trusted-row .chip-accent').waitFor();
+  await shot(page, `trusted${tag}`);
+  console.log('  ✓ flow passed');
+  await ctx.close();
+}
+
 /** Shrinks the PNGs for the README when pngquant is on PATH (they are committed). */
 function quantizeShots() {
   const files = readdirSync(SHOTS).filter((f) => f.endsWith('.png')).map((f) => SHOTS + f);
@@ -294,6 +331,7 @@ try {
   const seeded = await startMock(8791);
   const fresh1 = await startMock(8792, { MOCK_FRESH: '1' });
   const fresh2 = await startMock(8793, { MOCK_FRESH: '1' });
+  const home = await startMock(8794, { MOCK_VIA: 'home' });
 
   await firstRunFlow(fresh1, {});
   await firstRunFlow(fresh2, { desktop: true, lang: 'en', dark: true });
@@ -309,6 +347,8 @@ try {
   ]) {
     await vaultShots(seeded, opts);
   }
+
+  await homeFlow(home, { lang: 'en' });
 
   quantizeShots();
   if (errors.length) {

@@ -45,7 +45,7 @@ extern "C" void app_main() {
   ESP_ERROR_CHECK(keyra::settings::load());
   const keyra::settings::Settings s = keyra::settings::get();
   keyra::io::brightness(s.ledBrightness);
-  ESP_ERROR_CHECK(keyra::net::start({keyra::settings::ssid(s), s.wifiPassword, 6}));
+  ESP_ERROR_CHECK(keyra::net::start({keyra::settings::ssid(s), s.wifiPassword, 6}, keyra::settings::home(s)));
   ESP_ERROR_CHECK(keyra::api::start());
   ESP_LOGI(TAG, "Keyra up: http://keyra.local");
 }
