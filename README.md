@@ -75,15 +75,13 @@ A long press (1.5 seconds) cancels a pending action, or locks the vault if nothi
 
 ## Screenshots
 
-<!-- Screenshots are generated into web/screenshots/ by the web app's e2e run. Replace this block with the table below once the files exist.
-
-| Unlock | Vault | Account | Ready to type |
+| Your vault | Ready — press the button | Typed ✓ | Account (dark) |
 |:--:|:--:|:--:|:--:|
-| <img src="web/screenshots/unlock.png" width="200"> | <img src="web/screenshots/vault.png" width="200"> | <img src="web/screenshots/account.png" width="200"> | <img src="web/screenshots/ready.png" width="200"> |
+| <img src="web/screenshots/vault-en.png" width="200" alt="Vault list"> | <img src="web/screenshots/ready-en.png" width="200" alt="Ready to type"> | <img src="web/screenshots/typed-en.png" width="200" alt="Typed"> | <img src="web/screenshots/account-en-dark.png" width="200" alt="Account in dark mode"> |
 
--->
+<p align="center"><img src="web/screenshots/vault-desktop-dark.png" width="85%" alt="Desktop layout, Arabic, dark"></p>
 
-_Screenshots coming with the first release._
+Arabic (right-to-left) and English, light and dark, phone and desktop — all generated from the real app by `npm --prefix web run e2e` (every screen is in [web/screenshots](web/screenshots)).
 
 ## Security model
 
@@ -204,11 +202,14 @@ npm --prefix web ci
 npm --prefix web run typecheck
 npm --prefix web test
 
-# Web UI without a board: a mock of the device API
+# Web UI without a board: a mock of the device API (demo passphrase: keyra demo vault)
 npm --prefix web run mock
+
+# End-to-end run in a headless browser (Playwright); regenerates the screenshots
+npm --prefix web run e2e
 ```
 
-CI runs the host tests, the web checks and both firmware profiles on every push and pull request. See [CONTRIBUTING.md](CONTRIBUTING.md).
+CI runs the host tests, the web checks and both firmware profiles on every push and pull request; `tools/ci_local.sh` runs the same jobs locally. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Roadmap
 

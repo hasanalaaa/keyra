@@ -84,7 +84,7 @@ export function useApp(): AppState {
 
 // ---------- preferences ----------
 
-export function applyDocumentPrefs(): void {
+function applyDocumentPrefs(): void {
   const html = document.documentElement;
   setLang(state.lang);
   html.lang = state.lang;

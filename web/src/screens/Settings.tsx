@@ -31,6 +31,14 @@ export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void 
   const [name, setName] = useState('');
   const [led, setLed] = useState(50);
   const [sub, setSub] = useState<Sub>(null);
+  const [atTop, setAtTop] = useState(true);
+
+  useEffect(() => {
+    if (!page) return;
+    const onScroll = () => setAtTop(window.scrollY < 4);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [page]);
 
   const load = () =>
     api
@@ -193,7 +201,7 @@ export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void 
 
   if (page) {
     return (
-      <div class="page settings-page">
+      <div class={`page settings-page${atTop ? ' at-top' : ''}`}>
         <header class="top-bar glass">
           <IconButton icon="chevron-left" label={t('back')} onClick={() => back('/')} />
           <span class="spacer" />

@@ -2,7 +2,6 @@
 // Western digits everywhere (DESIGN §3.1): numbers are interpolated with String(n), never localised.
 
 const en = {
-  appName: 'Keyra',
   back: 'Back',
   close: 'Close',
   cancel: 'Cancel',
@@ -109,8 +108,6 @@ const en = {
   copy: 'Copy',
   copied: 'Copied',
   clipboardNote: 'Clipboard stays until you copy something else.',
-  show: 'Show',
-  hide: 'Hide',
   showPassword: 'Show password',
   hidePassword: 'Hide password',
   edit: 'Edit',
@@ -273,7 +270,6 @@ const en = {
 export type Key = keyof typeof en;
 
 const ar: Record<Key, string> = {
-  appName: 'كيرا',
   back: 'رجوع',
   close: 'إغلاق',
   cancel: 'إلغاء',
@@ -375,8 +371,6 @@ const ar: Record<Key, string> = {
   copy: 'نسخ',
   copied: 'تم النسخ',
   clipboardNote: 'يبقى في الحافظة حتى تنسخ شيئاً آخر.',
-  show: 'إظهار',
-  hide: 'إخفاء',
   showPassword: 'إظهار كلمة المرور',
   hidePassword: 'إخفاء كلمة المرور',
   edit: 'تعديل',
@@ -413,7 +407,7 @@ const ar: Record<Key, string> = {
   websiteOpt: 'الموقع (اختياري)',
   createPassword: 'إنشاء كلمة مرور',
   totpKey: 'مفتاح رمز التحقق (اختياري)',
-  totpHelper: 'الصق مفتاح الإعداد أو رابط otpauth:// الذي يعرضه الموقع.',
+  totpHelper: 'الصق مفتاح الإعداد أو رابط otpauth://\u200E الذي يعرضه الموقع.',
   totpError: 'لا يبدو هذا مفتاح إعداد صالحاً.',
   addToFavorites: 'أضِف إلى المفضّلة',
   save: 'حفظ',
@@ -538,7 +532,6 @@ let current: Lang = 'en';
 export const setLang = (l: Lang): void => {
   current = l;
 };
-export const getLang = (): Lang => current;
 
 export function detectLang(pref: LangPref, navLang: string): Lang {
   if (pref !== 'auto') return pref;

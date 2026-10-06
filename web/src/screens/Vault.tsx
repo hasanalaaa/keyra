@@ -77,6 +77,8 @@ function ListPane({ selected, desktop }: { selected: number | null; desktop: boo
   const app = useApp();
   const [q, setQ] = useState('');
   const [fabHidden, setFabHidden] = useState(false);
+  const [atTop, setAtTop] = useState(true);
+  const pane = useRef<HTMLDivElement>(null);
   const [skeleton, setSkeleton] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const lastY = useRef(0);
@@ -89,16 +91,27 @@ function ListPane({ selected, desktop }: { selected: number | null; desktop: boo
     return () => clearTimeout(h);
   }, [entries === null]);
 
+  // Toasts lift above the phone FAB (DESIGN §4.10).
   useEffect(() => {
+    if (desktop) return;
+    document.documentElement.classList.add('has-fab');
+    return () => document.documentElement.classList.remove('has-fab');
+  }, [desktop]);
+
+  // Phones scroll the window; the desktop list pane scrolls itself.
+  useEffect(() => {
+    const el = pane.current;
     const onScroll = () => {
-      const y = window.scrollY;
+      const y = desktop ? (el?.scrollTop ?? 0) : window.scrollY;
       if (y > lastY.current + 4 && y > 80) setFabHidden(true);
       else if (y < lastY.current - 4) setFabHidden(false);
       lastY.current = y;
+      setAtTop(y < 4);
     };
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
-  }, []);
+    const target = desktop ? el : window;
+    target?.addEventListener('scroll', onScroll, { passive: true });
+    return () => target?.removeEventListener('scroll', onScroll);
+  }, [desktop]);
 
   const results = useMemo(() => (entries && q.trim() ? search(entries, q).map((m) => m.entry) : null), [entries, q]);
   const favorites = useMemo(() => (entries ?? []).filter((e) => e.favorite), [entries]);
@@ -141,7 +154,7 @@ function ListPane({ selected, desktop }: { selected: number | null; desktop: boo
   const showPill = pending && pending.what !== 'test' && (desktop ? selected !== pending.id : true);
 
   return (
-    <div class="list-pane">
+    <div class={`list-pane${atTop ? ' at-top' : ''}`} ref={pane}>
       {desktop && (
         <a class="skip-link" href="#accounts" onClick={(e) => {
           e.preventDefault();
@@ -229,7 +242,7 @@ function ListPane({ selected, desktop }: { selected: number | null; desktop: boo
           <Icon name="plus" size={24} />
         </button>
       )}
-      {desktop && (
+      {desktop && entries && entries.length > 0 && (
         <div class="pane-foot">
           <Button icon="plus" full onClick={() => go('/new')}>
             {t('addAccount')}
@@ -307,7 +320,7 @@ function Skeleton() {
   );
 }
 
-export function Orbit() {
+function Orbit() {
   return (
     <div class="orbit" aria-hidden="true">
       <span class="orbit-dots">

@@ -11,17 +11,19 @@ import { holdFastPolling, unlock, useApp } from '../lib/store';
 import { LangButton, minHint } from './common';
 
 // In memory only (never persisted): survives step changes, not reloads.
-const draft = { passphrase: '', confirm: '', wifi: '', committed: false };
+// `sent`: this tab asked the device to set up, so `initialized` turning true is our own commit and the
+// app must stay here for the done/reconnect screen (the poll can report it before the result is read).
+const draft = { passphrase: '', confirm: '', wifi: '', sent: false, committed: false };
 
 /** True while the just-initialized device still needs the done/reconnect screen. */
-export const setupInProgress = (): boolean => draft.committed;
+export const setupInProgress = (): boolean => draft.sent || draft.committed;
 
 export function validWifi(pw: string): boolean {
   return pw.length >= 8 && pw.length <= 63 && /^[\x20-\x7e]+$/.test(pw) && pw !== 'keyra1234';
 }
 
 /** "Keyra-XXXX" from the last two MAC bytes (the firmware's default SSID). */
-export function ssidFromMac(mac: string): string {
+function ssidFromMac(mac: string): string {
   const hex = mac.replace(/[^0-9a-f]/gi, '').toUpperCase();
   return `Keyra-${hex.slice(-4)}`;
 }
@@ -178,7 +180,9 @@ function StepButton() {
   const presence = usePresence('setup');
   const started = useRef(false);
   const [committed, setCommitted] = useState(draft.committed);
-  const begin = () => presence.start(() => api.setup(draft.passphrase, draft.wifi));
+  const begin = async () => {
+    draft.sent = await presence.start(() => api.setup(draft.passphrase, draft.wifi));
+  };
 
   useEffect(() => {
     if (started.current || draft.committed) return;
@@ -216,6 +220,7 @@ function StepButton() {
           body={t('s3Body')}
           onCancel={() => {
             presence.abandon();
+            draft.sent = false;
             back('/setup/2');
           }}
         />
@@ -240,7 +245,7 @@ function Reconnect({ ssid }: { ssid: string }) {
         .catch(() => replace('/unlock'))
         .finally(() => {
           draft.passphrase = draft.confirm = draft.wifi = '';
-          draft.committed = false;
+          draft.sent = draft.committed = false;
         });
     }
   }, [app.online, app.device]);

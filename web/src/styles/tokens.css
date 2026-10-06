@@ -2,7 +2,7 @@
    light-dark() breaks iOS < 17.5 (DESIGN §2). Keep the two copies identical. */
 
 :root {
-  --bg:#F3F4F8; --surface:#FFFFFF; --surface-2:#F7F8FB; --fill:#ECEEF4; --fill-press:#E2E5EE;
+  --bg:#F3F4F8; --surface:#FFFFFF; --surface-2:#F7F8FB; --fill:#ECEEF4; --fill-press:#E2E5EE; --seg-thumb:#FFFFFF;
   --text:#0B0F19; --text-2:#454C5E; --text-3:#5E6679;
   --line:rgba(11,15,25,.10); --line-strong:#7C8498;
   --accent:#0B57F0; --accent-press:#0847C4; --accent-soft:#E7EEFE; --on-accent:#FFFFFF;
@@ -52,7 +52,7 @@
 @media (prefers-color-scheme:dark) {
   :root:not([data-theme="light"]) {
     color-scheme:dark;
-    --bg:#080A10; --surface:#12151D; --surface-2:#1B1F2A; --fill:#232837; --fill-press:#2C3243;
+    --bg:#080A10; --surface:#12151D; --surface-2:#1B1F2A; --fill:#232837; --fill-press:#2C3243; --seg-thumb:#3A4256;
     --text:#F2F4F9; --text-2:#B1B8C8; --text-3:#8D95A8;
     --line:rgba(255,255,255,.09); --line-strong:#6B7388;
     --accent:#6C9CFF; --accent-press:#8DB1FF; --accent-soft:#202B41; --on-accent:#050A18;
@@ -70,7 +70,7 @@
 }
 :root[data-theme="dark"] {
   color-scheme:dark;
-  --bg:#080A10; --surface:#12151D; --surface-2:#1B1F2A; --fill:#232837; --fill-press:#2C3243;
+  --bg:#080A10; --surface:#12151D; --surface-2:#1B1F2A; --fill:#232837; --fill-press:#2C3243; --seg-thumb:#3A4256;
   --text:#F2F4F9; --text-2:#B1B8C8; --text-3:#8D95A8;
   --line:rgba(255,255,255,.09); --line-strong:#6B7388;
   --accent:#6C9CFF; --accent-press:#8DB1FF; --accent-soft:#202B41; --on-accent:#050A18;

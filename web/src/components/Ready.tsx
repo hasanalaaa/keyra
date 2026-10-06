@@ -95,11 +95,6 @@ export function Ready({ state, deadline = 0, total = 60000, title, body, chip, n
           {titleText}
         </span>
       )}
-      {state === 'typed' && (
-        <span class="sr-only" role="status">
-          {titleText}
-        </span>
-      )}
       {state === 'ready' && notice}
       {state === 'ready' && onCancel && (
         <Button variant="ghost" onClick={onCancel}>

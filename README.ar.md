@@ -69,15 +69,13 @@ Keyra جهاز للراحة والعزل، وليس درعاً سحرياً. ا�
 
 ## لقطات الشاشة
 
-<!-- ستُنشأ اللقطات في web/screenshots/. استبدل هذه الكتلة بالجدول أدناه بعد وجود الملفات.
-
-| الفتح | الخزنة | الحساب | جاهز للكتابة |
+| خزنتك | جاهز — اضغط الزر | تمت الكتابة ✓ | الحساب (داكن) |
 |:--:|:--:|:--:|:--:|
-| <img src="web/screenshots/unlock.png" width="200"> | <img src="web/screenshots/vault.png" width="200"> | <img src="web/screenshots/account.png" width="200"> | <img src="web/screenshots/ready.png" width="200"> |
+| <img src="web/screenshots/vault.png" width="200" alt="قائمة الحسابات"> | <img src="web/screenshots/ready.png" width="200" alt="جاهز للكتابة"> | <img src="web/screenshots/typed.png" width="200" alt="تمت الكتابة"> | <img src="web/screenshots/account-dark.png" width="200" alt="الحساب بالوضع الداكن"> |
 
--->
+<p align="center"><img src="web/screenshots/vault-desktop-dark.png" width="85%" alt="واجهة الكمبيوتر، داكن"></p>
 
-_ستتوفر اللقطات مع الإصدار الأول._
+بالعربي (من اليمين لليسار) والإنكليزي، فاتح وداكن، هاتف وكمبيوتر — كلها مأخوذة من التطبيق الحقيقي عبر `npm --prefix web run e2e` (كل الشاشات في [web/screenshots](web/screenshots)).
 
 ## نموذج الأمان
 
@@ -198,11 +196,14 @@ npm --prefix web ci
 npm --prefix web run typecheck
 npm --prefix web test
 
-# واجهة الويب بدون لوحة: محاكاة لواجهة الجهاز
+# واجهة الويب بدون لوحة: محاكاة لواجهة الجهاز (عبارة المرور التجريبية: keyra demo vault)
 npm --prefix web run mock
+
+# فحص شامل بمتصفح آلي (Playwright) ويولّد لقطات الشاشة
+npm --prefix web run e2e
 ```
 
-يشغّل CI اختبارات الجهاز وفحوصات الويب وبناء النسختين (التطوير والإصدار) مع كل دفع وطلب دمج. راجع [CONTRIBUTING.md](CONTRIBUTING.md).
+يشغّل CI اختبارات الجهاز وفحوصات الويب وبناء النسختين (التطوير والإصدار) مع كل دفع وطلب دمج، و`tools/ci_local.sh` يشغّل نفس الفحوصات على جهازك. راجع [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## خارطة الطريق
 

@@ -5,7 +5,11 @@ import { viteSingleFile } from 'vite-plugin-singlefile';
 const mock = 'http://localhost:8787';
 
 export default defineConfig({
-  plugins: [preact(), viteSingleFile({ removeViteModuleLoader: true })],
+  plugins: [
+    preact(),
+    // base '/': the device serves the manifest and icons only at these absolute paths (SPEC §5 Static).
+    viteSingleFile({ removeViteModuleLoader: true, overrideConfig: { base: '/' } }),
+  ],
   build: {
     outDir: 'dist',
     emptyOutDir: true,
@@ -15,6 +19,7 @@ export default defineConfig({
     modulePreload: false,
     reportCompressedSize: false,
   },
-  server: { proxy: { '/api': mock, '/__mock': mock } },
+  // Keep the browser's Host so the mock's same-origin check (like the device's) accepts the dev origin.
+  server: { proxy: { '/api': { target: mock, changeOrigin: false }, '/__mock': { target: mock, changeOrigin: false } } },
   test: { include: ['test/**/*.test.ts'], environment: 'node' },
 });

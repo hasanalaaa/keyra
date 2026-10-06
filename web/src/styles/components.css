@@ -91,7 +91,10 @@
 .acc-row.selected { background:var(--accent-soft); }
 .acc-row.selected::before { content:""; position:absolute; inset-block:8px; inset-inline-start:0; inline-size:3px; border-radius:0 3px 3px 0; background:var(--accent); }
 [dir="rtl"] .acc-row.selected::before { border-radius:3px 0 0 3px; }
-.row-text { flex:1; min-inline-size:0; display:flex; flex-direction:column; }
+/* Items hug their text at the row's start edge, so a Latin title or an LTR username still lines up
+   with Arabic rows on the right in RTL (their own bidi direction is kept inside the box). */
+.row-text { flex:1; min-inline-size:0; display:flex; flex-direction:column; align-items:flex-start; }
+.row-text > * { max-inline-size:100%; }
 .row-title { font-size:var(--fs-headline); line-height:var(--lh-headline); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:start; }
 .row-sub { font-size:var(--fs-callout); line-height:var(--lh-callout); color:var(--text-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; unicode-bidi:plaintext; text-align:start; }
 .row-star { color:var(--accent); }
@@ -177,7 +180,7 @@
 }
 .seg-thumb {
   position:absolute; inset-block:3px; inset-inline-start:3px; inline-size:calc((100% - 6px) / var(--n));
-  border-radius:11px; background:var(--surface); box-shadow:var(--sh-1);
+  border-radius:11px; background:var(--seg-thumb); box-shadow:var(--sh-1);
   transform:translateX(calc(var(--i) * 100% * var(--dir)));
   transition:transform var(--d-slow) var(--ease-spring);
 }
@@ -190,7 +193,6 @@
 /* Slider */
 .slider {
   -webkit-appearance:none; appearance:none; block-size:28px; background:none; margin:0; min-inline-size:80px;
-  --fill-start:var(--accent);
 }
 .slider::-webkit-slider-runnable-track {
   block-size:6px; border-radius:3px;
@@ -258,12 +260,17 @@
   transition:transform var(--d-base) var(--ease-out);
 }
 .sheet-tall { block-size:92dvh; }
+.sheet:focus, .alert:focus { outline:none; }
 .sheet-head {
   position:sticky; inset-block-start:0; z-index:2; display:grid; grid-template-columns:1fr auto 1fr; align-items:center;
   min-block-size:56px; padding:14px 8px 4px; border-radius:var(--r-xl) var(--r-xl) 0 0; touch-action:none;
   box-shadow:none !important;
 }
 .sheet-head::after { content:""; position:absolute; inset-inline:0; inset-block-end:0; block-size:1px; background:var(--line); }
+/* Sheets whose content carries its own title (account, Ready) keep just the grabber and close button. */
+.sheet-head.bare { min-block-size:44px; padding-block-end:0; }
+.sheet-head.bare::after { display:none; }
+.sheet-head.bare + .sheet-body { padding-block-start:0; }
 .grabber { position:absolute; inset-block-start:8px; inset-inline-start:50%; translate:-50% 0; inline-size:36px; block-size:5px; border-radius:3px; background:var(--line-strong); opacity:.6; }
 [dir="rtl"] .grabber { translate:50% 0; }
 .sheet-title { grid-column:2; font-size:var(--fs-headline); line-height:var(--lh-headline); font-weight:600; text-align:center; max-inline-size:60vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -334,10 +341,9 @@
 .ring { position:absolute; inset:0; overflow:visible; }
 .ring circle { fill:none; stroke-width:10; }
 .ring-track { stroke:var(--ring-track); }
-.ring-prog {
-  stroke:var(--accent); stroke-linecap:round; transition:stroke var(--d-fast);
-  animation-name:drain; animation-timing-function:linear; animation-fill-mode:both;
-}
+.ring-prog { stroke:var(--accent); stroke-linecap:round; transition:stroke var(--d-fast); }
+/* Only the waiting ring drains; a 0 s fill-mode animation elsewhere would pin typing/typed rings empty. */
+.ready-ready .ring-prog { animation-name:drain; animation-timing-function:linear; animation-fill-mode:both; }
 @keyframes drain { from { stroke-dashoffset:0; } to { stroke-dashoffset:553; } }
 .ring-halo {
   stroke:var(--led); opacity:0; transform-box:fill-box; transform-origin:center;

@@ -44,7 +44,7 @@ function Layer({ modal, children }: { modal: boolean; children: ComponentChildre
   return null;
 }
 
-export const isDesktop = (): boolean => matchMedia('(min-width: 900px)').matches;
+const isDesktop = (): boolean => matchMedia('(min-width: 900px)').matches;
 
 export function useMedia(q: string): boolean {
   const [m, setM] = useState(() => matchMedia(q).matches);
@@ -66,12 +66,12 @@ function useFocusReturn(): void {
   }, []);
 }
 
-function focusFirst(root: HTMLElement | null, selector?: string): void {
-  if (!root) return;
+/** Focus the first field (or `selector`); with no field, the dialog itself, so no button wears a focus ring on open. */
+function focusFirst(root: HTMLElement | null, fallback: HTMLElement | null, selector?: string): void {
   const el =
-    (selector && root.querySelector<HTMLElement>(selector)) ||
-    root.querySelector<HTMLElement>('[autofocus], input:not([type=hidden]), textarea') ||
-    root.querySelector<HTMLElement>('button, [href], select, [tabindex]:not([tabindex="-1"])');
+    (selector && root?.querySelector<HTMLElement>(selector)) ||
+    root?.querySelector<HTMLElement>('[autofocus], input:not([type=hidden]):not([type=file]), textarea') ||
+    fallback;
   el?.focus({ preventScroll: true });
 }
 
@@ -126,7 +126,7 @@ function SheetBody({ title, onClose, canClose, start, size = 'md', tall, modal =
   };
   if (ctl) ctl.current = { close };
 
-  useEffect(() => focusFirst(panel.current?.querySelector<HTMLElement>('.sheet-body') ?? null), []);
+  useEffect(() => focusFirst(panel.current?.querySelector<HTMLElement>('.sheet-body') ?? null, panel.current), []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && stack[stack.length - 1]?.contains(panel.current)) {
@@ -169,10 +169,11 @@ function SheetBody({ title, onClose, canClose, start, size = 'md', tall, modal =
         ref={panel}
         class={`sheet sheet-${size}${tall ? ' sheet-tall' : ''}`}
         role="dialog"
+        tabIndex={-1}
         aria-modal={modal}
         aria-labelledby={titleId}
       >
-        <header class="sheet-head glass" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
+        <header class={`sheet-head glass${hideTitle ? ' bare' : ''}`} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
           <span class="grabber" aria-hidden="true" />
           <div class="sheet-start">{start}</div>
           <h2 class={`sheet-title${hideTitle ? ' sr-only' : ''}`} id={titleId}>
@@ -207,7 +208,7 @@ function AlertBody({ title, body, actions, onCancel, cancelLabel }: { title: str
   const [ids] = useState(() => ++sheetSeq);
   useFocusReturn();
   useEffect(() => {
-    focusFirst(box.current, '.alert-cancel');
+    focusFirst(box.current, box.current, '.alert-cancel');
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && stack[stack.length - 1]?.contains(box.current)) {
         e.preventDefault();
@@ -220,7 +221,7 @@ function AlertBody({ title, body, actions, onCancel, cancelLabel }: { title: str
   return (
     <div class="sheet-wrap alert-wrap">
       <div class="scrim" onClick={onCancel} />
-      <div ref={box} class="alert" role="alertdialog" aria-modal="true" aria-labelledby={`al-t-${ids}`} aria-describedby={body ? `al-b-${ids}` : undefined}>
+      <div ref={box} class="alert" tabIndex={-1} role="alertdialog" aria-modal="true" aria-labelledby={`al-t-${ids}`} aria-describedby={body ? `al-b-${ids}` : undefined}>
         <h2 class="alert-title" id={`al-t-${ids}`}>
           {title}
         </h2>
