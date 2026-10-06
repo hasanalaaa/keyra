@@ -13,12 +13,14 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "handlers_net.hpp"
 #include "http.hpp"
 #include "keyra/hid.hpp"
 #include "keyra/io.hpp"
 #include "keyra/settings.hpp"
 #include "keyra/vault.hpp"
 #include "runtime.hpp"
+#include "trusted.hpp"
 #include "validate.hpp"
 
 namespace keyra::api {
@@ -38,6 +40,7 @@ struct Ctx {
   bool session;
   std::string token;
   json::Ptr body;  // parsed JSON object, when the route takes one
+  net::Via via = net::Via::Home;
 };
 
 // ---------- small helpers ----------
@@ -151,6 +154,7 @@ cJSON* settingsJson(const settings::Settings& s) {
   cJSON_AddStringToObject(o, "bothSeparator", s.bothSeparator == settings::Separator::Enter ? "enter" : "tab");
   cJSON_AddBoolToObject(o, "submitAfterBoth", s.submitAfterBoth);
   cJSON_AddNumberToObject(o, "ledBrightness", s.ledBrightness);
+  netapi::addSettings(o, s);
   return o;
 }
 
@@ -282,6 +286,7 @@ esp_err_t getState(Ctx& c) {
   } else {
     cJSON_AddNullToObject(pr, "result");
   }
+  netapi::addState(o.get(), c.via);
   cJSON_AddBoolToObject(o.get(), "timeValid", timeValid());
   return http::sendJson(c.r, http::k200, o.get());
 }
@@ -310,6 +315,7 @@ esp_err_t postUnlock(Ctx& c) {
   if (!requireString(c, "passphrase", pass.s, err)) return err;
   if (pass.s.size() > kMaxPassphraseBytes) return badRequest(c.r, "passphrase too long");
   uint32_t retryMs = 0;
+  const bool wasUnlocked = vault::unlocked();
   const Status st = vault::unlock(pass.s, &retryMs);
   if (st == Status::WrongPassphrase) return sendRetry(c.r, http::k401, "wrong", "Wrong passphrase", retryMs);
   if (st == Status::RateLimited) {
@@ -320,9 +326,22 @@ esp_err_t postUnlock(Ctx& c) {
   }
   if (st != Status::Ok) return sendVaultError(c.r, st);
 
-  const Sessions::Issued s = sessions().create(monoMs());
+  // Home network (SPEC §8.2): the right passphrase is not enough until this
+  // browser has been approved once with the button. Checked after the KDF so
+  // the button is only asked for when the passphrase was right (and wrong
+  // guesses still hit the rate limit).
+  std::string ktToken;
+  const uint32_t trustId = trust::recognise(c.r, ktToken);
+  if (trust::needsApproval(c.via == net::Via::Home, trustId != 0)) {
+    if (!wasUnlocked) vault::lock();
+    return trust::requestApproval(c.r);
+  }
+
+  const Sessions::Issued s = sessions().create(monoMs(), trustId);
   const std::string cookie = "ks=" + s.token + "; HttpOnly; SameSite=Strict; Path=/";
   httpd_resp_set_hdr(c.r, "Set-Cookie", cookie.c_str());
+  const std::string kt = "kt=" + ktToken + "; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000";
+  if (trustId != 0) httpd_resp_set_hdr(c.r, "Set-Cookie", kt.c_str());
   json::Ptr o(cJSON_CreateObject());
   cJSON_AddStringToObject(o.get(), "csrf", s.csrf.c_str());
   return http::sendJson(c.r, http::k200, o.get());
@@ -576,6 +595,11 @@ esp_err_t putSettings(Ctx& c) {
   if ((f = json::getInt(b, "ledBrightness", 0, settings::kMaxLedBrightness, n)) == Field::BadType)
     return badRequest(c.r, "ledBrightness must be 0-100");
   if (f == Field::Ok) next.ledBrightness = static_cast<uint8_t>(n);
+  if ((f = json::getString(b, "apMode", str)) == Field::BadType || (f == Field::Ok && str != "always" && str != "fallback"))
+    return badRequest(c.r, "apMode must be \"always\" or \"fallback\"");
+  if (f == Field::Ok) next.apMode = str == "fallback" ? net::ApMode::Fallback : net::ApMode::Always;
+  // Joining a network changes who can reach Keyra, so it is button-gated there.
+  if (cJSON_HasObjectItem(b, "homeWifi")) return badRequest(c.r, "home Wi-Fi changes go through PUT /api/wifi/home");
 
   auto wifi = std::make_shared<WifiJob>();
   if ((f = json::getString(b, "wifiSsid", wifi->ssid)) == Field::BadType || (f == Field::Ok && !validate::ssid(wifi->ssid)))
@@ -588,6 +612,7 @@ esp_err_t putSettings(Ctx& c) {
 
   if (settings::save(next) != ESP_OK) return http::sendError(c.r, http::k500, "storage", "Could not save settings");
   if (next.ledBrightness != cur.ledBrightness) io::brightness(next.ledBrightness);
+  if (next.apMode != cur.apMode) netapi::apply();
 
   if (!wifi->ssid.empty() || !wifi->password.s.empty()) {
     const int64_t expires = machine().awaitPresence(actions::Op::Wifi, [wifi] { return commitWifi(*wifi); });
@@ -672,7 +697,7 @@ bool takesBody(Route r) {
   switch (r) {
     case Route::Setup: case Route::Unlock: case Route::CreateEntry: case Route::UpdateEntry:
     case Route::ImportEntries: case Route::Type: case Route::PutSettings: case Route::Passphrase:
-    case Route::Backup: case Route::Restore:
+    case Route::Backup: case Route::Restore: case Route::WifiHome:
       return true;
     default:
       return false;
@@ -680,7 +705,9 @@ bool takesBody(Route r) {
 }
 
 bool isSlow(Route r) {
-  return r == Route::Unlock || r == Route::Passphrase || r == Route::Backup || r == Route::Restore;
+  // WifiScan blocks for seconds while the radio scans.
+  return r == Route::Unlock || r == Route::Passphrase || r == Route::Backup || r == Route::Restore ||
+         r == Route::WifiScan;
 }
 
 esp_err_t dispatch(Ctx& c);
@@ -703,7 +730,7 @@ esp_err_t deferToWorker(Ctx& c) {
   httpd_req_t* copy = nullptr;
   if (httpd_req_async_handler_begin(c.r, &copy) != ESP_OK)
     return http::sendError(c.r, http::k500, "no_memory", "Out of memory");
-  Ctx* job = new Ctx{copy, c.match, c.session, std::move(c.token), std::move(c.body)};
+  Ctx* job = new Ctx{copy, c.match, c.session, std::move(c.token), std::move(c.body), c.via};
   if (xQueueSend(g_slowQueue, &job, 0) != pdTRUE) {
     delete job;
     http::sendError(copy, http::k503, "busy", "Keyra is busy; try again");
@@ -733,6 +760,10 @@ esp_err_t dispatch(Ctx& c) {
     case Route::Backup: return postBackup(c);
     case Route::Restore: return postRestore(c);
     case Route::FactoryReset: return postFactoryReset(c);
+    case Route::WifiScan: return netapi::getScan(c.r);
+    case Route::WifiHome: return netapi::putHome(c.r, c.body.get());
+    case Route::ListTrusted: return trust::sendList(c.r);
+    case Route::DeleteTrusted: return trust::revoke(c.r, c.match.id);
   }
   return http::sendError(c.r, http::k404, "not_found", "No such endpoint");
 }
@@ -748,14 +779,14 @@ esp_err_t handleApi(httpd_req_t* r, Method method, std::string_view path) {
     http::sendError(r, http::k413, "too_large", "Request body too large");
     return ESP_FAIL;  // closes the socket instead of draining an oversized body
   }
-  Ctx c{r, matchApi(method, path), false, {}, nullptr};
+  Ctx c{r, matchApi(method, path), false, {}, nullptr, net::viaForSocket(httpd_req_to_sockfd(r))};
   if (c.match.kind == Match::Kind::NotFound) return http::sendError(r, http::k404, "not_found", "No such endpoint");
   if (c.match.kind == Match::Kind::MethodNotAllowed)
     return http::sendError(r, http::k405, "method_not_allowed", "Method not allowed");
 
   if (method != Method::Get) {
     const bool hasOrigin = httpd_req_get_hdr_value_len(r, "Origin") > 0;
-    if (!isAllowedOrigin(http::header(r, "Origin", 128), hasOrigin))
+    if (!isAllowedOrigin(http::header(r, "Origin", 128), hasOrigin, net::homeIp()))
       return http::sendError(r, http::k403, "csrf", "Cross-origin request refused");
   }
 

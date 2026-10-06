@@ -27,10 +27,13 @@ class Sessions {
     std::string token, csrf;
   };
   // Evicts the least recently used session when all slots are taken.
-  Issued create(int64_t nowMs);
+  // `trustId`: the trusted browser (SPEC §8.2) this session was opened from, 0 = none.
+  Issued create(int64_t nowMs, uint32_t trustId = 0);
   // The session's CSRF token when `token` is live; marks it used.
   std::optional<std::string> csrfFor(std::string_view token, int64_t nowMs);
   void clear();
+  // Revoking a trusted browser ends the sessions it opened.
+  size_t endTrusted(uint32_t trustId);
   size_t size();
 
   // Idle tracking for auto-lock: any authenticated request or button use counts.
@@ -42,6 +45,7 @@ class Sessions {
     bool used = false;
     std::string token, csrf;
     int64_t lastUsed = 0;
+    uint32_t trustId = 0;
   };
   std::string randomHex();
 

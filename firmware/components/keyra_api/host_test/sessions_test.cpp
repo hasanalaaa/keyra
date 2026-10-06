@@ -64,6 +64,19 @@ void constantTimeCompare() {
   CHECK(constantTimeEqual("", ""));
 }
 
+void revokingATrustedBrowserEndsOnlyItsSessions() {
+  Sessions s(fakeRandom);
+  auto plain = s.create(1);
+  auto a = s.create(2, 7), b = s.create(3, 7), other = s.create(4, 9);
+  CHECK_EQ(s.endTrusted(7), 2u);
+  CHECK(!s.csrfFor(a.token, 5).has_value());
+  CHECK(!s.csrfFor(b.token, 5).has_value());
+  CHECK(s.csrfFor(plain.token, 5).has_value());
+  CHECK(s.csrfFor(other.token, 5).has_value());
+  CHECK_EQ(s.endTrusted(0), 0u);  // untrusted sessions are never matched
+  CHECK_EQ(s.size(), 2u);
+}
+
 }  // namespace
 
 int main() {
@@ -72,5 +85,6 @@ int main() {
   clearEndsAll();
   idleTracking();
   constantTimeCompare();
+  revokingATrustedBrowserEndsOnlyItsSessions();
   return KEYRA_TEST_RESULT();
 }

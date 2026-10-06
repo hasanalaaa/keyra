@@ -2,6 +2,7 @@ idf_component_register(
     SRCS "src/api.cpp" "src/server.cpp" "src/handlers.cpp" "src/http.cpp" "src/json.cpp"
          "src/runtime.cpp" "src/actions.cpp" "src/sessions.cpp" "src/routes.cpp"
          "src/clock.cpp" "src/validate.cpp" "src/settings.cpp"
+         "src/trust.cpp" "src/trusted.cpp" "src/handlers_net.cpp"
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "src"
     REQUIRES esp_common keyra_net
