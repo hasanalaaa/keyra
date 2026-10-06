@@ -108,7 +108,11 @@ esp_err_t putHome(httpd_req_t* r, const cJSON* body) {
   f = json::getString(body, "password", job->password.s);
   if (f == Field::BadType || (f == Field::Ok && !validate::homePassword(job->password.s)))
     return badRequest(r, "password must be 8-63 printable ASCII characters");
-  if (job->enabled) {
+  if (!job->enabled) {
+    // Turning it off keeps the saved network for a later re-enable, untouched.
+    job->ssid.clear();
+    vault::wipe(job->password.s);
+  } else {
     if (job->ssid.empty()) job->ssid = cur.homeSsid;
     if (job->ssid.empty()) return badRequest(r, "ssid is required");
     // Keyra only joins password-protected networks, so a new network needs one.
