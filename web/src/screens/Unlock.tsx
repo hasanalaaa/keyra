@@ -1,0 +1,168 @@
+// Unlock and Locked (DESIGN §5.3, §5.11), plus "Forgot passphrase?" → factory reset with the button.
+import { useEffect, useRef, useState } from 'preact/hooks';
+import { KeyGlyph, LogoTile } from '../components/Icon';
+import { Button, SecretField } from '../components/ui';
+import { Alert } from '../components/Sheet';
+import { Ready } from '../components/Ready';
+import { ApiError, api } from '../lib/api';
+import { useNow, usePresence } from '../lib/actions';
+import { clock, t } from '../lib/i18n';
+import { replace } from '../lib/router';
+import { toast, unlock, useApp, type LockReason } from '../lib/store';
+import { LangButton } from './common';
+
+export function Unlock({ reason }: { reason: LockReason }) {
+  const app = useApp();
+  const [revealed, setRevealed] = useState(reason === null);
+  const [erase, setErase] = useState<'idle' | 'confirm' | 'wait'>('idle');
+  const presence = usePresence('factory_reset', { doneOnDisconnect: true });
+
+  useEffect(() => {
+    const k = presence.phase.kind;
+    if (k === 'done') {
+      toast(t('eraseDone'), 'ok');
+      replace('/welcome');
+    } else if (k === 'failed') {
+      toast(t('genericError'), 'error');
+      setErase('idle');
+    } else if (k === 'expired' || k === 'cancelled') setErase('idle');
+  }, [presence.phase.kind]);
+
+  if (erase === 'wait' && presence.phase.kind === 'ready') {
+    return (
+      <div class="page glow-page">
+        <div class="hero-col">
+          <div class="hero-card">
+            <Ready
+              state="ready"
+              deadline={presence.phase.deadline}
+              total={presence.phase.total}
+              title={t('eraseWaitTitle')}
+              body={t('s3Body')}
+              onCancel={() => {
+                presence.abandon();
+                setErase('idle');
+              }}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const reasonText =
+    reason === 'idle'
+      ? t('lockedIdle', { n: app.device?.autoLockMin ?? 15 })
+      : reason === 'button'
+        ? t('lockedButton')
+        : reason === 'manual'
+          ? t('lockedManual')
+          : reason === 'session'
+            ? t('lockedSession')
+            : null;
+
+  return (
+    <div class={`page ${reason ? 'locked-page' : 'glow-page'}`}>
+      <div class="top-actions">
+        <LangButton />
+      </div>
+      <div class="hero-col">
+        <div class="hero-card unlock">
+          {reason ? <KeyGlyph size={72} class="locked-glyph" /> : <LogoTile size={72} />}
+          <h1 class="display">{reason ? t('lockedTitle') : t('unlockTitle')}</h1>
+          {reasonText && <p class="subtitle">{reasonText}</p>}
+          {revealed ? (
+            <UnlockForm onForgot={() => setErase('confirm')} />
+          ) : (
+            <Button size="lg" full onClick={() => setRevealed(true)}>
+              {t('unlock')}
+            </Button>
+          )}
+        </div>
+      </div>
+      {erase === 'confirm' && (
+        <Alert
+          title={t('eraseTitle')}
+          body={t('eraseBody')}
+          actions={[
+            {
+              label: t('eraseConfirm'),
+              variant: 'danger-confirm',
+              run: () => {
+                setErase('wait');
+                void presence.start(api.factoryReset).then((ok) => !ok && setErase('idle'));
+              },
+            },
+          ]}
+          onCancel={() => setErase('idle')}
+        />
+      )}
+    </div>
+  );
+}
+
+function UnlockForm({ onForgot }: { onForgot: () => void }) {
+  const [pass, setPass] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [slow, setSlow] = useState(false);
+  const [wrong, setWrong] = useState(false);
+  const [shake, setShake] = useState(0);
+  const [retryUntil, setRetryUntil] = useState(0);
+  const input = useRef<HTMLInputElement>(null);
+  const now = useNow(retryUntil > Date.now(), 500);
+  const waiting = retryUntil > now;
+
+  useEffect(() => {
+    if (!busy) return;
+    const h = setTimeout(() => setSlow(true), 700);
+    return () => clearTimeout(h);
+  }, [busy]);
+
+  const submit = async (e: Event) => {
+    e.preventDefault();
+    if (!pass || busy || waiting) return;
+    setBusy(true);
+    setSlow(false);
+    setWrong(false);
+    try {
+      await unlock(pass);
+    } catch (err) {
+      if (err instanceof ApiError && (err.code === 'wrong' || err.code === 'rate_limited')) {
+        setWrong(err.code === 'wrong');
+        if (err.retryAfterMs > 0) setRetryUntil(Date.now() + err.retryAfterMs);
+        setShake(1);
+        input.current?.select();
+      } else if (!(err instanceof ApiError && err.status === 0)) toast(t('genericError'), 'error');
+      setBusy(false);
+    }
+  };
+
+  const error = waiting ? t('rateLimited', { t: clock(retryUntil - now) }) : wrong ? t('wrongPassphrase') : null;
+
+  return (
+    <form class={`form unlock-form${shake ? ' shake' : ''}`} onSubmit={submit} onAnimationEnd={() => setShake(0)}>
+      <SecretField
+        label={t('unlockLabel')}
+        value={pass}
+        onValue={(v) => {
+          setPass(v);
+          setWrong(false);
+        }}
+        inputRef={input}
+        autocomplete="current-password"
+        autofocus
+        enterkeyhint="go"
+        error={error}
+      />
+      <Button type="submit" size="lg" full loading={busy} label={busy ? t('unlocking') : undefined} disabled={!pass || waiting}>
+        {t('unlock')}
+      </Button>
+      <p class={`caption center slow-caption${slow ? ' in' : ''}`} aria-live="polite">
+        {slow ? t('unlockSlow') : ''}
+      </p>
+      <Button variant="ghost" onClick={onForgot}>
+        {t('forgot')}
+      </Button>
+    </form>
+  );
+}

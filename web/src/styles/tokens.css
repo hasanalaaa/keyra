@@ -1,0 +1,91 @@
+/* DESIGN.md §2–3 tokens. The font is registered from JS (src/lib/font.ts), not @font-face. The dark block is written twice (media + attribute) on purpose:
+   light-dark() breaks iOS < 17.5 (DESIGN §2). Keep the two copies identical. */
+
+:root {
+  --bg:#F3F4F8; --surface:#FFFFFF; --surface-2:#F7F8FB; --fill:#ECEEF4; --fill-press:#E2E5EE;
+  --text:#0B0F19; --text-2:#454C5E; --text-3:#5E6679;
+  --line:rgba(11,15,25,.10); --line-strong:#7C8498;
+  --accent:#0B57F0; --accent-press:#0847C4; --accent-soft:#E7EEFE; --on-accent:#FFFFFF;
+  --ok:#0A7A3D; --ok-soft:#E3F4EA; --warn:#8F5200; --warn-soft:#FDF0DC; --err:#C1251C; --err-soft:#FDE8E6;
+  --danger-fill:#C1251C; --focus:#0B57F0;
+  --pw-digit:#0B57F0; --pw-symbol:#C1251C;
+  --ring-track:#DCE1EC; --led:#2F6BFF;
+  --toast-bg:#12151D; --toast-text:#F2F4F9; --toast-link:#9DBBFF;
+  --scrim:rgba(8,10,16,.40);
+  --glass-bg:rgba(255,255,255,.82); --glass-edge:rgba(255,255,255,.70); --glass-solid:#FBFBFD;
+  --glass-blur:20px; --glass-sat:1.6;
+  --glow:rgba(11,87,240,.12);
+  --shimmer:rgba(255,255,255,.5);
+  --sh-1:0 1px 2px rgba(11,15,25,.06),0 0 0 1px rgba(11,15,25,.04);
+  --sh-2:0 6px 20px rgba(11,15,25,.08),0 1px 3px rgba(11,15,25,.06);
+  --sh-3:0 -10px 48px rgba(11,15,25,.18),0 2px 8px rgba(11,15,25,.08);
+  --sh-glow:0 0 0 6px rgba(11,87,240,.14);
+  --r-xs:8px; --r-sm:12px; --r-md:16px; --r-lg:20px; --r-xl:28px; --r-pill:999px;
+  --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:20px; --s-6:24px; --s-8:32px; --s-10:40px;
+  --s-14:56px; --s-18:72px;
+  --gutter:16px; --tap:44px; --bar-h:56px; --search-h:60px;
+  --d-fast:120ms; --d-base:200ms; --d-slow:320ms; --d-sheet:420ms; --d-breath:1600ms;
+  --ease-out:cubic-bezier(.2,.8,.2,1); --ease-in:cubic-bezier(.4,0,1,1); --ease-io:cubic-bezier(.4,0,.2,1);
+  --ease-spring:cubic-bezier(.34,1.4,.5,1);
+  --z-sticky:10; --z-fab:20; --z-scrim:40; --z-sheet:50; --z-toast:60; --z-lock:100;
+  --font:"Keyra Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Noto Sans Arabic",Roboto,sans-serif;
+  --font-mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Roboto Mono",monospace;
+  --fs-display:2.125rem; --fs-t1:1.75rem; --fs-t2:1.375rem; --fs-headline:1.0625rem; --fs-body:1rem;
+  --fs-callout:.9375rem; --fs-caption:.8125rem; --fs-code:1.125rem; --fs-totp:2.125rem;
+  --lh-display:1.15; --lh-t1:1.2; --lh-t2:1.3; --lh-headline:1.35; --lh-body:1.45; --lh-callout:1.4; --lh-caption:1.35;
+  --dir:1;
+  color-scheme:light;
+}
+@supports (transition-timing-function:linear(0,1)) {
+  :root{--ease-spring:linear(0,.062,.206,.383,.56,.717,.844,.938,1.002,1.04,1.059,1.063,1.059,1.049,1.038,1.027,1.017,1.009,1.003,1,.997,.996,1)}
+}
+@media (min-width:414px) { :root{--gutter:20px} }
+@media (min-width:900px) { :root{--glass-blur:28px} }
+
+/* Arabic: 6 % larger root and looser leading (DESIGN §3.2). */
+:root:lang(ar) {
+  font-size:106.25%;
+  --lh-display:1.4; --lh-t1:1.4; --lh-t2:1.5; --lh-headline:1.6; --lh-body:1.7; --lh-callout:1.65; --lh-caption:1.6;
+}
+[dir="rtl"] { --dir:-1; }
+
+@media (prefers-color-scheme:dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme:dark;
+    --bg:#080A10; --surface:#12151D; --surface-2:#1B1F2A; --fill:#232837; --fill-press:#2C3243;
+    --text:#F2F4F9; --text-2:#B1B8C8; --text-3:#8D95A8;
+    --line:rgba(255,255,255,.09); --line-strong:#6B7388;
+    --accent:#6C9CFF; --accent-press:#8DB1FF; --accent-soft:#202B41; --on-accent:#050A18;
+    --ok:#4ADE80; --ok-soft:#14301F; --warn:#FBBF4A; --warn-soft:#33260F; --err:#FF7A70; --err-soft:#3A1815;
+    --danger-fill:#D92D20; --focus:#9DBBFF;
+    --pw-digit:#6C9CFF; --pw-symbol:#FF7A70; --ring-track:#2A3042;
+    --scrim:rgba(0,0,0,.58);
+    --glass-bg:rgba(18,21,29,.84); --glass-edge:rgba(255,255,255,.10); --glass-solid:#1B1F2A;
+    --glow:rgba(108,156,255,.14); --shimmer:rgba(255,255,255,.06);
+    --sh-1:0 0 0 1px rgba(255,255,255,.06);
+    --sh-2:0 8px 24px rgba(0,0,0,.45),0 0 0 1px rgba(255,255,255,.06);
+    --sh-3:0 -12px 56px rgba(0,0,0,.65),0 0 0 1px rgba(255,255,255,.08);
+    --sh-glow:0 0 0 6px rgba(108,156,255,.18);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme:dark;
+  --bg:#080A10; --surface:#12151D; --surface-2:#1B1F2A; --fill:#232837; --fill-press:#2C3243;
+  --text:#F2F4F9; --text-2:#B1B8C8; --text-3:#8D95A8;
+  --line:rgba(255,255,255,.09); --line-strong:#6B7388;
+  --accent:#6C9CFF; --accent-press:#8DB1FF; --accent-soft:#202B41; --on-accent:#050A18;
+  --ok:#4ADE80; --ok-soft:#14301F; --warn:#FBBF4A; --warn-soft:#33260F; --err:#FF7A70; --err-soft:#3A1815;
+  --danger-fill:#D92D20; --focus:#9DBBFF;
+  --pw-digit:#6C9CFF; --pw-symbol:#FF7A70; --ring-track:#2A3042;
+  --scrim:rgba(0,0,0,.58);
+  --glass-bg:rgba(18,21,29,.84); --glass-edge:rgba(255,255,255,.10); --glass-solid:#1B1F2A;
+  --glow:rgba(108,156,255,.14); --shimmer:rgba(255,255,255,.06);
+  --sh-1:0 0 0 1px rgba(255,255,255,.06);
+  --sh-2:0 8px 24px rgba(0,0,0,.45),0 0 0 1px rgba(255,255,255,.06);
+  --sh-3:0 -12px 56px rgba(0,0,0,.65),0 0 0 1px rgba(255,255,255,.08);
+  --sh-glow:0 0 0 6px rgba(108,156,255,.18);
+}
+
+@media (prefers-contrast:more) {
+  :root { --line:var(--line-strong); --text-3:var(--text-2); }
+}
