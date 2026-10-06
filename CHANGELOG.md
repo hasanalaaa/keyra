@@ -8,6 +8,19 @@ All notable changes to Keyra are documented here. The format follows
 
 ### Added
 
+- Web app: **Scan QR from a photo** next to the 2FA field. Reads a plain
+  `otpauth://totp/` QR in the browser (jsQR, Apache-2.0; photos are downscaled on
+  a scratch canvas, never uploaded) and fills the key, plus the name and user name
+  when empty.
+- Web app: **Google Authenticator export** card in Import. Decodes
+  `otpauth-migration://` QR codes (hand-written protobuf reader, several QR codes
+  per export), previews the accounts, and adds them as new accounts or adds the
+  key to existing accounts that match by name and user name.
+- Unsupported codes (HOTP, MD5, digits other than 6 or 8, periods other than 30
+  or 60 s) are rejected with a message, matching what the firmware can compute.
+  The 2FA field now applies the same rules to pasted `otpauth://` links.
+- The embedded web app grows from about 78 KB to about 133 KB gzipped (the QR
+  decoder is inlined in the single file; home Wi-Fi screens add about 4 KB).
 - Home Wi-Fi (optional): Keyra joins a WPA2/WPA3 home network so
   `http://keyra.local` opens from any device on it. Joining, changing and
   turning it off need a button press. Retries back off from 2 s to 5 min.

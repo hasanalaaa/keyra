@@ -1,12 +1,14 @@
 // Add / Edit account (DESIGN §5.6) and the password generator sheet (§4.8).
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { Button, ColoredSecret, Notice, SecretField, Slider, StrengthMeter, SwitchRow, TextField } from '../components/ui';
+import { QR_ERRORS, QrPhoto } from '../components/QrPhoto';
 import { Alert, Sheet, type SheetCtl } from '../components/Sheet';
 import { ApiError, api } from '../lib/api';
 import { copyText } from '../lib/clipboard';
 import { DEFAULT_GEN, generatePassword, untypeable, type GenOptions } from '../lib/generator';
 import { t } from '../lib/i18n';
 import { back, replace } from '../lib/router';
+import { parseQrText, titleOf, toOtpauth, type OtpAccount } from '../lib/qrImport';
 import { normalizeTotp } from '../lib/totp';
 import { loadEntries, toast } from '../lib/store';
 import type { EntryInput } from '../lib/types';
@@ -20,6 +22,7 @@ export function EditAccount({ id }: { id?: number }) {
   const [saving, setSaving] = useState(false);
   const [gen, setGen] = useState(false);
   const [confirm, setConfirm] = useState<'discard' | 'delete' | null>(null);
+  const [qrError, setQrError] = useState<string | null>(null);
   const ctl = useRef<SheetCtl | null>(null);
   const after = useRef<() => void>(() => back(id ? `/a/${id}` : '/'));
 
@@ -42,6 +45,23 @@ export function EditAccount({ id }: { id?: number }) {
   const nameErr = !form.title.trim() ? t('nameRequired') : null;
   const totpErr = totpNorm === null ? t('totpError') : null;
   const bad = useMemo(() => untypeable(form.password), [form.password]);
+
+  const onQr = (text: string) => {
+    const r = parseQrText(text);
+    if (!r.ok) return setQrError(t(QR_ERRORS[r.error]));
+    if (r.value.kind === 'migration') {
+      const { accounts } = r.value.migration;
+      if (accounts.length !== 1) return setQrError(t('qrMany', { n: accounts.length }));
+      return fill(accounts[0]);
+    }
+    fill(r.value.account);
+  };
+  const fill = (a: OtpAccount) => {
+    setQrError(null);
+    setTouched((x) => ({ ...x, totp: true }));
+    setForm((f) => ({ ...f, totp: toOtpauth(a), title: f.title.trim() ? f.title : titleOf(a), username: f.username.trim() ? f.username : a.account }));
+    toast(t('qrFilled'), 'ok');
+  };
 
   const save = async () => {
     setTouched({ title: true, totp: true });
@@ -128,19 +148,23 @@ export function EditAccount({ id }: { id?: number }) {
             {t('createPassword')}
           </Button>
         </div>
-        <TextField
-          label={t('totpKey')}
-          value={form.totp}
-          onValue={set('totp')}
-          onBlur={blur('totp')}
-          ltr
-          class="mono-input"
-          autocapitalize="off"
-          spellcheck={false}
-          helper={t('totpHelper')}
-          error={touched.totp ? totpErr : null}
-          enterkeyhint="next"
-        />
+        <div class="pw-block">
+          <TextField
+            label={t('totpKey')}
+            value={form.totp}
+            onValue={set('totp')}
+            onBlur={blur('totp')}
+            ltr
+            class="mono-input"
+            autocapitalize="off"
+            spellcheck={false}
+            helper={t('totpHelper')}
+            error={touched.totp ? totpErr : null}
+            enterkeyhint="next"
+          />
+          <QrPhoto label={t('scanQr')} onText={onQr} onNone={() => setQrError(t('qrNone'))} />
+          {qrError && <Notice tone="err">{qrError}</Notice>}
+        </div>
         <div class="field">
           <label class="field-label" for="notes">
             {t('notes')}

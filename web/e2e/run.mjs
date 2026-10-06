@@ -6,6 +6,7 @@ import { chromium } from 'playwright';
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { migrationUri, qrPng } from './fixtures.mjs';
 
 const WEB = fileURLToPath(new URL('..', import.meta.url));
 const SHOTS = fileURLToPath(new URL('../screenshots/', import.meta.url));
@@ -167,6 +168,54 @@ async function firstRunFlow(base, opts) {
   await page.locator('.import .btn-primary').click();
   await page.locator('.layer .sheet').waitFor({ state: 'detached' });
   check((await page.locator('.acc-row').count()) >= 4, 'list shows imported rows');
+
+  // 2FA from a QR photo: a plain otpauth:// QR in the Edit form …
+  await page.evaluate(() => (location.hash = '#/new'));
+  await page.locator('.edit-form').waitFor();
+  await page.locator('.edit-form input[type=file]').setInputFiles({
+    name: 'qr.png',
+    mimeType: 'image/png',
+    buffer: await qrPng('otpauth://totp/Acme%20Cloud:dev%40acme.io?secret=GEZDGNBVGY3TQOJQ&issuer=Acme%20Cloud&digits=8'),
+  });
+  await page.waitForFunction(() => document.querySelector('.mono-input')?.value.startsWith('otpauth://totp/Acme%20Cloud'));
+  const formInputs = page.locator('.edit-form input');
+  check((await formInputs.nth(0).inputValue()) === 'Acme Cloud', 'QR fills the empty name');
+  check((await formInputs.nth(2).inputValue()) === 'dev@acme.io', 'QR fills the empty user name');
+  check((await page.locator('.mono-input').inputValue()).includes('digits=8'), 'QR keeps 8 digits');
+  await page.locator('.edit-form .file-btn').scrollIntoViewIfNeeded();
+  await shot(page, `edit-qr${tag}`, 2800); // after the toast has gone
+  await page.locator('.save-btn').click();
+  await row(page, 'Acme Cloud').waitFor();
+  await page.locator('.layer .sheet').waitFor({ state: 'detached' });
+
+  // … and a Google Authenticator export QR (one existing account to attach to, one new, one HOTP that is skipped).
+  await page.evaluate(() => (location.hash = '#/import'));
+  await page.locator('.source-wide').click();
+  await page.locator('.import input[type=file]').setInputFiles({
+    name: 'export.png',
+    mimeType: 'image/png',
+    buffer: await qrPng(
+      migrationUri([
+        { secret: Buffer.from('12345678901234567890'), name: 'GitHub:hasanalaaa', issuer: 'GitHub' },
+        { secret: Buffer.from('linear-secret-key!'), name: 'Linear:dev@acme.io', issuer: 'Linear', algorithm: 2 },
+        { secret: Buffer.from('counter-based-key'), name: 'Old:hotp', issuer: 'Old', type: 1 },
+      ]),
+    ),
+  });
+  await page.locator('.qr-list').waitFor();
+  check((await page.locator('.qr-list li').count()) === 2, 'migration preview lists the 2 TOTP accounts');
+  check(await page.locator('.seg').isVisible(), 'attach/new choice is offered when an account matches');
+  await shot(page, `import-qr${tag}`);
+  await page.locator('.import .btn-primary').click();
+  await page.locator('.import .notice').waitFor();
+  const qrDone = (await page.locator('.import .t2').allTextContents()).join(' | ');
+  check(/1/.test(qrDone) && (qrDone.match(/\|/g) ?? []).length === 1, `QR import added 1 and attached 1 (got "${qrDone}")`);
+  await page.locator('.import .btn-primary').click();
+  await page.locator('.layer .sheet').waitFor({ state: 'detached' });
+  await row(page, 'Linear').waitFor();
+  await row(page, 'GitHub').click();
+  await page.locator('.code-card .code').waitFor();
+  await page.keyboard.press('Escape');
 
   // Backup download
   await page.evaluate(() => (location.hash = '#/backup'));
