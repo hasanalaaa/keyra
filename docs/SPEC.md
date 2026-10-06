@@ -239,3 +239,69 @@ Static: `GET /` → `index.html` (gzip, `Cache-Control: no-cache`); `/manifest.w
   `nvs 0x9000 24K · otadata 8K · phy_init 4K · app0 3M · app1 3M · vault (littlefs) rest (≥1.5 MB)`.
 - `web`: `npm run build` → `firmware/components/keyra_api/www/`.
 - `firmware/test/host`: `cmake -S . -B build && cmake --build build && ctest` — vault core, TOTP, keymap, action state machine.
+
+---
+
+## 8. v1.1 — Bluetooth keyboard and home Wi-Fi
+
+### 8.1 Bluetooth LE keyboard (HID over GATT)
+
+Goal: Keyra also types into phones, tablets and computers over Bluetooth, with
+the same "prepare → press the button" flow. USB stays the default.
+
+- New component `keyra_ble` (NimBLE, peripheral only). Advertises as the device
+  name with keyboard appearance (0x03C1). HID over GATT keyboard report + LED
+  output report (Caps Lock handled like USB). Battery service reports 100 %.
+- **Bonding is gated by the button.** Pairing mode is a presence op
+  (`ble_pair`): `POST /api/ble/pair` → 202 `{awaiting:"button"}`; after the
+  press the device is discoverable/pairable for 120 s (LED cyan pulse). Outside
+  that window it advertises only to bonded hosts (filter accept list) and
+  rejects new pairings. LE Secure Connections, bonding, "Just Works" (no
+  display/keypad); max 4 bonds stored in NVS.
+- `keyra::hid` routes typing to a transport: setting `output`
+  `"auto"|"usb"|"ble"`. `auto` = USB when mounted, else the connected BLE host.
+  The typing engine, keymap, Caps Lock wrap and "always release" guarantees are
+  shared by both transports.
+- Settings: `bleEnabled` (default true), `output` (default `"auto"`).
+- API (session):
+  - `GET /api/ble` → `{enabled, pairing:{active:bool, expiresIn:ms}, connected:{addr, name}|null, bonds:[{addr, name, lastSeen}]}`
+  - `POST /api/ble/pair` → 202 (presence op `ble_pair`)
+  - `DELETE /api/ble/bonds/{addr}` → 204 (disconnects it if connected)
+  - `GET /api/state` → `host:{usb, ble, capsLock, output:"usb"|"ble"|null}` (`output` = where a typed action would go now).
+- New `Result.code` `no_host` (nothing connected on the selected output; `no_usb` kept for USB-only output).
+
+### 8.2 Home Wi-Fi (station mode)
+
+Goal: optionally join the home network so Keyra opens at
+`http://keyra.local` from any device on that network — no need to switch
+Wi-Fi.
+
+- Settings: `homeWifi:{enabled, ssid}` (password write-only, never returned),
+  `apMode:"always"|"fallback"` (default `"always"`). `fallback` turns the device
+  AP off while the home network is connected and brings it back if the home
+  network is unavailable for 60 s (and at boot if it hasn't connected within
+  30 s) — Keyra can never become unreachable.
+- Joining/changing/disabling home Wi-Fi is a presence op (`home_wifi`), because
+  it changes who can reach the device.
+- API (session):
+  - `GET /api/wifi/scan` → `{networks:[{ssid, rssi, secure, channel}]}` (sorted by rssi, hidden/empty SSIDs dropped; the scan may stall the AP for ~2 s)
+  - `PUT /api/wifi/home` `{enabled, ssid?, password?}` → 202 presence op
+  - `GET /api/state` → `net:{ap:{on, ssid, clients}, home:{enabled, connected, ssid, ip, rssi}|null, via:"ap"|"home"}` (`via` = how this request arrived).
+- mDNS `keyra.local` + `_http._tcp` on both interfaces. The Host check accepts
+  `keyra.local`, the AP IP and the current home IP. The catch-all DNS and the
+  captive-probe answers apply only on the AP.
+- **Trusted browsers (LAN safety).** On the device AP nothing changes. A
+  browser reaching Keyra through the home network must be approved once:
+  `POST /api/unlock` from `via:"home"` without a valid `kt` cookie →
+  202 `{awaiting:"button", op:"trust_browser"}`; when the button is pressed the
+  unlock completes on the next `POST /api/unlock` retry (same passphrase) and
+  the response also sets `kt=<token>; HttpOnly; SameSite=Strict; Max-Age=31536000`.
+  Up to 8 trusted browsers (name from User-Agent, created, lastSeen), stored
+  hashed in NVS. API: `GET /api/trusted` → `{browsers:[{id, name, created, lastSeen, current}]}`,
+  `DELETE /api/trusted/{id}` → 204.
+- Time: when the home network is connected, SNTP (`pool.ntp.org`,
+  `time.google.com`) sets the clock; the client `X-Keyra-Time` stays as a
+  fallback. `state.timeValid` then stays true without a phone.
+- AP and home network share one radio: when the home network is on another
+  channel the AP follows it (phones on the AP reconnect once). Documented in
+  the UI next to the setting.
