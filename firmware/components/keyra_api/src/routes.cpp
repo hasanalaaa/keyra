@@ -44,6 +44,7 @@ Match matchApi(Method m, std::string_view path) {
   if (p == "lock") return only(m, Method::Post, Route::Lock);
   if (p == "type") return only(m, Method::Post, Route::Type);
   if (p == "type/cancel") return only(m, Method::Post, Route::TypeCancel);
+  if (p == "generate") return only(m, Method::Post, Route::Generate);
   if (p == "passphrase") return only(m, Method::Post, Route::Passphrase);
   if (p == "backup") return only(m, Method::Post, Route::Backup);
   if (p == "restore") return only(m, Method::Post, Route::Restore);

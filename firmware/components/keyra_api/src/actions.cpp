@@ -1,6 +1,20 @@
 #include "actions.hpp"
 
+#include "keyra/vault.hpp"
+
 namespace keyra::actions {
+namespace {
+
+// Status views of the slot never hold the free text, so it stays in one place.
+Pending view(const TypeRequest& req, int64_t expiresInMs) {
+  Pending p{req, expiresInMs};
+  p.req.text.reset();
+  return p;
+}
+
+}  // namespace
+
+FreeText::~FreeText() { vault::wipe(text); }
 
 Pending Machine::arm(TypeRequest req) {
   std::lock_guard<std::mutex> lock(mu_);
@@ -9,7 +23,7 @@ Pending Machine::arm(TypeRequest req) {
   kind_ = Kind::Type;
   req_ = std::move(req);
   deadline_ = now + kExpiryMs;
-  return {req_, kExpiryMs};
+  return view(req_, kExpiryMs);
 }
 
 bool Machine::cancel() {
@@ -73,7 +87,7 @@ Decision Machine::onButton(Button b, bool unlocked) {
       clearSlotLocked();
     } else if (kind_ == Kind::Type && !typing_) {
       d.effect = Effect::Run;
-      d.run = req_;
+      d.run = std::move(req_);
       typing_ = true;
       clearSlotLocked();
     } else if (!typing_) {
@@ -140,7 +154,7 @@ std::optional<Pending> Machine::pending() {
   const int64_t now = now_();
   expireLocked(now);
   if (kind_ != Kind::Type) return std::nullopt;
-  return Pending{req_, deadline_ - now};
+  return view(req_, deadline_ - now);
 }
 
 std::optional<Result> Machine::last() {
@@ -188,7 +202,7 @@ void Machine::expireLocked(int64_t now) {
 
 void Machine::clearSlotLocked() {
   kind_ = Kind::None;
-  req_ = {};
+  req_ = {};          // drops the slot's hold on any free text (wiped with the last one)
   commit_ = nullptr;  // destroys captured secrets of a dropped presence op
   deadline_ = 0;
 }
@@ -205,6 +219,7 @@ const char* whatName(What w) {
     case What::Both: return "both";
     case What::Totp: return "totp";
     case What::Test: return "test";
+    case What::Text: return "text";
   }
   return "username";
 }
@@ -214,7 +229,7 @@ std::optional<What> parseWhat(const std::string& s) {
   if (s == "password") return What::Password;
   if (s == "both") return What::Both;
   if (s == "totp") return What::Totp;
-  return std::nullopt;  // "test" is requested via {test:true}, never via `what`
+  return std::nullopt;  // "test" and "text" are requested via {test:true} / {text}, never via `what`
 }
 
 const char* opName(Op op) {

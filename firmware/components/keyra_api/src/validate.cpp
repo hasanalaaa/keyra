@@ -65,6 +65,14 @@ bool homePassword(std::string_view s) {
 
 bool wifiPassword(std::string_view s) { return s != kDefaultWifiPassword && homePassword(s); }
 
+bool typeText(std::string_view s) {
+  if (s.empty() || s.size() > kMaxTypeText) return false;
+  for (unsigned char c : s) {
+    if (c < 0x20 || c > 0x7E) return false;
+  }
+  return true;
+}
+
 bool ssid(std::string_view s) { return printableUtf8(s, 32); }
 bool deviceName(std::string_view s) { return printableUtf8(s, 32); }
 

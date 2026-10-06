@@ -68,11 +68,22 @@ Code typeOne(const std::string& text, const hid::Options& o) {
   return fromHid(hid::typeText(text.c_str(), o));
 }
 
+// Free text (SPEC §9.2), optionally twice with Tab/Enter between (confirm fields).
+Code typeFree(const actions::FreeText& t, const hid::Options& o) {
+  Code c = typeOne(t.text, o);
+  if (c == Code::Typed && t.twice) {
+    c = fromHid(hid::tapKey(t.enterBetween ? hid::KEY_ENTER : hid::KEY_TAB, o));
+    if (c == Code::Typed) c = typeOne(t.text, o);
+  }
+  return c;
+}
+
 Code runJob(const actions::TypeRequest& job) {
   if (!hid::mounted()) return Code::NoUsb;
   const settings::Settings s = settings::get();
   const hid::Options o{s.keyDelayMs};
   if (job.what == What::Test) return fromHid(hid::typeText(kTestString, o));
+  if (job.what == What::Text) return job.text ? typeFree(*job.text, o) : Code::Failed;
 
   vault::Entry e;
   if (vault::get(job.id, e) != vault::Status::Ok) return Code::Failed;
@@ -96,7 +107,8 @@ Code runJob(const actions::TypeRequest& job) {
       std::memset(code, 0, sizeof code);
       break;
     }
-    case What::Test: break;
+    case What::Test:
+    case What::Text: break;
   }
   vault::wipe(e);
   if (c == Code::Typed && job.submit) c = fromHid(hid::tapKey(hid::KEY_ENTER, o));
@@ -110,7 +122,8 @@ Code runJob(const actions::TypeRequest& job) {
 void typeTask(void*) {
   for (;;) {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-    const actions::TypeRequest job = g_job;
+    // Moved, not copied: when `job` goes out of scope any free text is released (and wiped).
+    const actions::TypeRequest job = std::move(g_job);
     const Code c = runJob(job);
     ESP_LOGI(TAG, "type %s: %s", actions::whatName(job.what), actions::codeName(c));
     machine().typingFinished(job, c);
@@ -124,7 +137,7 @@ void onButton(io::Button b) {
   actions::Decision d = machine().onButton(press, vault::unlocked());
   switch (d.effect) {
     case actions::Effect::Run:
-      g_job = d.run;
+      g_job = std::move(d.run);
       xTaskNotifyGive(g_typeTask);
       break;
     case actions::Effect::Approve: {

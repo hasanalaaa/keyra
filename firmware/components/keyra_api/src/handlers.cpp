@@ -13,6 +13,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "handlers_gen.hpp"
 #include "handlers_net.hpp"
 #include "http.hpp"
 #include "keyra/hid.hpp"
@@ -250,7 +251,7 @@ esp_err_t getState(Ctx& c) {
     cJSON* p = cJSON_AddObjectToObject(o.get(), "pending");
     cJSON_AddStringToObject(p, "kind", "type");
     cJSON_AddNumberToObject(p, "id", pending->req.id);
-    cJSON_AddStringToObject(p, "title", pending->req.title.c_str());
+    genapi::addTitle(p, pending->req.what, pending->req.title);
     cJSON_AddStringToObject(p, "what", actions::whatName(pending->req.what));
     cJSON_AddBoolToObject(p, "submit", pending->req.submit);
     cJSON_AddNumberToObject(p, "expiresIn", static_cast<double>(pending->expiresInMs));
@@ -263,7 +264,7 @@ esp_err_t getState(Ctx& c) {
     cJSON_AddBoolToObject(l, "ok", last->ok);
     cJSON_AddStringToObject(l, "code", actions::codeName(last->code));
     cJSON_AddNumberToObject(l, "at", static_cast<double>(last->agoMs));
-    cJSON_AddStringToObject(l, "title", last->title.c_str());
+    genapi::addTitle(l, last->what, last->title);
     cJSON_AddStringToObject(l, "what", actions::whatName(last->what));
   } else {
     cJSON_AddNullToObject(o.get(), "last");
@@ -408,6 +409,7 @@ esp_err_t getEntry(Ctx& c) {
   cJSON_AddNumberToObject(o.get(), "created", static_cast<double>(e.created));
   cJSON_AddNumberToObject(o.get(), "updated", static_cast<double>(e.updated));
   cJSON_AddNumberToObject(o.get(), "lastUsed", static_cast<double>(e.lastUsed));
+  genapi::addHistory(o.get(), e);
   vault::wipe(e);
   return http::sendJson(c.r, http::k200, o.get());
 }
@@ -517,11 +519,12 @@ esp_err_t entryTotp(Ctx& c) {
 }
 
 esp_err_t postType(Ctx& c) {
+  if (cJSON_HasObjectItem(c.body.get(), "text")) return genapi::postTypeText(c.r, c.body.get());
   actions::TypeRequest req;
   bool test = false;
   if (json::getBool(c.body.get(), "test", test) == Field::BadType) return badRequest(c.r, "\"test\" must be a boolean");
   if (test) {
-    req = {0, "Keyra test", actions::What::Test, false};
+    req = {0, "Keyra test", actions::What::Test, false, nullptr};
   } else {
     int64_t id = 0;
     std::string whatStr;
@@ -541,7 +544,7 @@ esp_err_t postType(Ctx& c) {
                          (*what == actions::What::Password && e.password.empty()) ||
                          (*what == actions::What::Both && (e.username.empty() || e.password.empty())) ||
                          (*what == actions::What::Totp && e.totp.empty());
-    req = {static_cast<uint32_t>(id), e.title, *what, submit};
+    req = {static_cast<uint32_t>(id), e.title, *what, submit, nullptr};
     vault::wipe(e);
     if (missing) return badRequest(c.r, "Entry has no value for that field");
     if (*what == actions::What::Totp && !timeValid())
@@ -697,7 +700,7 @@ bool takesBody(Route r) {
   switch (r) {
     case Route::Setup: case Route::Unlock: case Route::CreateEntry: case Route::UpdateEntry:
     case Route::ImportEntries: case Route::Type: case Route::PutSettings: case Route::Passphrase:
-    case Route::Backup: case Route::Restore: case Route::WifiHome:
+    case Route::Backup: case Route::Restore: case Route::WifiHome: case Route::Generate:
       return true;
     default:
       return false;
@@ -764,6 +767,7 @@ esp_err_t dispatch(Ctx& c) {
     case Route::WifiHome: return netapi::putHome(c.r, c.body.get());
     case Route::ListTrusted: return trust::sendList(c.r);
     case Route::DeleteTrusted: return trust::revoke(c.r, c.match.id);
+    case Route::Generate: return genapi::postGenerate(c.r, c.body.get());
   }
   return http::sendError(c.r, http::k404, "not_found", "No such endpoint");
 }

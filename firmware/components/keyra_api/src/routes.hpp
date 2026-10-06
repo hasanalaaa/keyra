@@ -14,6 +14,7 @@ enum class Route {
   ListEntries, CreateEntry, ImportEntries, GetEntry, UpdateEntry, DeleteEntry, EntryTotp,
   Type, TypeCancel, GetSettings, PutSettings, Passphrase, Backup, Restore, FactoryReset,
   WifiScan, WifiHome, ListTrusted, DeleteTrusted,
+  Generate,
 };
 
 struct Match {

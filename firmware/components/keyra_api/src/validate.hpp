@@ -14,5 +14,9 @@ bool wifiPassword(std::string_view s);  // 8–63 printable ASCII, not the facto
 bool homePassword(std::string_view s);  // 8–63 printable ASCII (a WPA2/WPA3 passphrase)
 bool ssid(std::string_view s);          // 1–32 bytes UTF-8, no control characters
 bool deviceName(std::string_view s);    // 1–32 bytes UTF-8, no control characters
+// Free text to type (SPEC §9.2): 1–256 characters the US layout can type, i.e.
+// printable ASCII; control characters (tab, newline, …) are refused.
+constexpr size_t kMaxTypeText = 256;
+bool typeText(std::string_view s);
 
 }  // namespace keyra::api::validate
