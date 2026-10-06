@@ -103,7 +103,8 @@ _ستتوفر اللقطات مع الإصدار الأول._
 ## العتاد
 
 <div align="center">
-<img src="docs/images/device.png" alt="Keyra على لوحة ESP32-S3" width="70%">
+<img src="docs/images/device.png" alt="تصوّر لغلاف Keyra" width="70%">
+<br><sub>تصوّر لغلاف مستقبلي. حالياً يعمل Keyra على لوحة تطوير ESP32-S3 عادية.</sub>
 </div>
 
 يعمل Keyra على لوحة تطوير جاهزة من نوع **ESP32-S3** بذاكرة فلاش **8 ميغابايت على الأقل**. بدون لحام.

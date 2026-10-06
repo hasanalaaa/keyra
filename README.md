@@ -109,7 +109,8 @@ If you need to report a vulnerability, please use a **private GitHub Security Ad
 ## Hardware
 
 <div align="center">
-<img src="docs/images/device.png" alt="Keyra on an ESP32-S3 board" width="70%">
+<img src="docs/images/device.png" alt="Concept render of a Keyra enclosure" width="70%">
+<br><sub>Concept render of a future enclosure. Today Keyra runs on a bare ESP32-S3 dev board.</sub>
 </div>
 
 Keyra runs on a stock **ESP32-S3** dev board with at least **8 MB flash**. No soldering.
