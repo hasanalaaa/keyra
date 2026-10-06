@@ -265,10 +265,18 @@ the same "prepare → press the button" flow. USB stays the default.
 - Settings: `bleEnabled` (default true), `output` (default `"auto"`).
 - API (session):
   - `GET /api/ble` → `{enabled, pairing:{active:bool, expiresIn:ms}, connected:{addr, name}|null, bonds:[{addr, name, lastSeen}]}`
-  - `POST /api/ble/pair` → 202 (presence op `ble_pair`)
+  - `POST /api/ble/pair` → 202 (presence op `ble_pair`); refused up front with
+    409 `ble_disabled` (Bluetooth off), 409 `bonds_full` (4 bonds) or 503
+    `ble_unavailable` (stack failed to start). The window closes early once one
+    host has paired, when the vault locks, or when Bluetooth is turned off.
   - `DELETE /api/ble/bonds/{addr}` → 204 (disconnects it if connected)
   - `GET /api/state` → `host:{usb, ble, capsLock, output:"usb"|"ble"|null}` (`output` = where a typed action would go now).
 - New `Result.code` `no_host` (nothing connected on the selected output; `no_usb` kept for USB-only output).
+- A BLE host counts as connected (`host.ble`) only when bonded, encrypted and
+  subscribed to keyboard reports. A multi-part action (both, submit) picks its
+  host once, so all of it reaches the same computer.
+- Factory reset forgets all bonds. `DELETE /api/ble/bonds/{addr}` → 404 `not_found`
+  for an unknown address; `addr` is `XX:XX:XX:XX:XX:XX` (identity address).
 
 ### 8.2 Home Wi-Fi (station mode)
 

@@ -37,7 +37,7 @@ Most password managers live in the same computer and browser that attackers targ
 - **Your vault never lives on the computer.** Nothing is stored or synced there: the computer only sees a keyboard typing the one credential you chose, at the moment you chose. No browser extension, no clipboard, no app to install.
 - **Malware cannot make it type.** Every action needs a physical press of the button on the device. No press, no typing.
 - **No cloud, no account, no subscription.** The vault is encrypted on the device and managed over the device's own Wi-Fi. Nothing leaves your desk.
-- **Works on any computer.** If it accepts a USB keyboard (a work laptop, a locked-down kiosk, a TV, a console), Keyra works there. Nothing to install.
+- **Works on any computer.** If it accepts a USB keyboard (a work laptop, a locked-down kiosk, a TV, a console), Keyra works there. Phones, tablets and computers without a free port can pair with it over Bluetooth. Nothing to install.
 - **Open and cheap.** MIT licensed firmware for a development board that costs a few dollars. Read it, build it, change it.
 - **Easy enough to use daily.** A phone-first app in Arabic and English, built to feel as simple as the password manager on your phone.
 
@@ -49,18 +49,21 @@ Keyra is a convenience-and-isolation device, not a magic shield. Read the [secur
 <img src="docs/images/how-it-works.png" alt="Plug in, pick an account on your phone, press the button" width="100%">
 </div>
 
-1. **Plug in.** Connect Keyra's USB port to the computer. It shows up as a keyboard.
+1. **Plug in.** Connect Keyra's USB port to the computer. It shows up as a keyboard. (Or pair it once over Bluetooth: see below.)
 2. **Join the Wi-Fi.** On your phone, join the network **Keyra-XXXX** and open **http://keyra.local**. (No sign-in sheet pops up; see the [FAQ](#faq).)
 3. **Pick an account and what to type.** Unlock with your master passphrase, tap an account, and choose **Username**, **Password**, **Both** or **Code** (2FA).
 4. **Press the button.** Click the login field on your computer, press Keyra's button, and it types. The LED flashes green and your phone says **Typed**.
 
 A long press (1.5 seconds) cancels a pending action, or locks the vault if nothing is pending.
 
+**Bluetooth.** In **Settings → Bluetooth**, tap **Pair a new device** and press Keyra's button. For the next 2 minutes Keyra shows up as a keyboard in your phone's, tablet's or computer's Bluetooth settings, and its light pulses cyan; pick it there. After that, **Type into: Auto** types over USB when Keyra is plugged in and otherwise into the connected Bluetooth device, and the Ready screen tells you which one.
+
 ## Features
 
 | | |
 |---|---|
 | **Types like a keyboard** | USB HID keyboard (US layout). Handles Caps Lock and always releases keys, even on errors. |
+| **Bluetooth keyboard** | Bluetooth LE (HID over GATT) for phones, tablets and computers, with the same typing engine. Pairing only opens for 2 minutes after a button press; up to 4 devices; forget any of them from the app. |
 | **Phone-first web app** | Installable to the home screen. Search, favorites, recents, password generator and strength meter. |
 | **Arabic and English** | Full RTL support, auto-detected, switchable at any time. |
 | **2FA codes** | Built-in TOTP (SHA-1/256/512, 6 or 8 digits). Keyra can type the code too. |
@@ -68,7 +71,7 @@ A long press (1.5 seconds) cancels a pending action, or locks the vault if nothi
 | **Unlock rate limiting** | Failed attempts are counted before the key derivation runs; power-cycling does not reset the delay. |
 | **Import** | Move from Apple Passwords, Chrome, Bitwarden or 1Password CSV exports. |
 | **Encrypted backup** | A passphrase-protected JSON file; restore by merging or replacing. |
-| **Physical confirmation** | Typing, setup, Wi-Fi changes and factory reset all need a button press. |
+| **Physical confirmation** | Typing, setup, Wi-Fi changes, Bluetooth pairing and factory reset all need a button press. |
 | **Status LED** | Locked, ready, typing, success and error, readable at a glance. |
 | **Auto-lock** | Locks after idle (1 to 120 minutes) and zeroizes keys in RAM. |
 | **No lock-in** | Standard formats, open protocol ([docs/SPEC.md](docs/SPEC.md)), MIT license. |
@@ -92,6 +95,7 @@ The short version. The full threat model, cryptographic design and rate-limit sc
 - Encrypts every entry with AES-256-GCM under a random data key, itself protected by a key derived from your passphrase (PBKDF2-HMAC-SHA256, calibrated to about 1.2 s).
 - Rate-limits unlock attempts and counts them durably.
 - Types only after a physical button press. The computer never gets a storage or network channel from Keyra.
+- Lets a new Bluetooth device pair only during a 2-minute window opened by a button press; the rest of the time only already-paired devices can even connect.
 - Keeps decrypted data in RAM only while unlocked, and zeroizes it on lock.
 
 **What it does not do (honest limits)**
@@ -101,6 +105,7 @@ The short version. The full threat model, cryptographic design and rate-limit sc
 - **Flash encryption and secure boot are optional** and off by default. They are irreversible eFuse steps ([docs/HARDWARE.md](docs/HARDWARE.md#optional-hardening-irreversible)).
 - **Keyra has not been independently audited.**
 - A keylogger on the computer can still see what Keyra types, as with any keyboard.
+- **Bluetooth pairing is "Just Works"** (Keyra has no screen to show a code). Someone within radio range during the 2-minute pairing window could pair their own device, or try to sit in the middle of yours. Pair where you can see who is around, and check the device list afterwards. Details in [SECURITY.md](SECURITY.md#bluetooth).
 
 If you need to report a vulnerability, please use a **private GitHub Security Advisory** as described in [SECURITY.md](SECURITY.md#reporting-a-vulnerability).
 
@@ -175,7 +180,8 @@ keyra/
 │   ├── main/                  app_main: wiring only
 │   ├── components/
 │   │   ├── keyra_vault/       crypto, encrypted storage, TOTP, backup (host-tested)
-│   │   ├── keyra_hid/         TinyUSB keyboard, typing engine, dev CDC port
+│   │   ├── keyra_hid/         typing engine over USB (TinyUSB) or Bluetooth, dev CDC port
+│   │   ├── keyra_ble/         Bluetooth LE keyboard (NimBLE, HID over GATT), pairing and bonds
 │   │   ├── keyra_io/          button (GPIO0) and RGB status LED
 │   │   ├── keyra_net/         Wi-Fi access point, DNS, mDNS (keyra.local)
 │   │   └── keyra_api/         HTTP server, REST API, sessions, pending-action state machine
@@ -216,6 +222,7 @@ CI runs the host tests, the web checks and both firmware profiles on every push 
 Ideas, not promises. Priorities follow what real users on real boards report.
 
 - [x] 0.1: encrypted vault, USB typing, phone app (EN/AR), TOTP, import, backup, CI
+- [x] Bluetooth LE keyboard (unreleased; on the main branch)
 - [ ] Tested board matrix and a prebuilt release for each
 - [ ] Browser-based flashing from the release page
 - [ ] More keyboard layouts (the key map is US-only today)
@@ -231,6 +238,9 @@ On purpose. Keyra answers your phone's connectivity checks as "online" so the ph
 **Does it work with keyboard layouts other than US?**
 Today, Keyra types as a **US-layout** keyboard. If your computer is set to another layout, characters will come out differently. Switch the computer to US for the login field, or keep to characters that are the same on both layouts. Characters outside printable ASCII are refused with a clear message instead of typing the wrong thing. More layouts are on the roadmap.
 
+**Can Keyra type into my phone or tablet?**
+Yes, over Bluetooth. Pair it once from **Settings → Bluetooth** (see [How it works](#how-it-works)). While a Bluetooth keyboard is connected, iPhone and iPad hide the on-screen keyboard; tap the keyboard button at the bottom of the screen to bring it back, or turn Bluetooth off in Keyra's settings when you do not need it.
+
 **I forgot my master passphrase. Can I recover my passwords?**
 No. That is the point of encryption, and there is no backdoor. You can **erase the device and start over**: on the unlock screen choose **Forgot passphrase?**, then press Keyra's button to confirm. All accounts are deleted. Restore from a backup if you have one.
 
@@ -244,7 +254,7 @@ A device on its own network cannot get a certificate that browsers trust without
 No. Keyra creates its own Wi-Fi network, and your phone does not need internet while connected to it (it may keep using mobile data for other apps).
 
 **Can the computer read my vault?**
-Keyra presents only a keyboard to the computer. It has no storage interface and no network path to it. The computer sees what gets typed, and nothing else.
+Keyra presents only a keyboard to the computer. It has no storage interface and no network path to it. The computer sees what gets typed, and nothing else. Over Bluetooth it is the same: a paired device sees a keyboard, Keyra's name and maker, and a battery level, nothing more.
 
 **What does it cost?**
 A compatible ESP32-S3 board is usually a few dollars to about ten.
