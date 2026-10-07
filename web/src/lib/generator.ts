@@ -180,6 +180,28 @@ export function generateWifiPassword(fill: RandomFill = cryptoFill): string {
 }
 
 /** Characters Keyra cannot type (anything outside printable US-ASCII), de-duplicated. */
+// Phone keyboards insert look-alikes Keyra cannot type on a US layout: iOS
+// "Smart Punctuation" curly quotes and dashes, Arabic punctuation and digits.
+// Credentials are converted to the ASCII character the user meant.
+const LOOKALIKES: Record<string, string> = {
+  '\u2018': "'", '\u2019': "'", '\u201A': "'", '\u201B': "'", '\u2032': "'",
+  '\u201C': '"', '\u201D': '"', '\u201E': '"', '\u2033': '"',
+  '\u2013': '-', '\u2014': '-', '\u2212': '-', '\u2026': '...',
+  '\u00A0': ' ', '\u060C': ',', '\u061B': ';', '\u061F': '?', '\u066A': '%',
+  '\u066B': '.', '\u066C': ',', '\u06D4': '.',
+};
+
+export function toTypeable(s: string): string {
+  let out = '';
+  for (const ch of s) {
+    const c = ch.codePointAt(0)!;
+    if (c >= 0x0660 && c <= 0x0669) out += String(c - 0x0660); // Arabic-Indic digits
+    else if (c >= 0x06f0 && c <= 0x06f9) out += String(c - 0x06f0); // Persian digits
+    else out += LOOKALIKES[ch] ?? ch;
+  }
+  return out;
+}
+
 export function untypeable(s: string): string[] {
   const bad = new Set<string>();
   for (const ch of s) {

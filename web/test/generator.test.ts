@@ -82,3 +82,12 @@ describe('untypeable', () => {
     expect(untypeable('Plain ASCII ~!')).toEqual([]);
   });
 });
+
+import { toTypeable as _toTypeable } from '../src/lib/generator';
+describe('toTypeable', () => {
+  it('maps phone look-alikes to the ASCII the user meant', () => {
+    expect(_toTypeable('it’s “ok” — 1…2')).toBe('it\'s "ok" - 1...2');
+    expect(_toTypeable('١٢٣؟،٪')).toBe('123?,%');
+    expect(_toTypeable('P@ss-w0rd!')).toBe('P@ss-w0rd!');
+  });
+});

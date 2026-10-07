@@ -972,7 +972,13 @@ esp_err_t handleApi(httpd_req_t* r, Method method, std::string_view path) {
   }
   c.session = csrf.has_value() && vault::unlocked();
   if (needsSession(c.match.route)) {
-    if (!c.session) return http::sendError(r, http::k401, "locked", "Vault is locked");
+    if (!c.session) {
+      // Why a client got bounced to the unlock screen; no secrets in the line.
+      ESP_LOGW(TAG, "401 %s %.*s: cookie=%s session=%s vault=%s", r->method == HTTP_GET ? "GET" : "write",
+               int(path.size()), path.data(), c.token.empty() ? "none" : "sent", csrf ? "known" : "unknown",
+               vault::unlocked() ? "unlocked" : "locked");
+      return http::sendError(r, http::k401, "locked", "Vault is locked");
+    }
     if (needsCsrf(method, c.match.route) &&
         !constantTimeEqual(http::header(r, "X-Keyra-CSRF", 2 * kTokenBytes), *csrf))
       return http::sendError(r, http::k403, "csrf", "Missing or invalid CSRF token");
