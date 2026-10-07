@@ -1,4 +1,4 @@
-import type { BleInfo, DeviceState, Entry, EntryInput, EntrySummary, Network, Settings, Totp, TrustedBrowser, TypeWhat, Pending, PresenceOp } from './types';
+import type { BleInfo, DeviceState, Entry, EntryInput, EntrySummary, Network, Passkey, Settings, Totp, TrustedBrowser, TypeWhat, Pending, PresenceOp } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -147,6 +147,8 @@ export const api = {
   putHomeWifi: (b: { enabled: boolean; ssid?: string; password?: string }) => json<Awaiting>('PUT', '/wifi/home', b),
   trusted: async () => (await json<{ browsers: TrustedBrowser[] }>('GET', '/trusted')).browsers,
   revokeTrusted: (id: number) => json<void>('DELETE', `/trusted/${id}`),
+  passkeys: async () => await json<{ passkeys: Passkey[]; max: number }>('GET', '/fido'),
+  deletePasskey: (id: number) => json<void>('DELETE', `/fido/${id}`),
 };
 
 export const isAwaiting = (r: unknown): r is Awaiting =>

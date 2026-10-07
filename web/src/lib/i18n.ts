@@ -361,6 +361,18 @@ const en = {
     "When off, Keyra's own Wi‑Fi turns off while it's on your home network and comes back if that network is gone for a minute. Keyra has one radio, so its own Wi‑Fi moves to your home network's channel; phones on it may reconnect once.",
 
   // Trusted browsers
+  passkeysRow: 'Passkeys',
+  passkeysFoot:
+    "Keyra is also a security key. Plug it in by USB, and when a website asks for a passkey or security key, press Keyra's button while its light double-blinks white. Keyra must be unlocked.",
+  passkeysLimits:
+    "Keyra isn't a certified security key and has no secure chip: passkeys are only as safe as your passphrase. Passkeys aren't in backups, so keep another way to sign in.",
+  passkeysNone: 'No passkeys yet. Passkeys you create on websites with Keyra appear here.',
+  passkeysCount: '{n} of {max} passkeys',
+  passkeysCreated: 'Added {date}',
+  passkeyDelete: 'Delete',
+  passkeyDeleteTitle: 'Delete this passkey?',
+  passkeyDeleteBody: "You can't sign in to {site} with it any more. Make sure you have another way in, and remove it from your account settings there too.",
+  passkeyDeleted: 'Passkey deleted.',
   trustedRow: 'Trusted browsers',
   trustedFoot: "Browsers that open Keyra through your home network need one press of Keyra's button the first time.",
   trustedNone: 'No trusted browsers yet.',
@@ -723,6 +735,18 @@ const ar: Record<Key, string> = {
   keepApFoot:
     'عند الإيقاف: تنطفئ شبكة Keyra الخاصة ما دام متصلاً بشبكة منزلك، وتعود إن غابت تلك الشبكة دقيقة. لدى Keyra هوائي واحد، لذا تنتقل شبكته إلى قناة شبكة منزلك، وقد تعيد الهواتف المتصلة بها الاتصال مرة واحدة.',
 
+  passkeysRow: 'مفاتيح المرور',
+  passkeysFoot:
+    'Keyra مفتاح أمان أيضًا. صِله بمنفذ USB، وحين يطلب موقع مفتاح مرور أو مفتاح أمان اضغط زرّ Keyra بينما يومض ضوؤه بالأبيض ومضتين. يجب أن يكون Keyra مفتوحًا.',
+  passkeysLimits:
+    'Keyra ليس مفتاح أمان معتمدًا ولا يحوي شريحة آمنة: مفاتيح المرور آمنة بقدر عبارة المرور فقط. ولا تُحفظ في النسخ الاحتياطية، فاحتفظ بطريقة أخرى لتسجيل الدخول.',
+  passkeysNone: 'لا مفاتيح مرور بعد. تظهر هنا المفاتيح التي تُنشئها على المواقع بـ Keyra.',
+  passkeysCount: 'المستخدم {n} من {max}',
+  passkeysCreated: 'أُضيف {date}',
+  passkeyDelete: 'حذف',
+  passkeyDeleteTitle: 'حذف مفتاح المرور هذا؟',
+  passkeyDeleteBody: 'لن تستطيع الدخول به إلى {site} بعد الآن. تأكد أن لديك طريقة أخرى للدخول، واحذفه من إعدادات حسابك هناك أيضًا.',
+  passkeyDeleted: 'حُذف مفتاح المرور.',
   trustedRow: 'المتصفحات الموثوقة',
   trustedFoot: 'المتصفحات التي تفتح Keyra عبر شبكة منزلك تحتاج ضغطة واحدة على زرّه في المرة الأولى.',
   trustedNone: 'لا متصفحات موثوقة بعد.',

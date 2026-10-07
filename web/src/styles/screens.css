@@ -247,13 +247,13 @@
 .bars rect { fill:var(--ring-track); }
 .bars rect.on { fill:currentColor; }
 .net-row .bars, .kv-value .bars { color:var(--accent); }
-.net-row .row-label, .trusted-row .row-label { display:flex; flex-direction:column; gap:2px; min-inline-size:0; }
-.net-row .row-label bdi, .trusted-row .row-label bdi { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.net-row .row-label, .trusted-row .row-label, .passkey-row .row-label { display:flex; flex-direction:column; gap:2px; min-inline-size:0; }
+.net-row .row-label bdi, .trusted-row .row-label bdi, .passkey-row .row-label bdi { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .net-row:disabled { opacity:1; cursor:default; }
 .net-row:disabled bdi, .net-row:disabled .bars { opacity:.45; }
-.net-open, .trusted-row .caption { color:var(--text-3); }
+.net-open, .trusted-row .caption, .passkey-row .caption, .passkeys > .caption { color:var(--text-3); }
 .home-status .chip { flex:none; }
 .home-hint { color:var(--text-2); }
-.trusted-row { gap:8px; }
+.trusted-row, .passkey-row { gap:8px; }
 .trusted-row .chip { flex:none; }
 .kv-row > .chip { grid-row:1 / span 2; align-self:center; }

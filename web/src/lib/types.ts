@@ -70,6 +70,15 @@ export interface Network {
   channel: number;
 }
 
+/** A discoverable FIDO credential (passkey) stored on Keyra (docs/FIDO.md). */
+export interface Passkey {
+  id: number;
+  rpId: string;
+  userName: string;
+  displayName: string;
+  created: number; // unix seconds, 0 = unknown
+}
+
 export interface TrustedBrowser {
   id: number;
   name: string;
