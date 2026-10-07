@@ -7,6 +7,7 @@ idf_component_register(
     "src/core/entry_codec.cpp"
     "src/core/json.cpp"
     "src/core/secure_buf.cpp"
+    "src/core/sequence.cpp"
     "src/core/text.cpp"
     "src/core/totp_core.cpp"
     "src/core/vault_core.cpp"

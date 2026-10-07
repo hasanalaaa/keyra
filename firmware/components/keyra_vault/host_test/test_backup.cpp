@@ -268,6 +268,30 @@ TEST(history_round_trips_through_backup) {
   CHECK(got.history[2].password == "pw-bank" && got.history[2].changedAt == 1800000001);
 }
 
+TEST(sequence_round_trips_through_backup) {
+  auto src = Rig::ready();
+  Entry e = sample("site");
+  e.sequence = "{USERNAME}{ENTER}{PRESS}{PASSWORD}{ENTER}";
+  CHECK((*src)->put(e) == Status::Ok);
+  Entry plain = sample("plain");
+  CHECK((*src)->put(plain) == Status::Ok);
+  std::string backup;
+  CHECK((*src)->exportBackup(kBackupPass, backup) == Status::Ok);
+  auto dst = Rig::ready();
+  size_t a = 0, u = 0;
+  CHECK((*dst)->importBackup(kBackupPass, backup, true, &a, &u) == Status::Ok && a == 2);
+  Entry got;
+  CHECK((*dst)->get(e.id, got) == Status::Ok && got.sequence == e.sequence);
+  CHECK((*dst)->get(plain.id, got) == Status::Ok && got.sequence.empty());
+
+  // A restore carrying a chord-like or unknown token is refused as a whole.
+  auto snapshot = dst->storage.files;
+  for (const char* bad : {"[{\"title\":\"x\",\"sequence\":\"{CTRL}a\"}]", "[{\"title\":\"x\",\"sequence\":5}]",
+                          "[{\"title\":\"x\",\"sequence\":\"{DELAY 99999}\"}]"})
+    CHECK((*dst)->importBackup(kBackupPass, seal(dst->crypto, bad, 2), false, nullptr, nullptr) == Status::Invalid);
+  CHECK(dst->storage.files == snapshot);
+}
+
 TEST(older_and_newer_backup_versions) {
   auto r = Rig::ready();
   size_t a = 0, u = 0;

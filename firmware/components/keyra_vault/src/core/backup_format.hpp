@@ -8,8 +8,10 @@
 //                    iv, no AAD, plaintext = JSON array of entry objects):
 //   {"id":n,"title":s,"url":s,"username":s,"password":s,"totp":s,"notes":s,
 //    "favorite":b,"created":n,"updated":n,"lastUsed":n,
-//    "history":[{"password":s,"changedAt":n},…]}          (v2: newest first, ≤ 10)
-// v1 differs only in lacking "history". On import, missing members default to
+//    "history":[{"password":s,"changedAt":n},…],          (v2: newest first, ≤ 10)
+//    "sequence":s}                                         (optional, keyra/sequence.hpp)
+// v1 differs only in lacking "history". "sequence" is written only when set;
+// older Keyra firmware ignores it (unknown member) and keeps the rest. On import, missing members default to
 // empty/false/0 and unknown members are ignored (forward compatible); a member
 // of the wrong type rejects the backup.
 #pragma once
