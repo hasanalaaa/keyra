@@ -47,7 +47,11 @@ def to_dl():
 
 
 def esptool(*args):
-    r = subprocess.run([PY, ET, "--chip", "esp32s3", "-p", ROM, "--before", "no_reset", *args],
+    return esptool_before("no_reset", *args)
+
+
+def esptool_before(before, *args):
+    r = subprocess.run([PY, ET, "--chip", "esp32s3", "-p", ROM, "--before", before, *args],
                        capture_output=True, text=True)
     out = (r.stdout + r.stderr).strip().splitlines()
     print("\n".join(out[-4:]))
@@ -88,8 +92,18 @@ def flash(d, secs):
         if line:
             off, path = line.split(None, 1)
             args += [off, path if path.startswith("/") else f"{d}/{path}"]
-    if not esptool("--after", "no_reset", "write_flash", "-z", "--flash_size", "keep", *args):
+    # A write can die midway (USB hiccup) and leave a half-written app that the
+    # bootloader rejects in a loop. The ROM/USB-JTAG port survives that, and its
+    # own reset line can re-enter download mode, so retry from there.
+    for attempt in range(3):
+        before = "no_reset" if attempt == 0 else "default_reset"
+        if esptool_before(before, "--after", "no_reset", "write_flash", "-z", "--flash_size", "keep", *args):
+            break
+        print(f"flash attempt {attempt + 1} failed; retrying")
+        wait(lambda: glob.glob(ROM), 10)
+    else:
         print("FLASH FAILED")
+        sys.exit(1)
     run(secs)
 
 
