@@ -14,6 +14,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "handlers_fido.hpp"
 #include "handlers_net.hpp"
 #include "http.hpp"
 #include "keyra/ble.hpp"
@@ -930,6 +931,8 @@ esp_err_t dispatch(Ctx& c) {
     case Route::WifiHome: return netapi::putHome(c.r, c.body.get());
     case Route::ListTrusted: return trust::sendList(c.r);
     case Route::DeleteTrusted: return trust::revoke(c.r, c.match.id);
+    case Route::ListPasskeys: return fidoapi::list(c.r);
+    case Route::DeletePasskey: return fidoapi::remove(c.r, c.match.id);
   }
   return http::sendError(c.r, http::k404, "not_found", "No such endpoint");
 }

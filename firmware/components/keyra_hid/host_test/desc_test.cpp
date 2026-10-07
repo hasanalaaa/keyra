@@ -18,7 +18,7 @@ struct Parsed {
   int hidDescs = 0;
   std::vector<uint8_t> itfNumbers;
   std::set<uint8_t> endpoints;
-  uint16_t hidReportLen = 0;
+  std::vector<uint16_t> hidReportLens;  // per HID interface, in order
   bool ok = true;
 };
 
@@ -62,7 +62,7 @@ Parsed walk(const std::array<uint8_t, N>& c) {
       case 0x21:  // HID
         CHECK_EQ(len, 9);
         ++p.hidDescs;
-        p.hidReportLen = le16(&c[i + 7]);
+        p.hidReportLens.push_back(le16(&c[i + 7]));
         break;
       default:
         break;
@@ -102,28 +102,76 @@ void checkReportDescriptor() {
   CHECK_EQ(outBits, 8);
 }
 
+// FIDO report descriptor: usage page 0xF1D0 / usage 1, 64-byte input and output.
+void checkFidoReport() {
+  CHECK(kFidoReport[0] == 0x06 && kFidoReport[1] == 0xD0 && kFidoReport[2] == 0xF1);
+  CHECK(kFidoReport[3] == 0x09 && kFidoReport[4] == 0x01);
+  int reportSize = 0, reportCount = 0, inBits = 0, outBits = 0, depth = 0;
+  size_t i = 0;
+  while (i < kFidoReport.size()) {
+    const uint8_t prefix = kFidoReport[i];
+    const int size = (prefix & 0x03) == 3 ? 4 : (prefix & 0x03);
+    const uint8_t tag = prefix & 0xFC;
+    const int val = size >= 1 ? kFidoReport[i + 1] : 0;
+    switch (tag) {
+      case 0x74: reportSize = val; break;
+      case 0x94: reportCount = val; break;
+      case 0x80: inBits += reportSize * reportCount; break;
+      case 0x90: outBits += reportSize * reportCount; break;
+      case 0xA0: ++depth; break;
+      case 0xC0: --depth; break;
+      default: break;
+    }
+    i += 1 + static_cast<size_t>(size);
+  }
+  CHECK_EQ(i, kFidoReport.size());
+  CHECK_EQ(depth, 0);
+  CHECK_EQ(inBits, 64 * 8);
+  CHECK_EQ(outBits, 64 * 8);
+}
+
+// The FIDO interface block: HID class, no boot protocol, OUT then IN, 64 bytes.
+template <size_t N>
+void checkFidoInterface(const std::array<uint8_t, N>& c) {
+  const size_t at = kConfigLen + kHidBlockLen;
+  CHECK_EQ(c[at + 1], 0x04);
+  CHECK_EQ(c[at + 2], kItfFido);
+  CHECK_EQ(c[at + 4], 2);
+  CHECK(c[at + 5] == 0x03 && c[at + 6] == 0x00 && c[at + 7] == 0x00);
+  CHECK_EQ(c[at + 8], kStrFidoItf);
+  CHECK_EQ(le16(&c[at + 9 + 7]), kFidoReport.size());
+  CHECK(c[at + 18 + 2] == kEpFidoOut && c[at + 18 + 3] == 0x03 && le16(&c[at + 18 + 4]) == 64);
+  CHECK(c[at + 25 + 2] == kEpFidoIn && c[at + 25 + 3] == 0x03 && le16(&c[at + 25 + 4]) == 64);
+}
+
 }  // namespace
 
 int main() {
   const Parsed hid = walk(kConfigHidOnly);
   CHECK(hid.ok);
-  CHECK_EQ(hid.interfaces, 1);
+  CHECK_EQ(hid.interfaces, 2);
   CHECK_EQ(hid.iads, 0);  // nothing about CDC in the HID-only variant
-  CHECK_EQ(hid.hidDescs, 1);
-  CHECK_EQ(hid.hidReportLen, kHidReport.size());
-  CHECK(hid.endpoints == std::set<uint8_t>{kEpHidIn});
+  CHECK_EQ(hid.hidDescs, 2);
+  CHECK((hid.hidReportLens == std::vector<uint16_t>{kHidReport.size(), kFidoReport.size()}));
+  CHECK((hid.endpoints == std::set<uint8_t>{kEpHidIn, kEpFidoOut, kEpFidoIn}));
   CHECK_EQ(kConfigHidOnly[9 + 5], 0x03);  // HID class
   CHECK_EQ(kConfigHidOnly[9 + 6], 0x01);  // boot subclass
   CHECK_EQ(kConfigHidOnly[9 + 7], 0x01);  // keyboard protocol
 
   const Parsed cdc = walk(kConfigHidCdc);
   CHECK(cdc.ok);
-  CHECK_EQ(cdc.interfaces, 3);
+  CHECK_EQ(cdc.interfaces, 4);
   CHECK_EQ(cdc.iads, 1);
-  CHECK_EQ(cdc.hidDescs, 1);
-  CHECK_EQ(cdc.hidReportLen, kHidReport.size());
-  CHECK((cdc.endpoints == std::set<uint8_t>{kEpHidIn, kEpCdcNotif, kEpCdcOut, kEpCdcIn}));
-  // The HID part is byte-identical in both variants (same interface 0).
+  CHECK_EQ(cdc.hidDescs, 2);
+  CHECK((cdc.hidReportLens == std::vector<uint16_t>{kHidReport.size(), kFidoReport.size()}));
+  CHECK((cdc.endpoints == std::set<uint8_t>{kEpHidIn, kEpFidoOut, kEpFidoIn, kEpCdcNotif, kEpCdcOut, kEpCdcIn}));
+  // ESP32-S3 OTG budget: at most 4 IN endpoints besides EP0.
+  int ins = 0;
+  for (uint8_t ep : cdc.endpoints) ins += (ep & 0x80) ? 1 : 0;
+  CHECK(ins <= 4);
+  checkFidoInterface(kConfigHidOnly);
+  checkFidoInterface(kConfigHidCdc);
+  // The HID part (keyboard + FIDO) is byte-identical in both variants.
   for (size_t k = 9; k < kTotalHidOnly; ++k) CHECK_EQ(kConfigHidCdc[k], kConfigHidOnly[k]);
 
   // Device descriptors.
@@ -145,6 +193,7 @@ int main() {
   CHECK_EQ(kVid, 0x303A);
 
   checkReportDescriptor();
+  checkFidoReport();
   CHECK(kStrCount <= 8);  // esp_tinyusb USB_STRING_DESCRIPTOR_ARRAY_SIZE
   TEST_MAIN_END();
 }

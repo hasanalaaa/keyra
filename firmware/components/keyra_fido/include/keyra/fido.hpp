@@ -15,6 +15,7 @@ bool start();
 // LED shows the FIDO pattern and presses go here (short = approve, long = refuse).
 bool awaitingTouch();
 void press(bool shortPress);
+bool ledActive();  // awaitingTouch(), or a host WINK in the last 1.5 s
 
 // Discoverable credentials for Settings → Passkeys (vault must be unlocked).
 struct Passkey {

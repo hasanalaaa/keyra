@@ -31,7 +31,7 @@ uint8_t fromAnswer(User::Answer a) {
 
 // Unlock wait has its own meaning on timeout: Keyra stayed locked.
 uint8_t fromUnlock(User::Answer a) {
-  return a == User::Answer::Timeout ? kOperationDenied : fromAnswer(a);
+  return a == User::Answer::Timeout ? uint8_t{kOperationDenied} : fromAnswer(a);
 }
 
 void put32(std::vector<uint8_t>& v, uint32_t x) {
@@ -238,7 +238,7 @@ uint8_t Authenticator::makeCredential(const uint8_t* p, size_t n, User& user, st
   if (pinAuth) {
     if (!pinAuth->str.empty()) return kPinNotSet;
     const uint8_t s = fromAnswer(user.waitPresence());
-    return s == kOk ? kPinNotSet : s;
+    return s == kOk ? uint8_t{kPinNotSet} : s;
   }
 
   if (uint8_t s = fromUnlock(user.waitUnlocked()); s != kOk) return s;
@@ -259,7 +259,7 @@ uint8_t Authenticator::makeCredential(const uint8_t* p, size_t n, User& user, st
       std::memset(key, 0, sizeof key);
       // The spec asks for presence first, so a site cannot silently probe.
       const uint8_t s = fromAnswer(user.waitPresence());
-      return s == kOk ? kCredentialExcluded : s;
+      return s == kOk ? uint8_t{kCredentialExcluded} : s;
     }
   }
 
@@ -390,7 +390,7 @@ uint8_t Authenticator::getAssertion(const uint8_t* p, size_t n, User& user, int6
   if (pinAuth) {
     if (!pinAuth->str.empty()) return kPinNotSet;
     const uint8_t s = fromAnswer(user.waitPresence());
-    return s == kOk ? kPinNotSet : s;
+    return s == kOk ? uint8_t{kPinNotSet} : s;
   }
 
   if (uint8_t s = fromUnlock(user.waitUnlocked()); s != kOk) return s;

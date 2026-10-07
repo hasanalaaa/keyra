@@ -23,6 +23,7 @@ constexpr const char* TAG = "keyra_hid";
 constexpr int64_t kReportReadyTimeoutUs = 100 * 1000;
 
 std::atomic<uint8_t> s_leds{0};
+std::atomic<FidoReceiver> s_fidoRx{nullptr};
 std::atomic<bool> s_started{false};
 
 void sleepMs(uint32_t ms) {
@@ -88,20 +89,40 @@ Result typeText(const char* text, const Options& opt) { return s_typer.type(tran
 
 Result tapKey(uint8_t hidKeycode, const Options& opt) { return s_typer.tap(transportFor(opt), hidKeycode, opt); }
 
+void setFidoReceiver(FidoReceiver rx) { s_fidoRx.store(rx); }
+
+bool fidoSend(const uint8_t report[kFidoReportLen], uint32_t timeoutMs) {
+  static_assert(kFidoReportLen == desc::kFidoReportLen, "FIDO report size");
+  const int64_t deadline = esp_timer_get_time() + int64_t{timeoutMs} * 1000;
+  while (!tud_hid_n_ready(desc::kInstFido)) {
+    if (!s_started.load() || !tud_mounted() || tud_suspended() || esp_timer_get_time() > deadline) return false;
+    vTaskDelay(1);
+  }
+  return tud_hid_n_report(desc::kInstFido, 0, report, kFidoReportLen);
+}
+
 }  // namespace keyra::hid
 
 // ---- TinyUSB HID class callbacks (C linkage, called from the USB task) ----
 
-extern "C" uint8_t const* tud_hid_descriptor_report_cb(uint8_t /*instance*/) {
-  return keyra::hid::desc::kHidReport.data();
+extern "C" uint8_t const* tud_hid_descriptor_report_cb(uint8_t instance) {
+  using namespace keyra::hid::desc;
+  return instance == kInstFido ? kFidoReport.data() : kHidReport.data();
 }
 
 extern "C" uint16_t tud_hid_get_report_cb(uint8_t, uint8_t, hid_report_type_t, uint8_t*, uint16_t) {
   return 0;  // GET_REPORT unsupported → STALL; hosts read input via the interrupt EP
 }
 
-extern "C" void tud_hid_set_report_cb(uint8_t, uint8_t report_id, hid_report_type_t type, uint8_t const* buf,
-                                      uint16_t len) {
-  // LED output report (no report ID): one byte, bit 1 = Caps Lock.
-  if (type == HID_REPORT_TYPE_OUTPUT && report_id == 0 && len >= 1) keyra::hid::s_leds.store(buf[0]);
+extern "C" void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_t type,
+                                      uint8_t const* buf, uint16_t len) {
+  using namespace keyra::hid;
+  if (instance == desc::kInstFido) {
+    // CTAPHID request packets: from the OUT endpoint (or a SET_REPORT on hosts that use it).
+    const FidoReceiver rx = s_fidoRx.load();
+    if (rx && type == HID_REPORT_TYPE_OUTPUT && report_id == 0) rx(buf, len);
+    return;
+  }
+  // Keyboard LED output report (no report ID): one byte, bit 1 = Caps Lock.
+  if (type == HID_REPORT_TYPE_OUTPUT && report_id == 0 && len >= 1) s_leds.store(buf[0]);
 }
