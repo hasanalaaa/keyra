@@ -9,7 +9,7 @@ namespace {
 
 int64_t g_now = 1000;
 Machine make() { return Machine([] { return g_now; }); }
-TypeRequest req(uint32_t id, What w = What::Password) { return {id, "Mail", w, false}; }
+TypeRequest req(uint32_t id, What w = What::Password) { return {id, "Mail", w, false, {}, nullptr}; }
 
 void shortPressRunsPendingOnce() {
   auto m = make();

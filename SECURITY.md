@@ -135,9 +135,11 @@ by host tests in `firmware/components/keyra_vault/host_test/`.
 | Data key (DEK) | Random 256-bit key. The KEK wraps it with AES-256-GCM (AAD `keyra/meta/v1`); only the wrapped DEK is stored (`meta.bin`). |
 | Changing passphrase | Re-wraps the DEK only. Entries are not re-encrypted. |
 | Entries | One file per entry: AES-256-GCM under the DEK, random 96-bit IV per write, 128-bit tag, AAD `keyra/e/v1/<id>`. Binding the ID prevents swapping one entry's ciphertext into another's file. |
+| Password history | Up to 10 previous passwords and the time each was replaced live **inside** the entry's encrypted plaintext (format 2), so flash holds no history metadata in the clear. Only the vault adds to it, when an update changes the password; clients cannot write or erase it. Entries written by earlier firmware (format 1) are read as-is and rewritten as format 2 on their next change. |
 | Storage | LittleFS on a dedicated `vault` partition. Mount failure never auto-formats. |
-| Backup | Separate backup passphrase (at least 12 characters), PBKDF2-HMAC-SHA256 with a fresh salt and AES-256-GCM, written as JSON (`keyra-backup`, version 1). Treat the file as sensitive. |
+| Backup | Separate backup passphrase (at least 12 characters), PBKDF2-HMAC-SHA256 with a fresh salt and AES-256-GCM, written as JSON (`keyra-backup`, version 2, which includes password history; version 1 files still import). Treat the file as sensitive. |
 | Randomness | `psa_generate_random`, which ESP-IDF backs with the ESP32-S3 hardware RNG. |
+| Password generator | `POST /api/generate` draws from `esp_fill_random` (the hardware RNG, a true random source while the radio is on; Keyra's radio is always on). Each character is uniform over the enabled character classes by rejection sampling (no modulo bias); class minimums are met by discarding whole candidates, so every password that fits the settings is equally likely and no position is favoured. Settings where fewer than 1 candidate in 1,000 would qualify are refused. The reported entropy is exact (log2 of the number of possible passwords). Generated passwords are never logged and are not stored unless you save them. |
 | Crypto library | mbedTLS through the PSA Crypto API, shipped with ESP-IDF. No custom primitives. |
 
 ### Unlock rate limiting
@@ -169,6 +171,7 @@ runs PBKDF2 elsewhere. Only passphrase strength does.
   compiler cannot optimise away.
 - Secrets are never written to logs. Release builds disable logging entirely.
 - The list endpoint returns no secrets; passwords are fetched one entry at a time.
+- Free text for **Type text** (SPEC §9.2) lives in one buffer that is zeroized when the typing finishes, is cancelled, expires, is replaced, or the vault locks. A host test swaps the allocator to prove no copy is freed un-wiped.
 
 ### Physical confirmation
 

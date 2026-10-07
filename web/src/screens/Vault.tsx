@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { Icon, KeyGlyph } from '../components/Icon';
 import { Button, IconButton, Monogram } from '../components/ui';
-import { Sheet, useMedia } from '../components/Sheet';
+import { Sheet, useMedia, type SheetCtl } from '../components/Sheet';
 import { accountCount, t } from '../lib/i18n';
 import { back, go, type Route } from '../lib/router';
 import { lockNow, useApp } from '../lib/store';
@@ -15,6 +15,8 @@ import { ImportSheet } from './Import';
 import { BackupSheet } from './Backup';
 import { Settings } from './Settings';
 import { A2hsSheet, shouldOfferA2hs } from './A2hs';
+import { GenerateSheet } from './Generate';
+import { TypeTextSheet } from './TypeText';
 
 let a2hsChecked = false;
 
@@ -57,6 +59,8 @@ export function Vault({ route }: { route: Route }) {
       {route.name === 'new' && <EditAccount key="new" />}
       {route.name === 'import' && <ImportSheet />}
       {route.name === 'backup' && <BackupSheet />}
+      {route.name === 'generate' && <GenerateSheet />}
+      {route.name === 'typeText' && <TypeTextSheet />}
       {desktop && route.name === 'settings' && <Settings onA2hs={() => setA2hs(true)} />}
       {a2hs && <A2hsSheet onClose={() => setA2hs(false)} />}
     </div>
@@ -77,6 +81,7 @@ function ListPane({ selected, desktop }: { selected: number | null; desktop: boo
   const app = useApp();
   const [q, setQ] = useState('');
   const [fabHidden, setFabHidden] = useState(false);
+  const [menu, setMenu] = useState(false);
   const [atTop, setAtTop] = useState(true);
   const pane = useRef<HTMLDivElement>(null);
   const [skeleton, setSkeleton] = useState(false);
@@ -169,6 +174,8 @@ function ListPane({ selected, desktop }: { selected: number | null; desktop: boo
           {d?.host.output === 'ble' ? t('bleOn') : d?.host.output === 'usb' ? t('usbOn') : d?.host.usb ? t('bleNone') : t('usbOff')}
         </span>
         <span class="spacer" />
+        <IconButton icon="wand-sparkles" label={t('generate')} class="gen-btn" onClick={() => go('/generate')} />
+        <IconButton icon="ellipsis" label={t('moreMenu')} class="more-btn" onClick={() => setMenu(true)} />
         <IconButton icon="settings" label={t('settings')} onClick={() => go('/settings')} />
         <IconButton icon="lock" label={t('lock')} onClick={() => void lockNow()} />
       </header>
@@ -232,11 +239,12 @@ function ListPane({ selected, desktop }: { selected: number | null; desktop: boo
         )}
       </div>
       {showPill && pending && (
-        <button type="button" class="ready-pill glass" onClick={() => go(`/a/${pending.id}`)}>
+        <button type="button" class="ready-pill glass" onClick={() => go(pending.what === 'text' ? '/type' : `/a/${pending.id}`)}>
           <span class="pill-dot" aria-hidden="true" />
-          <span>{t('readyPill', { title: '' })}<bdi>{pending.title}</bdi></span>
+          <span>{t('readyPill', { title: '' })}<bdi>{pending.title ?? t('chipText')}</bdi></span>
         </button>
       )}
+      {menu && <VaultMenu onClose={() => setMenu(false)} />}
       {!desktop && (
         <button type="button" class={`fab${fabHidden ? ' hidden' : ''}`} aria-label={t('addAccount')} onClick={() => go('/new')}>
           <Icon name="plus" size={24} />
@@ -346,5 +354,39 @@ function EmptyVault() {
         {t('import')}
       </Button>
     </div>
+  );
+}
+
+/** The top bar's "More" menu: vault-wide actions that are not one-tap buttons. */
+function VaultMenu({ onClose }: { onClose: () => void }) {
+  const ctl = useRef<SheetCtl | null>(null);
+  const next = useRef<string | null>(null);
+  const pick = (path: string) => {
+    next.current = path;
+    ctl.current?.close();
+  };
+  const item = (icon: 'keyboard' | 'upload' | 'download', label: string, path: string) => (
+    <button type="button" class="row nav-row menu-row" onClick={() => pick(path)}>
+      <Icon name={icon} size={22} class="row-icon" />
+      <span class="row-label">{label}</span>
+      <Icon name="chevron-right" size={16} class="row-chev" />
+    </button>
+  );
+  return (
+    <Sheet
+      title={t('moreMenu')}
+      size="sm"
+      ctl={ctl}
+      onClose={() => {
+        onClose();
+        if (next.current) go(next.current);
+      }}
+    >
+      <div class="card">
+        {item('keyboard', t('typeText'), '/type')}
+        {item('upload', t('import'), '/import')}
+        {item('download', t('backupTitle'), '/backup')}
+      </div>
+    </Sheet>
   );
 }

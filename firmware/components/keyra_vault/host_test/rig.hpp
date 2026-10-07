@@ -48,11 +48,20 @@ inline Entry sample(const std::string& title, const std::string& user = "hasan",
   return e;
 }
 
+inline bool sameHistory(const Entry& a, const Entry& b) {
+  if (a.history.size() != b.history.size()) return false;
+  for (size_t i = 0; i < a.history.size(); ++i)
+    if (a.history[i].password != b.history[i].password ||
+        a.history[i].changedAt != b.history[i].changedAt)
+      return false;
+  return true;
+}
+
 inline bool same(const Entry& a, const Entry& b) {
   return a.id == b.id && a.title == b.title && a.url == b.url && a.username == b.username &&
          a.password == b.password && a.totp == b.totp && a.notes == b.notes &&
          a.favorite == b.favorite && a.created == b.created && a.updated == b.updated &&
-         a.lastUsed == b.lastUsed;
+         a.lastUsed == b.lastUsed && sameHistory(a, b);
 }
 
 }  // namespace keyra::vault::test

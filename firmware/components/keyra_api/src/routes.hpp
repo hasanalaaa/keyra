@@ -16,6 +16,7 @@ enum class Route {
   Type, TypeCancel, GetSettings, PutSettings, Passphrase, Backup, Restore, FactoryReset,
   WifiScan, WifiHome, ListTrusted, DeleteTrusted,
   GetBle, BlePair, BleForget,
+  Generate,
   ListPasskeys, DeletePasskey,
 };
 

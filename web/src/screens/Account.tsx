@@ -11,14 +11,16 @@ import { t, type Key } from '../lib/i18n';
 import { go } from '../lib/router';
 import { setState, toast, useApp } from '../lib/store';
 import { hostOf } from '../lib/csv';
-import type { Entry, Totp, TypeWhat } from '../lib/types';
+import { shortDate } from '../lib/wifi';
+import type { Entry, OldPassword, Totp, TypeWhat } from '../lib/types';
 
-const CHIP: Record<TypeWhat | 'test', Key> = {
+const CHIP: Record<TypeWhat | 'test' | 'text', Key> = {
   username: 'chipUsername',
   password: 'chipPassword',
   both: 'chipBoth',
   totp: 'chipCode',
   test: 'typeTest',
+  text: 'chipText',
 };
 
 export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }) {
@@ -65,7 +67,7 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
     }
   };
 
-  const valueFor = (what: TypeWhat | 'test'): string => {
+  const valueFor = (what: TypeWhat | 'test' | 'text'): string => {
     if (!entry) return '';
     if (what === 'username') return entry.username;
     if (what === 'totp') return totpRef.current?.code ?? '';
@@ -151,6 +153,7 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
       </header>
       <div class="action-area">{area}</div>
       <Details entry={entry} />
+      {entry && entry.history?.length > 0 && <History entry={entry} lang={app.lang} />}
     </div>
   );
 }
@@ -297,3 +300,38 @@ function Details({ entry }: { entry: Entry | null }) {
   );
 }
 
+/** Previous passwords (SPEC §9.3), newest first; each revealed and copied on its own. */
+function History({ entry, lang }: { entry: Entry; lang: 'ar' | 'en' }) {
+  return (
+    <section class="group history" aria-labelledby="history-h">
+      <h3 class="section-head" id="history-h">
+        {t('history')}
+      </h3>
+      <div class="card">
+        {entry.history.map((h, i) => (
+          <HistoryRow key={i} item={h} lang={lang} />
+        ))}
+      </div>
+      <p class="group-foot">{t('historyFoot')}</p>
+    </section>
+  );
+}
+
+function HistoryRow({ item, lang }: { item: OldPassword; lang: 'ar' | 'en' }) {
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    if (!shown) return;
+    const h = setTimeout(() => setShown(false), 30000);
+    return () => clearTimeout(h);
+  }, [shown]);
+  return (
+    <div class="kv-row history-row">
+      <span class="kv-label">{item.changedAt ? t('historyUntil', { date: shortDate(item.changedAt, lang) }) : t('historyUnknown')}</span>
+      <span class="kv-value" dir="ltr">
+        {shown ? <ColoredSecret value={item.password} /> : <span class="masked">••••••••••</span>}
+      </span>
+      <IconButton icon={shown ? 'eye-off' : 'eye'} label={shown ? t('hidePassword') : t('showPassword')} pressed={shown} onClick={() => setShown(!shown)} />
+      <CopyButton value={() => item.password} />
+    </div>
+  );
+}

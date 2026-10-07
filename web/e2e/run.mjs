@@ -238,7 +238,7 @@ async function firstRunFlow(base, opts) {
   const [download] = await Promise.all([page.waitForEvent('download'), page.locator('.backup .btn-primary').first().click()]);
   check(/^keyra-backup-\d{8}\.json$/.test(download.suggestedFilename()), `backup filename ${download.suggestedFilename()}`);
   const file = JSON.parse(readFileSync(await download.path(), 'utf8'));
-  check(file.format === 'keyra-backup' && file.v === 1, 'backup envelope');
+  check(file.format === 'keyra-backup' && file.v === 2, 'backup envelope');
   console.log(`  ✓ flow passed (backup ${download.suggestedFilename()})`);
   await ctx.close();
 }
@@ -413,6 +413,98 @@ async function passkeysFlow(base, opts) {
   await ctx.close();
 }
 
+// ---------- flow 4: generator → type twice → save → update → history; type text (SPEC §9) ----------
+
+async function generatorFlow(base, opts) {
+  const { ctx, page, tag } = await open(base, opts);
+  console.log(`generator ${tag || '(phone, ar, light)'}`);
+  await unlockUi(page);
+  const preview = page.locator('.gen-preview');
+  const pwNow = async () => ((await preview.textContent()) ?? '').trim();
+
+  await page.locator('.top-bar .gen-btn').click();
+  await page.waitForFunction(() => (document.querySelector('.gen-preview')?.textContent ?? '').trim().length === 20);
+  check(/bits/.test((await page.locator('.meter-label').textContent()) ?? '') || /بت/.test((await page.locator('.meter-label').textContent()) ?? ''), 'entropy shown');
+  await page.locator('.len-input').fill('32');
+  await page.locator('.len-input').press('Enter');
+  await page.waitForFunction(() => (document.querySelector('.gen-preview')?.textContent ?? '').trim().length === 32);
+  const symbols = page.getByRole('switch').nth(3);
+  await symbols.click(); // symbols off
+  await page.waitForFunction(() => /^[A-Za-z0-9]{32}$/.test((document.querySelector('.gen-preview')?.textContent ?? '').trim()));
+  await symbols.click(); // back on
+  await page.waitForFunction(() => /[^A-Za-z0-9]/.test((document.querySelector('.gen-preview')?.textContent ?? '').trim()));
+  await shot(page, `generate${tag}`);
+  const pw1 = await pwNow();
+  check(pw1.length === 32, `generated ${pw1.length} chars`);
+
+  // Type twice: password, Tab, password.
+  await page.locator('.gen-twice').click();
+  await page.locator('.ready-ready').waitFor();
+  check((await button(base)) === `typing text (${2 * 32 + 1} chars)`, 'typed twice with a Tab between');
+  await page.locator('.ready-typed').waitFor({ timeout: 5000 });
+  await page.locator('.gen-actions').waitFor({ timeout: 5000 });
+  check((await pwNow()) === pw1, 'same password after typing');
+
+  // Save as a new account: the form opens with the password filled in.
+  await page.locator('.gen-save').click();
+  await page.locator('.save-new').click();
+  const form = page.locator('.edit-form');
+  await form.waitFor();
+  check((await form.locator('input[type=password]').inputValue()) === pw1, 'new account prefilled');
+  await form.locator('input').nth(0).fill('Shop');
+  await page.locator('.save-btn').click();
+  await row(page, 'Shop').waitFor();
+  await page.locator('.layer .sheet').waitFor({ state: 'detached' });
+
+  // A second password replaces it: the first moves to the account's history.
+  await page.locator('.top-bar .gen-btn').click();
+  await page.waitForFunction((old) => {
+    const v = (document.querySelector('.gen-preview')?.textContent ?? '').trim();
+    return v.length === 32 && v !== old;
+  }, pw1);
+  const pw2 = await pwNow();
+  await page.locator('.gen-save').click();
+  await page.locator('.save-update').click();
+  await page.locator('.pick .acc-row', { hasText: 'Shop' }).click();
+  await page.locator('.alert .btn-primary').click();
+  await page.locator('.history-row').waitFor();
+  check((await page.locator('.history-row').count()) === 1, 'one old password');
+  await page.locator('.history-row .icon-btn').first().click(); // reveal
+  check(((await page.locator('.history-row .kv-value').textContent()) ?? '').trim() === pw1, 'history holds the first password');
+  await page.locator('.details .kv-row', { hasText: /Password|كلمة المرور/ }).locator('.icon-btn').first().click();
+  check((await page.locator('.details .secret').first().textContent())?.trim() === pw2, 'current password is the second one');
+  await shot(page, `account-history${tag}`);
+
+  // The Edit form's inline generator.
+  await page.evaluate(() => (location.hash = location.hash + '/edit'));
+  await page.locator('.gen-toggle').click();
+  await page.waitForFunction(() => (document.querySelector('.gen-inline .gen-preview')?.textContent ?? '').trim().length === 32);
+  const pw3 = ((await page.locator('.gen-inline .gen-preview').textContent()) ?? '').trim();
+  await page.locator('.gen-inline').scrollIntoViewIfNeeded();
+  await shot(page, `edit-generator${tag}`);
+  await page.locator('.gen-inline .btn-primary').click();
+  check((await page.locator('.edit-form input[type=password]').inputValue()) === pw3, 'inline generator fills the field');
+  await page.locator('.layer .sheet-end .icon-btn').last().click(); // close: unsaved, so it asks first
+  await page.locator('.alert .btn-danger-confirm').click(); // discard
+  await page.locator('.edit-form').waitFor({ state: 'detached' });
+  await page.evaluate(() => (location.hash = '#/'));
+  await page.locator('.layer .sheet').waitFor({ state: 'detached' });
+
+  // Type text… from the menu.
+  await page.locator('.top-bar .more-btn').click();
+  await page.locator('.menu-row').first().click();
+  await page.locator('.type-text textarea').fill('hello world');
+  await shot(page, `type-text${tag}`);
+  await page.locator('.type-text button[type=submit]').click();
+  await page.locator('.ready-ready').waitFor();
+  check((await button(base)) === 'typing text (11 chars)', 'text typed once');
+  await page.locator('.ready-typed').waitFor({ timeout: 5000 });
+  await page.locator('.type-text').waitFor({ timeout: 5000 });
+  check((await page.locator('.type-text textarea').inputValue()) === '', 'text cleared after typing');
+  console.log('  ✓ flow passed');
+  await ctx.close();
+}
+
 /** Shrinks the PNGs for the README when pngquant is on PATH (they are committed). */
 function quantizeShots() {
   const files = readdirSync(SHOTS).filter((f) => f.endsWith('.png')).map((f) => SHOTS + f);
@@ -453,6 +545,8 @@ try {
   await bleFlow(await startMock(), {});
   await bleFlow(await startMock(), { lang: 'en' });
   await homeFlow(home, { lang: 'en' });
+  await generatorFlow(await startMock(), { lang: 'en' });
+  await generatorFlow(await startMock(), {});
   await passkeysFlow(await startMock(), {});
   await passkeysFlow(await startMock(), { lang: 'en', dark: true });
 

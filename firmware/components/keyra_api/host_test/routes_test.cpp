@@ -26,6 +26,9 @@ void apiRoutes() {
   CHECK(is(matchApi(Method::Delete, "/api/entries/1"), Route::DeleteEntry, 1));
   CHECK(is(matchApi(Method::Get, "/api/entries/9/totp"), Route::EntryTotp, 9));
   CHECK(is(matchApi(Method::Post, "/api/type"), Route::Type));
+  CHECK(is(matchApi(Method::Post, "/api/generate"), Route::Generate));
+  CHECK(matchApi(Method::Get, "/api/generate").kind == Match::Kind::MethodNotAllowed);
+  CHECK(needsSession(Route::Generate) && needsCsrf(Method::Post, Route::Generate));
   CHECK(is(matchApi(Method::Post, "/api/type/cancel"), Route::TypeCancel));
   CHECK(is(matchApi(Method::Get, "/api/settings"), Route::GetSettings));
   CHECK(is(matchApi(Method::Put, "/api/settings"), Route::PutSettings));

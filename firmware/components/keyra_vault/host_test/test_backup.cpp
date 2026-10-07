@@ -39,7 +39,7 @@ TEST(envelope_shape) {
   json::Value v;
   CHECK(json::parse(out.data(), out.size(), v));
   CHECK(v.find("format") && v.find("format")->s == "keyra-backup");
-  CHECK(v.find("v") && v.find("v")->i == 1);
+  CHECK(v.find("v") && v.find("v")->i == 2);
   const json::Value* kdf = v.find("kdf");
   CHECK(kdf && kdf->find("alg")->s == "pbkdf2-sha256" && kdf->find("iter")->i == kTestIterations);
   std::vector<uint8_t> salt;
@@ -135,7 +135,8 @@ TEST(invalid_backups_change_nothing) {
       "{}",
       "[]",
       "{\"format\":\"other\",\"v\":1}",
-      env("2", "1000", "AAAAAAAAAAAAAAAAAAAAAA=="),
+      env("3", "1000", "AAAAAAAAAAAAAAAAAAAAAA=="),  // from a future firmware
+      env("0", "1000", "AAAAAAAAAAAAAAAAAAAAAA=="),
       env("1", "0", "AAAAAAAAAAAAAAAAAAAAAA=="),
       env("1", "10000001", "AAAAAAAAAAAAAAAAAAAAAA=="),
       env("1", "1000", "AAAA"),
@@ -154,13 +155,14 @@ TEST(invalid_backups_change_nothing) {
 }
 
 // Builds a backup around arbitrary plaintext with the test crypto.
-static std::string seal(Crypto& c, const std::string& plain) {
+static std::string seal(Crypto& c, const std::string& plain, int version = 1) {
   uint8_t salt[16] = {1}, iv[12] = {2}, key[32];
   c.pbkdf2Sha256(kBackupPass, salt, 16, 1000, key, 32);
   std::vector<uint8_t> data(plain.size() + 16);
   c.gcmSeal(key, iv, nullptr, 0, reinterpret_cast<const uint8_t*>(plain.data()), plain.size(),
             data.data());
-  return "{\"format\":\"keyra-backup\",\"v\":1,\"kdf\":{\"alg\":\"pbkdf2-sha256\",\"iter\":1000,"
+  return "{\"format\":\"keyra-backup\",\"v\":" + std::to_string(version) +
+         ",\"kdf\":{\"alg\":\"pbkdf2-sha256\",\"iter\":1000,"
          "\"salt\":\"" + text::base64Encode(salt, 16) + "\"},\"iv\":\"" + text::base64Encode(iv, 12) +
          "\",\"data\":\"" + text::base64Encode(data.data(), data.size()) + "\"}";
 }
@@ -239,6 +241,71 @@ TEST(duplicates_inside_one_import_merge) {
   CHECK(a == 1 && u == 1);
   std::vector<Entry> all;
   CHECK((*r)->list(all) == Status::Ok && all.size() == 1 && all[0].password == "2");
+}
+
+// SPEC §9.3: history lives inside the encrypted entry, so it travels with backups.
+TEST(history_round_trips_through_backup) {
+  auto src = Rig::ready();
+  Entry e = sample("bank");
+  CHECK((*src)->put(e) == Status::Ok);
+  for (int i = 1; i <= 3; ++i) {
+    e.password = "bank-" + std::to_string(i);
+    e.updated = 1800000000 + i;
+    CHECK((*src)->put(e) == Status::Ok);
+  }
+  Entry want;
+  CHECK((*src)->get(e.id, want) == Status::Ok && want.history.size() == 3);
+  std::string backup;
+  CHECK((*src)->exportBackup(kBackupPass, backup) == Status::Ok);
+  CHECK(backup.find("bank-") == std::string::npos);  // history is inside the ciphertext
+
+  auto dst = Rig::ready();
+  size_t a = 0, u = 0;
+  CHECK((*dst)->importBackup(kBackupPass, backup, true, &a, &u) == Status::Ok && a == 1);
+  Entry got;
+  CHECK((*dst)->get(e.id, got) == Status::Ok && same(got, want));
+  CHECK(got.history[0].password == "bank-2" && got.history[0].changedAt == 1800000003);
+  CHECK(got.history[2].password == "pw-bank" && got.history[2].changedAt == 1800000001);
+}
+
+TEST(older_and_newer_backup_versions) {
+  auto r = Rig::ready();
+  size_t a = 0, u = 0;
+  // A v1 file (no history member) still imports; its entries start with no history.
+  CHECK((*r)->importBackup(kBackupPass, seal(r->crypto, "[{\"title\":\"old\",\"password\":\"p1\"}]", 1),
+                           false, &a, &u) == Status::Ok);
+  CHECK(a == 1);
+  std::vector<Entry> all;
+  CHECK((*r)->list(all) == Status::Ok && all.size() == 1 && all[0].history.empty());
+  // v2 with history.
+  CHECK((*r)->importBackup(kBackupPass,
+                           seal(r->crypto,
+                                "[{\"title\":\"new\",\"password\":\"p3\",\"history\":["
+                                "{\"password\":\"p2\",\"changedAt\":20},{\"password\":\"p1\"}]}]",
+                                2),
+                           false, &a, &u) == Status::Ok);
+  CHECK((*r)->list(all) == Status::Ok && all.size() == 2);
+  for (const Entry& e : all)
+    if (e.title == "new")
+      CHECK(e.history.size() == 2 && e.history[0].password == "p2" && e.history[0].changedAt == 20 &&
+            e.history[1].password == "p1" && e.history[1].changedAt == 0);
+
+  auto snapshot = r->storage.files;
+  std::string eleven = "[{\"title\":\"x\",\"history\":[";
+  for (int i = 0; i < 11; ++i) eleven += std::string(i ? "," : "") + "{\"password\":\"p\"}";
+  eleven += "]}]";
+  const std::string bad[] = {
+      eleven,                                                            // over the cap
+      "[{\"title\":\"x\",\"history\":{}}]",                              // not an array
+      "[{\"title\":\"x\",\"history\":[\"p\"]}]",                         // item not an object
+      "[{\"title\":\"x\",\"history\":[{\"password\":5}]}]",              // wrong type
+      "[{\"title\":\"x\",\"history\":[{\"password\":\"p\",\"changedAt\":\"x\"}]}]",
+      "[{\"title\":\"x\",\"history\":[{\"password\":\"" + std::string(kMaxPassword + 1, 'a') + "\"}]}]",
+  };
+  for (const auto& b : bad)
+    CHECK((*r)->importBackup(kBackupPass, seal(r->crypto, b, 2), false, nullptr, nullptr) ==
+          Status::Invalid);
+  CHECK(r->storage.files == snapshot);
 }
 
 TEST_MAIN()

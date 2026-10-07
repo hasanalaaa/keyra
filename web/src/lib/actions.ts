@@ -5,7 +5,7 @@ import { api, type Awaiting } from './api';
 import { errorText, isLockedError } from './errors';
 import { holdFastPolling, loadEntries, toast, useApp } from './store';
 import { t } from './i18n';
-import type { DeviceState, PresenceOp, ResultCode, TypeWhat } from './types';
+import type { DeviceState, PresenceOp, ResultCode, TypeTextRequest, TypeWhat } from './types';
 
 export type ErrorCode = Exclude<ResultCode, 'typed' | 'cancelled'>;
 
@@ -31,16 +31,18 @@ export function useNow(active: boolean, ms = 1000): number {
 const TYPED_DWELL = 1900;
 const RESULT_FRESH_MS = 6000;
 
+type What = TypeWhat | 'test' | 'text';
+
 interface Act {
-  what: TypeWhat | 'test';
+  what: What;
   startedAt: number;
   deadline: number;
   total: number;
   goneAt: number;
 }
 
-/** Type action for one entry (or the settings type test with id 0). */
-export function useTypeAction(id: number) {
+/** Type action for one entry, or with id 0 the settings type test / free text (`free`). */
+export function useTypeAction(id: number, free: 'test' | 'text' = 'test') {
   const app = useApp();
   const [act, setAct] = useState<Act | null>(null);
   const [outcome, setOutcome] = useState<Phase | null>(null);
@@ -48,12 +50,12 @@ export function useTypeAction(id: number) {
   actRef.current = act;
 
   const matches = (d: DeviceState, a: Act) =>
-    d.pending !== null && d.pending.what === a.what && (a.what === 'test' || d.pending.id === id);
+    d.pending !== null && d.pending.what === a.what && (id === 0 || d.pending.id === id);
 
   // Re-attach to a pending action for this entry that was started earlier (sheet reopened, page reloaded).
   useEffect(() => {
     const p = app.device?.pending;
-    if (!p || actRef.current || (id !== 0 && p.id !== id) || (id === 0 && p.what !== 'test')) return;
+    if (!p || actRef.current || (id !== 0 && p.id !== id) || (id === 0 && p.what !== free)) return;
     const total = Math.max(60000, p.expiresIn);
     setAct({ what: p.what, startedAt: Date.now() - (total - p.expiresIn), deadline: Date.now() + p.expiresIn, total, goneAt: 0 });
   }, [app.device?.pending, id]);
@@ -99,11 +101,12 @@ export function useTypeAction(id: number) {
     return () => clearTimeout(h);
   }, [outcome]);
 
-  const start = async (what: TypeWhat | 'test', target?: string): Promise<boolean> => {
+  const start = async (what: What, target?: string, text?: TypeTextRequest): Promise<boolean> => {
     setOutcome(null);
     try {
       const startedAt = Date.now();
-      const r = what === 'test' ? await api.typeTest(target) : await api.type(id, what, target);
+      const r =
+        what === 'test' ? await api.typeTest(target) : what === 'text' ? await api.typeText({ ...text!, target }) : await api.type(id, what, target);
       const total = Math.max(1000, r.pending.expiresIn);
       setAct({ what, startedAt, deadline: Date.now() + r.pending.expiresIn, total, goneAt: 0 });
       return true;

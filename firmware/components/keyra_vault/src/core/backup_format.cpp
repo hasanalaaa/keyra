@@ -46,7 +46,8 @@ bool readInt(const json::Value& obj, const char* k, int64_t& out) {
 
 std::string writeEnvelope(const Envelope& env) {
   std::string s;  // nothing secret: KDF parameters and ciphertext only
-  s += "{\"format\":\"keyra-backup\",\"v\":1,\"kdf\":{\"alg\":\"pbkdf2-sha256\",\"iter\":";
+  s += "{\"format\":\"keyra-backup\",\"v\":" + std::to_string(kVersion);
+  s += ",\"kdf\":{\"alg\":\"pbkdf2-sha256\",\"iter\":";
   s += std::to_string(env.iterations);
   s += ",\"salt\":\"" + text::base64Encode(env.salt, sizeof env.salt);
   s += "\"},\"iv\":\"" + text::base64Encode(env.iv, sizeof env.iv);
@@ -62,7 +63,7 @@ bool readEnvelope(const std::string& textIn, Envelope& out) {
   const json::Value* v = root.find("v");
   const json::Value* kdf = root.find("kdf");
   if (!format || format->type != Type::String || format->s != "keyra-backup") return false;
-  if (!v || v->type != Type::Int || v->i != 1) return false;
+  if (!v || v->type != Type::Int || v->i < 1 || v->i > kVersion) return false;
   if (!kdf || kdf->type != Type::Object) return false;
   const json::Value* alg = kdf->find("alg");
   const json::Value* iter = kdf->find("iter");
@@ -105,7 +106,20 @@ void writeEntry(SecureString& out, const Entry& e) {
   out += ',';
   key(out, "lastUsed");
   json::writeInt(out, e.lastUsed);
-  out += '}';
+  out += ',';
+  key(out, "history");
+  out += '[';
+  for (size_t i = 0; i < e.history.size(); ++i) {
+    if (i) out += ',';
+    out += '{';
+    key(out, "password");
+    json::writeString(out, e.history[i].password);
+    out += ',';
+    key(out, "changedAt");
+    json::writeInt(out, e.history[i].changedAt);
+    out += '}';
+  }
+  out += "]}";
 }
 
 bool readEntry(const json::Value& v, Entry& out) {
@@ -120,8 +134,24 @@ bool readEntry(const json::Value& v, Entry& out) {
   const json::Value* fav = v.find("favorite");
   if (fav && fav->type != Type::Bool) return false;
   out.favorite = fav && fav->b;
-  return readInt(v, "created", out.created) && readInt(v, "updated", out.updated) &&
-         readInt(v, "lastUsed", out.lastUsed);
+  if (!readInt(v, "created", out.created) || !readInt(v, "updated", out.updated) ||
+      !readInt(v, "lastUsed", out.lastUsed))
+    return false;
+
+  for (OldPassword& h : out.history) wipe(h.password);
+  out.history.clear();
+  const json::Value* history = v.find("history");
+  if (!history) return true;
+  if (history->type != Type::Array || history->items.size() > kMaxHistory) return false;
+  out.history.reserve(history->items.size());  // no regrowth: see codec::decode
+  for (const json::Value& item : history->items) {
+    if (item.type != Type::Object) return false;
+    out.history.emplace_back();
+    if (!readString(item, "password", out.history.back().password) ||
+        !readInt(item, "changedAt", out.history.back().changedAt))
+      return false;
+  }
+  return true;
 }
 
 }  // namespace keyra::vault::backup

@@ -6,6 +6,7 @@
 // Arming either replaces whatever was in the slot. Items expire after 60 s.
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -20,7 +21,7 @@ constexpr int64_t kExpiryMs = 60000;
 constexpr int64_t kFlashMs = 1500;  // Success/Error LED after a finished action
 constexpr int64_t kBlinkMs = 150;   // "nothing to do" acknowledgement
 
-enum class What { Username, Password, Both, Totp, Test };
+enum class What { Username, Password, Both, Totp, Test, Text };
 // HomeWifi: join/change/leave the home network (session). TrustBrowser: approve a
 // browser that unlocks through the home network (no session yet, SPEC §8.2).
 // BlePair: open the Bluetooth pairing window (session, SPEC §8.1).
@@ -31,16 +32,30 @@ enum class Code { Typed, Cancelled, Expired, NoUsb, NoHost, UnsupportedChar, Fai
 enum class Button { Short, Long };
 enum class Indicator { Setup, Locked, Idle, Pending, Typing, AwaitPresence, Success, Error, Off, Pairing };
 
+// Free text for What::Text (SPEC §9.2). The slot and the typing job share this
+// one buffer; its destructor wipes it, so the text leaves RAM as soon as the
+// last holder lets go: after typing, cancel, expiry, replacement or lock.
+struct FreeText {
+  std::string text;
+  bool twice = false;         // type it, the separator, then it again
+  bool enterBetween = false;  // separator: Enter instead of Tab
+  FreeText() = default;
+  FreeText(const FreeText&) = delete;
+  FreeText& operator=(const FreeText&) = delete;
+  ~FreeText();
+};
+
 struct TypeRequest {
-  uint32_t id = 0;  // 0 for the test string
+  uint32_t id = 0;  // 0 for the test string and free text
   std::string title;
   What what = What::Username;
   bool submit = false;
   Target target;  // chosen when armed; a Bluetooth host must connect before the press counts
+  std::shared_ptr<const FreeText> text;  // What::Text only
 };
 
 struct Pending {
-  TypeRequest req;
+  TypeRequest req;  // never carries the free text: only the slot and the job do
   int64_t expiresInMs = 0;
 };
 
@@ -100,6 +115,7 @@ class Machine {
   // is, a short press does nothing (the action stays armed) and expiry
   // reports no_host instead of expired.
   void setLinkReady(bool ready);
+  // Effect::Run moves the request (with any free text) out to the caller.
   Decision onButton(Button b, bool unlocked);
   void typingFinished(const TypeRequest& req, Code code);
   void commitFinished(bool ok);
