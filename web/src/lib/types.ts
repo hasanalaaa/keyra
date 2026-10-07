@@ -48,7 +48,7 @@ export interface DeviceState {
    * `ble`: a Bluetooth host is connected right now. `output`: the kind of host a new action would use (null = none).
    * `bleTarget`: the device the armed action will type into; `connecting`: still waiting for it to connect.
    */
-  host: { usb: boolean; ble: boolean; capsLock: boolean; output: 'usb' | 'ble' | null; bleTarget: BlePeer | null; connecting: boolean };
+  host: { usb: boolean; ble: boolean; capsLock: boolean; output: 'usb' | 'ble' | null; bleTarget: BlePeer | null; connecting: boolean; usbOs?: HostOs };
   pending: Pending | null;
   last: TypeResult | null;
   presence: Presence;
@@ -132,6 +132,7 @@ export interface Settings {
   bleEnabled: boolean;
   output: Output;
   bleConnect: 'on_demand' | 'always';
+  osUsb: HostOs;
 }
 
 /** Where typing goes: `auto` = USB when plugged in, else the connected Bluetooth device. */
@@ -142,8 +143,12 @@ export interface BlePeer {
   name: string; // the device's own name; '' until Keyra has read it
 }
 
+/** SPEC §10.5: decides how text survives the host's input language. '' = not set. */
+export type HostOs = '' | 'mac' | 'ios' | 'windows' | 'android' | 'linux';
+
 export interface BleBond extends BlePeer {
   lastSeen: number; // unix seconds, 0 = unknown
+  os: HostOs;
 }
 
 export interface BleInfo {

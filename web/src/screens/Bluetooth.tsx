@@ -1,4 +1,5 @@
 // Settings → Bluetooth (SPEC §8.1, DESIGN §5.9): on/off, where to type, paired devices, pairing.
+import { Fragment } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Icon } from '../components/Icon';
 import { IconButton, Section, Segmented, SwitchRow } from '../components/ui';
@@ -10,7 +11,9 @@ import { deviceLabel, newBond, sortBonds } from '../lib/ble';
 import { errorText, isLockedError } from '../lib/errors';
 import { t } from '../lib/i18n';
 import { loadBle, toast, useApp } from '../lib/store';
-import type { BleBond, Output, Settings } from '../lib/types';
+import type { BleBond, HostOs, Output, Settings } from '../lib/types';
+import { OsSelect } from '../components/HostOs';
+import { guessOs } from '../lib/hostos';
 
 const MAX_BONDS = 4;
 const POLL_MS = 1500;
@@ -32,6 +35,15 @@ export function BluetoothSection({ s, save }: { s: Settings; save: (patch: Parti
     return t('bleLastUsed', { date: day });
   };
 
+  const setOs = async (b: BleBond, os: HostOs) => {
+    try {
+      await api.bleSetOs(b.addr, os);
+    } catch (e) {
+      if (!isLockedError(e)) toast(errorText(e), 'error');
+    }
+    void loadBle();
+  };
+
   const doForget = async (b: BleBond) => {
     setForget(null);
     try {
@@ -47,7 +59,11 @@ export function BluetoothSection({ s, save }: { s: Settings; save: (patch: Parti
     <Section
       id="bluetooth"
       title={t('groupBluetooth')}
-      footer={s.bleEnabled ? `${t('footOutput')} ${t(s.bleConnect === 'always' ? 'footAlways' : 'footOnDemand')}${full ? ` ${t('footBondsFull')}` : ''}` : t('footBleOff')}
+      footer={
+        s.bleEnabled
+          ? `${t('footOutput')} ${t(s.bleConnect === 'always' ? 'footAlways' : 'footOnDemand')}${full ? ` ${t('footBondsFull')}` : ''} ${t('footOs')}${bonds.some((b) => b.os === 'android') ? ` ${t('androidHint')}` : ''}`
+          : t('footBleOff')
+      }
     >
       <SwitchRow label={t('bleKeyboard')} checked={s.bleEnabled} onChange={(v) => void save({ bleEnabled: v })} />
       {s.bleEnabled && (
@@ -78,14 +94,20 @@ export function BluetoothSection({ s, save }: { s: Settings; save: (patch: Parti
             />
           </div>
           {bonds.map((b) => (
-            <div class="row bond-row" key={b.addr}>
-              <Icon name="bluetooth" size={20} class="row-icon" />
-              <span class="row-label" dir="auto">
-                {deviceLabel(b, t('bleDevice'))}
-              </span>
-              <span class="row-value">{lastUsed(b)}</span>
-              <IconButton icon="trash-2" label={`${t('bleForget')} · ${deviceLabel(b, t('bleDevice'))}`} onClick={() => setForget(b)} />
-            </div>
+            <Fragment key={b.addr}>
+              <div class="row bond-row">
+                <Icon name="bluetooth" size={20} class="row-icon" />
+                <span class="row-label" dir="auto">
+                  {deviceLabel(b, t('bleDevice'))}
+                </span>
+                <span class="row-value">{lastUsed(b)}</span>
+                <IconButton icon="trash-2" label={`${t('bleForget')} · ${deviceLabel(b, t('bleDevice'))}`} onClick={() => setForget(b)} />
+              </div>
+              <div class="row bond-os-row">
+                <span class="row-label caption">{t('hostOs')}</span>
+                <OsSelect label={`${t('hostOs')} · ${deviceLabel(b, t('bleDevice'))}`} value={b.os} onChange={(os) => void setOs(b, os)} />
+              </div>
+            </Fragment>
           ))}
           <button type="button" class="row nav-row pair-row" disabled={full} onClick={() => setPairing(true)}>
             <span class="row-label accent">{t('blePairNew')}</span>
@@ -130,6 +152,8 @@ function PairSheet({ name, before, onClose }: { name: string; before: string[]; 
         if (!live) return;
         const found = newBond(known.current, info.bonds);
         if (found) {
+          const guess = guessOs(found.name);
+          if (guess && !found.os) await api.bleSetOs(found.addr, guess).catch(() => undefined);
           setPaired(found);
           setWin(null);
           void loadBle();

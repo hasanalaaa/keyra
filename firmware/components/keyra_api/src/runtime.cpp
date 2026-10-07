@@ -76,7 +76,7 @@ io::Led toLed(actions::Indicator i) {
 // password is never half-typed.
 Code typeOne(const std::string& text, const hid::Options& o) {
   if (text.empty()) return Code::Failed;
-  if (!hid::typeable(text.c_str(), o.layout)) return Code::UnsupportedChar;
+  if (!hid::typeable(text, o)) return Code::UnsupportedChar;
   return fromHid(hid::typeText(text.c_str(), o), o);
 }
 
@@ -84,7 +84,7 @@ Code typeOne(const std::string& text, const hid::Options& o) {
 class HidKeys final : public seqrun::Keys {
  public:
   explicit HidKeys(const hid::Options& o) : o_(o) {}
-  bool typeable(const std::string& t) override { return hid::typeable(t.c_str(), o_.layout); }
+  bool typeable(const std::string& t) override { return hid::typeable(t, o_); }
   Code text(const std::string& t) override { return typeOne(t, o_); }
   Code key(uint8_t k) override { return fromHid(hid::tapKey(k, o_), o_); }
   void delayMs(uint32_t ms) override { vTaskDelay(pdMS_TO_TICKS(ms)); }
@@ -124,24 +124,9 @@ Code typeFree(const actions::FreeText& t, const hid::Options& o) {
   return c;
 }
 
-Code runJob(const actions::TypeRequest& job) {
-  // The computer was chosen when the action was armed: every part of this
-  // job (username, Tab, password, Enter) goes to it even if a cable is
-  // plugged in halfway.
-  switch (job.target.kind) {
-    case Kind::None: return Code::NoHost;
-    case Kind::Usb:
-      if (!hid::mounted()) return Code::NoUsb;
-      break;
-    case Kind::Ble:
-      if (!bleReadyFor(job.target.addr)) return Code::NoHost;
-      break;
-  }
-  const settings::Settings s = settings::get();
-  const hid::Options o{s.keyDelayMs, job.target.kind == Kind::Ble ? hid::Host::Ble : hid::Host::Usb,
-                      kbdapi::layoutFor(job.target, s)};
+Code typeJob(const actions::TypeRequest& job, const settings::Settings& s, const hid::Options& o) {
   if (job.what == What::Test)
-    return typeOne(hid::typeable(kTestString, o.layout) ? kTestString : kTestStringArabic, o);
+    return typeOne(hid::typeable(kTestString, o) ? kTestString : kTestStringArabic, o);
   if (job.what == What::Probe) return fromHid(hid::typeProbe(o), o);
   if (job.what == What::Text) return job.text ? typeFree(*job.text, o) : Code::Failed;
 
@@ -152,7 +137,7 @@ Code runJob(const actions::TypeRequest& job) {
     case What::Username: c = typeOne(e.username, o); break;
     case What::Password: c = typeOne(e.password, o); break;
     case What::Both:
-      if (!hid::typeable(e.username.c_str(), o.layout) || !hid::typeable(e.password.c_str(), o.layout)) {
+      if (!hid::typeable(e.username, o) || !hid::typeable(e.password, o)) {
         c = Code::UnsupportedChar;
         break;
       }
@@ -177,6 +162,41 @@ Code runJob(const actions::TypeRequest& job) {
   if (c == Code::Typed) {
     const int64_t now = unixSecondsOrZero();
     if (now != 0 && vault::touch(job.id, now) != vault::Status::Ok) ESP_LOGW(TAG, "touch failed");
+  }
+  return c;
+}
+
+Code runJob(const actions::TypeRequest& job) {
+  // The computer was chosen when the action was armed: every part of this
+  // job (username, Tab, password, Enter) goes to it even if a cable is
+  // plugged in halfway.
+  switch (job.target.kind) {
+    case Kind::None: return Code::NoHost;
+    case Kind::Usb:
+      if (!hid::mounted()) return Code::NoUsb;
+      break;
+    case Kind::Ble:
+      if (!bleReadyFor(job.target.addr)) return Code::NoHost;
+      break;
+  }
+  const settings::Settings s = settings::get();
+  hid::Options o{s.keyDelayMs, job.target.kind == Kind::Ble ? hid::Host::Ble : hid::Host::Usb,
+                 kbdapi::layoutFor(job.target, s)};
+  // A keyboard sends key positions; the host's input language picks the
+  // characters (SPEC §10.5). Windows takes Alt codes whatever the language;
+  // macOS/iOS are switched to the previous (Latin) source and back.
+  const hostos::Os os = kbdapi::osFor(job.target, s);
+  o.altCodes = os == hostos::Os::Windows;
+  const bool toggle = job.switchLang && hostos::switchesWithCtrlSpace(os);
+  if (toggle) {
+    const Code c = fromHid(hid::tapChord(hid::MOD_LEFT_CTRL, hid::KEY_SPACE, o), o);
+    if (c != Code::Typed) return c;
+  }
+  Code c = typeJob(job, s, o);
+  // Back to the user's language even when typing failed partway.
+  if (toggle) {
+    const Code back = fromHid(hid::tapChord(hid::MOD_LEFT_CTRL, hid::KEY_SPACE, o), o);
+    if (c == Code::Typed) c = back;
   }
   return c;
 }

@@ -21,7 +21,9 @@ class FakeHost : public Transport {
  public:
   bool mounted = true;
   bool caps = false;
+  bool num = true;
   bool hostHonoursCaps = true;  // false: host ignores the Caps Lock tap
+  bool hostHonoursNum = true;
   int failFromSend = -1;        // 0-based index of the first failing send; -1 = never
   std::vector<Report> sent;     // successfully delivered reports
   int attempts = 0;
@@ -30,6 +32,7 @@ class FakeHost : public Transport {
 
   bool ready() override { return mounted; }
   bool capsLock() override { return caps; }
+  bool numLock() override { return num; }
   void delayMs(uint32_t ms) override { delays.push_back(ms); }
   bool send(uint8_t mod, uint8_t key) override {
     const int idx = attempts++;
@@ -38,6 +41,7 @@ class FakeHost : public Transport {
     sent.push_back({mod, key});
     // Hosts toggle Caps Lock on key-down and report it back via the LED report.
     if (key == KEY_CAPS_LOCK && hostHonoursCaps) caps = !caps;
+    if (key == KEY_NUM_LOCK && hostHonoursNum) num = !num;
     return true;
   }
   bool anyKeyHeldAtEnd() const { return !sent.empty() && !(sent.back() == kRelease); }
@@ -397,6 +401,82 @@ void testBusySpansTransports() {
   CHECK(t.type(ble, "x", opt()) == Result::Ok);
 }
 
+Options altOpt() {
+  Options o = opt();
+  o.altCodes = true;
+  return o;
+}
+
+// "A" (65) and "~" (126): Alt down, keypad digits under Alt, Alt up.
+void testAltCodes() {
+  FakeHost h;
+  Typer t;
+  CHECK(t.type(h, "A~", altOpt()) == Result::Ok);
+  const std::vector<Report> want = {
+      {MOD_LEFT_ALT, 0}, {MOD_LEFT_ALT, KEY_KP_1 + 5}, {MOD_LEFT_ALT, 0}, {MOD_LEFT_ALT, KEY_KP_1 + 4},
+      {MOD_LEFT_ALT, 0}, kRelease,
+      {MOD_LEFT_ALT, 0}, {MOD_LEFT_ALT, KEY_KP_1}, {MOD_LEFT_ALT, 0}, {MOD_LEFT_ALT, KEY_KP_1 + 1},
+      {MOD_LEFT_ALT, 0}, {MOD_LEFT_ALT, KEY_KP_1 + 5}, {MOD_LEFT_ALT, 0}, kRelease,
+      kRelease};
+  CHECK(h.sent == want);
+}
+
+void testAltCodeZeroDigit() {
+  FakeHost h;
+  Typer t;
+  CHECK(t.type(h, "d", altOpt()) == Result::Ok);  // 100
+  const std::vector<Report> want = {{MOD_LEFT_ALT, 0}, {MOD_LEFT_ALT, KEY_KP_1}, {MOD_LEFT_ALT, 0},
+                                    {MOD_LEFT_ALT, KEY_KP_0}, {MOD_LEFT_ALT, 0}, {MOD_LEFT_ALT, KEY_KP_0},
+                                    {MOD_LEFT_ALT, 0}, kRelease, kRelease};
+  CHECK(h.sent == want);
+}
+
+// Num Lock off: turned on first (keypad digits would move the cursor), back off after.
+void testAltCodesNumLockWrap() {
+  FakeHost h;
+  h.num = false;
+  Typer t;
+  CHECK(t.type(h, "1", altOpt()) == Result::Ok);
+  CHECK(h.sent.front() == (Report{0, KEY_NUM_LOCK}));
+  CHECK(h.sent[h.sent.size() - 3] == (Report{0, KEY_NUM_LOCK}));  // restore tap, its release, final release
+  CHECK(!h.num);
+  CHECK(h.sent.back() == kRelease);
+}
+
+void testAltCodesNumLockIgnoredAborts() {
+  FakeHost h;
+  h.num = false;
+  h.hostHonoursNum = false;
+  Typer t;
+  CHECK(t.type(h, "abc", altOpt()) == Result::Failed);
+  for (const auto& r : h.sent) CHECK(r.mod == 0 && (r.key == 0 || r.key == KEY_NUM_LOCK));
+}
+
+// Plain typing never touches Num Lock.
+void testNumLockOnlyForAltCodes() {
+  FakeHost h;
+  h.num = false;
+  Typer t;
+  CHECK(t.type(h, "a", opt()) == Result::Ok);
+  for (const auto& r : h.sent) CHECK(r.key != KEY_NUM_LOCK);
+}
+
+void testAltCodesTypeableAnyLayout() {
+  Options o = altOpt();
+  CHECK(typeable(std::string_view("Pa$$w0rd!"), o));
+  CHECK(!typeable(std::string_view("tab\there"), o));
+}
+
+void testChord() {
+  FakeHost h;
+  Typer t;
+  CHECK(t.chord(h, MOD_LEFT_CTRL, KEY_SPACE, opt()) == Result::Ok);
+  const std::vector<Report> want = {{MOD_LEFT_CTRL, 0}, {MOD_LEFT_CTRL, KEY_SPACE}, kRelease, kRelease};
+  CHECK(h.sent == want);
+  CHECK(h.delays.back() == Typer::kChordSettleMs);
+  CHECK(t.chord(h, 0, KEY_SPACE, opt()) == Result::Unsupported);
+}
+
 }  // namespace
 
 int main() {
@@ -421,5 +501,12 @@ int main() {
   testBleSlowLedReportAborts();
   testBleLinkLostMidText();
   testBusySpansTransports();
+  testAltCodes();
+  testAltCodeZeroDigit();
+  testAltCodesNumLockWrap();
+  testAltCodesNumLockIgnoredAborts();
+  testNumLockOnlyForAltCodes();
+  testAltCodesTypeableAnyLayout();
+  testChord();
   TEST_MAIN_END();
 }

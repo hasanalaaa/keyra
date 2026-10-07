@@ -54,6 +54,10 @@ void apiRoutes() {
   const Match fg = matchApi(Method::Delete, "/api/ble/bonds/a4:c1:38:0B:7F:3A");
   CHECK(is(fg, Route::BleForget));
   CHECK(fg.addr == (std::array<uint8_t, 6>{0xA4, 0xC1, 0x38, 0x0B, 0x7F, 0x3A}));
+  const Match os = matchApi(Method::Put, "/api/ble/bonds/A4:C1:38:0B:7F:3A");
+  CHECK(is(os, Route::BleSetOs));
+  CHECK(os.addr == fg.addr);
+  CHECK(matchApi(Method::Put, "/api/ble/bonds/nope").kind == K::NotFound);
   CHECK(matchApi(Method::Get, "/api/ble/bonds/A4:C1:38:0B:7F:3A").kind == K::MethodNotAllowed);
   CHECK(matchApi(Method::Delete, "/api/ble/bonds/A4:C1:38:0B:7F").kind == K::NotFound);
   CHECK(matchApi(Method::Delete, "/api/ble/bonds/").kind == K::NotFound);
@@ -92,6 +96,7 @@ void policy() {
   CHECK(needsSession(Route::GetBle) && needsSession(Route::BlePair) && needsSession(Route::BleForget));
   CHECK(needsCsrf(Method::Post, Route::BlePair));
   CHECK(needsCsrf(Method::Delete, Route::BleForget));
+  CHECK(needsSession(Route::BleSetOs) && needsCsrf(Method::Put, Route::BleSetOs));
   CHECK(needsSession(Route::WifiScan) && needsSession(Route::WifiHome));
   CHECK(needsSession(Route::ListTrusted) && needsSession(Route::DeleteTrusted));
   CHECK(needsCsrf(Method::Put, Route::WifiHome) && needsCsrf(Method::Delete, Route::DeleteTrusted));

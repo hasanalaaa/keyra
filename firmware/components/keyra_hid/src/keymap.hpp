@@ -14,7 +14,9 @@ struct KeyStroke {
 };
 
 constexpr uint8_t KEY_CAPS_LOCK = 0x39;
-constexpr uint8_t KEY_SPACE = 0x2C;
+constexpr uint8_t KEY_NUM_LOCK = 0x53;
+constexpr uint8_t KEY_KP_1 = 0x59;  // keypad 1..9 are 0x59..0x61
+constexpr uint8_t KEY_KP_0 = 0x62;
 constexpr uint8_t MOD_LEFT_SHIFT = 0x02;
 constexpr uint8_t MOD_LEFT_ALT = 0x04;   // Option on a Mac
 constexpr uint8_t MOD_RIGHT_ALT = 0x40;  // AltGr on Windows/Linux

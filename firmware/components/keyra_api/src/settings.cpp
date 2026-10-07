@@ -9,6 +9,7 @@
 #include "keyra/hid.hpp"
 #include "keyra/sequence.hpp"
 #include "nvs.h"
+#include "host_os.hpp"
 #include "validate.hpp"
 
 namespace keyra::settings {
@@ -59,6 +60,8 @@ Settings sanitized(Settings s) {
   if (!hid::findLayout(s.layoutUsb, l)) s.layoutUsb = d.layoutUsb;
   if (!hid::findLayout(s.layoutBle, l)) s.layoutBle = d.layoutBle;
   if (!seq::valid(s.bothSequence)) s.bothSequence.clear();
+  api::hostos::Os os;
+  if (!api::hostos::parse(s.osUsb, os)) s.osUsb.clear();
   return s;
 }
 
@@ -88,6 +91,8 @@ esp_err_t load() {
     s.apMode = static_cast<net::ApMode>(readInt<uint8_t>(h, "apMode", static_cast<uint8_t>(s.apMode), nvs_get_u8));
     s.layoutUsb = readString(h, "layUsb", s.layoutUsb);
     s.layoutBle = readString(h, "layBle", s.layoutBle);
+    s.osUsb = readString(h, "osUsb", s.osUsb);
+    s.osBle = readString(h, "osBle", s.osBle);
     s.bothSequence = readString(h, "bothSeq", s.bothSequence);
     nvs_close(h);
   } else if (err != ESP_ERR_NVS_NOT_FOUND) {
@@ -125,6 +130,8 @@ esp_err_t save(const Settings& s) {
   if (err == ESP_OK) err = nvs_set_u8(h, "apMode", static_cast<uint8_t>(s.apMode));
   if (err == ESP_OK) err = nvs_set_str(h, "layUsb", s.layoutUsb.c_str());
   if (err == ESP_OK) err = nvs_set_str(h, "layBle", s.layoutBle.c_str());
+  if (err == ESP_OK) err = nvs_set_str(h, "osUsb", s.osUsb.c_str());
+  if (err == ESP_OK) err = nvs_set_str(h, "osBle", s.osBle.c_str());
   if (err == ESP_OK) err = nvs_set_str(h, "bothSeq", s.bothSequence.c_str());
   if (err == ESP_OK) err = nvs_commit(h);
   nvs_close(h);

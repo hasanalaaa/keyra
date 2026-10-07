@@ -287,3 +287,15 @@
 .trusted-row { gap:8px; }
 .trusted-row .chip { flex:none; }
 .kv-row > .chip { grid-row:1 / span 2; align-self:center; }
+
+/* Host system and language (SPEC §10.5) */
+.os-select { appearance:none; -webkit-appearance:none; border:0; border-radius:var(--r-xs); background:var(--fill); color:var(--text-2); font-size:var(--fs-callout); padding-block:6px; padding-inline:10px; min-block-size:32px; max-inline-size:45%; cursor:pointer; }
+.os-select:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.host-lang { display:flex; flex-direction:column; gap:var(--s-2); }
+.host-lang .caption { color:var(--text-3); }
+.host-lang-help { color:var(--text-3); margin:0; }
+.link-line { border:0; background:none; padding:0; color:var(--accent); font-size:var(--fs-callout); text-align:start; cursor:pointer; }
+.bond-os-row { padding-block-start:0; padding-inline-start:calc(var(--s-4) + 28px); }
+.os-select { padding-inline-end:28px; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238A90A2' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 10px center; }
+[dir="rtl"] .os-select { padding-inline-end:10px; padding-inline-start:28px; background-position:left 10px center; }
+.card > * + .bond-os-row { box-shadow:none; }

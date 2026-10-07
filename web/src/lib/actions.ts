@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { api, type Awaiting } from './api';
 import { errorText, isLockedError } from './errors';
-import { holdFastPolling, loadEntries, toast, useApp } from './store';
+import { getState, holdFastPolling, loadEntries, toast, useApp } from './store';
+import { osOf, resolveTarget, wantsSwitch } from './hostos';
 import { t } from './i18n';
 import type { DeviceState, PresenceOp, ResultCode, TypeTextRequest, TypeWhat } from './types';
 
@@ -105,8 +106,15 @@ export function useTypeAction(id: number, free: 'test' | 'text' = 'test') {
     setOutcome(null);
     try {
       const startedAt = Date.now();
+      const s = getState();
+      const resolved = resolveTarget(target, s.device?.host.output ?? null, s.ble);
+      const sw = wantsSwitch(resolved, osOf(resolved, s.device?.host.usbOs, s.ble));
       const r =
-        what === 'test' ? await api.typeTest(target) : what === 'text' ? await api.typeText({ ...text!, target }) : await api.type(id, what, target);
+        what === 'test'
+          ? await api.typeTest(target, sw)
+          : what === 'text'
+            ? await api.typeText({ ...text!, target, switchLang: sw })
+            : await api.type(id, what, target, sw);
       const total = Math.max(1000, r.pending.expiresIn);
       setAct({ what, startedAt, deadline: Date.now() + r.pending.expiresIn, total, goneAt: 0 });
       return true;

@@ -4,17 +4,18 @@ add_executable(keyra_api_routes_test routes_test.cpp ../src/routes.cpp ../src/cl
                ../../keyra_ble/src/policy.cpp)
 add_executable(keyra_api_trust_test trust_test.cpp ../src/trust.cpp)
 add_executable(keyra_api_target_test target_test.cpp ../src/target.cpp ../../keyra_ble/src/policy.cpp)
+add_executable(keyra_api_host_os_test host_os_test.cpp ../src/host_os.cpp ../../keyra_ble/src/policy.cpp)
 add_executable(keyra_api_generator_test generator_test.cpp ../src/generator.cpp)
 add_executable(keyra_api_typetext_test typetext_test.cpp ../src/actions.cpp ../src/validate.cpp)
 add_executable(keyra_api_sequence_test sequence_test.cpp ../src/actions.cpp ../src/sequence_run.cpp
                ../../keyra_hid/src/typer.cpp)
 # Bond addresses are parsed with keyra::ble::parseAddr; the target (in actions)
 # names settings::Output. keyra_ble's stub/ supplies esp_err.h for those headers.
-foreach(t actions routes target typetext sequence)
+foreach(t actions routes target typetext sequence host_os)
   target_include_directories(keyra_api_${t}_test PRIVATE ../include ../../keyra_net/include ../../keyra_ble/include
                              ../../keyra_ble/host_test/stub)
 endforeach()
-foreach(t actions sessions routes trust target generator typetext sequence)
+foreach(t actions sessions routes trust target generator typetext sequence host_os)
   target_include_directories(keyra_api_${t}_test PRIVATE ../src)
   add_test(NAME keyra_api_${t} COMMAND keyra_api_${t}_test)
 endforeach()

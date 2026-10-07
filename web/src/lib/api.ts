@@ -1,4 +1,4 @@
-import type { BleInfo, DeviceState, Entry, EntryInput, EntrySummary, Network, Settings, Totp, TrustedBrowser, TypeTextRequest, TypeWhat, Pending, PresenceOp } from './types';
+import type { BleInfo, DeviceState, Entry, HostOs, EntryInput, EntrySummary, Network, Settings, Totp, TrustedBrowser, TypeTextRequest, TypeWhat, Pending, PresenceOp } from './types';
 import { generateRequest, type GenSettings } from './generator';
 
 export class ApiError extends Error {
@@ -124,10 +124,12 @@ export const api = {
     json<{ added: number; skipped: number }>('POST', '/entries/import', { entries }, 30000),
   totp: (id: number) => json<Totp>('GET', `/entries/${id}/totp`),
   /** `target`: "usb" or a paired device's address; omitted = the device's own choice (SPEC §8.1). */
-  type: (id: number, what: TypeWhat, target?: string) => json<{ pending: Pending }>('POST', '/type', { id, what, target }),
-  typeTest: (target?: string) => json<{ pending: Pending }>('POST', '/type', { test: true, target }),
+  /** `switchLang`: the macOS/iOS host is in another input language; Keyra switches there and back (SPEC §10.5). */
+  type: (id: number, what: TypeWhat, target?: string, switchLang = false) =>
+    json<{ pending: Pending }>('POST', '/type', { id, what, target, switchLang }),
+  typeTest: (target?: string, switchLang = false) => json<{ pending: Pending }>('POST', '/type', { test: true, target, switchLang }),
   /** Free text (SPEC §9.2). */
-  typeText: (r: TypeTextRequest & { target?: string }) => json<{ pending: Pending }>('POST', '/type', r),
+  typeText: (r: TypeTextRequest & { target?: string; switchLang?: boolean }) => json<{ pending: Pending }>('POST', '/type', r),
   /** On the device, from its hardware RNG (SPEC §9.1). */
   generate: (s: GenSettings) => json<{ password: string; entropyBits: number }>('POST', '/generate', generateRequest(s)),
   cancelType: () => json<void>('POST', '/type/cancel'),
@@ -147,6 +149,7 @@ export const api = {
   ble: () => json<BleInfo>('GET', '/ble'),
   blePair: () => json<Awaiting>('POST', '/ble/pair'),
   bleForget: (addr: string) => json<void>('DELETE', `/ble/bonds/${encodeURIComponent(addr)}`),
+  bleSetOs: (addr: string, os: HostOs) => json<void>('PUT', `/ble/bonds/${encodeURIComponent(addr)}`, { os }),
   /** Blocks a few seconds on the device while the radio scans. */
   wifiScan: async () => (await json<{ networks: Network[] }>('GET', '/wifi/scan', undefined, 45000)).networks,
   putHomeWifi: (b: { enabled: boolean; ssid?: string; password?: string }) => json<Awaiting>('PUT', '/wifi/home', b),

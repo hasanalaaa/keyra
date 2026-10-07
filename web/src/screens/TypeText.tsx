@@ -4,6 +4,8 @@ import { useEffect, useState } from 'preact/hooks';
 import { FreeTextStatus } from '../components/Generator';
 import { Button, Notice, Segmented, SwitchRow } from '../components/ui';
 import { Sheet } from '../components/Sheet';
+import { HostLangRow } from '../components/HostOs';
+import { osOf, resolveTarget } from '../lib/hostos';
 import { useTypeAction } from '../lib/actions';
 import { storedTarget, validTarget } from '../lib/ble';
 import { toTypeable, untypeable } from '../lib/generator';
@@ -40,6 +42,7 @@ export function TypeTextSheet() {
     if (ok) void action.start('text', validTarget(storedTarget(), app.ble) ?? undefined, { text, repeat: twice ? 2 : 1, separator: sep });
   };
 
+  const hostTarget = resolveTarget(validTarget(storedTarget(), app.ble), app.device?.host.output ?? null, app.ble);
   return (
     <Sheet title={t('typeTextTitle')} size="md" onClose={() => back('/')} dismissible={phase.kind !== 'ready'}>
       {phase.kind !== 'idle' ? (
@@ -100,6 +103,7 @@ export function TypeTextSheet() {
               </div>
             )}
           </div>
+          <HostLangRow key={hostTarget ?? ''} target={hostTarget} os={osOf(hostTarget, app.device?.host.usbOs, app.ble)} />
           <Button type="submit" full icon="keyboard" disabled={!ok}>
             {t('typeIt')}
           </Button>

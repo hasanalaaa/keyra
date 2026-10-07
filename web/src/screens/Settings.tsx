@@ -11,10 +11,11 @@ import { usePresence, useTypeAction } from '../lib/actions';
 import { errorText, isLockedError } from '../lib/errors';
 import { t } from '../lib/i18n';
 import { back, go, replace } from '../lib/router';
-import { holdFastPolling, lockNow, setLangPref, setThemePref, toast, useApp } from '../lib/store';
+import { holdFastPolling, lockNow, pollNow, setLangPref, setThemePref, toast, useApp } from '../lib/store';
 import type { Settings as S } from '../lib/types';
 import { validWifi } from './Setup';
 import { BluetoothSection } from './Bluetooth';
+import { OsSelect } from '../components/HostOs';
 import { minHint } from './common';
 import { HomeWifiSheet } from './HomeWifi';
 import { TrustedSheet } from './Trusted';
@@ -61,6 +62,7 @@ export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void 
     setS({ ...s, ...patch });
     try {
       setS(await (api.putSettings(patch) as Promise<S>));
+      if ('osUsb' in patch) void pollNow(); // state.host.usbOs feeds the account sheet
     } catch (e) {
       setS(prev);
       setName(prev.deviceName);
@@ -105,7 +107,11 @@ export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void 
               <Icon name="lock" size={20} class="row-chev" />
             </button>
           </Section>
-          <Section title={t('groupTyping')} footer={`${t('footSpeed')} ${t('footSubmit')}`}>
+          <Section title={t('groupTyping')} footer={`${t('footSpeed')} ${t('footSubmit')} ${t('footOs')}`}>
+            <div class="row">
+              <span class="row-label">{t('usbComputer')}</span>
+              <OsSelect label={`${t('hostOs')} · ${t('usbComputer')}`} value={s.osUsb ?? ''} onChange={(os) => void save({ osUsb: os })} />
+            </div>
             <div class="row stack-row">
               <span class="row-label">{t('typingSpeed')}</span>
               <Segmented label={t('typingSpeed')} options={SPEEDS.map((o) => ({ value: o.value, label: t(o.key) }))} value={speed} onChange={(v) => void save({ keyDelayMs: v })} />

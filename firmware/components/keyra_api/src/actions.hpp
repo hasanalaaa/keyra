@@ -70,6 +70,9 @@ struct TypeRequest {
   std::shared_ptr<const FreeText> text;  // What::Text only
   std::shared_ptr<const SeqJob> seq;      // What::Sequence only
   uint8_t part = 0;                       // What::Sequence: the part the next press types
+  // macOS/iOS host currently in a non-Latin input language: Ctrl+Space
+  // before typing and again after (SPEC §10.5).
+  bool switchLang = false;
 };
 
 struct Pending {

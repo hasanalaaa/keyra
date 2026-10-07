@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { defaultTarget, deviceLabel, newBond, sortBonds, validTarget } from '../src/lib/ble';
 
-const bond = (addr: string, name = '', lastSeen = 0) => ({ addr, name, lastSeen });
+const bond = (addr: string, name = '', lastSeen = 0) => ({ addr, name, lastSeen, os: '' as const });
 
 describe('deviceLabel', () => {
   it('uses the device name, trimmed', () => expect(deviceLabel({ name: "  Hasan's iPad " }, 'X')).toBe("Hasan's iPad"));

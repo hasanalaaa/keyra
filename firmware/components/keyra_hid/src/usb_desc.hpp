@@ -50,6 +50,7 @@ constexpr std::array<uint8_t, 63> kHidReport = {
     0xC0,
 };
 
+constexpr uint8_t kLedNumLockBit = 0x01;
 constexpr uint8_t kLedCapsLockBit = 0x02;
 
 constexpr size_t kConfigLen = 9;

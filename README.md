@@ -62,7 +62,8 @@ A long press (1.5 seconds) cancels a pending action, or locks the vault if nothi
 
 | | |
 |---|---|
-| **Types like a keyboard** | USB HID keyboard (US layout). Handles Caps Lock and always releases keys, even on errors. |
+| **Types like a keyboard** | USB and Bluetooth keyboard. Handles Caps Lock and always releases keys, even on errors. |
+| **Any input language** | Tell Keyra each computer's system once: on Windows it types character codes that ignore the active language; on a Mac or iPhone in Arabic it switches to English, types, and switches back. |
 | **Bluetooth keyboard** | Bluetooth LE (HID over GATT) for phones, tablets and computers, with the same typing engine. Pairing only opens for 2 minutes after a button press; up to 4 devices; forget any of them from the app. |
 | **Phone-first web app** | Installable to the home screen. Search, favorites, recents and a strength meter. |
 | **Password generator** | Keyra makes new passwords with its hardware random generator: 8 to 128 characters, choose a–z / A–Z / 0–9 / symbols, minimum numbers and symbols, avoid look-alikes. Shows the exact strength in bits. Type it, type it twice (for "confirm password" fields), copy it, or save it. |
@@ -252,7 +253,6 @@ Ideas, not promises. Priorities follow what real users on real boards report.
 - [x] Bluetooth LE keyboard (unreleased; on the main branch)
 - [ ] Tested board matrix and a prebuilt release for each
 - [ ] Browser-based flashing from the release page
-- [ ] More keyboard layouts (the key map is US-only today)
 - [ ] Printable enclosure and a purpose-built PCB
 - [ ] Over-the-air firmware updates (the partition table already has two app slots)
 - [ ] Independent security review
@@ -262,8 +262,8 @@ Ideas, not promises. Priorities follow what real users on real boards report.
 **Why doesn't my phone show a "sign in to Wi-Fi" popup?**
 On purpose. Keyra answers your phone's connectivity checks as "online" so the phone joins like any normal network and does not open a cramped captive-portal sheet (which often cannot run the app properly or keep cookies). Just open **http://keyra.local** in your regular browser. If that name does not resolve, use `http://192.168.4.1`.
 
-**Does it work with keyboard layouts other than US?**
-Today, Keyra types as a **US-layout** keyboard. If your computer is set to another layout, characters will come out differently. Switch the computer to US for the login field, or keep to characters that are the same on both layouts. Characters outside printable ASCII are refused with a clear message instead of typing the wrong thing. More layouts are on the roadmap.
+**My computer is in Arabic (or another language). Will Keyra type the right characters?**
+Yes, once Keyra knows the computer's system (Settings → Typing for USB, Settings → Bluetooth per device; iPhones, iPads and Macs are recognised when they pair). On **Windows** it types each character as an Alt code, which comes out the same in every input language. On a **Mac, iPhone or iPad**, set "Its language now" to Arabic under "Type into": Keyra presses Ctrl+Space to switch to English, types, and switches back. On **Android**, set the physical keyboard "Keyra" to English (US) once. No keyboard can *read* a computer's language, which is why Apple hosts need that one tap. Characters a layout cannot type are refused with a clear message, never typed wrong.
 
 **Can Keyra type into my phone or tablet?**
 Yes, over Bluetooth. Pair it once from **Settings → Bluetooth** (see [How it works](#how-it-works)). iPhone and iPad hide their on-screen keyboard while any Bluetooth keyboard is connected, so by default (**Connect: When typing**, recommended) Keyra connects only for each action: it shows "Connecting to your device…" for a moment, types after your press, and lets go about 20 seconds later. Choose **Always** if you prefer instant typing and do not mind the hidden on-screen keyboard. The account sheet's **Type into** picker chooses USB or a paired device; this browser remembers the choice.

@@ -34,11 +34,17 @@ struct Options {
   // password to a different computer.
   Host via = Host::Usb;
   Layout layout = kLayoutUs;
+  // Windows hosts (SPEC §10.5): printable ASCII goes out as Alt + keypad
+  // decimal code, which Windows turns into the same character whatever input
+  // language is active. Anything else falls back to `layout`.
+  bool altCodes = false;
 };
 
 // HID usage IDs (USB HID Usage Tables, Keyboard page 0x07) for tapKey().
 constexpr uint8_t KEY_ENTER = 0x28;
 constexpr uint8_t KEY_TAB   = 0x2B;
+constexpr uint8_t KEY_SPACE = 0x2C;
+constexpr uint8_t MOD_LEFT_CTRL = 0x01;
 
 void   init(bool devCdc);        // devCdc: composite HID+CDC with 1200-baud → ROM download hook + log mirror
 bool   mounted();                // USB host enumerated & not suspended
@@ -47,9 +53,14 @@ bool   capsLock();               // USB host's Caps Lock, from its LED report
 Result typeText(const char* text, const Options&);   // handles CapsLock (toggle off/restore), always releases keys
 Result tapKey(uint8_t hidKeycode, const Options&);   // e.g. KEY_TAB, KEY_ENTER
 Result typeProbe(const Options&);                    // the Layout Doctor probe (no Enter, only Shift)
+// One shortcut, modifier held around the key (e.g. Ctrl+Space: the input
+// language switch on macOS and iOS, SPEC §10.5).
+Result tapChord(uint8_t modifier, uint8_t hidKeycode, const Options&);
 // UTF-8 text whose every character `layout` can type (control characters never).
 bool   typeable(const char* text, Layout layout);
 bool   typeable(std::string_view text, Layout layout);
+// As above, but honours Options::altCodes (printable ASCII always works then).
+bool   typeable(std::string_view text, const Options&);
 
 size_t     layoutCount();
 LayoutInfo layoutInfo(Layout);

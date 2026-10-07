@@ -53,6 +53,7 @@ const defaultSettings = () => ({
   bleEnabled: true,
   output: 'auto',
   bleConnect: 'on_demand',
+  osUsb: '', // SPEC §10.5
   homeWifi: { enabled: false, ssid: '', password: '' }, // password is write-only, never sent
   apMode: 'always',
 });
@@ -63,6 +64,7 @@ const PAIR_WINDOW_MS = 120000;
 const MAX_BONDS = 4;
 const LINGER_MS = 20000; // on demand: keep the link this long after typing
 const CONNECT_MS = 1500; // how long the simulated host takes to connect
+const OSES = ['', 'mac', 'ios', 'windows', 'android', 'linux'];
 const ble = { pairingUntil: 0, bonds: [], connected: null, wanted: null, lingerTimer: null, autoConnect: true };
 const pairing = () => settings.bleEnabled && Date.now() < ble.pairingUntil;
 const bleReady = () => settings.bleEnabled && ble.connected !== null;
@@ -109,7 +111,7 @@ function randomAddr() {
 function blePair(name) {
   if (!pairing() || ble.bonds.length >= MAX_BONDS) return false;
   const addr = randomAddr();
-  ble.bonds.push({ addr, name, lastSeen: nowSec() });
+  ble.bonds.push({ addr, name, lastSeen: nowSec(), os: '' });
   ble.connected = addr;
   ble.pairingUntil = 0; // one approval, one pairing
   releaseBle(LINGER_MS);
@@ -570,7 +572,7 @@ function seed() {
 if (!FRESH) {
   vault = { passphrase: DEMO_PASSPHRASE, entries: seed() };
   settings.wifiPassword = 'Tigris-42-Kx9p';
-  if (process.env.MOCK_BLE !== '0') ble.bonds.push({ addr: 'F0:2B:7C:41:9A:D3', name: 'MacBook Air', lastSeen: nowSec() - 86400 * 2 });
+  if (process.env.MOCK_BLE !== '0') ble.bonds.push({ addr: 'F0:2B:7C:41:9A:D3', name: 'MacBook Air', lastSeen: nowSec() - 86400 * 2, os: 'mac' });
 }
 
 // ---------- HTTP plumbing ----------
@@ -709,6 +711,7 @@ function match(method, path) {
   const bond = /^ble\/bonds\/(.*)$/.exec(p);
   if (bond) {
     if (!/^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/.test(bond[1])) return null;
+    if (method === 'PUT') return { route: 'bleSetOs', addr: bond[1].toUpperCase() };
     return method === 'DELETE' ? { route: 'bleForget', addr: bond[1].toUpperCase() } : { notAllowed: true };
   }
   const tr = /^trusted\/([0-9]{1,10})$/.exec(p);
@@ -724,7 +727,7 @@ function match(method, path) {
 }
 
 const OPEN = new Set(['state', 'setup', 'unlock', 'factoryReset']);
-const BODY = new Set(['setup', 'unlock', 'create', 'update', 'import', 'type', 'generate', 'putSettings', 'passphrase', 'backup', 'restore', 'wifiHome']);
+const BODY = new Set(['setup', 'unlock', 'create', 'update', 'import', 'type', 'generate', 'putSettings', 'passphrase', 'backup', 'restore', 'wifiHome', 'bleSetOs']);
 
 const validPassphrase = (s) => typeof s === 'string' && [...s].length >= 10 && [...s].length <= 128;
 const validWifi = (s) => typeof s === 'string' && s.length >= 8 && s.length <= 63 && /^[\x20-\x7e]+$/.test(s) && s !== 'keyra1234';
@@ -795,6 +798,7 @@ async function api(req, res, path) {
             output: next.kind === 'none' ? null : next.kind,
             bleTarget: bond ? { addr: bond.addr, name: bond.name } : null,
             connecting: !!armed && ble.connected !== armed,
+            usbOs: settings.osUsb,
           };
         })(),
         pending:
@@ -970,6 +974,8 @@ async function api(req, res, path) {
 
     case 'type': {
       if (b.test !== undefined && typeof b.test !== 'boolean') bad('"test" must be a boolean');
+      if (b.switchLang !== undefined && typeof b.switchLang !== 'boolean') bad('"switchLang" must be a boolean');
+      if (b.switchLang) console.log('[mock] Ctrl+Space before and after typing (input language switch)');
       let target = pickTarget();
       if (b.target !== undefined) {
         if (b.target === 'usb') target = { kind: 'usb' };
@@ -1047,6 +1053,10 @@ async function api(req, res, path) {
       if (b.output !== undefined) {
         if (!['auto', 'usb', 'ble'].includes(b.output)) bad('output must be "auto", "usb" or "ble"');
         next.output = b.output;
+      }
+      if (b.osUsb !== undefined) {
+        if (!OSES.includes(b.osUsb)) bad('osUsb must be "", "mac", "ios", "windows", "android" or "linux"');
+        next.osUsb = b.osUsb;
       }
       if (b.bleConnect !== undefined) {
         if (!['on_demand', 'always'].includes(b.bleConnect)) bad('bleConnect must be "on_demand" or "always"');
@@ -1202,7 +1212,7 @@ async function api(req, res, path) {
         enabled: settings.bleEnabled,
         pairing: { active: pairing(), expiresIn: pairing() ? ble.pairingUntil - Date.now() : 0 },
         connected: settings.bleEnabled && live ? peer(live) : null,
-        bonds: ble.bonds.map((b) => ({ ...peer(b), lastSeen: b.lastSeen })),
+        bonds: ble.bonds.map((b) => ({ ...peer(b), lastSeen: b.lastSeen, os: b.os })),
       });
     }
 
@@ -1217,6 +1227,14 @@ async function api(req, res, path) {
           if (AUTO_BUTTON) setTimeout(() => blePair("Hasan's iPad"), 2000);
         }),
       );
+    }
+
+    case 'bleSetOs': {
+      const bnd = ble.bonds.find((x) => x.addr === m.addr);
+      if (!bnd) fail(404, 'not_found', 'No such device');
+      if (!OSES.includes(b.os)) bad('os must be "", "mac", "ios", "windows", "android" or "linux"');
+      bnd.os = b.os;
+      return send(res, 204);
     }
 
     case 'bleForget': {
@@ -1241,6 +1259,7 @@ const publicSettings = () => ({
   bleEnabled: settings.bleEnabled,
   output: settings.output,
   bleConnect: settings.bleConnect,
+  osUsb: settings.osUsb,
   homeWifi: { enabled: settings.homeWifi.enabled, ssid: settings.homeWifi.ssid },
   apMode: settings.apMode,
 });

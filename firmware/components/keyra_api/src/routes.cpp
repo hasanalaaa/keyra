@@ -67,9 +67,9 @@ Match matchApi(Method m, std::string_view path) {
   if (p == "ble/pair") return only(m, Method::Post, Route::BlePair);
   constexpr std::string_view kBonds = "ble/bonds/";
   if (p.substr(0, kBonds.size()) == kBonds) {
-    Match r = found(Route::BleForget);
+    Match r = found(m == Method::Put ? Route::BleSetOs : Route::BleForget);
     if (!ble::parseAddr(p.substr(kBonds.size()), r.addr)) return {};
-    return m == Method::Delete ? r : notAllowed();
+    return m == Method::Delete || m == Method::Put ? r : notAllowed();
   }
   if (p == "wifi/scan") return only(m, Method::Get, Route::WifiScan);
   if (p == "wifi/home") return only(m, Method::Put, Route::WifiHome);

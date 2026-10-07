@@ -331,6 +331,7 @@ esp_err_t getState(Ctx& c) {
     cJSON_AddNullToObject(host, "bleTarget");
   }
   cJSON_AddBoolToObject(host, "connecting", armedBle && !linkUp);
+  if (c.session) cJSON_AddStringToObject(host, "usbOs", s.osUsb.c_str());
 
   if (pending) {
     cJSON* p = cJSON_AddObjectToObject(o.get(), "pending");
@@ -684,6 +685,10 @@ esp_err_t postType(Ctx& c) {
     if (*what == actions::What::Totp && !timeValid())
       return http::sendError(c.r, http::k409, "no_time", "Device clock is not set");
   }
+  bool switchLang = false;
+  if (json::getBool(c.body.get(), "switchLang", switchLang) == Field::BadType)
+    return badRequest(c.r, "\"switchLang\" must be a boolean");
+  req.switchLang = switchLang;
   return sendPending(c.r, machine().arm(std::move(req)));
 }
 
@@ -844,6 +849,7 @@ void addPeer(cJSON* o, const ble::Peer& p) {
 
 esp_err_t getBle(Ctx& c) {
   const ble::Status st = ble::status();
+  const settings::Settings s = settings::get();
   json::Ptr o(cJSON_CreateObject());
   cJSON_AddBoolToObject(o.get(), "enabled", st.enabled);
   cJSON* pairing = cJSON_AddObjectToObject(o.get(), "pairing");
@@ -859,6 +865,7 @@ esp_err_t getBle(Ctx& c) {
     cJSON* b = cJSON_CreateObject();
     addPeer(b, p);
     cJSON_AddNumberToObject(b, "lastSeen", static_cast<double>(p.lastSeen));
+    cJSON_AddStringToObject(b, "os", hostos::name(hostos::get(s.osBle, p.addr)));
     cJSON_AddItemToArray(bonds, b);
   }
   return http::sendJson(c.r, http::k200, o.get());
@@ -885,9 +892,35 @@ esp_err_t postBlePair(Ctx& c) {
   return sendAwaitingButton(c.r, expires);
 }
 
+// Saves (or, with Unknown, drops) a bond's operating system.
+esp_err_t saveBleOs(const ble::Addr& addr, hostos::Os os) {
+  settings::Settings s = settings::get();
+  const std::string next = hostos::set(s.osBle, addr, os);
+  if (next == s.osBle) return ESP_OK;
+  s.osBle = next;
+  return settings::save(s);
+}
+
+esp_err_t putBleOs(Ctx& c) {
+  std::string str;
+  hostos::Os os;
+  if (json::getString(c.body.get(), "os", str) != Field::Ok || !hostos::parse(str, os))
+    return badRequest(c.r, "os must be \"\", \"mac\", \"ios\", \"windows\", \"android\" or \"linux\"");
+  const ble::Status st = ble::status();
+  const bool bonded = std::any_of(st.bonds.begin(), st.bonds.end(),
+                                  [&](const ble::Peer& p) { return p.addr == c.match.addr; });
+  if (!bonded) return http::sendError(c.r, http::k404, "not_found", "No such device");
+  if (saveBleOs(c.match.addr, os) != ESP_OK)
+    return http::sendError(c.r, http::k500, "storage", "Could not save settings");
+  return http::sendEmpty(c.r, http::k204);
+}
+
 esp_err_t deleteBleBond(Ctx& c) {
   const esp_err_t err = ble::forget(c.match.addr);
-  if (err == ESP_OK) return http::sendEmpty(c.r, http::k204);
+  if (err == ESP_OK) {
+    if (saveBleOs(c.match.addr, hostos::Os::Unknown) != ESP_OK) ESP_LOGW(TAG, "dropping the device's system failed");
+    return http::sendEmpty(c.r, http::k204);
+  }
   if (err == ESP_ERR_NOT_FOUND) return http::sendError(c.r, http::k404, "not_found", "No such device");
   ESP_LOGE(TAG, "forget bond: %s", esp_err_to_name(err));
   return http::sendError(c.r, http::k500, "ble_failed", "Bluetooth did not respond");
@@ -898,6 +931,7 @@ bool takesBody(Route r) {
     case Route::Setup: case Route::Unlock: case Route::CreateEntry: case Route::UpdateEntry:
     case Route::ImportEntries: case Route::Type: case Route::PutSettings: case Route::Passphrase:
     case Route::Backup: case Route::Restore: case Route::WifiHome: case Route::Generate:
+    case Route::BleSetOs:
       return true;
     default:
       return false;
@@ -963,6 +997,7 @@ esp_err_t dispatch(Ctx& c) {
     case Route::GetBle: return getBle(c);
     case Route::BlePair: return postBlePair(c);
     case Route::BleForget: return deleteBleBond(c);
+    case Route::BleSetOs: return putBleOs(c);
     case Route::WifiScan: return netapi::getScan(c.r);
     case Route::WifiHome: return netapi::putHome(c.r, c.body.get());
     case Route::ListTrusted: return trust::sendList(c.r);

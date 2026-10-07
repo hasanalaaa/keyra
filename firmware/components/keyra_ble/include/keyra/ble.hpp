@@ -68,6 +68,7 @@ Status status();
 // Typing transport (used by keyra_hid).
 bool ready();     // bonded host connected, link encrypted, keyboard reports subscribed
 bool capsLock();  // from the host's LED output report
+bool numLock();   // likewise
 // One 8-byte boot-keyboard report. Waits ≤100 ms for a free buffer; false
 // when the link is gone or the host stopped taking reports.
 bool sendKey(uint8_t modifier, uint8_t keycode);

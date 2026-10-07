@@ -35,6 +35,7 @@ class TinyUsbTransport final : public Transport {
  public:
   bool ready() override { return s_started.load() && tud_mounted() && !tud_suspended(); }
   bool capsLock() override { return (s_leds.load() & desc::kLedCapsLockBit) != 0; }
+  bool numLock() override { return (s_leds.load() & desc::kLedNumLockBit) != 0; }
   void delayMs(uint32_t ms) override { sleepMs(ms); }
 
   bool send(uint8_t modifier, uint8_t keycode) override {
@@ -52,6 +53,7 @@ class BleTransport final : public Transport {
  public:
   bool ready() override { return ble::ready(); }
   bool capsLock() override { return ble::capsLock(); }
+  bool numLock() override { return ble::numLock(); }
   void delayMs(uint32_t ms) override { sleepMs(ms); }
   bool send(uint8_t modifier, uint8_t keycode) override { return ble::sendKey(modifier, keycode); }
 };
@@ -89,6 +91,10 @@ Result typeText(const char* text, const Options& opt) { return s_typer.type(tran
 Result tapKey(uint8_t hidKeycode, const Options& opt) { return s_typer.tap(transportFor(opt), hidKeycode, opt); }
 
 Result typeProbe(const Options& opt) { return s_typer.probe(transportFor(opt), opt); }
+
+Result tapChord(uint8_t modifier, uint8_t hidKeycode, const Options& opt) {
+  return s_typer.chord(transportFor(opt), modifier, hidKeycode, opt);
+}
 
 }  // namespace keyra::hid
 

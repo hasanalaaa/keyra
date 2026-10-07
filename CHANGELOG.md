@@ -8,6 +8,15 @@ All notable changes to Keyra are documented here. The format follows
 
 ### Added
 
+- Typing in any input language (SPEC §10.5): each host has a system (USB in
+  Settings → Typing, each Bluetooth device in Settings → Bluetooth; guessed from
+  the name at pairing). Windows hosts get Alt + keypad codes (Num Lock handled
+  like Caps Lock); Mac/iOS hosts marked "in another language now" get Ctrl+Space
+  before and after typing; Android gets a one-time hint. API: `osUsb`,
+  `PUT /api/ble/bonds/{addr} {os}`, `switchLang` on `POST /api/type`.
+- Keyboard layouts per output, Layout Doctor probe, layout-proof generator and
+  auto-type sequences (SPEC §10.1–10.4, firmware and API).
+
 - Password generator on the device (SPEC §9.1): `POST /api/generate` uses the
   hardware RNG, uniform per character, class minimums by rejecting whole
   candidates, exact entropy. In the app: a **Generate** button in the vault's
@@ -79,6 +88,15 @@ All notable changes to Keyra are documented here. The format follows
   probes are answered only there.
 - Factory reset also forgets every paired Bluetooth device.
 - Locking the vault closes an open Bluetooth pairing window.
+
+### Fixed
+
+- Bluetooth on macOS: the Mac paired but never typed. The HID description and
+  the input report's subscription are now readable/writable before encryption
+  (macOS reads them during discovery and never retries), the report map
+  declares Report ID 1, and SC-only mode (which demands MITM a display-less
+  device cannot give) is off; keystrokes still go only to a bonded, encrypted
+  host.
 
 ## [0.1.0] - Unreleased
 

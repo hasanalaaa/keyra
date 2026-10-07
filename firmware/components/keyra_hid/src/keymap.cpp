@@ -142,6 +142,18 @@ bool typeable(std::string_view text, Layout layout) {
 
 bool typeable(const char* text, Layout layout) { return text != nullptr && typeable(std::string_view(text), layout); }
 
+bool typeable(std::string_view text, const Options& opt) {
+  if (!opt.altCodes) return typeable(text, opt.layout);
+  KeyStroke ks[kMaxStrokes];
+  const char* end = text.data() + text.size();
+  for (const char* p = text.data(); p < end;) {
+    uint32_t cp = 0;
+    if (!nextCodePoint(p, end, cp)) return false;
+    if ((cp < 0x20 || cp > 0x7E) && strokesFor(opt.layout, cp, ks) == 0) return false;
+  }
+  return true;
+}
+
 bool sameOnAll(uint32_t cp, const Layout* layouts, size_t n) {
   if (n == 0) return false;
   KeyStroke first[kMaxStrokes];

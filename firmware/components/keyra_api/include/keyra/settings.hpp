@@ -38,6 +38,11 @@ struct Settings {
   // from keyra_hid's table ("us", "de-mac", "ar", …).
   std::string layoutUsb = "us";
   std::string layoutBle = "us";
+  // Operating system of the USB computer and of each bonded Bluetooth host
+  // (SPEC §10.5; the latter as "AA:BB:CC:DD:EE:FF=mac;…", see host_os.hpp):
+  // decides how text survives the host's input language.
+  std::string osUsb;
+  std::string osBle;
   // Auto-type sequence for "Both" on entries without their own (SPEC §10.4);
   // empty = username, separator, password (+ Enter when submitAfterBoth).
   std::string bothSequence;

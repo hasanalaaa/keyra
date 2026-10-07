@@ -38,6 +38,13 @@ hid::Layout layoutFor(const Target& t, const settings::Settings& s) {
   return byId(t.kind == Target::Kind::Ble ? s.layoutBle : s.layoutUsb);
 }
 
+hostos::Os osFor(const Target& t, const settings::Settings& s) {
+  hostos::Os os = hostos::Os::Unknown;
+  if (t.kind == Target::Kind::Usb) hostos::parse(s.osUsb, os);
+  if (t.kind == Target::Kind::Ble) os = hostos::get(s.osBle, t.addr);
+  return os;
+}
+
 esp_err_t getKeyboard(httpd_req_t* r) {
   const settings::Settings s = settings::get();
   json::Ptr o(cJSON_CreateObject());
@@ -63,6 +70,7 @@ void addSettings(cJSON* o, const settings::Settings& s) {
   cJSON_AddStringToObject(o, "layoutUsb", s.layoutUsb.c_str());
   cJSON_AddStringToObject(o, "layoutBle", s.layoutBle.c_str());
   cJSON_AddStringToObject(o, "bothSequence", s.bothSequence.c_str());
+  cJSON_AddStringToObject(o, "osUsb", s.osUsb.c_str());
 }
 
 bool readSettings(httpd_req_t* r, const cJSON* b, settings::Settings& next, esp_err_t& err) {
@@ -71,6 +79,14 @@ bool readSettings(httpd_req_t* r, const cJSON* b, settings::Settings& next, esp_
     err = badRequest(r, "layoutUsb/layoutBle must be a layout id from GET /api/keyboard");
     return false;
   }
+  std::string os;
+  const Field of = json::getString(b, "osUsb", os);
+  hostos::Os parsed;
+  if (of == Field::BadType || (of == Field::Ok && !hostos::parse(os, parsed))) {
+    err = badRequest(r, "osUsb must be \"\", \"mac\", \"ios\", \"windows\", \"android\" or \"linux\"");
+    return false;
+  }
+  if (of == Field::Ok) next.osUsb = os;
   std::string sq;
   const Field f = json::getString(b, "bothSequence", sq);
   if (f == Field::BadType) {

@@ -445,3 +445,64 @@ A Manifest V3 extension (`extension/`, Chrome/Edge/Firefox; Safari via
   username/password/both → the user presses the button → Keyra types. The
   extension never receives stored passwords.
 - Privacy: only the hostname is sent for matching; full URL only on Save.
+
+## 10. v1.3 — Keyboard layouts and input languages
+
+A keyboard sends key *positions*; the host's active layout and input language
+decide which character appears. Keyra therefore has to know enough about each
+host to pick the right key presses.
+
+### 10.1 Layout per output
+
+Settings `layoutUsb` and `layoutBle` (default `us`) name the keyboard layout of
+the computer on each output, from the table in
+`firmware/components/keyra_hid/layouts/layouts.txt` (US, UK, German, French,
+Spanish, Italian — Windows and Mac variants — Dvorak, Colemak, Arabic).
+`GET /api/keyboard` → `{layouts:[{id,name,platform,experimental,probe}], usb, ble}`.
+Text a layout cannot type is refused (`unsupported_char`), never typed wrong.
+
+### 10.2 Layout-proof generator
+
+`POST /api/generate {layoutSafe:true, layouts?:[id…]}` draws only characters
+typed by the same single key press on every chosen layout (default: the two
+outputs' layouts).
+
+### 10.3 Layout Doctor
+
+`POST /api/type {probe:true}` arms a probe that types Shift-level keys only (no
+Enter); the user compares what appeared with `GET /api/keyboard`'s `probe`
+strings to find the computer's layout.
+
+### 10.4 Auto-type sequences
+
+Entries may carry `sequence` (grammar and limits in
+`keyra_vault/include/keyra/sequence.hpp`: field tokens, Tab/Enter/Space,
+`{DELAY n}`, `{PRESS}`; no modifier or shortcut tokens). `POST /api/type
+{id, what:"sequence"}` types it; each `{PRESS}` re-arms the action for its next
+part. Settings `bothSequence` replaces the built-in "Both" order.
+
+### 10.5 Host system and input language
+
+The layout alone is not enough: a computer switched to Arabic types Arabic
+letters for every key, whatever layout Keyra assumes. Keyra keeps the
+**operating system** of each host and gets text past the input language:
+
+| System | What Keyra does | User effort |
+|---|---|---|
+| `windows` | Printable ASCII goes out as **Alt + keypad decimal code** (Num Lock turned on and restored like Caps Lock). Windows inserts the same character in every input language. Other characters use the layout table. | none |
+| `mac`, `ios` | When the user marks the host as "in another language now", Keyra presses **Ctrl+Space** (switch to the previous input source) before typing and again after, also when typing failed. | one tap, remembered per host in the browser |
+| `android` | Android keeps the physical-keyboard layout per keyboard, apart from the on-screen language: set "Keyra" to English (US) once. | once |
+| `linux`, `""` | Plain key presses. | — |
+
+- Storage: settings `osUsb` (`""`, `mac`, `ios`, `windows`, `android`, `linux`)
+  and `osBle` (`"AA:BB:CC:DD:EE:FF=mac;…"`, one item per bond; dropped when
+  the bond is forgotten).
+- API: `GET /api/settings` / `PUT /api/settings {osUsb}`;
+  `GET /api/ble` bonds carry `os`; `PUT /api/ble/bonds/{addr} {os}` → 204
+  (404 unknown bond); `GET /api/state` `host.usbOs` (with a session).
+  `POST /api/type` accepts `switchLang: boolean` (ignored unless the target is
+  `mac`/`ios`).
+- The web app guesses a newly paired host's system from its name (iPhone, iPad,
+  MacBook, Galaxy, DESKTOP-…) and lets the user change it in Settings.
+- Ctrl+Space toggles; it cannot select English directly. That is why the
+  phone asks rather than guesses: no keyboard can read the host's language.

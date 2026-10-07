@@ -5,6 +5,7 @@
 #include <string>
 
 #include "actions.hpp"
+#include "host_os.hpp"
 #include "esp_http_server.h"
 #include "json.hpp"
 #include "keyra/hid.hpp"
@@ -15,9 +16,11 @@ namespace keyra::api::kbdapi {
 
 // The layout of the computer an action types into.
 hid::Layout layoutFor(const Target& t, const settings::Settings& s);
+// Its operating system (SPEC §10.5).
+hostos::Os osFor(const Target& t, const settings::Settings& s);
 
 esp_err_t getKeyboard(httpd_req_t* r);  // GET /api/keyboard
-// settings: layoutUsb, layoutBle, bothSequence.
+// settings: layoutUsb, layoutBle, bothSequence, osUsb.
 void addSettings(cJSON* o, const settings::Settings& s);
 // False when a keyboard field of PUT /api/settings is invalid; the 400 is then sent (result in `err`).
 bool readSettings(httpd_req_t* r, const cJSON* body, settings::Settings& next, esp_err_t& err);

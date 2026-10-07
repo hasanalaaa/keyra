@@ -751,6 +751,14 @@ bool capsLock() {
   return (gatt::leds() & kLedCapsLockBit) != 0;
 }
 
+bool numLock() {
+  {
+    std::lock_guard<std::mutex> lock(g_mu);
+    if (!g_link.trusted()) return false;
+  }
+  return (gatt::leds() & kLedNumLockBit) != 0;
+}
+
 bool sendKey(uint8_t modifier, uint8_t keycode) {
   const uint8_t report[kInputReportLen] = {modifier, 0, keycode, 0, 0, 0, 0, 0};
   const int64_t deadline = esp_timer_get_time() + kSendTimeoutUs;

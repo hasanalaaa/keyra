@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { Icon } from '../components/Icon';
 import { Button, ColoredSecret, CopyButton, IconButton, MiniRing, Monogram, Segmented } from '../components/ui';
 import { ErrorCard, HostNotice, Ready, readyText } from '../components/Ready';
+import { HostLangRow } from '../components/HostOs';
+import { osOf, resolveTarget } from '../lib/hostos';
 import { defaultTarget, deviceLabel, storeTarget, storedTarget, validTarget } from '../lib/ble';
 import { ApiError, api } from '../lib/api';
 import { useTypeAction, type ErrorCode } from '../lib/actions';
@@ -31,6 +33,7 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
   const action = useTypeAction(id);
   const [, setPicked] = useState(0); // re-render after the picker stores a choice
   const chosen = validTarget(storedTarget(), app.ble);
+  const hostTarget = resolveTarget(chosen, app.device?.host.output ?? null, app.ble);
   const startAction = (what: TypeWhat) => void action.start(what, chosen ?? undefined);
   const totpRef = useRef<Totp | null>(null);
 
@@ -112,6 +115,7 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
             />
           </div>
         )}
+        <HostLangRow key={hostTarget ?? ''} target={hostTarget} os={osOf(hostTarget, app.device?.host.usbOs, app.ble)} />
         <button type="button" class="act-both" disabled={!e.hasPassword} onClick={() => startAction('both')}>
           <span class="both-icons" aria-hidden="true">
             <Icon name="user" size={24} />

@@ -29,6 +29,7 @@ constexpr std::array<uint8_t, 65> kReportMap = {
 };
 
 constexpr uint8_t kInputReportLen = 8;
+constexpr uint8_t kLedNumLockBit = 0x01;
 constexpr uint8_t kLedCapsLockBit = 0x02;
 
 }  // namespace keyra::ble
