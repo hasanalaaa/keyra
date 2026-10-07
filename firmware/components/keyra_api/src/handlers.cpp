@@ -74,10 +74,15 @@ esp_err_t sendVaultError(httpd_req_t* r, Status s) {
   return http::sendError(r, http::k500, "storage", "Storage error");
 }
 
+// The secret that lets this requester, and only it, withdraw the op it just
+// armed (POST /api/presence/cancel).
+void addCancelToken(cJSON* o) { cJSON_AddStringToObject(o, "cancel", machine().presenceCancelToken().c_str()); }
+
 esp_err_t sendAwaitingButton(httpd_req_t* r, int64_t expiresIn) {
   json::Ptr o(cJSON_CreateObject());
   cJSON_AddStringToObject(o.get(), "awaiting", "button");
   cJSON_AddNumberToObject(o.get(), "expiresIn", static_cast<double>(expiresIn));
+  addCancelToken(o.get());
   return http::sendJson(r, http::k202, o.get());
 }
 
@@ -741,10 +746,15 @@ esp_err_t postType(Ctx& c) {
 // run that op on a later press. Open like setup and factory reset, whose
 // screens have no session; it can only withdraw a request, never make one.
 esp_err_t postPresenceCancel(Ctx& c) {
-  std::string op;
+  std::string op, token;
   if (json::getString(c.body.get(), "op", op) != Field::Ok || !actions::parseOp(op))
     return badRequest(c.r, "op must name a presence operation");
-  machine().cancelPresence(*actions::parseOp(op));
+  if (json::getString(c.body.get(), "cancel", token) != Field::Ok || token.size() > 64)
+    return badRequest(c.r, "cancel must be the token from the 202 answer");
+  // Without the token handed to the requester, nothing happens: a stranger
+  // could otherwise free the slot and arm their own op for the user's press.
+  if (!machine().cancelPresence(*actions::parseOp(op), token))
+    return http::sendError(c.r, http::k409, "not_cancelled", "Nothing of yours is waiting for the button");
   return http::sendEmpty(c.r, http::k204);
 }
 

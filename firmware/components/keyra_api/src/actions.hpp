@@ -130,13 +130,20 @@ struct Decision {
 class Machine {
  public:
   using Clock = std::function<int64_t()>;  // monotonic milliseconds
-  explicit Machine(Clock now) : now_(std::move(now)) {}
+  // Makes the secret that lets the requester (only) withdraw a presence op.
+  using TokenGen = std::function<std::string()>;
+  explicit Machine(Clock now, TokenGen token = {}) : now_(std::move(now)), token_(std::move(token)) {}
 
   Pending arm(TypeRequest req);
   bool cancel();  // pending type action → last = cancelled
-  // The waiting presence op, when it is `op` (the screen that asked gave up):
-  // dropped without running, result = cancelled. False when another op waits.
-  bool cancelPresence(Op op);
+  // The waiting presence op, when it is `op` and `token` is the cancel token
+  // handed to whoever armed it (the screen that asked gave up): dropped
+  // without running, result = cancelled. Anyone else gets false — otherwise a
+  // stranger could cancel a user's setup and arm their own in its place.
+  bool cancelPresence(Op op, const std::string& token);
+  // The cancel token of the presence op armed last (the handler that armed it
+  // reads it at once; httpd serves one request at a time).
+  std::string presenceCancelToken();
   int64_t awaitPresence(Op op, Commit commit);  // replaces whatever is pending
   // For ops requested without a session (setup, factory reset): never displaces
   // another item, so a stranger on the Wi-Fi cannot swap the action a user is
@@ -183,6 +190,8 @@ class Machine {
   TypeRequest req_;
   Op op_ = Op::Setup;
   Commit commit_;
+  TokenGen token_;
+  std::string cancelToken_;  // of the waiting presence op
   int64_t deadline_ = 0;
   bool typing_ = false;
   bool linkReady_ = false;

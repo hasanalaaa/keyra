@@ -94,6 +94,8 @@ export interface Awaiting {
   awaiting: 'button';
   expiresIn: number;
   op?: PresenceOp;
+  /** Secret that lets this browser (only) withdraw the op: POST /presence/cancel. */
+  cancel?: string;
 }
 
 export const api = {
@@ -147,7 +149,7 @@ export const api = {
   generate: (s: GenSettings) => json<{ password: string; entropyBits: number }>('POST', '/generate', generateRequest(s)),
   cancelType: () => json<void>('POST', '/type/cancel'),
   /** Withdraws a waiting "press Keyra's button" op, so a later press does not run it. */
-  cancelPresence: (op: PresenceOp) => json<void>('POST', '/presence/cancel', { op }),
+  cancelPresence: (op: PresenceOp, cancel: string) => json<void>('POST', '/presence/cancel', { op, cancel }),
   settings: () => json<Settings>('GET', '/settings'),
   /** 200 → Settings; 202 → presence required (Wi-Fi changes). */
   async putSettings(s: Partial<Settings> & { wifiPassword?: string }): Promise<Settings | Awaiting> {

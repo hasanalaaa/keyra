@@ -127,6 +127,7 @@ esp_err_t putHome(httpd_req_t* r, const cJSON* body) {
   json::Ptr o(cJSON_CreateObject());
   cJSON_AddStringToObject(o.get(), "awaiting", "button");
   cJSON_AddStringToObject(o.get(), "op", "home_wifi");
+  cJSON_AddStringToObject(o.get(), "cancel", machine().presenceCancelToken().c_str());
   cJSON_AddNumberToObject(o.get(), "expiresIn", static_cast<double>(expires));
   return http::sendJson(r, http::k202, o.get());
 }

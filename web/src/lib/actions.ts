@@ -158,6 +158,31 @@ export type PresencePhase =
  * `state.presence.result` for this op, newer than our request. `doneOnDisconnect`: the op restarts
  * the access point right after it commits, so losing the link before we read the result means it worked.
  */
+// Cancel tokens live in sessionStorage: this tab (and only it) can still
+// withdraw its op after a reload.
+const CANCEL_KEY = 'keyra.cancel.';
+function cancelToken(op: PresenceOp): string | null {
+  try {
+    return sessionStorage.getItem(CANCEL_KEY + op);
+  } catch {
+    return null;
+  }
+}
+function keepCancelToken(op: PresenceOp, token: string): void {
+  try {
+    sessionStorage.setItem(CANCEL_KEY + op, token);
+  } catch {
+    // Private mode: only this page load can cancel.
+  }
+}
+function forgetCancelToken(op: PresenceOp): void {
+  try {
+    sessionStorage.removeItem(CANCEL_KEY + op);
+  } catch {
+    // Nothing stored.
+  }
+}
+
 export function usePresence(op: PresenceOp, opts: { doneOnDisconnect?: boolean } = {}) {
   const app = useApp();
   const [st, setSt] = useState<{ startedAt: number; deadline: number; total: number; seen: boolean } | null>(null);
@@ -165,10 +190,13 @@ export function usePresence(op: PresenceOp, opts: { doneOnDisconnect?: boolean }
   // True while the device holds this op for us: leaving must withdraw it, or a
   // later press would still run it (a cancelled factory reset used to erase).
   const active = useRef(false);
+  const token = useRef<string | null>(null); // also in memory: storage may be blocked
   const withdraw = () => {
     if (!active.current) return;
     active.current = false;
-    void api.cancelPresence(op).catch(() => undefined); // expires on its own after 60 s anyway
+    const t = token.current ?? cancelToken(op);
+    forgetCancelToken(op);
+    if (t) void api.cancelPresence(op, t).catch(() => undefined); // expires on its own after 60 s anyway
   };
 
   useEffect(() => {
@@ -180,6 +208,7 @@ export function usePresence(op: PresenceOp, opts: { doneOnDisconnect?: boolean }
 
   const finish = (p: PresencePhase) => {
     active.current = false;
+    forgetCancelToken(op);
     setSt(null);
     setPhase(p);
   };
@@ -205,6 +234,8 @@ export function usePresence(op: PresenceOp, opts: { doneOnDisconnect?: boolean }
 
   const begin = (startedAt: number, r: Awaiting) => {
     active.current = true;
+    token.current = r.cancel ?? null;
+    if (r.cancel) keepCancelToken(op, r.cancel);
     const deadline = Date.now() + r.expiresIn;
     setSt({ startedAt, deadline, total: r.expiresIn, seen: false });
     setPhase({ kind: 'ready', deadline, total: r.expiresIn });
@@ -218,9 +249,12 @@ export function usePresence(op: PresenceOp, opts: { doneOnDisconnect?: boolean }
       try {
         r = await req();
       } catch (e) {
-        // Our own op from before a reload still waits on the device: withdraw it and ask again.
-        if (!(e instanceof ApiError && e.code === 'busy' && getState().device?.presence.op === op)) throw e;
-        await api.cancelPresence(op);
+        // Our own op from before a reload still waits on the device: withdraw it
+        // (this tab kept its cancel token) and ask again.
+        const stale = cancelToken(op);
+        if (!(e instanceof ApiError && e.code === 'busy' && stale && getState().device?.presence.op === op)) throw e;
+        await api.cancelPresence(op, stale);
+        forgetCancelToken(op);
         r = await req();
       }
       begin(startedAt, r);

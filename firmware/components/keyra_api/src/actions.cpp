@@ -39,11 +39,14 @@ bool Machine::cancel() {
   return true;
 }
 
-bool Machine::cancelPresence(Op op) {
+bool Machine::cancelPresence(Op op, const std::string& token) {
   std::lock_guard<std::mutex> lock(mu_);
   const int64_t now = now_();
   expireLocked(now);
-  if (kind_ != Kind::Presence || op_ != op) return false;
+  if (kind_ != Kind::Presence || op_ != op || cancelToken_.empty() || token.size() != cancelToken_.size()) return false;
+  uint8_t diff = 0;  // constant time over the token
+  for (size_t i = 0; i < token.size(); ++i) diff |= static_cast<uint8_t>(token[i] ^ cancelToken_[i]);
+  if (diff != 0) return false;
   recordOpLocked(op, OpCode::Cancelled, now);
   clearSlotLocked();  // drops the commit: nothing runs on a later press
   return true;
@@ -55,6 +58,7 @@ int64_t Machine::awaitPresence(Op op, Commit commit) {
   kind_ = Kind::Presence;
   op_ = op;
   commit_ = std::move(commit);
+  cancelToken_ = token_ ? token_() : std::string();
   deadline_ = now_() + kExpiryMs;
   return kExpiryMs;
 }
@@ -67,6 +71,7 @@ std::optional<int64_t> Machine::tryAwaitPresence(Op op, Commit commit) {
   kind_ = Kind::Presence;
   op_ = op;
   commit_ = std::move(commit);
+  cancelToken_ = token_ ? token_() : std::string();
   deadline_ = now + kExpiryMs;
   return kExpiryMs;
 }
@@ -281,6 +286,7 @@ void Machine::clearSlotLocked() {
   kind_ = Kind::None;
   req_ = {};          // drops the slot's hold on any free text (wiped with the last one)
   commit_ = nullptr;  // destroys captured secrets of a dropped presence op
+  cancelToken_.clear();
   deadline_ = 0;
 }
 
@@ -327,6 +333,11 @@ const char* opName(Op op) {
     case Op::Unprotect: return "unprotect";
   }
   return "setup";
+}
+
+std::string Machine::presenceCancelToken() {
+  std::lock_guard<std::mutex> lock(mu_);
+  return kind_ == Kind::Presence ? cancelToken_ : std::string();
 }
 
 std::optional<Op> parseOp(const std::string& s) {

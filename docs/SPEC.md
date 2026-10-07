@@ -580,12 +580,15 @@ download; the vault screen nudges when it is older than 30 days.
 
 ### 12.6 Withdrawing a press request
 
-`POST /api/presence/cancel {op}` → 204 drops the waiting presence op when it is
-`op` (one of `state.presence` op names); its result becomes `cancelled` and a
-later press runs nothing. No session or CSRF token (setup and factory reset
-have none); the Origin check applies, and it can only withdraw, never start.
-The app calls it when a "press Keyra's button" screen is cancelled or closed,
-and when its own op from before a reload is still waiting (`busy`).
+Every 202 `{awaiting:"button"}` answer carries `cancel`, a 128-bit random
+token made when the op was armed. `POST /api/presence/cancel {op, cancel}` →
+204 drops the waiting op only when both match (constant-time); otherwise 409
+`not_cancelled`, and nothing changes. Its result becomes `cancelled` and a
+later press runs nothing. No session or CSRF token is needed (setup and
+factory reset have none) — the token is the authorisation: without it a
+stranger on Keyra's Wi‑Fi could cancel a user's setup and arm their own in
+its place, to be confirmed by the user's press. The app keeps the token in
+sessionStorage, so the same tab can still withdraw its op after a reload.
 
 ### 12.7 Why joining the home network failed
 

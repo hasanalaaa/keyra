@@ -177,7 +177,8 @@ function arm(req) {
 function awaitPresence(op, commit, { tryOnly = false } = {}) {
   expire();
   if (tryOnly && (machine.slot || machine.running)) return null;
-  machine.slot = { kind: 'presence', op, commit, deadline: Date.now() + EXPIRY_MS };
+  // Like Machine::cancelPresence: only the requester gets the token that withdraws it.
+  machine.slot = { kind: 'presence', op, commit, deadline: Date.now() + EXPIRY_MS, cancel: randomBytes(16).toString('hex') };
   autoPress(machine.slot);
   return EXPIRY_MS;
 }
@@ -778,7 +779,7 @@ const validPassphrase = (s) => typeof s === 'string' && [...s].length >= 10 && [
 const validWifi = (s) => typeof s === 'string' && s.length >= 8 && s.length <= 63 && /^[\x20-\x7e]+$/.test(s) && s !== 'keyra1234';
 const validName = (s) => typeof s === 'string' && s.length > 0 && Buffer.byteLength(s) <= 32 && !/[\x00-\x1f\x7f]/.test(s);
 const str = (b, k) => (typeof b[k] === 'string' ? b[k] : bad(`"${k}" (string) is required`));
-const awaiting = (res, expiresIn) => send(res, 202, { awaiting: 'button', expiresIn });
+const awaiting = (res, expiresIn) => send(res, 202, { awaiting: 'button', expiresIn, cancel: machine.slot?.cancel ?? '' });
 const busy409 = () => fail(409, 'busy', "Keyra is waiting for another request; long-press its button to cancel it");
 
 function getEntry(id) {
@@ -801,7 +802,7 @@ function requestPress(res, op, token) {
     if (!s) return false;
     s.graceUntil = Date.now() + GRACE_MS;
   });
-  return send(res, 202, { awaiting: 'button', op, expiresIn: exp });
+  return send(res, 202, { awaiting: 'button', op, expiresIn: exp, cancel: machine.slot?.cancel ?? '' });
 }
 
 /** A new session for this browser (+ the renewed trust cookie). */
@@ -838,7 +839,7 @@ function trustRequest(res, req) {
     { tryOnly: true },
   );
   if (exp === null) busy409();
-  return send(res, 202, { awaiting: 'button', op: 'trust_browser', expiresIn: exp }, { 'Set-Cookie': `kt=${kt}; HttpOnly; SameSite=Strict; Path=/` });
+  return send(res, 202, { awaiting: 'button', op: 'trust_browser', expiresIn: exp, cancel: machine.slot?.cancel ?? '' }, { 'Set-Cookie': `kt=${kt}; HttpOnly; SameSite=Strict; Path=/` });
 }
 
 function throttle() {
@@ -1141,13 +1142,14 @@ async function api(req, res, path) {
     case 'presenceCancel': {
       // Like Machine::cancelPresence: only the named op, and nothing runs later.
       if (typeof b.op !== 'string') bad('op must name a presence operation');
+      if (typeof b.cancel !== 'string') bad('cancel must be the token from the 202 answer');
       expire();
       const s = machine.slot;
-      if (s?.kind === 'presence' && s.op === b.op) {
-        machine.opResult = { op: s.op, code: 'cancelled', at: Date.now() };
-        machine.slot = null;
-        console.log(`[mock] ${s.op} cancelled from the app`);
-      }
+      if (!(s?.kind === 'presence' && s.op === b.op && s.cancel && safeEqual(b.cancel, s.cancel)))
+        fail(409, 'not_cancelled', 'Nothing of yours is waiting for the button');
+      machine.opResult = { op: s.op, code: 'cancelled', at: Date.now() };
+      machine.slot = null;
+      console.log(`[mock] ${s.op} cancelled from the app`);
       return send(res, 204);
     }
 
@@ -1318,7 +1320,7 @@ async function api(req, res, path) {
         settings.homeWifi = { enabled: b.enabled, ssid: ssid || cur.ssid, password: b.password || cur.password };
         applyHome();
       });
-      return send(res, 202, { awaiting: 'button', op: 'home_wifi', expiresIn: exp });
+      return send(res, 202, { awaiting: 'button', op: 'home_wifi', expiresIn: exp, cancel: machine.slot?.cancel ?? '' });
     }
 
     case 'trusted': {

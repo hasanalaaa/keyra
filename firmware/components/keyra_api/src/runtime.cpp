@@ -341,7 +341,17 @@ void actionsTask(void*) {
 }  // namespace
 
 actions::Machine& machine() {
-  static actions::Machine m(monoMs);
+  static actions::Machine m(monoMs, [] {
+    uint8_t raw[16];
+    esp_fill_random(raw, sizeof raw);
+    static constexpr char kHex[] = "0123456789abcdef";
+    std::string t(32, '0');
+    for (size_t i = 0; i < sizeof raw; ++i) {
+      t[2 * i] = kHex[raw[i] >> 4];
+      t[2 * i + 1] = kHex[raw[i] & 0x0F];
+    }
+    return t;
+  });
   return m;
 }
 

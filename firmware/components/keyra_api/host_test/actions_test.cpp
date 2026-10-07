@@ -1,3 +1,4 @@
+#include <string>
 #include <memory>
 
 #include "actions.hpp"
@@ -421,19 +422,29 @@ void hostWatchBle() {
 // A cancelled "press the button" screen withdraws its op: a later press must
 // not run it (it used to wipe the vault after a cancelled factory reset).
 void testCancelPresence() {
-  Machine m = make();
+  int n = 0;
+  Machine m([] { return g_now; }, [&n] { return "tok" + std::to_string(++n); });
   bool ran = false;
   m.awaitPresence(Op::FactoryReset, [&] { ran = true; return true; });
-  CHECK(!m.cancelPresence(Op::Setup));  // another op: untouched
+  const std::string tok = m.presenceCancelToken();
+  CHECK(tok == "tok1");
+  CHECK(!m.cancelPresence(Op::Setup, tok));           // another op: untouched
+  CHECK(!m.cancelPresence(Op::FactoryReset, ""));     // a stranger without the token
+  CHECK(!m.cancelPresence(Op::FactoryReset, "tok2"));
   CHECK(m.presence().has_value());
-  CHECK(m.cancelPresence(Op::FactoryReset));
+  CHECK(m.cancelPresence(Op::FactoryReset, tok));
   CHECK(!m.presence().has_value());
+  CHECK(m.presenceCancelToken().empty());
   const Decision d = m.onButton(Button::Short, true);
   CHECK(d.effect != Effect::Approve);
   CHECK(!ran);
+  // A new op gets a new token; the old one cancels nothing.
+  m.awaitPresence(Op::FactoryReset, [] { return true; });
+  CHECK(!m.cancelPresence(Op::FactoryReset, tok));
   CHECK(parseOp("factory_reset") == Op::FactoryReset);
   CHECK(!parseOp("nope"));
 }
+
 
 int main() {
   testCancelPresence();

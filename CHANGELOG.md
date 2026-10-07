@@ -122,8 +122,9 @@ All notable changes to Keyra are documented here. The format follows
   card for a moment.
 - Cancelling a "press Keyra's button" screen only cleared the screen: the
   device kept the op and a later press still ran it (a cancelled factory
-  reset erased the vault). `POST /api/presence/cancel` withdraws it; the app
-  calls it on cancel and when leaving the screen.
+  reset erased the vault). `POST /api/presence/cancel {op, cancel}` withdraws
+  it, with a secret token only the requester received in the 202 answer (so
+  nobody else can free the slot and swap in their own request).
 - Setup after a reload could confirm an earlier request with a different Wi‑Fi
   password and skip the reconnect screen; a refused request now shows an
   error instead of a press ring.
