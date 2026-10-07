@@ -200,7 +200,36 @@
 .pw-block > .field, .pw-block > .notice { align-self:stretch; }
 .delete-btn { margin-block-start:var(--s-8); }
 .gen { display:flex; flex-direction:column; gap:var(--s-4); }
-.gen-preview { display:block; inline-size:100%; padding:var(--s-4); border-radius:var(--r-md); background:var(--surface-2); box-shadow:inset 0 0 0 1px var(--line); text-align:start; font-size:var(--fs-code); line-height:1.5; font-weight:500; direction:ltr; }
+.gen-preview {
+  display:block; inline-size:100%; min-block-size:88px; padding:var(--s-4); border-radius:var(--r-md); background:var(--surface-2);
+  box-shadow:inset 0 0 0 1px var(--line); text-align:start; font-size:1.375rem; line-height:1.45; font-weight:500; direction:ltr;
+  transition:opacity var(--d-fast);
+}
+.gen-preview.busy { opacity:.55; }
+.gen-preview .secret { letter-spacing:.04em; }
+.meter-bits { color:var(--text-2); font-weight:500; }
+.gen-quick { display:flex; gap:var(--s-3); }
+.gen-quick > .btn { flex:1; }
+.gen-actions { display:flex; flex-direction:column; gap:var(--s-3); }
+.gen-pair { display:flex; gap:var(--s-3); }
+.gen-pair > .btn { flex:1; }
+.gen-from { display:flex; align-items:center; gap:6px; color:var(--text-3); }
+.gen-from svg { flex:none; color:var(--ok); }
+.gen-inline { align-self:stretch; margin-block-start:var(--s-2); padding:var(--s-4); border-radius:var(--r-lg); background:var(--surface-2); box-shadow:inset 0 0 0 1px var(--line); }
+.gen-inline .gen-preview { background:var(--surface); }
+.gen-options .slider-row .row-label { max-inline-size:30%; }
+.len-input { flex:none; inline-size:64px; block-size:40px; padding-inline:8px; text-align:center; font-size:var(--fs-callout); -moz-appearance:textfield; appearance:textfield; }
+.len-input::-webkit-inner-spin-button, .len-input::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }
+.stepper-row { gap:var(--s-3); }
+.stepper { display:inline-flex; align-items:center; gap:2px; border-radius:var(--r-pill); background:var(--fill); }
+.stepper-value { min-inline-size:2.5ch; text-align:center; font-weight:600; }
+.save-row { gap:var(--s-3); min-block-size:64px; }
+.save-row .row-sub { white-space:normal; }
+.pick .search { margin:0; }
+.history-row .kv-label { color:var(--text-2); }
+.type-text .text-count { text-align:end; }
+.type-text .textarea { min-block-size:96px; font-size:var(--fs-callout); }
+.menu-row { gap:var(--s-3); }
 
 /* Import */
 .import, .backup, .a2hs { display:flex; flex-direction:column; gap:var(--s-4); }

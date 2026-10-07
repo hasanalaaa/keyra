@@ -179,7 +179,6 @@ export function generateWifiPassword(fill: RandomFill = cryptoFill): string {
   return s;
 }
 
-/** Characters Keyra cannot type (anything outside printable US-ASCII), de-duplicated. */
 // Phone keyboards insert look-alikes Keyra cannot type on a US layout: iOS
 // "Smart Punctuation" curly quotes and dashes, Arabic punctuation and digits.
 // Credentials are converted to the ASCII character the user meant.
@@ -202,6 +201,7 @@ export function toTypeable(s: string): string {
   return out;
 }
 
+/** Characters Keyra cannot type (anything outside printable US-ASCII), de-duplicated. */
 export function untypeable(s: string): string[] {
   const bad = new Set<string>();
   for (const ch of s) {

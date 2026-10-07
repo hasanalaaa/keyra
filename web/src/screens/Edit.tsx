@@ -1,11 +1,12 @@
-// Add / Edit account (DESIGN §5.6) and the password generator sheet (§4.8).
+// Add / Edit account (DESIGN §5.6) with the password generator inline (§4.8, SPEC §9.1).
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { Button, ColoredSecret, Notice, SecretField, Slider, StrengthMeter, SwitchRow, TextField } from '../components/ui';
+import { Button, Notice, SecretField, StrengthMeter, SwitchRow, TextField } from '../components/ui';
+import { InlineGenerator } from '../components/Generator';
 import { QR_ERRORS, QrPhoto } from '../components/QrPhoto';
 import { Alert, Sheet, type SheetCtl } from '../components/Sheet';
 import { ApiError, api } from '../lib/api';
-import { copyText } from '../lib/clipboard';
-import { DEFAULT_GEN, generatePassword, toTypeable, untypeable, type GenOptions } from '../lib/generator';
+import { takeDraftPassword } from '../lib/draft';
+import { toTypeable, untypeable } from '../lib/generator';
 import { t } from '../lib/i18n';
 import { back, replace } from '../lib/router';
 import { parseQrText, titleOf, toOtpauth, type OtpAccount } from '../lib/qrImport';
@@ -17,7 +18,8 @@ const EMPTY: EntryInput = { title: '', url: '', username: '', password: '', totp
 
 export function EditAccount({ id }: { id?: number }) {
   const [initial, setInitial] = useState<EntryInput | null>(id ? null : EMPTY);
-  const [form, setForm] = useState<EntryInput>(EMPTY);
+  // A password made in the Generate sheet arrives prefilled (still unsaved, so the form is dirty).
+  const [form, setForm] = useState<EntryInput>(() => (id ? EMPTY : { ...EMPTY, password: takeDraftPassword() }));
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const [gen, setGen] = useState(false);
@@ -144,9 +146,17 @@ export function EditAccount({ id }: { id?: number }) {
             helper={form.password ? <StrengthMeter value={form.password} /> : undefined}
           />
           {bad.length > 0 && <Notice tone="warn">{t('unsupportedChar', { c: bad.join(' ') })}</Notice>}
-          <Button variant="ghost" size="sm" icon="wand-sparkles" onClick={() => setGen(true)}>
+          <Button variant="ghost" size="sm" icon="wand-sparkles" class="gen-toggle" onClick={() => setGen(!gen)}>
             {t('createPassword')}
           </Button>
+          {gen && (
+            <InlineGenerator
+              onUse={(pw) => {
+                set('password')(toTypeable(pw));
+                setGen(false);
+              }}
+            />
+          )}
         </div>
         <div class="pw-block">
           <TextField
@@ -186,15 +196,6 @@ export function EditAccount({ id }: { id?: number }) {
         )}
         <button type="submit" hidden />
       </form>
-      {gen && (
-        <GeneratorSheet
-          onClose={() => setGen(false)}
-          onUse={(pw) => {
-            set('password')(pw);
-            setGen(false);
-          }}
-        />
-      )}
       {confirm === 'discard' && (
         <Alert
           title={t('discardTitle')}
@@ -220,60 +221,6 @@ export function EditAccount({ id }: { id?: number }) {
           actions={[{ label: t('delete'), variant: 'danger-confirm', run: () => void remove() }]}
           onCancel={() => setConfirm(null)}
         />
-      )}
-    </Sheet>
-  );
-}
-
-function GeneratorSheet({ onClose, onUse }: { onClose: () => void; onUse: (pw: string) => void }) {
-  const [opts, setOpts] = useState<GenOptions>(DEFAULT_GEN);
-  const [pw, setPw] = useState('');
-  const [failed, setFailed] = useState(false);
-  const ctl = useRef<SheetCtl | null>(null);
-
-  const regen = (o: GenOptions) => {
-    try {
-      setPw(generatePassword(o));
-    } catch {
-      setFailed(true);
-    }
-  };
-  useEffect(() => regen(opts), [opts]);
-
-  const on = [opts.upper, opts.lower, opts.digits, opts.symbols].filter(Boolean).length;
-  const toggle = (k: 'upper' | 'lower' | 'digits' | 'symbols' | 'avoidLookAlikes', label: string) => (
-    <SwitchRow label={label} checked={opts[k]} disabled={k !== 'avoidLookAlikes' && opts[k] && on === 1} onChange={(v) => setOpts({ ...opts, [k]: v })} />
-  );
-
-  return (
-    <Sheet title={t('createPassword')} size="md" ctl={ctl} onClose={onClose}>
-      {failed ? (
-        <Notice tone="err">{t('noRandom')}</Notice>
-      ) : (
-        <div class="gen">
-          <button type="button" class="gen-preview" onClick={() => copyText(pw) && toast(t('copied'), 'ok')} aria-label={`${t('copy')} ${pw}`}>
-            <ColoredSecret value={pw} />
-          </button>
-          <StrengthMeter value={pw} />
-          <div class="card">
-            <div class="row slider-row">
-              <span class="row-label">{t('length')}</span>
-              <Slider value={opts.length} min={12} max={40} label={t('length')} onInput={(n) => setOpts({ ...opts, length: n })} />
-              <span class="row-value mono">{opts.length}</span>
-            </div>
-            {toggle('upper', t('upper'))}
-            {toggle('lower', t('lower'))}
-            {toggle('digits', t('digits'))}
-            {toggle('symbols', t('symbols'))}
-            {toggle('avoidLookAlikes', t('lookAlikes'))}
-          </div>
-          <div class="sheet-foot">
-            <Button variant="secondary" icon="refresh-cw" onClick={() => regen(opts)}>
-              {t('newOne')}
-            </Button>
-            <Button onClick={() => onUse(pw)}>{t('usePassword')}</Button>
-          </div>
-        </div>
       )}
     </Sheet>
   );
