@@ -383,3 +383,6 @@
 /* Long Bluetooth names: one line, cut with an ellipsis rather than squeezed. */
 .bond-row .row-label { min-inline-size:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .bond-row .row-value { flex-shrink:0; }
+
+/* Notes mixing Arabic and Latin lines: each paragraph takes its own direction. */
+.notes, textarea#notes { unicode-bidi:plaintext; text-align:start; }

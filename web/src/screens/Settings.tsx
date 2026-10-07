@@ -523,7 +523,7 @@ function TypeTestSheet({ onClose }: { onClose: () => void }) {
           total={p.kind === 'ready' ? p.total : 60000}
           {...readyText(app.device, t('typeTestBody'))}
           chip={t('typeTest')}
-          notice={app.device ? <HostNotice device={app.device} ble={app.ble} /> : undefined}
+          notice={app.device ? <HostNotice device={app.device} /> : undefined}
           onCancel={() => {
             void action.cancel();
             onClose();

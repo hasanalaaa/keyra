@@ -111,6 +111,15 @@ All notable changes to Keyra are documented here. The format follows
 
 ### Fixed
 
+- Vault QA round: an open account with a 2FA code no longer keeps the vault
+  from auto-locking (code refreshes are not activity); "Try again" / "Copy
+  instead" after a failed type act on the field that was typed, not Both;
+  Both is off without a username; CSV import fits rows to the device limits
+  and says what was shortened, left out or skipped; Add/Edit names the field
+  that is too long; the generator's length box shows the length in use;
+  Arabic/English counts, restore wording and passphrase label, recovery-key
+  errors next to the key, mixed-direction notes, no wrong device on the Ready
+  card for a moment.
 - Cancelling a "press Keyra's button" screen only cleared the screen: the
   device kept the op and a later press still ran it (a cancelled factory
   reset erased the vault). `POST /api/presence/cancel` withdraws it; the app

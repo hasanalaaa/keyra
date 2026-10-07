@@ -6,7 +6,7 @@ import { Ready } from '../components/Ready';
 import { ApiError, api, isAwaiting } from '../lib/api';
 import { usePresence, usePressGate } from '../lib/actions';
 import { errorText, isLockedError } from '../lib/errors';
-import { t } from '../lib/i18n';
+import { accountCount, t } from '../lib/i18n';
 import { back } from '../lib/router';
 import { getState, loadEntries, setState, toast } from '../lib/store';
 import { minHint } from './common';
@@ -104,7 +104,8 @@ function RestorePart() {
   useEffect(() => {
     const k = presence.phase.kind;
     if (k === 'done') {
-      void loadEntries().then(() => toast(t('restoreResult', { a: getState().entries?.length ?? 0, u: 0 }), 'ok'));
+      // Replace: the vault now is exactly the backup.
+      void loadEntries().then(() => toast(t('restoreReplaced', { c: accountCount(getState().entries?.length ?? 0) }), 'ok'));
       setPass('');
       setFile(null);
     } else if (k === 'failed') setError(t('restoreWrong'));
@@ -168,7 +169,7 @@ function RestorePart() {
           <input type="file" accept=".json,application/json" class="sr-only" onChange={(e) => void pick(e.currentTarget.files?.[0])} />
         </label>
         {badFile && <Notice tone="err">{t('restoreWrong')}</Notice>}
-        <SecretField label={t('backupHead')} value={pass} onValue={setPass} autocomplete="off" error={error} />
+        <SecretField label={t('backupPassLabel')} value={pass} onValue={setPass} autocomplete="off" error={error} />
         <Segmented
           label={t('restoreHead')}
           options={[

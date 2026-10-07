@@ -102,7 +102,9 @@ export function GenOptions({ gen }: { gen: GeneratorState }) {
   const commitLength = () => {
     const n = Number(lengthText);
     if (Number.isFinite(n)) gen.set({ length: n });
-    else setLengthText(String(s.length));
+    // gen.set clamps to 8-128; when the clamped length equals the current one
+    // nothing re-renders the box, so show the length actually in use.
+    setLengthText(String(Number.isFinite(n) ? Math.min(MAX_LENGTH, Math.max(MIN_LENGTH, Math.round(n))) : s.length));
   };
   return (
     <div class="card gen-options">
@@ -167,7 +169,7 @@ export function FreeTextStatus({ phase, chip, body, retry, close, cancel }: { ph
       total={phase.kind === 'ready' ? phase.total : 60000}
       {...readyText(app.device, body)}
       chip={chip}
-      notice={app.device ? <HostNotice device={app.device} ble={app.ble} /> : undefined}
+      notice={app.device ? <HostNotice device={app.device} /> : undefined}
       onCancel={cancel}
     />
   );

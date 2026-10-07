@@ -878,7 +878,7 @@ async function api(req, res, path) {
   if (!OPEN.has(m.route)) {
     if (!session) fail(401, 'locked', 'Vault is locked');
     if (method !== 'GET' && !safeEqual(req.headers['x-keyra-csrf'], sess.csrf)) fail(403, 'csrf', 'Missing or invalid CSRF token');
-    lastActivity = Date.now();
+    if (m.route !== 'totp' && m.route !== 'ble') lastActivity = Date.now(); // polls are not the user (handleApi)
   }
 
   let b = {};

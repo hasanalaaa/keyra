@@ -5,8 +5,8 @@ import { Icon, KeyGlyph, type IconName } from './Icon';
 import { Button, Notice } from './ui';
 import { clock, t } from '../lib/i18n';
 import { useNow } from '../lib/actions';
-import { defaultTarget, deviceLabel } from '../lib/ble';
-import type { BleInfo, DeviceState } from '../lib/types';
+import { deviceLabel } from '../lib/ble';
+import type { DeviceState } from '../lib/types';
 
 const C = 553; // 2πr for r = 88
 
@@ -116,7 +116,7 @@ export function readyText(device: DeviceState | null, body: string): { title: st
 }
 
 /** Under the Ready ring: where the keystrokes will go (SPEC §8.1). USB, the default, needs no note. */
-export function HostNotice({ device, ble }: { device: DeviceState; ble: BleInfo | null }) {
+export function HostNotice({ device }: { device: DeviceState }) {
   if (device.host.connecting) return null; // the title already says it
   const target = device.host.bleTarget;
   if (target)
@@ -125,21 +125,16 @@ export function HostNotice({ device, ble }: { device: DeviceState; ble: BleInfo 
         {t('readyViaBle', { name: deviceLabel(target, t('bleDevice')) })}
       </Notice>
     );
-  if (device.pending?.target === 'usb') return null;
-  if (device.host.output === null)
+  // Until the device reports the armed action, say nothing rather than guess
+  // (a guess named the Bluetooth device for a moment when USB was chosen).
+  const p = device.pending;
+  if (!p || p.target === 'usb') return null;
+  if (!p.target)
     return (
       <Notice tone="warn" icon="usb">
         {t('readyNoHost')}
       </Notice>
     );
-  if (device.host.output === 'ble') {
-    const addr = defaultTarget('ble', ble);
-    return (
-      <Notice tone="accent" icon="bluetooth">
-        {t('readyViaBle', { name: deviceLabel(ble?.bonds.find((b) => b.addr === addr), t('bleDevice')) })}
-      </Notice>
-    );
-  }
   return null;
 }
 

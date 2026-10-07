@@ -2,7 +2,7 @@
 import { passphraseOk } from '../lib/limits';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { KeyGlyph, LogoTile } from '../components/Icon';
-import { Button, SecretField, TextField } from '../components/ui';
+import { Button, SecretField, TextField, Notice } from '../components/ui';
 import { QrPhoto } from '../components/QrPhoto';
 import { combineShares, parseKey, parseShare, toHex } from '../lib/recovery';
 import { Alert } from '../components/Sheet';
@@ -241,6 +241,9 @@ function RecoverForm({ onBack }: { onBack: () => void }) {
   const now = useNow(retryUntil > Date.now(), 500);
   const waiting = retryUntil > now;
   const passOk = passphraseOk(pass) && pass === pass2;
+  // A key or share problem belongs to the key, not to the passphrase fields;
+  // it goes away as soon as the key or shares change.
+  useEffect(() => setError(null), [keyText, shares, mode]);
 
   const send = async (hex: string) => {
     setBusy(true);
@@ -346,8 +349,9 @@ function RecoverForm({ onBack }: { onBack: () => void }) {
         value={pass2}
         onValue={setPass2}
         autocomplete="new-password"
-        error={pass2 && pass !== pass2 ? t('mismatch') : waiting ? t('rateLimited', { t: clock(retryUntil - now) }) : error}
+        error={pass2 && pass !== pass2 ? t('mismatch') : null}
       />
+      {(waiting || error) && <Notice tone="err">{waiting ? t('rateLimited', { t: clock(retryUntil - now) }) : error}</Notice>}
       <Button type="submit" size="lg" full loading={busy} disabled={!passOk || waiting}>
         {t('recoverSubmit')}
       </Button>

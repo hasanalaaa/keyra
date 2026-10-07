@@ -102,7 +102,9 @@ export function useTypeAction(id: number, free: 'test' | 'text' = 'test') {
     return () => clearTimeout(h);
   }, [outcome]);
 
+  const lastWhat = useRef<What | null>(null);
   const start = async (what: What, target?: string, text?: TypeTextRequest): Promise<boolean> => {
+    lastWhat.current = what;
     setOutcome(null);
     try {
       const startedAt = Date.now();
@@ -138,7 +140,9 @@ export function useTypeAction(id: number, free: 'test' | 'text' = 'test') {
   if (outcome) phase = outcome;
   else if (act) phase = act.goneAt ? { kind: 'typing' } : { kind: 'ready', deadline: act.deadline, total: act.total };
 
-  return { phase, what: act?.what ?? null, start, cancel, dismiss: () => setOutcome(null) };
+  // After a result the action is gone, but "Try again" / "Copy instead" still
+  // need to know which field it was.
+  return { phase, what: act?.what ?? lastWhat.current, start, cancel, dismiss: () => setOutcome(null) };
 }
 
 export type PresencePhase =

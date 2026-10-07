@@ -1138,7 +1138,10 @@ esp_err_t handleApi(httpd_req_t* r, Method method, std::string_view path) {
     if (needsCsrf(method, c.match.route) &&
         !constantTimeEqual(http::header(r, "X-Keyra-CSRF", 2 * kTokenBytes), *csrf))
       return http::sendError(r, http::k403, "csrf", "Missing or invalid CSRF token");
-    sessions().activity(monoMs());
+    // What the app polls on its own (a 2FA code refreshing every 30 s, the
+    // Bluetooth device list) is not the user being there: it would keep an
+    // open account from ever auto-locking.
+    if (c.match.route != Route::EntryTotp && c.match.route != Route::GetBle) sessions().activity(monoMs());
   }
 
   if (takesBody(c.match.route)) {

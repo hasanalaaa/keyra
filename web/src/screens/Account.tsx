@@ -125,7 +125,7 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
             {t(CHIP[what])} · <bdi>{e.title}</bdi>
           </>
         }
-        notice={app.device ? <HostNotice device={app.device} ble={app.ble} /> : undefined}
+        notice={app.device ? <HostNotice device={app.device} /> : undefined}
         onCancel={() => void action.cancel()}
       />
     );
@@ -149,7 +149,7 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
           </div>
         )}
         <HostLangRow key={hostTarget ?? ''} target={hostTarget} os={osOf(hostTarget, app.device?.host.usbOs, app.ble)} />
-        <button type="button" class="act-both" disabled={!e.hasPassword} onClick={() => startAction('both')}>
+        <button type="button" class="act-both" disabled={!e.hasPassword || !e.username} onClick={() => startAction('both')}>
           <span class="both-icons" aria-hidden="true">
             <Icon name="user" size={24} />
             <Icon name="key-round" size={24} />
@@ -356,7 +356,7 @@ function Details({ entry, reveal }: { entry: Entry | null; reveal: () => Promise
       {entry.notes && (
         <div class="kv-row kv-notes">
           <span class="kv-label">{t('notes')}</span>
-          <p class={`notes${notesOpen ? ' open' : ''}`} dir="auto">
+          <p class={`notes${notesOpen ? ' open' : ''}`}>
             {entry.notes}
           </p>
           {!notesOpen && entry.notes.split('\n').length + entry.notes.length / 60 > 3 && (

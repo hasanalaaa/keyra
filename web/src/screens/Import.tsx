@@ -1,5 +1,7 @@
 // CSV import (DESIGN §5.7): source → instructions → preview → batches (≤ 50 entries, ≤ 48 KiB) → result.
 import { batches } from '../lib/batch';
+import { fitEntry } from '../lib/limits';
+import { normalizeTotp } from '../lib/totp';
 import { useRef, useState } from 'preact/hooks';
 import { Icon } from '../components/Icon';
 import { QR_ERRORS, QrPhoto } from '../components/QrPhoto';
@@ -8,7 +10,7 @@ import { Sheet, type SheetCtl } from '../components/Sheet';
 import { api } from '../lib/api';
 import { dupKey, parseExport, type ImportEntry, type Source } from '../lib/csv';
 import { errorText, isLockedError } from '../lib/errors';
-import { t, type Key } from '../lib/i18n';
+import { accountCount, t, type Key } from '../lib/i18n';
 import { accountKey, parseQrText, titleOf, toOtpauth, type OtpAccount, type OtpError } from '../lib/qrImport';
 import { back } from '../lib/router';
 import { loadEntries, toast, useApp } from '../lib/store';
@@ -55,9 +57,9 @@ type Step =
   | { s: 'qr'; q: QrState }
   | { s: 'qrPreview'; q: QrState }
   | { s: 'file'; src: (typeof SOURCES)[number]; bad?: boolean }
-  | { s: 'preview'; entries: ImportEntry[]; dups: number; noPw: number }
+  | { s: 'preview'; entries: ImportEntry[]; dups: number; noPw: number; tooLong: number; shortened: number; droppedTotp: number }
   | { s: 'progress'; done: number; total: number }
-  | { s: 'result'; added: number; attached?: number; qr?: boolean };
+  | { s: 'result'; added: number; skipped?: number; attached?: number; qr?: boolean };
 
 export function ImportSheet() {
   const app = useApp();
@@ -70,15 +72,28 @@ export function ImportSheet() {
     const parsed = parseExport(await f.text());
     if (fileInput.current) fileInput.current.value = '';
     if (!parsed || parsed.entries.length === 0) return setStep({ s: 'file', src, bad: true });
+    // Fit every row to the device's limits now, so the preview says what will happen.
+    const entries: ImportEntry[] = [];
+    let tooLong = 0, shortened = 0, droppedTotp = 0;
+    for (const raw of parsed.entries) {
+      const r = fitEntry(raw, normalizeTotp);
+      if (!r.entry) {
+        tooLong++;
+        continue;
+      }
+      if (r.shortened) shortened++;
+      if (r.droppedTotp) droppedTotp++;
+      entries.push(r.entry);
+    }
     const existing = new Set((app.entries ?? []).map(dupKey));
     const seen = new Set<string>();
     let dups = 0;
-    for (const e of parsed.entries) {
+    for (const e of entries) {
       const k = dupKey(e);
       if (existing.has(k) || seen.has(k)) dups++;
       seen.add(k);
     }
-    setStep({ s: 'preview', entries: parsed.entries, dups, noPw: parsed.entries.filter((e) => !e.password).length });
+    setStep({ s: 'preview', entries, dups, noPw: entries.filter((e) => !e.password).length, tooLong, shortened, droppedTotp });
   };
 
   const onQr = (text: string, prev: QrState | null) => {
@@ -101,6 +116,7 @@ export function ImportSheet() {
 
   const run = async (entries: ImportEntry[], attach: { id: number; totp: string }[] = [], qr = false) => {
     let added = 0;
+    let skipped = 0;
     let attached = 0;
     const total = entries.length + attach.length;
     setStep({ s: 'progress', done: 0, total });
@@ -113,6 +129,7 @@ export function ImportSheet() {
       for (const part of batches(entries)) {
         const r = await api.importBatch(part);
         added += r.added;
+        skipped += r.skipped;
         sent += part.length;
         setStep({ s: 'progress', done: attached + sent, total });
       }
@@ -120,7 +137,7 @@ export function ImportSheet() {
       if (!isLockedError(e)) toast(errorText(e), 'error');
     }
     await loadEntries();
-    setStep({ s: 'result', added, attached, qr });
+    setStep({ s: 'result', added, skipped, attached, qr });
   };
 
   const busy = step.s === 'progress';
@@ -208,19 +225,22 @@ export function ImportSheet() {
         {step.s === 'preview' && (
           <>
             <div class="card summary">
-              <p class="t2">{t('found', { n: step.entries.length })}</p>
+              <p class="t2">{t('found', { c: accountCount(step.entries.length + step.tooLong) })}</p>
               {step.dups > 0 && <p class="callout">{t('duplicates', { d: step.dups })}</p>}
               {step.noPw > 0 && <p class="callout">{t('noPw', { m: step.noPw })}</p>}
+              {step.tooLong > 0 && <p class="callout">{t('importTooLong', { n: step.tooLong })}</p>}
+              {step.shortened > 0 && <p class="callout">{t('importShortened', { n: step.shortened })}</p>}
+              {step.droppedTotp > 0 && <p class="callout">{t('importBadTotp', { n: step.droppedTotp })}</p>}
               <ul class="preview-list">
                 {step.entries.slice(0, 5).map((e, i) => (
-                  <li key={i} dir="auto">
-                    {e.title}
+                  <li key={i}>
+                    <bdi>{e.title}</bdi>
                   </li>
                 ))}
               </ul>
             </div>
             <Button size="lg" full onClick={() => void run(step.entries)}>
-              {t('importN', { n: step.entries.length })}
+              {t('importN', { n: step.entries.length - step.dups })}
             </Button>
           </>
         )}
@@ -237,11 +257,14 @@ export function ImportSheet() {
             {step.qr ? (
               <>
                 {step.added === 0 && !step.attached && <p class="t2">{t('qrNothing')}</p>}
-                {step.added > 0 && <p class="t2">{t('imported', { a: step.added })}</p>}
+                {step.added > 0 && <p class="t2">{t('imported', { c: accountCount(step.added) })}</p>}
                 {!!step.attached && <p class="t2">{t('qrAttached', { u: step.attached })}</p>}
               </>
             ) : (
-              <p class="t2">{t('imported', { a: step.added })}</p>
+              <>
+                <p class="t2">{t('imported', { c: accountCount(step.added) })}</p>
+                {!!step.skipped && <p class="callout">{t('importSkipped', { n: step.skipped })}</p>}
+              </>
             )}
             <Notice tone="warn">{t(step.qr ? 'deleteQr' : 'deleteCsv')}</Notice>
             <Button size="lg" full onClick={() => ctl.current?.close()}>

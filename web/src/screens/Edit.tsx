@@ -16,6 +16,7 @@ import { parseQrText, titleOf, toOtpauth, type OtpAccount } from '../lib/qrImpor
 import { normalizeTotp } from '../lib/totp';
 import { loadEntries, toast } from '../lib/store';
 import type { EntryInput } from '../lib/types';
+import { ENTRY_MAX, bytes } from '../lib/limits';
 
 const EMPTY: EntryInput = { title: '', url: '', username: '', password: '', totp: '', notes: '', favorite: false };
 
@@ -57,7 +58,11 @@ export function EditAccount({ id }: { id?: number }) {
   const blur = (k: string) => () => setTouched((x) => ({ ...x, [k]: true }));
   const dirty = initial !== null && (Object.keys(form) as (keyof EntryInput)[]).some((k) => form[k] !== initial[k]);
   const totpNorm = normalizeTotp(form.totp);
-  const nameErr = !form.title.trim() ? t('nameRequired') : null;
+  // The device's per-field limits (bytes): say which field is too long instead
+  // of a generic "couldn't save" after the round trip.
+  const over = (k: keyof typeof ENTRY_MAX) => (bytes(form[k]) > ENTRY_MAX[k] ? t('tooLongField', { n: ENTRY_MAX[k] }) : null);
+  const tooLong = (['title', 'url', 'username', 'password', 'totp', 'notes'] as const).some((k) => over(k));
+  const nameErr = !form.title.trim() ? t('nameRequired') : over('title');
   const totpErr = totpNorm === null ? t('totpError') : null;
   const bad = useMemo(() => untypeable(form.password), [form.password]);
 
@@ -80,7 +85,7 @@ export function EditAccount({ id }: { id?: number }) {
 
   const save = async () => {
     setTouched({ title: true, totp: true });
-    if (nameErr || totpErr || saving || !initial) return;
+    if (nameErr || totpErr || tooLong || saving || !initial) return;
     setSaving(true);
     const body: EntryInput = { ...form, title: form.title.trim(), url: form.url.trim(), username: form.username.trim(), totp: totpNorm ?? '' };
     try {
@@ -134,7 +139,7 @@ export function EditAccount({ id }: { id?: number }) {
         return false;
       }}
       start={
-        <Button variant="ghost" size="sm" class="save-btn" disabled={!form.title.trim() || saving || !initial} onClick={() => void save()}>
+        <Button variant="ghost" size="sm" class="save-btn" disabled={!form.title.trim() || tooLong || saving || !initial} onClick={() => void save()}>
           {t('save')}
         </Button>
       }
@@ -160,8 +165,8 @@ export function EditAccount({ id }: { id?: number }) {
         }}
       >
         <TextField label={t('name')} placeholder={t('namePh')} value={form.title} onValue={set('title')} onBlur={blur('title')} error={touched.title ? nameErr : null} enterkeyhint="next" />
-        <TextField label={t('websiteOpt')} placeholder="example.com" value={form.url} onValue={set('url')} ltr inputMode="url" autocapitalize="off" spellcheck={false} enterkeyhint="next" />
-        <TextField label={t('username')} value={form.username} onValue={(v) => set('username')(toTypeable(v))} ltr autocorrect="off" autocapitalize="off" spellcheck={false} enterkeyhint="next" />
+        <TextField label={t('websiteOpt')} placeholder="example.com" value={form.url} onValue={set('url')} error={over('url')} ltr inputMode="url" autocapitalize="off" spellcheck={false} enterkeyhint="next" />
+        <TextField label={t('username')} value={form.username} onValue={(v) => set('username')(toTypeable(v))} error={over('username')} ltr autocorrect="off" autocapitalize="off" spellcheck={false} enterkeyhint="next" />
         <div class="pw-block">
           <SecretField
             label={t('password')}
@@ -172,6 +177,7 @@ export function EditAccount({ id }: { id?: number }) {
             helper={form.password ? <StrengthMeter value={form.password} /> : undefined}
           />
           {bad.length > 0 && <Notice tone="warn">{t('unsupportedChar', { c: bad.join(' ') })}</Notice>}
+          {over('password') && <Notice tone="err">{over('password')}</Notice>}
           <Button variant="ghost" size="sm" icon="wand-sparkles" class="gen-toggle" onClick={() => setGen(!gen)}>
             {t('createPassword')}
           </Button>
@@ -195,7 +201,7 @@ export function EditAccount({ id }: { id?: number }) {
             autocapitalize="off"
             spellcheck={false}
             helper={t('totpHelper')}
-            error={touched.totp ? totpErr : null}
+            error={(touched.totp ? totpErr : null) ?? over('totp')}
             enterkeyhint="next"
           />
           <QrPhoto label={t('scanQr')} onText={onQr} onNone={() => setQrError(t('qrNone'))} />
@@ -211,6 +217,11 @@ export function EditAccount({ id }: { id?: number }) {
             el.style.blockSize = 'auto';
             el.style.blockSize = `${Math.min(el.scrollHeight, 8 * 27 + 28)}px`;
           }} />
+          {over('notes') && (
+            <p class="field-help field-error" role="alert">
+              {over('notes')}
+            </p>
+          )}
         </div>
         <div class="card">
           <SwitchRow label={t('addToFavorites')} checked={form.favorite} onChange={set('favorite')} />

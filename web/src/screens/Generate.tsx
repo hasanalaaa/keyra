@@ -125,7 +125,8 @@ export function GenerateSheet() {
             onInput={(e) => setQ(e.currentTarget.value)}
           />
         </label>
-        <ul class="card rows">
+        {results.length === 0 && q.trim() !== '' && <p class="callout center">{t('noMatchTitle')}</p>}
+        <ul class="card rows" hidden={results.length === 0}>
           {results.map((e) => (
             <li key={e.id}>
               <button type="button" class="row acc-row" data-id={e.id} onClick={() => setTarget(e)}>
