@@ -3,10 +3,23 @@
 //
 // On-flash layout (paths relative to the vault filesystem root):
 //
-//   meta.bin   "KYR1" | u8 version=1 | u32 kdfIterations (LE) | salt[16] | iv[12]
-//              | wrappedDEK[32] | tag[16]                                  (85 bytes)
-//              wrappedDEK = AES-256-GCM(KEK, iv, AAD "keyra/meta/v1", DEK),
-//              KEK = PBKDF2-HMAC-SHA256(passphrase, salt, kdfIterations, 32)
+//   meta.bin   "KYR1" | u8 version=2 | u8 count | count × wrap        (SPEC §12.1)
+//              wrap = u8 kind | u8 len | body[len]; each kind at most once.
+//              Every wrap seals the same 32-byte DEK with AES-256-GCM:
+//     kind 1 passphrase (required, len 80): u32 kdfIterations (LE) | salt[16]
+//              | iv[12] | wrappedDEK[32] | tag[16]
+//              KEK = PBKDF2-HMAC-SHA256(passphrase, salt, kdfIterations, 32),
+//              AAD "keyra/meta/v1"
+//     kind 2 recovery (optional, len 84): i64 created (unix s, LE) | salt[16]
+//              | iv[12] | wrappedDEK[32] | tag[16]
+//              KEK = HKDF-SHA256(ikm = 20-byte recovery key, salt,
+//              info "keyra/recovery/v1"), AAD "keyra/wrap/recovery/v1"
+//     kind 3 reserved for a device-bound wrap (eFuse HMAC key); not written yet.
+//              Any other kind, a duplicate or a missing passphrase wrap is Corrupt:
+//              firmware never drops a wrap it does not understand.
+//              Version 1 (85 bytes: "KYR1" | 1 | the kind-1 body) is read as a
+//              list of one passphrase wrap and rewritten as version 2 by the next
+//              successful unlock.
 //   e/<id>.bin u8 version=1 | iv[12] | ciphertext | tag[16]
 //              <id> = 8 lowercase hex digits; AAD = "keyra/e/v1/" + <id>;
 //              plaintext = entry_codec.hpp encoding
@@ -24,6 +37,7 @@
 
 #include <array>
 #include <atomic>
+#include <functional>
 #include <mutex>
 #include <vector>
 
@@ -59,6 +73,11 @@ class Vault {
   Status remove(uint32_t id);
   Status touch(uint32_t id, int64_t now);
   Status changePassphrase(const std::string& cur, const std::string& next);
+  Status createRecovery(int64_t now, RecoveryKey& out);
+  Status removeRecovery();
+  RecoveryInfo recoveryInfo();
+  Status recover(const RecoveryKey& key, const std::string& next, uint32_t* retryAfterMs);
+  Status checkRecovery(const RecoveryKey& key, uint32_t* retryAfterMs);
   Status exportBackup(const std::string& backupPass, std::string& outJson);
   Status importBackup(const std::string& backupPass, const std::string& json, bool replace,
                       size_t* added, size_t* updated);
@@ -74,11 +93,23 @@ class Vault {
   Crypto& crypto() { return p_.crypto; }
 
  private:
-  struct Meta {
+  struct PassWrap {
     uint32_t iterations = 0;
     uint8_t salt[16] = {};
     uint8_t iv[12] = {};
     uint8_t wrapped[48] = {};  // DEK ciphertext || tag
+  };
+  struct RecoveryWrap {
+    int64_t created = 0;
+    uint8_t salt[16] = {};
+    uint8_t iv[12] = {};
+    uint8_t wrapped[48] = {};
+  };
+  struct Meta {
+    uint8_t version = 2;  // as read from flash; 1 is migrated on unlock
+    PassWrap pass;
+    bool hasRecovery = false;
+    RecoveryWrap recovery;
   };
   struct Slot {
     uint32_t id;
@@ -94,9 +125,15 @@ class Vault {
   Status removeAllEntryFiles();
   uint32_t calibrateIterations();
   Status deriveKey(const std::string& pass, const uint8_t salt[16], uint32_t iters, Key& out);
-  Status wrapDek(const std::string& pass, uint32_t iters, const Key& dek, Meta& out);
-  // Rate limit + counter + KDF + unwrap. Ok → dek holds the key.
+  Status wrapDek(const std::string& pass, uint32_t iters, const Key& dek, PassWrap& out);
+  Status recoveryKek(const RecoveryKey& key, const uint8_t salt[16], Key& out);
+  // Rate limit + counter + unwrap. `open` derives a KEK and opens one wrap into
+  // dek (Ok, WrongPassphrase or an error). Ok → dek holds the key.
+  Status attempt(const std::function<Status(Key& dek)>& open, Key& dek, uint32_t* retryAfterMs);
   Status attempt(const std::string& pass, Key& dek, uint32_t* retryAfterMs);
+  Status attempt(const RecoveryKey& key, Key& dek, uint32_t* retryAfterMs);
+  Status openWrap(const Key& kek, const uint8_t iv[12], const char* aad, const uint8_t wrapped[48], Key& dek);
+  Status finishUnlock(Key& dek);  // dek → dek_, entries loaded, v1 meta migrated
   Status loadEntries();
   Status persist(uint32_t id, const SecureBuf& plain);
   Status store(Entry& rec);  // encode + persist + update RAM slot

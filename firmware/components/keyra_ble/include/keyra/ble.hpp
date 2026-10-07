@@ -57,6 +57,9 @@ void want(const Addr& host);  // an action is armed for this bonded host
 void done();                  // typed (or failed): keep the link briefly, then let go
 void drop();                  // cancelled / expired / locked: let go now
 std::optional<Addr> linked(); // the bonded host on an encrypted link, if any
+// The bonded host whose encrypted link last ended without Keyra ending it
+// (out of range, Bluetooth off, host asleep); consumed by the call.
+std::optional<Addr> takeLost();
 
 enum class PairResult { Ok, Disabled, BondsFull, Unavailable };
 PairResult canPair();       // checked before arming the button press

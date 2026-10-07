@@ -4,6 +4,7 @@
 // Entry copies are the caller's responsibility to wipe (see keyra::vault::wipe).
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -63,6 +64,26 @@ Status put(Entry& e);
 Status remove(uint32_t id);
 Status touch(uint32_t id, int64_t now);  // lastUsed
 Status changePassphrase(const std::string& cur, const std::string& next);
+
+// Recovery key (SPEC §12.2): a random key from the hardware RNG that wraps a
+// second copy of the DEK, so a forgotten passphrase is not the end of the data.
+inline constexpr size_t kRecoveryKeyBytes = 20;  // 160 bits
+using RecoveryKey = std::array<uint8_t, kRecoveryKeyBytes>;
+struct RecoveryInfo {
+  bool enabled = false;
+  int64_t created = 0;  // unix seconds (0 = unknown)
+};
+// Unlocked only. Replaces any earlier recovery key; `out` is the only copy that
+// ever leaves the vault (the caller shows it once and wipes it).
+Status createRecovery(int64_t now, RecoveryKey& out);
+Status removeRecovery();  // unlocked only; NotFound when there is none
+RecoveryInfo recoveryInfo();
+// Proves `key` (throttled and counted exactly like a wrong passphrase), then
+// re-wraps the DEK under `next` (the old passphrase stops working) and leaves
+// the vault unlocked. The recovery key stays valid. checkRecovery() only proves it.
+Status recover(const RecoveryKey& key, const std::string& next, uint32_t* retryAfterMs);
+Status checkRecovery(const RecoveryKey& key, uint32_t* retryAfterMs);
+
 Status exportBackup(const std::string& backupPass, std::string& outJson);
 Status importBackup(const std::string& backupPass, const std::string& json, bool replace,
                     size_t* added, size_t* updated);

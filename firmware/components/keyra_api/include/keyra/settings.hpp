@@ -46,6 +46,12 @@ struct Settings {
   // Auto-type sequence for "Both" on entries without their own (SPEC §10.4);
   // empty = username, separator, password (+ Enter when submitAfterBoth).
   std::string bothSequence;
+  // SPEC §12.3-12.5: secrets reach a browser only after a press; lock when the
+  // computer Keyra was used with goes away; when the last backup was saved.
+  bool protectReveal = true;
+  bool lockOnUsb = true;
+  bool lockOnBle = false;
+  int64_t lastBackupAt = 0;  // unix seconds, 0 = never (or no clock then)
 };
 
 constexpr uint8_t kMinAutoLockMin = 1, kMaxAutoLockMin = 120;

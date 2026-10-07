@@ -148,13 +148,13 @@ export function FreeTextStatus({ phase, chip, body, retry, close, cancel }: { ph
   if (phase.kind === 'idle') return null;
   if (phase.kind === 'error') {
     const c = phase.code;
-    const warn = c === 'no_usb' || c === 'no_host' || c === 'expired';
+    const warn = c === 'no_usb' || c === 'no_host' || c === 'expired' || c === 'host_changed';
     return (
       <ErrorCard
         icon={c === 'no_usb' ? 'usb' : c === 'no_host' ? 'bluetooth' : c === 'expired' ? 'clock' : 'triangle-alert'}
         tone={warn ? 'warn' : 'err'}
-        title={c === 'no_usb' ? t('errNoUsbTitle') : c === 'no_host' ? t('errNoHostTitle') : c === 'expired' ? t('errExpiredTitle') : t('errFailedTitle')}
-        body={c === 'no_usb' ? t('errNoUsbBody') : c === 'no_host' ? t('errNoHostBody') : c === 'expired' ? t('errExpiredBody') : t('errFailedBody')}
+        title={c === 'no_usb' ? t('errNoUsbTitle') : c === 'no_host' ? t('errNoHostTitle') : c === 'expired' ? t('errExpiredTitle') : c === 'host_changed' ? t('errHostChangedTitle') : t('errFailedTitle')}
+        body={c === 'no_usb' ? t('errNoUsbBody') : c === 'no_host' ? t('errNoHostBody') : c === 'expired' ? t('errExpiredBody') : c === 'host_changed' ? t('errHostChangedBody') : t('errFailedBody')}
         primary={{ label: t('tryAgain'), run: retry }}
         ghost={{ label: t('close'), run: close }}
       />

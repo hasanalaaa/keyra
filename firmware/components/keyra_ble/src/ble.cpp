@@ -76,6 +76,7 @@ Demand g_demand;
 std::string g_name;
 Window g_window;
 Link g_link;
+std::optional<Addr> g_lost;  // a bonded host whose link ended without Keyra ending it
 std::vector<peers::Key> g_bondKeys;  // NimBLE's bond store, refreshed on the host task
 std::vector<Peer> g_bonds;           // same order, with names for status()
 ForgetReq g_forgetReq;
@@ -362,7 +363,12 @@ void onConnect(int status, uint16_t conn) {
 void onDisconnect(uint16_t conn, int reason) {
   {
     std::lock_guard<std::mutex> lock(g_mu);
-    if (g_link.conn == conn) g_link = Link{};
+    if (g_link.conn == conn) {
+      // Keyra ending its own link (on-demand linger, cancel, lock) is routine;
+      // anything else means the host went away (SPEC §12.4 auto-lock).
+      if (g_link.trusted() && reason != BLE_HS_ERR_HCI_BASE + BLE_ERR_CONN_TERM_LOCAL) g_lost = g_link.peer.addr;
+      g_link = Link{};
+    }
   }
   if (t_repairing == conn) t_repairing = BLE_HS_CONN_HANDLE_NONE;
   gatt::resetLink();
@@ -676,6 +682,13 @@ void drop() {
     g_demand.drop();
   }
   kick();
+}
+
+std::optional<Addr> takeLost() {
+  std::lock_guard<std::mutex> lock(g_mu);
+  const std::optional<Addr> a = g_lost;
+  g_lost.reset();
+  return a;
 }
 
 std::optional<Addr> linked() {

@@ -94,6 +94,10 @@ esp_err_t load() {
     s.osUsb = readString(h, "osUsb", s.osUsb);
     s.osBle = readString(h, "osBle", s.osBle);
     s.bothSequence = readString(h, "bothSeq", s.bothSequence);
+    s.protectReveal = readInt<uint8_t>(h, "revealBtn", s.protectReveal, nvs_get_u8) != 0;
+    s.lockOnUsb = readInt<uint8_t>(h, "lockUsb", s.lockOnUsb, nvs_get_u8) != 0;
+    s.lockOnBle = readInt<uint8_t>(h, "lockBle", s.lockOnBle, nvs_get_u8) != 0;
+    s.lastBackupAt = readInt<int64_t>(h, "lastBackup", s.lastBackupAt, nvs_get_i64);
     nvs_close(h);
   } else if (err != ESP_ERR_NVS_NOT_FOUND) {
     ESP_LOGE(TAG, "nvs_open: %s", esp_err_to_name(err));
@@ -133,6 +137,10 @@ esp_err_t save(const Settings& s) {
   if (err == ESP_OK) err = nvs_set_str(h, "osUsb", s.osUsb.c_str());
   if (err == ESP_OK) err = nvs_set_str(h, "osBle", s.osBle.c_str());
   if (err == ESP_OK) err = nvs_set_str(h, "bothSeq", s.bothSequence.c_str());
+  if (err == ESP_OK) err = nvs_set_u8(h, "revealBtn", s.protectReveal ? 1 : 0);
+  if (err == ESP_OK) err = nvs_set_u8(h, "lockUsb", s.lockOnUsb ? 1 : 0);
+  if (err == ESP_OK) err = nvs_set_u8(h, "lockBle", s.lockOnBle ? 1 : 0);
+  if (err == ESP_OK) err = nvs_set_i64(h, "lastBackup", s.lastBackupAt);
   if (err == ESP_OK) err = nvs_commit(h);
   nvs_close(h);
   ESP_RETURN_ON_ERROR(err, TAG, "write");

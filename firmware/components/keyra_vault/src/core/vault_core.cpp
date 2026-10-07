@@ -14,10 +14,14 @@ namespace {
 
 constexpr char kMetaPath[] = "meta.bin";
 constexpr char kEntryDir[] = "e";
-constexpr char kMetaAad[] = "keyra/meta/v1";
+constexpr char kMetaAad[] = "keyra/meta/v1";  // the passphrase wrap keeps its v1 AAD
+constexpr char kRecoveryAad[] = "keyra/wrap/recovery/v1";
+constexpr char kRecoveryInfo[] = "keyra/recovery/v1";
 constexpr uint8_t kMagic[4] = {'K', 'Y', 'R', '1'};
-constexpr uint8_t kMetaVersion = 1, kEntryVersion = 1;
-constexpr size_t kMetaSize = 4 + 1 + 4 + 16 + 12 + 48;
+constexpr uint8_t kEntryVersion = 1;
+constexpr uint8_t kWrapPass = 1, kWrapRecovery = 2;  // 3: reserved (device-bound)
+constexpr size_t kPassBody = 4 + 16 + 12 + 48, kRecoveryBody = 8 + 16 + 12 + 48;
+constexpr size_t kMetaV1Size = 4 + 1 + kPassBody;
 constexpr size_t kEntryOverhead = 1 + 12 + 16;
 constexpr uint32_t kCalibrationIterations = 10000;
 constexpr uint64_t kCalibrationTargetMs = 1200;
@@ -122,6 +126,17 @@ Status Vault::init() {
   return Status::Ok;
 }
 
+namespace {
+uint64_t getLe(const uint8_t* p, int n) {
+  uint64_t v = 0;
+  for (int i = n - 1; i >= 0; --i) v = v << 8 | p[i];
+  return v;
+}
+void putLe(uint8_t* p, uint64_t v, int n) {
+  for (int i = 0; i < n; ++i) p[i] = uint8_t(v >> (8 * i));
+}
+}  // namespace
+
 Status Vault::loadMeta() {
   std::vector<uint8_t> b;
   switch (p_.storage.read(kMetaPath, b)) {
@@ -129,29 +144,77 @@ Status Vault::loadMeta() {
     case Storage::Read::Error: return Status::StorageError;
     case Storage::Read::Ok: break;
   }
-  if (b.size() != kMetaSize || std::memcmp(b.data(), kMagic, 4) != 0 || b[4] != kMetaVersion)
-    return Status::Corrupt;
+  if (b.size() < 6 || std::memcmp(b.data(), kMagic, 4) != 0) return Status::Corrupt;
   Meta m;
-  const uint8_t* p = b.data() + 5;
-  m.iterations = uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24;
-  p += 4;
-  if (m.iterations == 0 || m.iterations > backup::kMaxIterations) return Status::Corrupt;
-  std::memcpy(m.salt, p, 16);
-  std::memcpy(m.iv, p + 16, 12);
-  std::memcpy(m.wrapped, p + 28, 48);
+  m.version = b[4];
+  bool hasPass = false;
+  auto readPass = [&](const uint8_t* p) {
+    m.pass.iterations = uint32_t(getLe(p, 4));
+    std::memcpy(m.pass.salt, p + 4, 16);
+    std::memcpy(m.pass.iv, p + 20, 12);
+    std::memcpy(m.pass.wrapped, p + 32, 48);
+    hasPass = true;
+  };
+  if (m.version == 1) {
+    if (b.size() != kMetaV1Size) return Status::Corrupt;
+    readPass(b.data() + 5);
+  } else if (m.version == 2) {
+    size_t at = 6;
+    for (uint8_t i = 0; i < b[5]; ++i) {
+      if (at + 2 > b.size()) return Status::Corrupt;
+      const uint8_t kind = b[at], len = b[at + 1];
+      const uint8_t* body = b.data() + at + 2;
+      at += 2 + size_t(len);
+      if (at > b.size()) return Status::Corrupt;
+      if (kind == kWrapPass && len == kPassBody && !hasPass) {
+        readPass(body);
+      } else if (kind == kWrapRecovery && len == kRecoveryBody && !m.hasRecovery) {
+        m.recovery.created = int64_t(getLe(body, 8));
+        std::memcpy(m.recovery.salt, body + 8, 16);
+        std::memcpy(m.recovery.iv, body + 24, 12);
+        std::memcpy(m.recovery.wrapped, body + 36, 48);
+        m.hasRecovery = true;
+      } else {
+        return Status::Corrupt;  // unknown kind, duplicate or bad length: never guess
+      }
+    }
+    if (at != b.size()) return Status::Corrupt;
+  } else {
+    return Status::Corrupt;
+  }
+  if (!hasPass || m.pass.iterations == 0 || m.pass.iterations > backup::kMaxIterations) return Status::Corrupt;
   meta_ = m;
   return Status::Ok;
 }
 
 Status Vault::writeMeta(const Meta& m) {
-  uint8_t b[kMetaSize];
-  std::memcpy(b, kMagic, 4);
-  b[4] = kMetaVersion;
-  for (int i = 0; i < 4; ++i) b[5 + i] = uint8_t(m.iterations >> (8 * i));
-  std::memcpy(b + 9, m.salt, 16);
-  std::memcpy(b + 25, m.iv, 12);
-  std::memcpy(b + 37, m.wrapped, 48);
-  return writeAtomic(kMetaPath, b, sizeof b);
+  std::vector<uint8_t> b(kMagic, kMagic + 4);
+  b.push_back(2);
+  b.push_back(m.hasRecovery ? 2 : 1);
+  b.push_back(kWrapPass);
+  b.push_back(uint8_t(kPassBody));
+  size_t at = b.size();
+  b.resize(at + kPassBody);
+  putLe(&b[at], m.pass.iterations, 4);
+  std::memcpy(&b[at + 4], m.pass.salt, 16);
+  std::memcpy(&b[at + 20], m.pass.iv, 12);
+  std::memcpy(&b[at + 32], m.pass.wrapped, 48);
+  if (m.hasRecovery) {
+    b.push_back(kWrapRecovery);
+    b.push_back(uint8_t(kRecoveryBody));
+    at = b.size();
+    b.resize(at + kRecoveryBody);
+    putLe(&b[at], uint64_t(m.recovery.created), 8);
+    std::memcpy(&b[at + 8], m.recovery.salt, 16);
+    std::memcpy(&b[at + 24], m.recovery.iv, 12);
+    std::memcpy(&b[at + 36], m.recovery.wrapped, 48);
+  }
+  Status s = writeAtomic(kMetaPath, b.data(), b.size());
+  if (s == Status::Ok) {
+    meta_ = m;
+    meta_.version = 2;
+  }
+  return s;
 }
 
 Status Vault::writeAtomic(const std::string& path, const uint8_t* data, size_t n) {
@@ -188,7 +251,7 @@ uint32_t Vault::calibrateIterations() {
   return uint32_t(std::clamp<uint64_t>(iters, kMinIterations, kMaxIterations));
 }
 
-Status Vault::wrapDek(const std::string& pass, uint32_t iters, const Key& dek, Meta& out) {
+Status Vault::wrapDek(const std::string& pass, uint32_t iters, const Key& dek, PassWrap& out) {
   out.iterations = iters;
   if (!p_.crypto.random(out.salt, 16) || !p_.crypto.random(out.iv, 12)) return Status::StorageError;
   Key kek;
@@ -220,13 +283,12 @@ Status Vault::setup(const std::string& passphrase) {
   Key dek;
   if (!p_.crypto.random(dek.data(), dek.size())) return Status::StorageError;
   Meta m;
-  Status s = wrapDek(passphrase, iters, dek, m);
+  Status s = wrapDek(passphrase, iters, dek, m.pass);
   if (s == Status::Ok) s = writeMeta(m);
   if (s != Status::Ok) {
     mem::zeroize(dek.data(), dek.size());
     return s;
   }
-  meta_ = m;
   dek_ = dek;
   mem::zeroize(dek.data(), dek.size());
   slots_.clear();
@@ -234,7 +296,33 @@ Status Vault::setup(const std::string& passphrase) {
   return Status::Ok;
 }
 
-Status Vault::attempt(const std::string& pass, Key& dek, uint32_t* retryAfterMs) {
+Status Vault::openWrap(const Key& kek, const uint8_t iv[12], const char* aad, const uint8_t wrapped[48],
+                       Key& dek) {
+  switch (p_.crypto.gcmOpen(kek.data(), iv, bytes(aad), std::strlen(aad), wrapped, 48, dek.data())) {
+    case Crypto::Open::Ok: return Status::Ok;
+    case Crypto::Open::AuthFailed: return Status::WrongPassphrase;
+    case Crypto::Open::Error: break;
+  }
+  return Status::StorageError;
+}
+
+// HKDF-SHA256 (RFC 5869) with one output block: the recovery key is uniformly
+// random, so no slow KDF is needed on top of it.
+Status Vault::recoveryKek(const RecoveryKey& key, const uint8_t salt[16], Key& out) {
+  uint8_t prk[64], t[64];
+  size_t n = 0;
+  uint8_t info[sizeof kRecoveryInfo];
+  std::memcpy(info, kRecoveryInfo, sizeof kRecoveryInfo - 1);
+  info[sizeof kRecoveryInfo - 1] = 0x01;
+  bool ok = p_.crypto.hmac(Hash::Sha256, salt, 16, key.data(), key.size(), prk, &n) && n == 32 &&
+            p_.crypto.hmac(Hash::Sha256, prk, 32, info, sizeof info, t, &n) && n == 32;
+  if (ok) std::memcpy(out.data(), t, 32);
+  mem::zeroize(prk, sizeof prk);
+  mem::zeroize(t, sizeof t);
+  return ok ? Status::Ok : Status::StorageError;
+}
+
+Status Vault::attempt(const std::function<Status(Key&)>& open, Key& dek, uint32_t* retryAfterMs) {
   uint64_t now = p_.clock.monotonicMs();
   if (now < lockedUntilMs_) {
     if (retryAfterMs) *retryAfterMs = uint32_t(std::min<uint64_t>(lockedUntilMs_ - now, UINT32_MAX));
@@ -245,28 +333,66 @@ Status Vault::attempt(const std::string& pass, Key& dek, uint32_t* retryAfterMs)
   if (!p_.counter.store(n)) return Status::StorageError;
   failures_ = n;
 
-  Key kek;
-  Status s = deriveKey(pass, meta_.salt, meta_.iterations, kek);
-  Crypto::Open r = Crypto::Open::Error;
-  if (s == Status::Ok)
-    r = p_.crypto.gcmOpen(kek.data(), meta_.iv, bytes(kMetaAad), std::strlen(kMetaAad),
-                          meta_.wrapped, sizeof meta_.wrapped, dek.data());
-  mem::zeroize(kek.data(), kek.size());
-  if (r != Crypto::Open::Ok) mem::zeroize(dek.data(), dek.size());
-  if (s != Status::Ok) return s;
-  if (r == Crypto::Open::Error) return Status::StorageError;
-  if (r == Crypto::Open::AuthFailed) {
+  Status s = open(dek);
+  if (s != Status::Ok) mem::zeroize(dek.data(), dek.size());
+  if (s == Status::WrongPassphrase) {
     uint32_t delay = unlockDelayMs(n);
     lockedUntilMs_ = p_.clock.monotonicMs() + delay;
     if (retryAfterMs) *retryAfterMs = delay;
-    return Status::WrongPassphrase;
+    return s;
   }
+  if (s != Status::Ok) return s;
   if (!p_.counter.store(0)) {
     mem::zeroize(dek.data(), dek.size());
     return Status::StorageError;
   }
   failures_ = 0;
   lockedUntilMs_ = 0;
+  return Status::Ok;
+}
+
+Status Vault::attempt(const std::string& pass, Key& dek, uint32_t* retryAfterMs) {
+  return attempt(
+      [&](Key& out) {
+        Key kek;
+        Status s = deriveKey(pass, meta_.pass.salt, meta_.pass.iterations, kek);
+        if (s == Status::Ok) s = openWrap(kek, meta_.pass.iv, kMetaAad, meta_.pass.wrapped, out);
+        mem::zeroize(kek.data(), kek.size());
+        return s;
+      },
+      dek, retryAfterMs);
+}
+
+Status Vault::attempt(const RecoveryKey& key, Key& dek, uint32_t* retryAfterMs) {
+  return attempt(
+      [&](Key& out) {
+        if (!meta_.hasRecovery) return Status::WrongPassphrase;  // indistinguishable from a wrong key
+        Key kek;
+        Status s = recoveryKek(key, meta_.recovery.salt, kek);
+        if (s == Status::Ok) s = openWrap(kek, meta_.recovery.iv, kRecoveryAad, meta_.recovery.wrapped, out);
+        mem::zeroize(kek.data(), kek.size());
+        return s;
+      },
+      dek, retryAfterMs);
+}
+
+Status Vault::finishUnlock(Key& dek) {
+  if (unlocked_) {  // another client proving the passphrase; state is already loaded
+    mem::zeroize(dek.data(), dek.size());
+    return Status::Ok;
+  }
+  dek_ = dek;
+  mem::zeroize(dek.data(), dek.size());
+  Status s = loadEntries();
+  if (s != Status::Ok) {
+    wipeKeys();
+    slots_.clear();
+    return s;
+  }
+  unlocked_ = true;
+  // A failed migration write is not fatal: version 1 stays readable and the
+  // next unlock tries again. Any real storage fault shows on the next entry write.
+  if (meta_.version == 1) (void)writeMeta(meta_);
   return Status::Ok;
 }
 
@@ -279,20 +405,79 @@ Status Vault::unlock(const std::string& passphrase, uint32_t* retryAfterMs) {
   Key dek;
   Status s = attempt(passphrase, dek, retryAfterMs);
   if (s != Status::Ok) return s;
-  if (unlocked_) {  // another client proving the passphrase; state is already loaded
-    mem::zeroize(dek.data(), dek.size());
-    return Status::Ok;
-  }
-  dek_ = dek;
+  return finishUnlock(dek);
+}
+
+Status Vault::checkRecovery(const RecoveryKey& key, uint32_t* retryAfterMs) {
+  std::lock_guard<std::mutex> g(m_);
+  if (retryAfterMs) *retryAfterMs = 0;
+  if (Status s = ready(); s != Status::Ok) return s;
+  if (!initialized_) return Status::NotInitialized;
+  Key dek;
+  Status s = attempt(key, dek, retryAfterMs);
   mem::zeroize(dek.data(), dek.size());
-  s = loadEntries();
+  return s;
+}
+
+Status Vault::recover(const RecoveryKey& key, const std::string& next, uint32_t* retryAfterMs) {
+  std::lock_guard<std::mutex> g(m_);
+  if (retryAfterMs) *retryAfterMs = 0;
+  if (Status s = ready(); s != Status::Ok) return s;
+  if (!initialized_) return Status::NotInitialized;
+  if (next.empty()) return Status::Invalid;
+  Key dek;
+  Status s = attempt(key, dek, retryAfterMs);
+  if (s != Status::Ok) return s;
+  // The new passphrase wrap is written before the vault opens: a power cut
+  // leaves either the old passphrase or the new one working, never neither.
+  Meta m = meta_;
+  s = wrapDek(next, meta_.pass.iterations, dek, m.pass);
+  if (s == Status::Ok) s = writeMeta(m);
   if (s != Status::Ok) {
-    wipeKeys();
-    slots_.clear();
+    mem::zeroize(dek.data(), dek.size());
     return s;
   }
-  unlocked_ = true;
-  return Status::Ok;
+  return finishUnlock(dek);
+}
+
+Status Vault::createRecovery(int64_t now, RecoveryKey& out) {
+  std::lock_guard<std::mutex> g(m_);
+  if (Status s = requireUnlocked(); s != Status::Ok) return s;
+  RecoveryKey key;
+  Meta m = meta_;
+  m.hasRecovery = true;
+  m.recovery.created = now;
+  Status s = p_.crypto.random(key.data(), key.size()) && p_.crypto.random(m.recovery.salt, 16) &&
+                     p_.crypto.random(m.recovery.iv, 12)
+                 ? Status::Ok
+                 : Status::StorageError;
+  Key kek;
+  if (s == Status::Ok) s = recoveryKek(key, m.recovery.salt, kek);
+  if (s == Status::Ok &&
+      !p_.crypto.gcmSeal(kek.data(), m.recovery.iv, bytes(kRecoveryAad), std::strlen(kRecoveryAad), dek_.data(),
+                         dek_.size(), m.recovery.wrapped))
+    s = Status::StorageError;
+  mem::zeroize(kek.data(), kek.size());
+  if (s == Status::Ok) s = writeMeta(m);
+  if (s == Status::Ok) out = key;
+  mem::zeroize(key.data(), key.size());
+  return s;
+}
+
+Status Vault::removeRecovery() {
+  std::lock_guard<std::mutex> g(m_);
+  if (Status s = requireUnlocked(); s != Status::Ok) return s;
+  if (!meta_.hasRecovery) return Status::NotFound;
+  Meta m = meta_;
+  m.hasRecovery = false;
+  m.recovery = RecoveryWrap{};
+  return writeMeta(m);
+}
+
+RecoveryInfo Vault::recoveryInfo() {
+  std::lock_guard<std::mutex> g(m_);
+  if (!initialized_ || !meta_.hasRecovery) return {};
+  return {true, meta_.recovery.created};
 }
 
 Status Vault::loadEntries() {
@@ -456,10 +641,9 @@ Status Vault::changePassphrase(const std::string& cur, const std::string& next) 
   Status s = attempt(cur, dek, nullptr);  // a wrong `cur` is throttled like unlock
   mem::zeroize(dek.data(), dek.size());
   if (s != Status::Ok) return s;
-  Meta m;
-  s = wrapDek(next, meta_.iterations, dek_, m);  // only the DEK is re-wrapped
+  Meta m = meta_;  // the recovery wrap (if any) stays
+  s = wrapDek(next, meta_.pass.iterations, dek_, m.pass);  // only the DEK is re-wrapped
   if (s == Status::Ok) s = writeMeta(m);
-  if (s == Status::Ok) meta_ = m;
   return s;
 }
 
@@ -487,7 +671,7 @@ Status Vault::exportBackup(const std::string& backupPass, std::string& outJson) 
   plain += ']';
 
   backup::Envelope env;
-  env.iterations = meta_.iterations;
+  env.iterations = meta_.pass.iterations;
   Key key;
   Status s = p_.crypto.random(env.salt, 16) && p_.crypto.random(env.iv, 12) ? Status::Ok
                                                                              : Status::StorageError;

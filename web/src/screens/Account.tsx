@@ -7,7 +7,8 @@ import { HostLangRow } from '../components/HostOs';
 import { osOf, resolveTarget } from '../lib/hostos';
 import { defaultTarget, deviceLabel, storeTarget, storedTarget, validTarget } from '../lib/ble';
 import { ApiError, api } from '../lib/api';
-import { useTypeAction, type ErrorCode } from '../lib/actions';
+import { usePressGate, useTypeAction, type ErrorCode } from '../lib/actions';
+import { errorText, isLockedError } from '../lib/errors';
 import { copyText } from '../lib/clipboard';
 import { t, type Key } from '../lib/i18n';
 import { go } from '../lib/router';
@@ -36,6 +37,22 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
   const hostTarget = resolveTarget(chosen, app.device?.host.output ?? null, app.ble);
   const startAction = (what: TypeWhat) => void action.start(what, chosen ?? undefined);
   const totpRef = useRef<Totp | null>(null);
+  // SPEC §12.3: secrets arrive only after a press of Keyra's button (then 60 s without one).
+  const gate = usePressGate('reveal');
+  const reveal = async (): Promise<Entry | null> => {
+    if (entry?.revealed) return entry;
+    try {
+      const full = await gate.run(() => api.reveal(id));
+      if (full) setEntry(full);
+      return full;
+    } catch (err) {
+      if (!isLockedError(err)) toast(errorText(err), 'error');
+      return null;
+    }
+  };
+  /** Copy needs a fresh tap (no clipboard after an async wait), so a press only reveals. */
+  const secretCopy = (get: (x: Entry) => string | undefined) =>
+    entry?.revealed ? { copy: () => get(entry) ?? '' } : { reveal: () => void reveal().then((x) => x && toast(t('revealedTapCopy'), 'ok')) };
 
   useEffect(() => {
     let live = true;
@@ -52,7 +69,7 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
   const e = summary
     ? summary
     : entry
-      ? { ...entry, hasPassword: entry.password !== '', hasTotp: entry.totp !== '' }
+      ? entry
       : null;
   if (missing || !e) return missing ? <p class="callout center pad">{t('genericError')}</p> : <div class="detail-skel" />;
 
@@ -74,13 +91,29 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
     if (!entry) return '';
     if (what === 'username') return entry.username;
     if (what === 'totp') return totpRef.current?.code ?? '';
-    return entry.password;
+    return entry.password ?? '';
+  };
+  const copyOrReveal = (what: TypeWhat | 'test' | 'text') => {
+    if (what === 'username' || what === 'totp' || entry?.revealed) copyValue(valueFor(what));
+    else void reveal().then((x) => x && toast(t('revealedTapCopy'), 'ok'));
   };
 
   const phase = action.phase;
   const what = action.what ?? 'both';
   let area;
-  if (phase.kind === 'ready' || phase.kind === 'typing' || phase.kind === 'typed') {
+  if (gate.phase.kind === 'ready') {
+    area = (
+      <Ready
+        state="ready"
+        deadline={gate.phase.deadline}
+        total={gate.phase.total}
+        title={t('revealTitle')}
+        body={t('revealBody')}
+        chip={<bdi>{e.title}</bdi>}
+        onCancel={gate.cancel}
+      />
+    );
+  } else if (phase.kind === 'ready' || phase.kind === 'typing' || phase.kind === 'typed') {
     area = (
       <Ready
         state={phase.kind}
@@ -97,7 +130,7 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
       />
     );
   } else if (phase.kind === 'error') {
-    area = <ActionError code={phase.code} retry={() => startAction(what as TypeWhat)} copy={() => copyValue(valueFor(what))} edit={() => go(`/a/${id}/edit`)} close={action.dismiss} />;
+    area = <ActionError code={phase.code} retry={() => startAction(what as TypeWhat)} copy={() => copyOrReveal(what)} edit={() => go(`/a/${id}/edit`)} close={action.dismiss} />;
   } else {
     area = (
       <div class="actions">
@@ -128,7 +161,7 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
         </button>
         <div class="act-pair">
           <ActionTile icon="user" label={t('username')} disabled={!e.username} onType={() => startAction('username')} copy={() => entry?.username ?? ''} />
-          <ActionTile icon="key-round" label={t('password')} disabled={!e.hasPassword} onType={() => startAction('password')} copy={() => entry?.password ?? ''} />
+          <ActionTile icon="key-round" label={t('password')} disabled={!e.hasPassword} onType={() => startAction('password')} {...secretCopy((x) => x.password)} />
         </div>
         {e.hasTotp && <CodeCard id={id} onType={() => startAction('totp')} codeRef={totpRef} timeValid={app.device?.timeValid ?? true} />}
         <p class="helper-line">{e.hasPassword ? t('helper') : t('noPassword')}</p>
@@ -156,8 +189,8 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
         </div>
       </header>
       <div class="action-area">{area}</div>
-      <Details entry={entry} />
-      {entry && entry.history?.length > 0 && <History entry={entry} lang={app.lang} />}
+      <Details entry={entry} reveal={reveal} />
+      {entry && entry.history?.length > 0 && <History entry={entry} lang={app.lang} reveal={reveal} />}
     </div>
   );
 }
@@ -167,15 +200,34 @@ function copyValue(v: string): void {
   else toast(t('genericError'), 'error');
 }
 
-function ActionTile({ icon, label, disabled, onType, copy }: { icon: 'user' | 'key-round'; label: string; disabled: boolean; onType: () => void; copy: () => string }) {
+function ActionTile({ icon, label, disabled, onType, copy, reveal }: { icon: 'user' | 'key-round'; label: string; disabled: boolean; onType: () => void; copy?: () => string; reveal?: () => void }) {
   return (
     <div class="act-tile-wrap">
       <button type="button" class="act-tile" disabled={disabled} onClick={onType}>
         <Icon name={icon} size={28} />
         <span class="act-label">{label}</span>
       </button>
-      {!disabled && <CopyButton value={copy} label={`${t('copy')} · ${label}`} class="tile-copy" />}
+      {!disabled && <SecretCopy copy={copy} reveal={reveal} label={`${t('copy')} · ${label}`} class="tile-copy" />}
     </div>
+  );
+}
+
+/** Copy when the value is here; otherwise the same-looking button asks Keyra's button to reveal it first. */
+function SecretCopy({ copy, reveal, label, class: cls }: { copy?: () => string; reveal?: () => void; label?: string; class?: string }) {
+  if (copy) return <CopyButton value={copy} label={label} class={cls} />;
+  return (
+    <button
+      type="button"
+      class={`icon-btn copy-btn ${cls ?? ''}`}
+      aria-label={label ?? t('copy')}
+      title={label ?? t('copy')}
+      onClick={(ev) => {
+        ev.stopPropagation();
+        reveal?.();
+      }}
+    >
+      <Icon name="copy" size={20} />
+    </button>
   );
 }
 
@@ -186,6 +238,8 @@ function ActionError({ code, retry, copy, edit, close }: { code: ErrorCode; retr
     return <ErrorCard icon="bluetooth" tone="warn" title={t('errNoHostTitle')} body={t('errNoHostBody')} primary={{ label: t('tryAgain'), run: retry }} ghost={{ label: t('copyInstead'), run: copy }} />;
   if (code === 'expired')
     return <ErrorCard icon="clock" tone="warn" title={t('errExpiredTitle')} body={t('errExpiredBody')} primary={{ label: t('tryAgain'), run: retry }} ghost={{ label: t('close'), run: close }} />;
+  if (code === 'host_changed')
+    return <ErrorCard icon="usb" tone="warn" title={t('errHostChangedTitle')} body={t('errHostChangedBody')} primary={{ label: t('tryAgain'), run: retry }} ghost={{ label: t('close'), run: close }} />;
   if (code === 'unsupported_char')
     return <ErrorCard icon="triangle-alert" tone="err" title={t('errUnsupportedTitle')} body={t('errUnsupportedBody')} primary={{ label: t('copyPassword'), run: copy }} ghost={{ label: t('editAccount'), run: edit }} />;
   return <ErrorCard icon="triangle-alert" tone="err" title={t('errFailedTitle')} body={t('errFailedBody')} primary={{ label: t('tryAgain'), run: retry }} ghost={{ label: t('close'), run: close }} />;
@@ -248,7 +302,7 @@ function CodeCard({ id, onType, codeRef, timeValid }: { id: number; onType: () =
   );
 }
 
-function Details({ entry }: { entry: Entry | null }) {
+function Details({ entry, reveal }: { entry: Entry | null; reveal: () => Promise<Entry | null> }) {
   const [shown, setShown] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   useEffect(() => {
@@ -268,14 +322,22 @@ function Details({ entry }: { entry: Entry | null }) {
           <CopyButton value={() => entry.username} />
         </div>
       )}
-      {entry.password && (
+      {entry.hasPassword && (
         <div class="kv-row">
           <span class="kv-label">{t('password')}</span>
           <span class="kv-value" dir="ltr">
-            {shown ? <ColoredSecret value={entry.password} /> : <span class="masked">••••••••••</span>}
+            {shown && entry.password ? <ColoredSecret value={entry.password} /> : <span class="masked">••••••••••</span>}
           </span>
-          <IconButton icon={shown ? 'eye-off' : 'eye'} label={shown ? t('hidePassword') : t('showPassword')} pressed={shown} onClick={() => setShown(!shown)} />
-          <CopyButton value={() => entry.password} />
+          <IconButton
+            icon={shown ? 'eye-off' : 'eye'}
+            label={shown ? t('hidePassword') : t('showPassword')}
+            pressed={shown}
+            onClick={() => (shown || entry.revealed ? setShown(!shown) : void reveal().then((x) => x && setShown(true)))}
+          />
+          <SecretCopy
+            copy={entry.revealed ? () => entry.password ?? '' : undefined}
+            reveal={() => void reveal().then((x) => x && toast(t('revealedTapCopy'), 'ok'))}
+          />
         </div>
       )}
       {entry.url && (
@@ -305,7 +367,7 @@ function Details({ entry }: { entry: Entry | null }) {
 }
 
 /** Previous passwords (SPEC §9.3), newest first; each revealed and copied on its own. */
-function History({ entry, lang }: { entry: Entry; lang: 'ar' | 'en' }) {
+function History({ entry, lang, reveal }: { entry: Entry; lang: 'ar' | 'en'; reveal: () => Promise<Entry | null> }) {
   return (
     <section class="group history" aria-labelledby="history-h">
       <h3 class="section-head" id="history-h">
@@ -313,7 +375,7 @@ function History({ entry, lang }: { entry: Entry; lang: 'ar' | 'en' }) {
       </h3>
       <div class="card">
         {entry.history.map((h, i) => (
-          <HistoryRow key={i} item={h} lang={lang} />
+          <HistoryRow key={i} item={h} lang={lang} reveal={reveal} />
         ))}
       </div>
       <p class="group-foot">{t('historyFoot')}</p>
@@ -321,7 +383,7 @@ function History({ entry, lang }: { entry: Entry; lang: 'ar' | 'en' }) {
   );
 }
 
-function HistoryRow({ item, lang }: { item: OldPassword; lang: 'ar' | 'en' }) {
+function HistoryRow({ item, lang, reveal }: { item: OldPassword; lang: 'ar' | 'en'; reveal: () => Promise<Entry | null> }) {
   const [shown, setShown] = useState(false);
   useEffect(() => {
     if (!shown) return;
@@ -332,10 +394,18 @@ function HistoryRow({ item, lang }: { item: OldPassword; lang: 'ar' | 'en' }) {
     <div class="kv-row history-row">
       <span class="kv-label">{item.changedAt ? t('historyUntil', { date: shortDate(item.changedAt, lang) }) : t('historyUnknown')}</span>
       <span class="kv-value" dir="ltr">
-        {shown ? <ColoredSecret value={item.password} /> : <span class="masked">••••••••••</span>}
+        {shown && item.password !== undefined ? <ColoredSecret value={item.password} /> : <span class="masked">••••••••••</span>}
       </span>
-      <IconButton icon={shown ? 'eye-off' : 'eye'} label={shown ? t('hidePassword') : t('showPassword')} pressed={shown} onClick={() => setShown(!shown)} />
-      <CopyButton value={() => item.password} />
+      <IconButton
+        icon={shown ? 'eye-off' : 'eye'}
+        label={shown ? t('hidePassword') : t('showPassword')}
+        pressed={shown}
+        onClick={() => (shown || item.password !== undefined ? setShown(!shown) : void reveal().then((x) => x && setShown(true)))}
+      />
+      <SecretCopy
+        copy={item.password !== undefined ? () => item.password ?? '' : undefined}
+        reveal={() => void reveal().then((x) => x && toast(t('revealedTapCopy'), 'ok'))}
+      />
     </div>
   );
 }

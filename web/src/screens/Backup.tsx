@@ -4,11 +4,11 @@ import { Button, Notice, SecretField, Segmented, StrengthMeter } from '../compon
 import { Alert, Sheet } from '../components/Sheet';
 import { Ready } from '../components/Ready';
 import { ApiError, api, isAwaiting } from '../lib/api';
-import { usePresence } from '../lib/actions';
+import { usePresence, usePressGate } from '../lib/actions';
 import { errorText, isLockedError } from '../lib/errors';
 import { t } from '../lib/i18n';
 import { back } from '../lib/router';
-import { getState, loadEntries, toast } from '../lib/store';
+import { getState, loadEntries, setState, toast } from '../lib/store';
 import { minHint } from './common';
 
 export function BackupSheet() {
@@ -26,11 +26,14 @@ function BackupPart() {
   const [pass, setPass] = useState('');
   const [busy, setBusy] = useState(false);
   const ok = Array.from(pass).length >= 12;
+  // The whole vault leaves Keyra only after a press (SPEC §12.3).
+  const gate = usePressGate('backup');
 
   const download = async () => {
     setBusy(true);
     try {
-      const blob = await api.backup(pass);
+      const blob = await gate.run(() => api.backup(pass));
+      if (!blob) return;
       const d = new Date();
       const name = `keyra-backup-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}.json`;
       const a = document.createElement('a');
@@ -40,6 +43,7 @@ function BackupPart() {
       a.click();
       a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+      setState({ backupAt: Math.floor(Date.now() / 1000) });
       toast(t('backupSaved'), 'ok');
       setPass('');
     } catch (e) {
@@ -48,6 +52,19 @@ function BackupPart() {
       setBusy(false);
     }
   };
+
+  if (gate.phase.kind === 'ready') {
+    return (
+      <Ready
+        state="ready"
+        deadline={gate.phase.deadline}
+        total={gate.phase.total}
+        title={t('backupPressTitle')}
+        body={t('backupPressBody')}
+        onCancel={gate.cancel}
+      />
+    );
+  }
 
   return (
     <section class="group">

@@ -310,9 +310,120 @@ void names() {
   CHECK(std::string(whatName(What::Totp)) == "totp");
 }
 
+TypeRequest usbReq(uint32_t id) {
+  TypeRequest r = req(id);
+  r.target.kind = Target::Kind::Usb;
+  return r;
+}
+
+// N8: an action armed for one USB connection never types into the next.
+void usbActionIsBoundToItsHost() {
+  auto m = make();
+  m.setUsbMounted(true);
+  m.arm(usbReq(1));
+  m.setUsbMounted(true);  // same connection: nothing changes
+  CHECK(m.pending().has_value());
+  m.setUsbMounted(false);  // unplugged, suspended or re-enumerating
+  CHECK(!m.pending().has_value());
+  auto last = m.last();
+  CHECK(last && !last->ok && last->code == Code::HostChanged && last->title == "Mail");
+  CHECK(m.indicator(true, true, false) == Indicator::Error);
+  m.setUsbMounted(true);  // another (or the same) computer: still nothing to type
+  CHECK(m.onButton(Button::Short, true).effect == Effect::Blink);
+  CHECK(std::string(codeName(Code::HostChanged)) == "host_changed");
+
+  // Armed on the new connection, it types there.
+  m.arm(usbReq(2));
+  CHECK(m.onButton(Button::Short, true).effect == Effect::Run);
+}
+
+void unboundActionsIgnoreUsbChanges() {
+  auto m = make();
+  m.arm(usbReq(1));  // nothing plugged in: no host to bind (no_usb at the press)
+  m.setUsbMounted(true);
+  m.setUsbMounted(false);
+  CHECK(m.pending().has_value());
+  TypeRequest ble = req(2);
+  ble.target.kind = Target::Kind::Ble;
+  m.setUsbMounted(true);
+  m.arm(ble);  // a Bluetooth action is bound by address, not by USB
+  m.setUsbMounted(false);
+  CHECK(m.pending().has_value());
+  // A presence op is not a typing action.
+  m.setUsbMounted(true);
+  m.awaitPresence(Op::Reveal, [] { return true; });
+  m.setUsbMounted(false);
+  CHECK(m.presence().has_value());
+}
+
+void revealOpsEndWithTheSession() {
+  auto m = make();
+  for (Op op : {Op::Reveal, Op::Backup, Op::Recovery, Op::Unprotect}) {
+    m.awaitPresence(op, [] { return true; });
+    m.dropSessionItems();
+    CHECK(!m.presence().has_value());
+    auto r = m.opResult();
+    CHECK(r && r->op == op && r->code == OpCode::Cancelled);
+  }
+  CHECK(std::string(opName(Op::Reveal)) == "reveal");
+  CHECK(std::string(opName(Op::Unprotect)) == "unprotect");
+}
+
+// A4: lock when the computer goes away, never on charger-only power.
+void hostWatchUsb() {
+  HostWatch w;
+  int64_t t = 0;
+  // Charger only: unlocked, never enumerated.
+  for (; t < 5000; t += 100) CHECK(!w.pollUsb(t, true, false, true));
+  // A computer shows up, then is unplugged: locks once it has been gone 1 s.
+  CHECK(!w.pollUsb(t, true, true, true));
+  t += 100;
+  CHECK(!w.pollUsb(t, true, false, true));
+  CHECK(!w.pollUsb(t + HostWatch::kUsbGoneMs - 1, true, false, true));
+  CHECK(w.pollUsb(t + HostWatch::kUsbGoneMs, true, false, true));
+  CHECK(!w.pollUsb(t + 5000, true, false, true));  // only once
+  // A short bus reset (back within the second) does not lock.
+  t += 10000;
+  CHECK(!w.pollUsb(t, true, true, true));
+  CHECK(!w.pollUsb(t + 100, true, false, true));
+  CHECK(!w.pollUsb(t + 600, true, true, true));
+  CHECK(!w.pollUsb(t + 2000, true, false, true));
+  CHECK(!w.pollUsb(t + 2900, true, false, true));
+  CHECK(w.pollUsb(t + 3000, true, false, true));
+  // Setting off: never locks.
+  t += 10000;
+  CHECK(!w.pollUsb(t, true, true, false));
+  CHECK(!w.pollUsb(t + 5000, true, false, false));
+  // Locking forgets the host: unlocking later on a charger does not lock.
+  t += 10000;
+  CHECK(!w.pollUsb(t, true, true, true));
+  CHECK(!w.pollUsb(t + 100, false, false, true));
+  CHECK(!w.pollUsb(t + 200, true, false, true));
+  CHECK(!w.pollUsb(t + 5000, true, false, true));
+}
+
+void hostWatchBle() {
+  HostWatch w;
+  const BtAddr a{1, 2, 3, 4, 5, 6}, b{9, 9, 9, 9, 9, 9};
+  CHECK(!w.bleLost(a, true, true));  // never typed into it
+  w.bleUsed(a);
+  CHECK(!w.bleLost(b, true, true));   // another host
+  CHECK(!w.bleLost(a, true, false));  // setting off
+  CHECK(w.bleLost(a, true, true));
+  CHECK(!w.bleLost(a, true, true));   // once
+  w.bleUsed(a);
+  CHECK(!w.pollUsb(0, false, false, true));  // the lock forgets it
+  CHECK(!w.bleLost(a, true, true));
+}
+
 }  // namespace
 
 int main() {
+  usbActionIsBoundToItsHost();
+  unboundActionsIgnoreUsbChanges();
+  revealOpsEndWithTheSession();
+  hostWatchUsb();
+  hostWatchBle();
   shortPressRunsPendingOnce();
   armReplacesPending();
   pendingExpiresAfter60s();

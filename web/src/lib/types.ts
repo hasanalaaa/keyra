@@ -1,7 +1,7 @@
 // Shapes of the device API (SPEC §5). This file is the client's view of the contract.
 
 export type TypeWhat = 'username' | 'password' | 'both' | 'totp';
-export type ResultCode = 'typed' | 'cancelled' | 'expired' | 'no_usb' | 'no_host' | 'unsupported_char' | 'failed';
+export type ResultCode = 'typed' | 'cancelled' | 'expired' | 'no_usb' | 'no_host' | 'unsupported_char' | 'failed' | 'host_changed';
 
 export interface Pending {
   kind: 'type';
@@ -21,7 +21,18 @@ export interface TypeResult {
   what?: TypeWhat | 'test' | 'text';
 }
 
-export type PresenceOp = 'setup' | 'wifi' | 'restore' | 'factory_reset' | 'home_wifi' | 'trust_browser' | 'ble_pair';
+export type PresenceOp =
+  | 'setup'
+  | 'wifi'
+  | 'restore'
+  | 'factory_reset'
+  | 'home_wifi'
+  | 'trust_browser'
+  | 'ble_pair'
+  | 'reveal'
+  | 'backup'
+  | 'recovery'
+  | 'unprotect';
 
 export interface PresenceResult {
   op: PresenceOp;
@@ -54,6 +65,8 @@ export interface DeviceState {
   presence: Presence;
   net?: NetState; // absent on firmware before v1.1
   timeValid: boolean;
+  /** SPEC §12.3: reveal grace left for this session after a press (ms). */
+  graceMs?: number;
 }
 
 /** SPEC §8.2 state.net. `via`: how this very request reached Keyra. */
@@ -99,13 +112,20 @@ export interface EntrySummary {
   lastUsed: number;
 }
 
+/**
+ * GET /api/entries/{id}. `revealed` false (SPEC §12.3): no password, 2FA secret or old
+ * passwords until a press of Keyra's button (POST …/reveal) opens this session's grace.
+ */
 export interface Entry {
   id: number;
   title: string;
   url: string;
   username: string;
-  password: string;
-  totp: string;
+  revealed: boolean;
+  hasPassword: boolean;
+  hasTotp: boolean;
+  password?: string;
+  totp?: string;
   notes: string;
   favorite: boolean;
   created: number;
@@ -115,11 +135,19 @@ export interface Entry {
 }
 
 export interface OldPassword {
-  password: string;
+  password?: string; // only when revealed
   changedAt: number; // unix seconds it was replaced, 0 = unknown
 }
 
-export type EntryInput = Omit<Entry, 'id' | 'created' | 'updated' | 'lastUsed' | 'history'>;
+export interface EntryInput {
+  title: string;
+  url: string;
+  username: string;
+  password: string;
+  totp: string;
+  notes: string;
+  favorite: boolean;
+}
 
 /** POST /api/type with free text (SPEC §9.2). */
 export interface TypeTextRequest {
@@ -142,6 +170,16 @@ export interface Settings {
   output: Output;
   bleConnect: 'on_demand' | 'always';
   osUsb: HostOs;
+  /** SPEC §12.3-12.5 */
+  protectReveal: boolean;
+  lockOnUsb: boolean;
+  lockOnBle: boolean;
+  lastBackupAt: number; // unix seconds, 0 = never
+}
+
+export interface RecoveryInfo {
+  enabled: boolean;
+  created: number; // unix seconds, 0 = unknown
 }
 
 /** Where typing goes: `auto` = USB when plugged in, else the connected Bluetooth device. */

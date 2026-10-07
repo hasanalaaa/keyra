@@ -99,11 +99,11 @@ void addTitle(cJSON* o, actions::What what, const std::string& title) {
   }
 }
 
-void addHistory(cJSON* o, const vault::Entry& e) {
+void addHistory(cJSON* o, const vault::Entry& e, bool withPasswords) {
   cJSON* list = cJSON_AddArrayToObject(o, "history");
   for (const vault::OldPassword& h : e.history) {
     cJSON* item = cJSON_CreateObject();
-    cJSON_AddStringToObject(item, "password", h.password.c_str());
+    if (withPasswords) cJSON_AddStringToObject(item, "password", h.password.c_str());
     cJSON_AddNumberToObject(item, "changedAt", static_cast<double>(h.changedAt));
     cJSON_AddItemToArray(list, item);
   }

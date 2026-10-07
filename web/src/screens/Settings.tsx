@@ -20,6 +20,9 @@ import { minHint } from './common';
 import { HomeWifiSheet } from './HomeWifi';
 import { PasskeysSheet } from './Passkeys';
 import { TrustedSheet } from './Trusted';
+import { RecoverySheet } from './Recovery';
+import { shortDate } from '../lib/wifi';
+import type { RecoveryInfo } from '../lib/types';
 
 const SPEEDS = [
   { value: 30, key: 'slow' },
@@ -28,7 +31,7 @@ const SPEEDS = [
 ] as const;
 const AUTOLOCK = [1, 5, 15, 30, 60, 120];
 
-type Sub = 'wifi' | 'home' | 'trusted' | 'passkeys' | 'autolock' | 'passphrase' | 'test' | 'erase' | null;
+type Sub = 'wifi' | 'home' | 'trusted' | 'passkeys' | 'autolock' | 'passphrase' | 'test' | 'erase' | 'recovery' | 'unprotect' | null;
 
 export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void }) {
   const app = useApp();
@@ -56,6 +59,20 @@ export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void 
       })
       .catch((e) => !isLockedError(e) && toast(errorText(e), 'error'));
   useEffect(() => void load(), []);
+  const [recovery, setRecovery] = useState<RecoveryInfo | null>(null);
+  const loadRecovery = () =>
+    api
+      .recovery()
+      .then(setRecovery)
+      .catch(() => setRecovery(null));
+  useEffect(() => void loadRecovery(), []);
+  // Turning reveal protection off is itself a press (SPEC §12.3).
+  const unprotect = usePresence('unprotect');
+  useEffect(() => {
+    const k = unprotect.phase.kind;
+    if (k === 'done') void load();
+    if (k !== 'idle' && k !== 'ready') unprotect.abandon();
+  }, [unprotect.phase.kind]);
 
   const save = async (patch: Partial<S>) => {
     if (!s) return;
@@ -103,11 +120,39 @@ export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void 
             <NavRow label={t('autoLock')} value={t('autoLockAfter', { n: s.autoLockMin })} onClick={() => setSub('autolock')} />
             <NavRow label={t('changePassphrase')} onClick={() => setSub('passphrase')} />
             <NavRow label={t('passkeysRow')} onClick={() => setSub('passkeys')} />
+            <NavRow
+              label={t('recoveryRow')}
+              value={
+                recovery?.enabled
+                  ? recovery.created
+                    ? t('recoveryOn', { date: shortDate(recovery.created, app.lang) })
+                    : t('recoveryOnUnknown')
+                  : t('recoveryOff')
+              }
+              onClick={() => setSub('recovery')}
+            />
             {s.homeWifi && <NavRow label={t('trustedRow')} onClick={() => setSub('trusted')} />}
             <button type="button" class="row nav-row" onClick={() => void lockNow()}>
               <span class="row-label accent">{t('lockNow')}</span>
               <Icon name="lock" size={20} class="row-chev" />
             </button>
+          </Section>
+          <Section footer={t('protectRevealFoot')}>
+            {unprotect.phase.kind === 'ready' ? (
+              <div class="row">
+                <Ready state="ready" deadline={unprotect.phase.deadline} total={unprotect.phase.total} title={t('unprotectPress')} onCancel={unprotect.abandon} />
+              </div>
+            ) : (
+              <SwitchRow
+                label={t('protectReveal')}
+                checked={s.protectReveal}
+                onChange={(v) => (v ? void save({ protectReveal: true }) : setSub('unprotect'))}
+              />
+            )}
+          </Section>
+          <Section footer={t('lockFoot')}>
+            <SwitchRow label={t('lockOnUsb')} checked={s.lockOnUsb} onChange={(v) => void save({ lockOnUsb: v })} />
+            <SwitchRow label={t('lockOnBle')} checked={s.lockOnBle} onChange={(v) => void save({ lockOnBle: v })} />
           </Section>
           <Section title={t('groupTyping')} footer={`${t('footSpeed')} ${t('footSubmit')} ${t('footOs')}`}>
             <div class="row">
@@ -220,6 +265,35 @@ export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void 
       {sub === 'passphrase' && <PassphraseSheet onClose={() => setSub(null)} />}
       {sub === 'test' && <TypeTestSheet onClose={() => setSub(null)} />}
       {sub === 'erase' && <EraseFlow onClose={() => setSub(null)} />}
+      {sub === 'recovery' && (
+        <RecoverySheet
+          onClose={() => {
+            setSub(null);
+            void loadRecovery();
+          }}
+        />
+      )}
+      {sub === 'unprotect' && (
+        <Alert
+          title={t('unprotectTitle')}
+          body={t('unprotectBody')}
+          actions={[
+            {
+              label: t('turnOff'),
+              variant: 'danger-confirm',
+              run: () => {
+                setSub(null);
+                const sent = Date.now();
+                api
+                  .putSettings({ protectReveal: false })
+                  .then((r) => (isAwaiting(r) ? unprotect.watch(sent, r) : setS(r)))
+                  .catch((e) => !isLockedError(e) && toast(errorText(e), 'error'));
+              },
+            },
+          ]}
+          onCancel={() => setSub(null)}
+        />
+      )}
     </div>
   );
 

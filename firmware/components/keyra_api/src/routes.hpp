@@ -19,6 +19,7 @@ enum class Route {
   Generate,
   Keyboard,
   ListPasskeys, DeletePasskey,
+  RevealEntry, GetRecovery, CreateRecovery, DeleteRecovery, UnlockRecovery,
 };
 
 struct Match {

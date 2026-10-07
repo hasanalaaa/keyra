@@ -532,3 +532,48 @@ Design, key formats and honest limits: [FIDO.md](FIDO.md). Contract points:
   - `GET /api/fido` → `{passkeys:[{id, rpId, userName, displayName, created}], max:50}`
     (newest first; `created` unix seconds, 0 = unknown)
   - `DELETE /api/fido/{id}` → 204 / 404 `not_found`
+
+## 12. v1.5 — Stronger protection and recovery
+
+### 12.1 Vault meta v2
+
+`meta.bin` holds a list of wraps of the data key (DEK): the passphrase wrap
+and, when made, the recovery-key wrap (`keyra_vault/src/core/vault_core.hpp`).
+Version 1 files migrate on the next unlock.
+
+### 12.2 Recovery key and kit
+
+- A 20-byte key from the hardware RNG wraps a second copy of the DEK.
+  `GET /api/recovery` → `{enabled, created}`; `POST /api/recovery` → the key
+  (shown once, then wiped on the device); `DELETE /api/recovery` → 204. Both
+  changes need a press (§12.3).
+- Forgotten passphrase: `POST /api/unlock/recovery {key (40 hex), next}` (no
+  session, throttled like a wrong passphrase) sets a new passphrase and
+  unlocks. The recovery key stays valid.
+- The web app prints a recovery kit (the key in Crockford base32 with a typo
+  check, and a QR code) and can split the key into Shamir shares
+  (`shamir-secret-sharing`, pinned; splitting and combining happen in the
+  browser only).
+
+### 12.3 Secrets only after a press ("blind phone")
+
+With `protectReveal` on (default), `GET /api/entries/{id}` returns no password,
+2FA secret or old passwords (`revealed:false`, `hasPassword`, `hasTotp`,
+history dates). `POST /api/entries/{id}/reveal` → 202 press → the session that
+asked may read secrets for 60 s (`state.graceMs`). Downloading a backup and
+changing the recovery key need the same press. Turning `protectReveal` off
+needs a press; turning it on applies at once. Typing never needs it: the
+button press that types is already presence.
+
+### 12.4 Auto-lock when the computer goes away
+
+`lockOnUsb` (default on): the vault locks about 1 s after the USB host it was
+used with is unplugged or suspended (never on charger-only power).
+`lockOnBle` (default off): it locks when the Bluetooth host Keyra typed into
+drops the link by itself. A USB action is bound to the USB connection it was
+armed on; if that computer goes away before the press, the action fails.
+
+### 12.5 Backup reminder
+
+`settings.lastBackupAt` (unix seconds, 0 = never) is set on every backup
+download; the vault screen nudges when it is older than 30 days.

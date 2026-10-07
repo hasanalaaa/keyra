@@ -22,6 +22,7 @@ Pending Machine::arm(TypeRequest req) {
   clearSlotLocked();
   kind_ = Kind::Type;
   req_ = std::move(req);
+  req_.usbSession = req_.target.kind == Target::Kind::Usb && usbMounted_ ? usbSession_ : 0;
   deadline_ = now + kExpiryMs;
   return view(req_, kExpiryMs);
 }
@@ -62,8 +63,8 @@ std::optional<int64_t> Machine::tryAwaitPresence(Op op, Commit commit) {
 
 void Machine::dropSessionItems() {
   std::lock_guard<std::mutex> lock(mu_);
-  const bool sessionOp = kind_ == Kind::Presence &&
-                         (op_ == Op::Wifi || op_ == Op::RestoreReplace || op_ == Op::HomeWifi || op_ == Op::BlePair);
+  const bool sessionOp = kind_ == Kind::Presence && op_ != Op::Setup && op_ != Op::FactoryReset &&
+                         op_ != Op::TrustBrowser;
   if (kind_ == Kind::Type) {
     hasLast_ = true;
     last_ = {false, Code::Cancelled, 0, req_.title, req_.what};
@@ -76,6 +77,50 @@ void Machine::dropSessionItems() {
 void Machine::setLinkReady(bool ready) {
   std::lock_guard<std::mutex> lock(mu_);
   linkReady_ = ready;
+}
+
+void Machine::setUsbMounted(bool mounted) {
+  std::lock_guard<std::mutex> lock(mu_);
+  if (mounted == usbMounted_) return;
+  usbMounted_ = mounted;
+  if (mounted) {
+    if (++usbSession_ == 0) usbSession_ = 1;  // 0 means "unbound"
+    return;
+  }
+  if (kind_ == Kind::Type && req_.usbSession != 0) {
+    const int64_t now = now_();
+    hasLast_ = true;
+    last_ = {false, Code::HostChanged, 0, req_.title, req_.what};
+    lastAt_ = now;
+    clearSlotLocked();
+    flashLocked(Indicator::Error, now, kFlashMs);
+  }
+}
+
+bool HostWatch::pollUsb(int64_t now, bool unlocked, bool usbMounted, bool enabled) {
+  if (!unlocked) {
+    usbSeen_ = false;
+    usbGoneAt_ = -1;
+    bleUsed_.reset();
+    return false;
+  }
+  if (usbMounted) {
+    usbSeen_ = true;
+    usbGoneAt_ = -1;
+    return false;
+  }
+  if (!usbSeen_ || !enabled) return false;
+  if (usbGoneAt_ < 0) usbGoneAt_ = now;
+  if (now - usbGoneAt_ < kUsbGoneMs) return false;
+  usbSeen_ = false;
+  usbGoneAt_ = -1;
+  return true;
+}
+
+bool HostWatch::bleLost(const BtAddr& addr, bool unlocked, bool enabled) {
+  const bool hit = unlocked && enabled && bleUsed_ && *bleUsed_ == addr;
+  if (hit) bleUsed_.reset();
+  return hit;
 }
 
 Decision Machine::onButton(Button b, bool unlocked) {
@@ -266,6 +311,10 @@ const char* opName(Op op) {
     case Op::HomeWifi: return "home_wifi";
     case Op::TrustBrowser: return "trust_browser";
     case Op::BlePair: return "ble_pair";
+    case Op::Reveal: return "reveal";
+    case Op::Backup: return "backup";
+    case Op::Recovery: return "recovery";
+    case Op::Unprotect: return "unprotect";
   }
   return "setup";
 }
@@ -289,6 +338,7 @@ const char* codeName(Code c) {
     case Code::NoHost: return "no_host";
     case Code::UnsupportedChar: return "unsupported_char";
     case Code::Failed: return "failed";
+    case Code::HostChanged: return "host_changed";
   }
   return "failed";
 }

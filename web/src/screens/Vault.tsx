@@ -1,7 +1,7 @@
 // Home: account list (DESIGN §5.4) with sheets/dialogs per route; desktop two-pane at ≥ 900 px.
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { Icon, KeyGlyph } from '../components/Icon';
-import { Button, IconButton, Monogram } from '../components/ui';
+import { Button, IconButton, Monogram, Notice } from '../components/ui';
 import { Sheet, useMedia, type SheetCtl } from '../components/Sheet';
 import { accountCount, t } from '../lib/i18n';
 import { back, go, type Route } from '../lib/router';
@@ -224,6 +224,7 @@ function ListPane({ selected, desktop }: { selected: number | null; desktop: boo
           )
         ) : (
           <>
+            <BackupReminder />
             {favorites.length > 0 && <Group title={t('favorites')} items={favorites} selected={selected} />}
             {recent.length > 0 && <Group title={t('recent')} items={recent} selected={selected} />}
             <h2 class="section-head">{t('all')}</h2>
@@ -257,6 +258,56 @@ function ListPane({ selected, desktop }: { selected: number | null; desktop: boo
           </Button>
         </div>
       )}
+    </div>
+  );
+}
+
+const BACKUP_DAYS = 30;
+const LATER_KEY = 'keyra.backupLater';
+
+/** SPEC §12.5: nudge when the last backup is older than 30 days (or never made); "Later" hides it for this tab. */
+function BackupReminder() {
+  const app = useApp();
+  const [later, setLater] = useState(() => {
+    try {
+      return sessionStorage.getItem(LATER_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const at = app.backupAt;
+  if (later || at === null) return null;
+  const stale = at === 0 || Date.now() / 1000 - at > BACKUP_DAYS * 86400;
+  if (!stale) return null;
+  return (
+    <div class="backup-reminder">
+      <Notice
+        tone="warn"
+        icon="download"
+        action={
+          <span class="reminder-actions">
+            <Button size="sm" variant="tinted" onClick={() => go('/backup')}>
+              {t('backupNow')}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                try {
+                  sessionStorage.setItem(LATER_KEY, '1');
+                } catch {
+                  // Storage blocked: hidden until the page reloads.
+                }
+                setLater(true);
+              }}
+            >
+              {t('later')}
+            </Button>
+          </span>
+        }
+      >
+        {at === 0 ? t('backupNever') : t('backupReminder')}
+      </Notice>
     </div>
   );
 }
