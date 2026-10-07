@@ -5,7 +5,7 @@ import { Icon, KeyGlyph, type IconName } from './Icon';
 import { t, type Key } from '../lib/i18n';
 import { copyText } from '../lib/clipboard';
 import { toast } from '../lib/store';
-import { strength } from '../lib/strength';
+import { levelOfBits, strength } from '../lib/strength';
 import { monogramColor, monogramLetter } from '../lib/monogram';
 
 type Variant = 'primary' | 'tinted' | 'secondary' | 'ghost' | 'danger' | 'danger-confirm';
@@ -347,8 +347,9 @@ export function Notice({ tone, icon, children, action }: { tone: 'warn' | 'err' 
 
 const LEVEL_KEYS: Key[] = ['weak', 'fair', 'good', 'strong'];
 
-export function StrengthMeter({ value }: { value: string }) {
-  const s = strength(value);
+/** Estimated from the text, or exact when `bits` is known (generated passwords). */
+export function StrengthMeter({ value, bits }: { value?: string; bits?: number }) {
+  const s = bits !== undefined ? levelOfBits(bits) : strength(value ?? '');
   return (
     <div class={`meter meter-${s}`}>
       <div class="meter-bars" aria-hidden="true">
@@ -358,6 +359,7 @@ export function StrengthMeter({ value }: { value: string }) {
       </div>
       <span class="meter-label" aria-live="polite">
         {s > 0 ? t(LEVEL_KEYS[s - 1]) : ''}
+        {bits !== undefined && <span class="meter-bits"> · {t('bits', { n: Math.floor(bits) })}</span>}
       </span>
     </div>
   );

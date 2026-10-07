@@ -1,4 +1,5 @@
-import type { DeviceState, Entry, EntryInput, EntrySummary, Network, Settings, Totp, TrustedBrowser, TypeWhat, Pending, PresenceOp } from './types';
+import type { DeviceState, Entry, EntryInput, EntrySummary, Network, Settings, Totp, TrustedBrowser, TypeTextRequest, TypeWhat, Pending, PresenceOp } from './types';
+import { generateRequest, type GenSettings } from './generator';
 
 export class ApiError extends Error {
   constructor(
@@ -124,6 +125,9 @@ export const api = {
   totp: (id: number) => json<Totp>('GET', `/entries/${id}/totp`),
   type: (id: number, what: TypeWhat) => json<{ pending: Pending }>('POST', '/type', { id, what }),
   typeTest: () => json<{ pending: Pending }>('POST', '/type', { test: true }),
+  typeText: (r: TypeTextRequest) => json<{ pending: Pending }>('POST', '/type', r),
+  /** On the device, from its hardware RNG (SPEC §9.1). */
+  generate: (s: GenSettings) => json<{ password: string; entropyBits: number }>('POST', '/generate', generateRequest(s)),
   cancelType: () => json<void>('POST', '/type/cancel'),
   settings: () => json<Settings>('GET', '/settings'),
   /** 200 → Settings; 202 → presence required (Wi-Fi changes). */

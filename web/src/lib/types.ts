@@ -5,9 +5,9 @@ export type ResultCode = 'typed' | 'cancelled' | 'expired' | 'no_usb' | 'unsuppo
 
 export interface Pending {
   kind: 'type';
-  id: number;
-  title: string;
-  what: TypeWhat | 'test';
+  id: number; // 0 for the type test and free text
+  title: string | null; // null for free text (SPEC §9.2)
+  what: TypeWhat | 'test' | 'text';
   submit: boolean;
   expiresIn: number;
 }
@@ -16,8 +16,8 @@ export interface TypeResult {
   ok: boolean;
   code: ResultCode;
   at: number; // ms ago
-  title?: string;
-  what?: TypeWhat | 'test';
+  title?: string | null;
+  what?: TypeWhat | 'test' | 'text';
 }
 
 export type PresenceOp = 'setup' | 'wifi' | 'restore' | 'factory_reset' | 'home_wifi' | 'trust_browser';
@@ -96,9 +96,22 @@ export interface Entry {
   created: number;
   updated: number;
   lastUsed: number;
+  history: OldPassword[]; // newest first, at most 10 (SPEC §9.3)
 }
 
-export type EntryInput = Omit<Entry, 'id' | 'created' | 'updated' | 'lastUsed'>;
+export interface OldPassword {
+  password: string;
+  changedAt: number; // unix seconds it was replaced, 0 = unknown
+}
+
+export type EntryInput = Omit<Entry, 'id' | 'created' | 'updated' | 'lastUsed' | 'history'>;
+
+/** POST /api/type with free text (SPEC §9.2). */
+export interface TypeTextRequest {
+  text: string;
+  repeat: 1 | 2;
+  separator: 'tab' | 'enter';
+}
 
 export interface Settings {
   deviceName: string;
