@@ -56,7 +56,7 @@ std::vector<Pkt> frame(uint32_t cid, uint8_t cmd, const Bytes& data) {
   p[4] = cmd | 0x80;
   p[5] = data.size() >> 8, p[6] = data.size() & 0xFF;
   size_t off = std::min(data.size(), hid::kInitData);
-  std::memcpy(p.data() + 7, data.data(), off);
+  if (off) std::memcpy(p.data() + 7, data.data(), off);  // data() may be null when empty
   v.push_back(p);
   for (uint8_t seq = 0; off < data.size(); ++seq) {
     Pkt c{};

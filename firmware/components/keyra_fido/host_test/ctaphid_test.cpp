@@ -34,7 +34,8 @@ Pkt initPkt(uint32_t cid, uint8_t cmd, const std::vector<uint8_t>& data, size_t 
   p[4] = cmd | 0x80;
   const size_t n = bcnt == SIZE_MAX ? data.size() : bcnt;
   p[5] = n >> 8, p[6] = n & 0xFF;
-  std::memcpy(p.data() + 7, data.data(), std::min(data.size(), kInitData));
+  // An empty vector's data() may be null, which memcpy must never get.
+  if (!data.empty()) std::memcpy(p.data() + 7, data.data(), std::min(data.size(), kInitData));
   return p;
 }
 
@@ -42,7 +43,7 @@ Pkt contPkt(uint32_t cid, uint8_t seq, const uint8_t* data, size_t n) {
   Pkt p{};
   p[0] = cid >> 24, p[1] = cid >> 16, p[2] = cid >> 8, p[3] = cid;
   p[4] = seq;
-  std::memcpy(p.data() + 5, data, n);
+  if (n) std::memcpy(p.data() + 5, data, n);
   return p;
 }
 
