@@ -22,7 +22,7 @@ TEST(before_init_and_setup) {
   CHECK(r->initialized() && r->unlocked());
   CHECK(r->setup(kPass) == Status::AlreadyInitialized);
   CHECK(r.storage.files.count("meta.bin") == 1);
-  CHECK(r.storage.files["meta.bin"].size() == 85);
+  CHECK(r.storage.files["meta.bin"].size() == 88);  // version 2: one passphrase wrap
 }
 
 TEST(mount_failure_is_storage_error) {
@@ -496,13 +496,13 @@ TEST(v1_entry_on_flash_migrates_on_write) {
   Entry e = sample("legacy");
   CHECK((*r)->put(e) == Status::Ok);
 
-  // Recover the DEK the way unlock does (meta.bin layout in vault_core.hpp) ...
+  // Recover the DEK the way unlock does (meta.bin v2 layout in vault_core.hpp) ...
   const auto& meta = r->storage.files.at("meta.bin");
   uint8_t kek[32], dek[32];
-  CHECK(r->crypto.pbkdf2Sha256(kPass, meta.data() + 9, 16, kTestIterations, kek, 32));
+  CHECK(r->crypto.pbkdf2Sha256(kPass, meta.data() + 12, 16, kTestIterations, kek, 32));
   const std::string metaAad = "keyra/meta/v1";
-  CHECK(r->crypto.gcmOpen(kek, meta.data() + 25, reinterpret_cast<const uint8_t*>(metaAad.data()),
-                          metaAad.size(), meta.data() + 37, 48, dek) == Crypto::Open::Ok);
+  CHECK(r->crypto.gcmOpen(kek, meta.data() + 28, reinterpret_cast<const uint8_t*>(metaAad.data()),
+                          metaAad.size(), meta.data() + 40, 48, dek) == Crypto::Open::Ok);
   // ... and overwrite the entry with a format-1 plaintext, as old firmware wrote it.
   std::vector<uint8_t> plain = {1};
   for (int i = 0; i < 4; ++i) plain.push_back(uint8_t(e.id >> (8 * i)));

@@ -26,6 +26,15 @@ Status touch(uint32_t id, int64_t now) { return detail::instance().touch(id, now
 Status changePassphrase(const std::string& cur, const std::string& next) {
   return detail::instance().changePassphrase(cur, next);
 }
+Status createRecovery(int64_t now, RecoveryKey& out) { return detail::instance().createRecovery(now, out); }
+Status removeRecovery() { return detail::instance().removeRecovery(); }
+RecoveryInfo recoveryInfo() { return detail::instance().recoveryInfo(); }
+Status recover(const RecoveryKey& key, const std::string& next, uint32_t* retryAfterMs) {
+  return detail::instance().recover(key, next, retryAfterMs);
+}
+Status checkRecovery(const RecoveryKey& key, uint32_t* retryAfterMs) {
+  return detail::instance().checkRecovery(key, retryAfterMs);
+}
 Status exportBackup(const std::string& backupPass, std::string& outJson) {
   return detail::instance().exportBackup(backupPass, outJson);
 }
