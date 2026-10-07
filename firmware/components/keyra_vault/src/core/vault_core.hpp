@@ -10,6 +10,8 @@
 //   e/<id>.bin u8 version=1 | iv[12] | ciphertext | tag[16]
 //              <id> = 8 lowercase hex digits; AAD = "keyra/e/v1/" + <id>;
 //              plaintext = entry_codec.hpp encoding
+//   f/<id>.bin passkey record, same format as e/<id>.bin with AAD "keyra/f/v1/" + <id>
+//   fido.bin   u8 version=1 | salt[16]   (FIDO wrapping-key salt, vault_passkeys.cpp)
 //   *.tmp      in-flight atomic writes (write tmp → close → rename); any found at
 //              init are leftovers of an interrupted write and are deleted.
 //
@@ -62,6 +64,13 @@ class Vault {
                       size_t* added, size_t* updated);
   Status factoryReset();
 
+  // Passkey records (vault_passkeys.cpp); see keyra/vault.hpp.
+  Status passkeyList(std::vector<PasskeyRecord>& out);
+  Status passkeyPut(uint32_t& id, const std::vector<uint8_t>& data);
+  Status passkeyRemove(uint32_t id);
+  Status passkeyWrapKey(uint8_t out[32]);
+  Status passkeyReset();
+
   Crypto& crypto() { return p_.crypto; }
 
  private:
@@ -94,6 +103,8 @@ class Vault {
   Slot* find(uint32_t id);
   bool newId(uint32_t& id);
   void wipeKeys();
+  Status loadPasskeysLocked();  // lazily, on first passkey call after unlock
+  Status removePasskeyFilesLocked();
 
   Platform p_;
   Options opt_;
@@ -102,6 +113,8 @@ class Vault {
   Meta meta_;
   Key dek_{};
   std::vector<Slot, ZeroingAllocator<Slot>> slots_;
+  std::vector<Slot, ZeroingAllocator<Slot>> passkeys_;
+  bool passkeysLoaded_ = false;
   uint32_t failures_ = 0;
   uint64_t lockedUntilMs_ = 0;
 };

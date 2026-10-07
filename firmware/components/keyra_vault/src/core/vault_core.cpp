@@ -84,7 +84,7 @@ Status Vault::init() {
   unlocked_ = initialized_ = ready_ = false;
 
   if (!p_.storage.mount()) return Status::StorageError;
-  for (const char* dir : {"", kEntryDir}) {
+  for (const char* dir : {"", kEntryDir, "f"}) {
     std::vector<std::string> names;
     if (!p_.storage.list(dir, names)) return Status::StorageError;
     for (const auto& n : names) {
@@ -198,6 +198,7 @@ Status Vault::setup(const std::string& passphrase) {
   // Files without a meta can only be leftovers of an interrupted reset; they
   // could never be decrypted with the new key.
   if (Status s = removeAllEntryFiles(); s != Status::Ok) return s;
+  if (Status s = removePasskeyFilesLocked(); s != Status::Ok) return s;
   if (!p_.counter.store(0)) return Status::StorageError;
   failures_ = 0;
   lockedUntilMs_ = 0;
@@ -312,6 +313,8 @@ void Vault::lock() {
   wipeKeys();
   slots_.clear();
   slots_.shrink_to_fit();
+  passkeys_.clear();
+  passkeysLoaded_ = false;
   unlocked_ = false;
 }
 
@@ -613,6 +616,8 @@ Status Vault::factoryReset() {
   wipeKeys();
   slots_.clear();
   slots_.shrink_to_fit();
+  passkeys_.clear();
+  passkeysLoaded_ = false;
   unlocked_ = initialized_ = ready_ = false;
   meta_ = Meta{};
   // format() destroys the whole partition (old ciphertext and wrapped keys
