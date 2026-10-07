@@ -181,8 +181,13 @@ function StepButton() {
   const presence = usePresence('setup');
   const started = useRef(false);
   const [committed, setCommitted] = useState(draft.committed);
+  const [refused, setRefused] = useState(false);
   const begin = async () => {
+    setRefused(false);
     draft.sent = await presence.start(() => api.setup(draft.passphrase, draft.wifi));
+    // Never show a press ring for a request the device did not take: a press
+    // would confirm some other request.
+    setRefused(!draft.sent);
   };
 
   useEffect(() => {
@@ -203,12 +208,12 @@ function StepButton() {
   const p = presence.phase;
   return (
     <Chrome step={3}>
-      {p.kind === 'expired' || p.kind === 'cancelled' || p.kind === 'failed' ? (
+      {refused || p.kind === 'expired' || p.kind === 'cancelled' || p.kind === 'failed' ? (
         <ErrorCard
           icon="clock"
           tone="warn"
           title={t('s3Title')}
-          body={p.kind === 'failed' ? t('genericError') : t('s3Expired')}
+          body={refused || p.kind === 'failed' ? t('genericError') : t('s3Expired')}
           primary={{ label: t('tryAgain'), run: () => void begin() }}
           ghost={{ label: t('back'), run: () => back('/setup/2') }}
         />

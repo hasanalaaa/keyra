@@ -23,4 +23,21 @@ std::string toString(uint32_t ip) {
   return buf;
 }
 
+HomeError homeErrorFor(uint16_t reason) {
+  switch (reason) {
+    case 14:   // MIC_FAILURE
+    case 15:   // 4WAY_HANDSHAKE_TIMEOUT: a WPA2/3-PSK network refusing the key
+    case 202:  // AUTH_FAIL
+    case 204:  // HANDSHAKE_TIMEOUT
+      return HomeError::WrongPassword;
+    case 201:  // NO_AP_FOUND
+    case 210:  // NO_AP_FOUND_W_COMPATIBLE_SECURITY
+    case 211:  // NO_AP_FOUND_IN_AUTHMODE_THRESHOLD
+    case 212:  // NO_AP_FOUND_IN_RSSI_THRESHOLD
+      return HomeError::NotFound;
+    default:
+      return HomeError::Failed;
+  }
+}
+
 }  // namespace keyra::net

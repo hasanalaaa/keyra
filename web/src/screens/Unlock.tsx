@@ -64,7 +64,9 @@ export function Unlock({ reason }: { reason: LockReason }) {
           ? t('lockedManual')
           : reason === 'session'
             ? t('lockedSession')
-            : null;
+            : reason === 'unplugged'
+              ? t('lockedUnplugged')
+              : null;
 
   return (
     <div class={`page ${reason ? 'locked-page' : 'glow-page'}`}>

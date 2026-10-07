@@ -103,7 +103,12 @@ export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void 
                 label={t('deviceName')}
                 value={name}
                 onValue={(v) => setName(clipBytes(v))}
-                onBlur={() => name.trim() && name !== s.deviceName && void save({ deviceName: name.trim() })}
+                onBlur={() => {
+                  const v = name.trim();
+                  if (!v) setName(s.deviceName); // empty is not a name: show the saved one again
+                  else if (v !== s.deviceName) void save({ deviceName: v });
+                }}
+                onKeyDown={(e: KeyboardEvent) => e.key === 'Enter' && (e.currentTarget as HTMLInputElement).blur()}
                 enterkeyhint="done"
               />
             </div>

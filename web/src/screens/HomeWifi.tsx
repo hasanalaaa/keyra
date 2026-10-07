@@ -81,7 +81,7 @@ export function HomeWifiSheet({ settings, onChange, onClose }: { settings: S; on
         deadline={p.deadline}
         total={p.total}
         title={target.enabled ? t('homePressJoin', { ssid: target.ssid }) : t('homePressOff')}
-        body={t('homePressBody')}
+        body={t(target.enabled ? 'homePressBody' : 'homePressOffBody')}
         onCancel={presence.abandon}
       />
     );
@@ -116,10 +116,15 @@ export function HomeWifiSheet({ settings, onChange, onClose }: { settings: S; on
                 <span class="kv-value" dir="ltr">
                   {settings.homeWifi.ssid}
                 </span>
-                <span class={`chip ${home?.connected ? 'chip-ok' : 'chip-neutral'}`}>
-                  {home?.connected ? t('homeConnected') : t('homeConnecting')}
+                <span class={`chip ${home?.connected ? 'chip-ok' : home?.error ? 'chip-err' : 'chip-neutral'}`}>
+                  {home?.connected ? t('homeConnected') : home?.error ? t('homeOffline') : t('homeConnecting')}
                 </span>
               </div>
+              {!home?.connected && home?.error && (
+                <p class="kv-row caption home-error">
+                  {t(home.error === 'wrong_password' ? 'homeWrongPassword' : home.error === 'not_found' ? 'homeNotFound' : 'homeJoinFailed')}
+                </p>
+              )}
               {home?.connected && home.ip && (
                 <div class="kv-row">
                   <span class="kv-label">{t('homeAddress')}</span>

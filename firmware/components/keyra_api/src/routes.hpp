@@ -14,7 +14,7 @@ enum class Method { Get, Post, Put, Delete, Other };
 enum class Route {
   State, Setup, Unlock, Lock,
   ListEntries, CreateEntry, ImportEntries, GetEntry, UpdateEntry, DeleteEntry, EntryTotp,
-  Type, TypeCancel, GetSettings, PutSettings, Passphrase, Backup, Restore, FactoryReset,
+  Type, TypeCancel, PresenceCancel, GetSettings, PutSettings, Passphrase, Backup, Restore, FactoryReset,
   WifiScan, WifiHome, ListTrusted, DeleteTrusted,
   GetBle, BlePair, BleForget, BleSetOs,
   Generate,

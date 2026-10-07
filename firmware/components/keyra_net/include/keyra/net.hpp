@@ -34,6 +34,7 @@ struct Status {
   std::string homeSsid;
   std::string homeIp;  // dotted quad while connected, else empty
   int rssi = 0;        // dBm while connected
+  HomeError homeError = HomeError::None;
 };
 Status status();
 std::string homeIp();  // Status::homeIp without the rest

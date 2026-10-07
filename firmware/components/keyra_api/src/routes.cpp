@@ -91,6 +91,7 @@ Match matchDecoded(Method m, std::string_view path) {
   if (p == "lock") return only(m, Method::Post, Route::Lock);
   if (p == "type") return only(m, Method::Post, Route::Type);
   if (p == "type/cancel") return only(m, Method::Post, Route::TypeCancel);
+  if (p == "presence/cancel") return only(m, Method::Post, Route::PresenceCancel);
   if (p == "generate") return only(m, Method::Post, Route::Generate);
   if (p == "keyboard") return only(m, Method::Get, Route::Keyboard);
   if (p == "passphrase") return only(m, Method::Post, Route::Passphrase);
@@ -158,14 +159,14 @@ Match matchDecoded(Method m, std::string_view path) {
 
 bool needsSession(Route r) {
   return r != Route::State && r != Route::Setup && r != Route::Unlock && r != Route::UnlockRecovery &&
-         r != Route::FactoryReset;
+         r != Route::FactoryReset && r != Route::PresenceCancel;
 }
 
 bool needsCsrf(Method m, Route r) {
   // setup/unlock/factory-reset have no session yet (or a forgotten passphrase);
   // setup and factory-reset are gated by the physical button instead.
   return m != Method::Get && r != Route::Unlock && r != Route::UnlockRecovery && r != Route::Setup &&
-         r != Route::FactoryReset;
+         r != Route::FactoryReset && r != Route::PresenceCancel;
 }
 
 bool isOwnHost(std::string_view host, std::string_view homeIp) {

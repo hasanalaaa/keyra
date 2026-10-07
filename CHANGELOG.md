@@ -111,6 +111,19 @@ All notable changes to Keyra are documented here. The format follows
 
 ### Fixed
 
+- Cancelling a "press Keyra's button" screen only cleared the screen: the
+  device kept the op and a later press still ran it (a cancelled factory
+  reset erased the vault). `POST /api/presence/cancel` withdraws it; the app
+  calls it on cancel and when leaving the screen.
+- Setup after a reload could confirm an earlier request with a different Wi‑Fi
+  password and skip the reconnect screen; a refused request now shows an
+  error instead of a press ring.
+- Home Wi‑Fi with a wrong password said "Connecting…" forever: the device now
+  reports why a join failed (wrong password / not found / failed).
+- Settings: "Add to Home Screen" works on phones, the locked screen says when
+  the computer was unplugged, an emptied device name returns, the offline
+  banner names the real network, and Arabic layout fixes (system picker arrow,
+  Latin names, long Bluetooth names, disabled pair row).
 - Audit round (Bluetooth, firmware security, app ↔ firmware contract):
   - Security: nested-JSON crash from the network (cJSON depth 16), home-LAN
     spoofing of the AP to skip browser approval, slow-body stall of the web

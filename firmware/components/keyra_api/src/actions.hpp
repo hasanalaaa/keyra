@@ -134,6 +134,9 @@ class Machine {
 
   Pending arm(TypeRequest req);
   bool cancel();  // pending type action → last = cancelled
+  // The waiting presence op, when it is `op` (the screen that asked gave up):
+  // dropped without running, result = cancelled. False when another op waits.
+  bool cancelPresence(Op op);
   int64_t awaitPresence(Op op, Commit commit);  // replaces whatever is pending
   // For ops requested without a session (setup, factory reset): never displaces
   // another item, so a stranger on the Wi-Fi cannot swap the action a user is
@@ -219,6 +222,7 @@ class HostWatch {
 const char* whatName(What w);
 std::optional<What> parseWhat(const std::string& s);
 const char* opName(Op op);
+std::optional<Op> parseOp(const std::string& s);
 const char* codeName(Code c);
 const char* opCodeName(OpCode c);
 

@@ -14,7 +14,7 @@ const en = {
   busyOther: "Keyra is waiting for another request. Hold its button to cancel it, then try again.",
   busyNow: 'Keyra is busy. Try again in a moment.',
   tooLarge: 'This file is too large for Keyra.',
-  offline: "Lost connection to Keyra. Check your phone is on Keyra‑XXXX or on the same home Wi‑Fi as Keyra.",
+  offline: "Lost connection to Keyra. Check your phone is on {ssid} or on the same home Wi‑Fi as Keyra.",
   reconnecting: 'Reconnecting…',
   skipToAccounts: 'Skip to accounts',
 
@@ -70,6 +70,7 @@ const en = {
   lockedTitle: 'Vault locked',
   lockedIdle: 'Locked after {n} minutes of inactivity.',
   lockedButton: "Locked with Keyra's button.",
+  lockedUnplugged: 'Locked because the computer was unplugged or went to sleep.',
   lockedManual: 'You locked the vault.',
   lockedSession: 'Your session ended. Unlock again.',
 
@@ -400,6 +401,10 @@ const en = {
   homeIntro: 'Keyra joins your home network, so any device on it can open http://keyra.local — no need to switch Wi‑Fi.',
   homeConnected: 'Connected',
   homeConnecting: 'Connecting…',
+  homeOffline: 'Not connected',
+  homeWrongPassword: 'The network refused the password. Choose "Change network" and enter it again.',
+  homeNotFound: "Keyra can't find this network. Is it in range and on 2.4 GHz?",
+  homeJoinFailed: 'Joining failed. Keyra keeps trying in the background.',
   homeAddress: 'Address',
   homeSignal: 'Signal',
   signalOf: 'Signal {n} of 4',
@@ -416,6 +421,7 @@ const en = {
   homePressJoin: "Press Keyra's button to join {ssid}",
   homePressOff: "Press Keyra's button to turn home Wi‑Fi off",
   homePressBody: 'Joining a network changes who can reach Keyra, so it needs your press.',
+  homePressOffBody: "Keyra will leave your home network. Open it on Keyra's own Wi‑Fi afterwards.",
   homeFailed: "Couldn't change home Wi‑Fi.",
   keepAp: "Keep Keyra's own Wi‑Fi on",
   keepApFoot:
@@ -534,7 +540,7 @@ const ar: Record<Key, string> = {
   busyOther: 'Keyra ينتظر طلباً آخر. اضغط زرّه مطوّلاً لإلغائه، ثم حاول مجدداً.',
   busyNow: 'Keyra مشغول الآن. حاول بعد لحظة.',
   tooLarge: 'هذا الملف أكبر مما يتّسع له Keyra.',
-  offline: 'انقطع الاتصال بـ Keyra. تأكد أن هاتفك على شبكة Keyra‑XXXX أو على نفس شبكة البيت المتصل بها Keyra.',
+  offline: 'انقطع الاتصال بـ Keyra. تأكد أن هاتفك على شبكة {ssid} أو على نفس شبكة البيت المتصل بها Keyra.',
   reconnecting: 'نعيد الاتصال…',
   skipToAccounts: 'انتقل إلى الحسابات',
 
@@ -587,6 +593,7 @@ const ar: Record<Key, string> = {
   lockedTitle: 'الخزنة مقفلة',
   lockedIdle: 'قُفلت بعد {n} دقيقة من عدم النشاط.',
   lockedButton: 'قُفلت بزرّ Keyra.',
+  lockedUnplugged: 'قُفلت لأن الكمبيوتر فُصل أو دخل في وضع السكون.',
   lockedManual: 'قفلتَ الخزنة.',
   lockedSession: 'انتهت الجلسة. افتح الخزنة من جديد.',
 
@@ -904,6 +911,10 @@ const ar: Record<Key, string> = {
   homeIntro: 'ينضم Keyra إلى شبكة منزلك، فيفتحه أي جهاز عليها من http://keyra.local دون تبديل شبكة Wi‑Fi.',
   homeConnected: 'متصل',
   homeConnecting: 'جارٍ الاتصال…',
+  homeOffline: 'غير متصل',
+  homeWrongPassword: 'رفضت الشبكة كلمة السر. اختر «غيّر الشبكة» وأدخلها من جديد.',
+  homeNotFound: 'لا يجد Keyra هذه الشبكة. هل هي ضمن المدى وعلى 2.4 GHz؟',
+  homeJoinFailed: 'فشل الاتصال. يواصل Keyra المحاولة في الخلفية.',
   homeAddress: 'العنوان',
   homeSignal: 'الإشارة',
   signalOf: 'الإشارة {n} من 4',
@@ -920,6 +931,7 @@ const ar: Record<Key, string> = {
   homePressJoin: 'اضغط زرّ Keyra للانضمام إلى {ssid}',
   homePressOff: 'اضغط زرّ Keyra لإيقاف شبكة المنزل',
   homePressBody: 'الانضمام إلى شبكة يغيّر من يستطيع الوصول إلى Keyra، لذا يحتاج ضغطتك.',
+  homePressOffBody: 'سيغادر Keyra شبكة البيت. افتحه بعدها عبر شبكة Keyra الخاصة.',
   homeFailed: 'تعذّر تغيير شبكة المنزل.',
   keepAp: 'أبقِ شبكة Keyra الخاصة تعمل',
   keepApFoot:

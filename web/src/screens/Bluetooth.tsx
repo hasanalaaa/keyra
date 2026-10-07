@@ -61,7 +61,7 @@ export function BluetoothSection({ s, save }: { s: Settings; save: (patch: Parti
       title={t('groupBluetooth')}
       footer={
         s.bleEnabled
-          ? `${t('footOutput')} ${t(s.bleConnect === 'always' ? 'footAlways' : 'footOnDemand')}${full ? ` ${t('footBondsFull')}` : ''} ${t('footOs')}${bonds.some((b) => b.os === 'android') ? ` ${t('androidHint')}` : ''}`
+          ? `${t('footOutput')} ${t(s.bleConnect === 'always' ? 'footAlways' : 'footOnDemand')}${full ? ` ${t('footBondsFull')}` : ''}${bonds.some((b) => b.os === 'android') ? ` ${t('androidHint')}` : ''}`
           : t('footBleOff')
       }
     >
@@ -97,8 +97,8 @@ export function BluetoothSection({ s, save }: { s: Settings; save: (patch: Parti
             <Fragment key={b.addr}>
               <div class="row bond-row">
                 <Icon name="bluetooth" size={20} class="row-icon" />
-                <span class="row-label" dir="auto">
-                  {deviceLabel(b, t('bleDevice'))}
+                <span class="row-label">
+                  <bdi>{deviceLabel(b, t('bleDevice'))}</bdi>
                 </span>
                 <span class="row-value">{lastUsed(b)}</span>
                 <IconButton icon="trash-2" label={`${t('bleForget')} · ${deviceLabel(b, t('bleDevice'))}`} onClick={() => setForget(b)} />

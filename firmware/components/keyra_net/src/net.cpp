@@ -81,6 +81,7 @@ Home g_home;  // what the driver is configured with
 bool g_apOn = false;
 uint8_t g_homeChannel = 0;
 uint32_t g_ip = 0;
+HomeError g_homeError = HomeError::None;  // net task only; published in g_status
 int g_rssi = 0;
 bool g_sntp = false;
 
@@ -188,6 +189,7 @@ void handle(const Msg& m, int64_t now) {
       g_link.connected(now);
       if (!g_link.up()) break;  // home Wi-Fi was disabled meanwhile
       g_ip = m.ip;
+      g_homeError = HomeError::None;
       ESP_LOGI(TAG, "home network up: http://%s (keyra.local)", toString(m.ip).c_str());
       startSntpOnce();
       break;
@@ -197,6 +199,7 @@ void handle(const Msg& m, int64_t now) {
       if (wasUp && !g_link.up()) {
         ESP_LOGW(TAG, "home network lost (reason %u); retrying", m.reason);
       } else if (wasTrying && !g_link.attempting()) {
+        g_homeError = homeErrorFor(m.reason);
         ESP_LOGW(TAG, "joining the home network failed (reason %u); next try in %lld s", m.reason,
                  (g_link.nextAttemptAt() - now + 999) / 1000);
       }
@@ -262,6 +265,7 @@ bool applyHome(const Home& h, int64_t now) {
   }
   g_link.configure(h.enabled, h.apMode, rejoin, now);
   if (!g_link.up()) g_ip = 0;
+  if (rejoin || !h.enabled) g_homeError = HomeError::None;  // a new network or password: no verdict yet
   g_home = h;
   ESP_LOGI(TAG, "home Wi-Fi %s%s%s, Keyra's own Wi-Fi: %s", h.enabled ? "on: \"" : "off", h.enabled ? h.ssid.c_str() : "",
            h.enabled ? "\"" : "", h.apMode == ApMode::Always ? "always" : "fallback");
@@ -364,6 +368,7 @@ void publish() {
   g_status.homeConnected = g_link.up();
   g_status.homeIp = g_link.up() && g_ip ? toString(g_ip) : std::string();
   g_status.rssi = g_link.up() ? g_rssi : 0;
+  g_status.homeError = g_home.enabled && !g_link.up() ? g_homeError : HomeError::None;
 }
 
 void netTask(void*) {

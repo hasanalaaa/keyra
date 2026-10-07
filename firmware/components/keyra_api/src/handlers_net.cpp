@@ -61,6 +61,8 @@ void addState(cJSON* state, net::Via via) {
       cJSON_AddNullToObject(h, "ip");
       cJSON_AddNullToObject(h, "rssi");
     }
+    static constexpr const char* kErr[] = {"", "wrong_password", "not_found", "failed"};
+    cJSON_AddStringToObject(h, "error", kErr[static_cast<int>(st.homeError)]);
   } else {
     cJSON_AddNullToObject(n, "home");
   }

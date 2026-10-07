@@ -39,6 +39,16 @@ bool Machine::cancel() {
   return true;
 }
 
+bool Machine::cancelPresence(Op op) {
+  std::lock_guard<std::mutex> lock(mu_);
+  const int64_t now = now_();
+  expireLocked(now);
+  if (kind_ != Kind::Presence || op_ != op) return false;
+  recordOpLocked(op, OpCode::Cancelled, now);
+  clearSlotLocked();  // drops the commit: nothing runs on a later press
+  return true;
+}
+
 int64_t Machine::awaitPresence(Op op, Commit commit) {
   std::lock_guard<std::mutex> lock(mu_);
   clearSlotLocked();
@@ -317,6 +327,14 @@ const char* opName(Op op) {
     case Op::Unprotect: return "unprotect";
   }
   return "setup";
+}
+
+std::optional<Op> parseOp(const std::string& s) {
+  for (Op op : {Op::Setup, Op::Wifi, Op::RestoreReplace, Op::FactoryReset, Op::HomeWifi, Op::TrustBrowser,
+                Op::BlePair, Op::Reveal, Op::Backup, Op::Recovery, Op::Unprotect}) {
+    if (s == opName(op)) return op;
+  }
+  return std::nullopt;
 }
 
 const char* opCodeName(OpCode c) {

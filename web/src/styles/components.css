@@ -70,7 +70,11 @@
 .row-icon { color:var(--accent); }
 .nav-row { transition:background-color var(--d-fast); }
 .nav-row:active { background:var(--fill); }
-@media (hover:hover) { .nav-row:hover { background:var(--surface-2); } }
+@media (hover:hover) { .nav-row:hover:not(:disabled) { background:var(--surface-2); } }
+.nav-row:disabled { opacity:.45; cursor:default; }
+.nav-row:disabled:active { background:none; }
+/* A Latin name (SSID, browser) inside an Arabic row starts where the label starts. */
+.row-label > bdi { align-self:flex-start; }
 .row:focus-visible { outline-offset:-2px; }
 .stack-row { flex-direction:column; align-items:stretch; gap:var(--s-2); padding-block:var(--s-3); }
 .field-row { padding-block:var(--s-3) var(--s-4); display:block; }
@@ -407,3 +411,5 @@
 .orbit-dots i:nth-child(2) { inset-block-start:calc(50% - 62px * .5); inset-inline-start:calc(50% - 62px * .866); }
 .orbit-dots i:nth-child(3) { inset-block-start:calc(50% + 62px); inset-inline-start:50%; }
 @media (prefers-reduced-motion:reduce) { .orbit-dots, .skel::after { animation:none !important; } .skel::after { display:none; } }
+.chip-err { background:var(--err-soft); color:var(--err); }
+.home-error { margin:0; padding-block-start:0; color:var(--text-2); }

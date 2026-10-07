@@ -1,7 +1,7 @@
 // UI state machines for the two kinds of "press Keyra's button" waits (DESIGN §4.11):
 // type actions (state.pending / state.last) and presence ops (state.presence).
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { api, isAwaiting, type Awaiting } from './api';
+import { ApiError, api, isAwaiting, type Awaiting } from './api';
 import { errorText, isLockedError } from './errors';
 import { getState, holdFastPolling, loadEntries, toast, useApp } from './store';
 import { osOf, resolveTarget, wantsSwitch } from './hostos';
@@ -158,13 +158,24 @@ export function usePresence(op: PresenceOp, opts: { doneOnDisconnect?: boolean }
   const app = useApp();
   const [st, setSt] = useState<{ startedAt: number; deadline: number; total: number; seen: boolean } | null>(null);
   const [phase, setPhase] = useState<PresencePhase>({ kind: 'idle' });
+  // True while the device holds this op for us: leaving must withdraw it, or a
+  // later press would still run it (a cancelled factory reset used to erase).
+  const active = useRef(false);
+  const withdraw = () => {
+    if (!active.current) return;
+    active.current = false;
+    void api.cancelPresence(op).catch(() => undefined); // expires on its own after 60 s anyway
+  };
 
   useEffect(() => {
     if (!st) return;
     return holdFastPolling();
   }, [st !== null]);
 
+  useEffect(() => withdraw, []); // unmounted while waiting
+
   const finish = (p: PresencePhase) => {
+    active.current = false;
     setSt(null);
     setPhase(p);
   };
@@ -189,6 +200,7 @@ export function usePresence(op: PresenceOp, opts: { doneOnDisconnect?: boolean }
   }, [app.device, app.online]);
 
   const begin = (startedAt: number, r: Awaiting) => {
+    active.current = true;
     const deadline = Date.now() + r.expiresIn;
     setSt({ startedAt, deadline, total: r.expiresIn, seen: false });
     setPhase({ kind: 'ready', deadline, total: r.expiresIn });
@@ -198,7 +210,16 @@ export function usePresence(op: PresenceOp, opts: { doneOnDisconnect?: boolean }
   const start = async (req: () => Promise<Awaiting>): Promise<boolean> => {
     try {
       const startedAt = Date.now();
-      begin(startedAt, await req());
+      let r: Awaiting;
+      try {
+        r = await req();
+      } catch (e) {
+        // Our own op from before a reload still waits on the device: withdraw it and ask again.
+        if (!(e instanceof ApiError && e.code === 'busy' && getState().device?.presence.op === op)) throw e;
+        await api.cancelPresence(op);
+        r = await req();
+      }
+      begin(startedAt, r);
       return true;
     } catch (e) {
       if (!isLockedError(e)) toast(errorText(e), 'error');
@@ -209,7 +230,10 @@ export function usePresence(op: PresenceOp, opts: { doneOnDisconnect?: boolean }
   /** Watches an op that a request already opened (e.g. PUT /settings or /restore returned 202). */
   const watch = (sentAt: number, r: Awaiting) => begin(sentAt, r);
 
-  const abandon = () => finish({ kind: 'idle' });
+  const abandon = () => {
+    withdraw();
+    finish({ kind: 'idle' });
+  };
 
   return { phase, start, watch, abandon };
 }

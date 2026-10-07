@@ -27,6 +27,9 @@ Via classify(uint32_t localIp);
 // The captive DNS answers only clients on the AP subnet.
 bool inApSubnet(uint32_t ip);
 
+// ESP-IDF's wifi_err_reason_t of a failed join → what the user can act on.
+HomeError homeErrorFor(uint16_t reason);
+
 std::string toString(uint32_t ip);
 
 }  // namespace keyra::net

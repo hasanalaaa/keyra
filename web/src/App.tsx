@@ -64,7 +64,7 @@ export function App() {
         {banner && (
           <div class="conn-banner" role="alert">
             <Icon name="wifi" size={20} />
-            <span class="conn-text">{t('offline')}</span>
+            <span class="conn-text">{t('offline', { ssid: app.device?.net?.ap.ssid || 'Keyra' })}</span>
             <span class="conn-retry">
               <Spinner size={16} />
               {t('reconnecting')}

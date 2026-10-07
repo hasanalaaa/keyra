@@ -737,6 +737,17 @@ esp_err_t postType(Ctx& c) {
   return sendPending(c.r, machine().arm(std::move(req)));
 }
 
+// A "press Keyra's button" screen was cancelled (SPEC §5): the device must not
+// run that op on a later press. Open like setup and factory reset, whose
+// screens have no session; it can only withdraw a request, never make one.
+esp_err_t postPresenceCancel(Ctx& c) {
+  std::string op;
+  if (json::getString(c.body.get(), "op", op) != Field::Ok || !actions::parseOp(op))
+    return badRequest(c.r, "op must name a presence operation");
+  machine().cancelPresence(*actions::parseOp(op));
+  return http::sendEmpty(c.r, http::k204);
+}
+
 esp_err_t postTypeCancel(Ctx& c) {
   machine().cancel();
   return http::sendEmpty(c.r, http::k204);
@@ -1000,6 +1011,7 @@ bool takesBody(Route r) {
     case Route::Backup: case Route::Restore: case Route::WifiHome: case Route::Generate:
     case Route::BleSetOs:
     case Route::UnlockRecovery:
+    case Route::PresenceCancel:
       return true;
     default:
       return false;
@@ -1071,6 +1083,7 @@ esp_err_t dispatch(Ctx& c) {
     case Route::BlePair: return postBlePair(c);
     case Route::BleForget: return deleteBleBond(c);
     case Route::BleSetOs: return putBleOs(c);
+    case Route::PresenceCancel: return postPresenceCancel(c);
     case Route::WifiScan: return netapi::getScan(c.r);
     case Route::WifiHome: return netapi::putHome(c.r, c.body.get());
     case Route::ListTrusted: return trust::sendList(c.r);

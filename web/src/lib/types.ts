@@ -69,10 +69,13 @@ export interface DeviceState {
   graceMs?: number;
 }
 
+export type HomeError = '' | 'wrong_password' | 'not_found' | 'failed';
+
 /** SPEC §8.2 state.net. `via`: how this very request reached Keyra. */
 export interface NetState {
   ap: { on: boolean; ssid: string; clients: number };
-  home: { enabled: boolean; connected: boolean; ssid: string; ip: string | null; rssi: number | null } | null;
+  /** `error`: why the last join failed ('' = none yet); absent on older firmware. */
+  home: { enabled: boolean; connected: boolean; ssid: string; ip: string | null; rssi: number | null; error?: HomeError } | null;
   via: 'ap' | 'home';
 }
 

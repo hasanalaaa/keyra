@@ -418,7 +418,25 @@ void hostWatchBle() {
 
 }  // namespace
 
+// A cancelled "press the button" screen withdraws its op: a later press must
+// not run it (it used to wipe the vault after a cancelled factory reset).
+void testCancelPresence() {
+  Machine m = make();
+  bool ran = false;
+  m.awaitPresence(Op::FactoryReset, [&] { ran = true; return true; });
+  CHECK(!m.cancelPresence(Op::Setup));  // another op: untouched
+  CHECK(m.presence().has_value());
+  CHECK(m.cancelPresence(Op::FactoryReset));
+  CHECK(!m.presence().has_value());
+  const Decision d = m.onButton(Button::Short, true);
+  CHECK(d.effect != Effect::Approve);
+  CHECK(!ran);
+  CHECK(parseOp("factory_reset") == Op::FactoryReset);
+  CHECK(!parseOp("nope"));
+}
+
 int main() {
+  testCancelPresence();
   usbActionIsBoundToItsHost();
   unboundActionsIgnoreUsbChanges();
   revealOpsEndWithTheSession();

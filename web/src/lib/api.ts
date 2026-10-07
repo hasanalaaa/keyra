@@ -146,6 +146,8 @@ export const api = {
   /** On the device, from its hardware RNG (SPEC §9.1). */
   generate: (s: GenSettings) => json<{ password: string; entropyBits: number }>('POST', '/generate', generateRequest(s)),
   cancelType: () => json<void>('POST', '/type/cancel'),
+  /** Withdraws a waiting "press Keyra's button" op, so a later press does not run it. */
+  cancelPresence: (op: PresenceOp) => json<void>('POST', '/presence/cancel', { op }),
   settings: () => json<Settings>('GET', '/settings'),
   /** 200 → Settings; 202 → presence required (Wi-Fi changes). */
   async putSettings(s: Partial<Settings> & { wifiPassword?: string }): Promise<Settings | Awaiting> {

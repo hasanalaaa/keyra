@@ -62,7 +62,16 @@ void scanListIsTidy() {
 
 }  // namespace
 
+void homeErrors() {
+  CHECK(homeErrorFor(15) == HomeError::WrongPassword);   // 4-way handshake timeout
+  CHECK(homeErrorFor(202) == HomeError::WrongPassword);  // auth fail
+  CHECK(homeErrorFor(201) == HomeError::NotFound);
+  CHECK(homeErrorFor(211) == HomeError::NotFound);
+  CHECK(homeErrorFor(8) == HomeError::Failed);           // assoc leave, anything else
+}
+
 int main() {
+  homeErrors();
   viaFromLocalAddress();
   v4MappedAddresses();
   dnsAnswersOnlyTheApSubnet();

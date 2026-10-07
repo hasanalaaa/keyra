@@ -136,7 +136,7 @@ let usbSeen = false; // a computer was plugged in since the unlock (charger-only
 let usbSession = 1; // bumps on every plug-in; a USB action is bound to the one it was armed on
 const trusted = new Map(); // sha256(kt) → { id, name, created, lastSeen }
 const MAX_TRUSTED = 8;
-const homeLink = { connected: false, ip: null, rssi: null, timer: null };
+const homeLink = { connected: false, ip: null, rssi: null, error: '', timer: null };
 const NETWORKS = [
   { ssid: 'Al-Rashid Home', rssi: -48, secure: true, channel: 11 },
   { ssid: 'Al-Rashid Home 5G', rssi: -61, secure: true, channel: 1 },
@@ -693,11 +693,14 @@ function knownBrowser(req) {
 /** Simulates the station joining (or failing to join) after a home_wifi commit. */
 function applyHome() {
   clearTimeout(homeLink.timer);
-  Object.assign(homeLink, { connected: false, ip: null, rssi: null });
+  Object.assign(homeLink, { connected: false, ip: null, rssi: null, error: '' });
   const h = settings.homeWifi;
   if (!h.enabled) return;
   homeLink.timer = setTimeout(() => {
-    if (h.password === 'wrong-password') return console.log(`[mock] joining ${h.ssid} keeps failing (backoff)`);
+    if (h.password === 'wrong-password') {
+      homeLink.error = 'wrong_password'; // like net::homeErrorFor(15)
+      return console.log(`[mock] joining ${h.ssid} keeps failing (backoff)`);
+    }
     const net = NETWORKS.find((n) => n.ssid === h.ssid);
     Object.assign(homeLink, { connected: true, ip: '192.168.1.42', rssi: net?.rssi ?? -60 });
     timeValid = true; // SNTP
@@ -730,6 +733,7 @@ function match(method, rawPath) {
     case 'type': return one('POST', 'type');
     case 'generate': return one('POST', 'generate');
     case 'type/cancel': return one('POST', 'typeCancel');
+    case 'presence/cancel': return one('POST', 'presenceCancel');
     case 'passphrase': return one('POST', 'passphrase');
     case 'backup': return one('POST', 'backup');
     case 'restore': return one('POST', 'restore');
@@ -767,8 +771,8 @@ function match(method, rawPath) {
   return { notAllowed: true };
 }
 
-const OPEN = new Set(['state', 'setup', 'unlock', 'unlockRecovery', 'factoryReset']);
-const BODY = new Set(['setup', 'unlock', 'unlockRecovery', 'create', 'update', 'import', 'type', 'generate', 'putSettings', 'passphrase', 'backup', 'restore', 'wifiHome', 'bleSetOs']);
+const OPEN = new Set(['state', 'setup', 'unlock', 'unlockRecovery', 'factoryReset', 'presenceCancel']);
+const BODY = new Set(['setup', 'unlock', 'unlockRecovery', 'create', 'update', 'import', 'type', 'generate', 'putSettings', 'passphrase', 'backup', 'restore', 'wifiHome', 'bleSetOs', 'presenceCancel']);
 
 const validPassphrase = (s) => typeof s === 'string' && [...s].length >= 10 && [...s].length <= 128;
 const validWifi = (s) => typeof s === 'string' && s.length >= 8 && s.length <= 63 && /^[\x20-\x7e]+$/.test(s) && s !== 'keyra1234';
@@ -927,7 +931,7 @@ async function api(req, res, path) {
         net: {
           ap: { on: !(settings.apMode === 'fallback' && homeLink.connected), ssid: settings.wifiSsid || defaultSsid(), clients: via === 'ap' ? 1 : 0 },
           home: settings.homeWifi.enabled
-            ? { enabled: true, connected: homeLink.connected, ssid: settings.homeWifi.ssid, ip: homeLink.ip, rssi: homeLink.rssi }
+            ? { enabled: true, connected: homeLink.connected, ssid: settings.homeWifi.ssid, ip: homeLink.ip, rssi: homeLink.rssi, error: homeLink.connected ? '' : homeLink.error }
             : null,
           via,
         },
@@ -1132,6 +1136,19 @@ async function api(req, res, path) {
       const r = generate(b);
       if (typeof r === 'string') bad(r);
       return send(res, 200, r);
+    }
+
+    case 'presenceCancel': {
+      // Like Machine::cancelPresence: only the named op, and nothing runs later.
+      if (typeof b.op !== 'string') bad('op must name a presence operation');
+      expire();
+      const s = machine.slot;
+      if (s?.kind === 'presence' && s.op === b.op) {
+        machine.opResult = { op: s.op, code: 'cancelled', at: Date.now() };
+        machine.slot = null;
+        console.log(`[mock] ${s.op} cancelled from the app`);
+      }
+      return send(res, 204);
     }
 
     case 'typeCancel': {

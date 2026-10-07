@@ -297,7 +297,7 @@
 .link-line { border:0; background:none; padding:0; color:var(--accent); font-size:var(--fs-callout); text-align:start; cursor:pointer; }
 .bond-os-row { padding-block-start:0; padding-inline-start:calc(var(--s-4) + 28px); }
 .os-select { padding-inline-end:28px; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238A90A2' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 10px center; }
-[dir="rtl"] .os-select { padding-inline-end:10px; padding-inline-start:28px; background-position:left 10px center; }
+[dir="rtl"] .os-select { background-position:left 10px center; }
 .card > * + .bond-os-row { box-shadow:none; }
 
 /* Recovery kit (SPEC §12.2) */
@@ -379,3 +379,7 @@
     margin: 8mm 0 0;
   }
 }
+
+/* Long Bluetooth names: one line, cut with an ellipsis rather than squeezed. */
+.bond-row .row-label { min-inline-size:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.bond-row .row-value { flex-shrink:0; }

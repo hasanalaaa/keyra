@@ -5,7 +5,7 @@ import { detectLang, setLang, type Lang, type LangPref } from './i18n';
 import type { BleInfo, DeviceState, EntrySummary } from './types';
 
 export type ThemePref = 'auto' | 'light' | 'dark';
-export type LockReason = 'idle' | 'button' | 'manual' | 'session' | null;
+export type LockReason = 'idle' | 'button' | 'manual' | 'session' | 'unplugged' | null;
 
 export interface Toast {
   id: number;
@@ -137,6 +137,8 @@ const markActivity = () => {
 function lockReasonNow(d: DeviceState | null): LockReason {
   if (manualLock) return 'manual';
   if (d && d.unlocked) return 'session';
+  // The USB computer went away with the vault open: "lock on unplug" (SPEC §12.4).
+  if (state.device?.host.usb && d && !d.host.usb) return 'unplugged';
   const idleFor = Date.now() - lastActivity;
   const autoLockMs = (d?.autoLockMin ?? 15) * 60000;
   return idleFor >= autoLockMs - 5000 ? 'idle' : 'button';

@@ -577,3 +577,18 @@ armed on; if that computer goes away before the press, the action fails.
 
 `settings.lastBackupAt` (unix seconds, 0 = never) is set on every backup
 download; the vault screen nudges when it is older than 30 days.
+
+### 12.6 Withdrawing a press request
+
+`POST /api/presence/cancel {op}` → 204 drops the waiting presence op when it is
+`op` (one of `state.presence` op names); its result becomes `cancelled` and a
+later press runs nothing. No session or CSRF token (setup and factory reset
+have none); the Origin check applies, and it can only withdraw, never start.
+The app calls it when a "press Keyra's button" screen is cancelled or closed,
+and when its own op from before a reload is still waiting (`busy`).
+
+### 12.7 Why joining the home network failed
+
+`state.net.home.error`: `""` (none yet), `"wrong_password"` (4-way handshake
+or auth failure), `"not_found"`, or `"failed"`. Set when an attempt fails,
+cleared when the network connects or is reconfigured.

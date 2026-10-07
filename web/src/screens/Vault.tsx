@@ -35,7 +35,13 @@ export function Vault({ route }: { route: Route }) {
   const selected = route.name === 'account' || route.name === 'edit' ? route.id : null;
   const closeToList = () => back('/');
 
-  if (!desktop && route.name === 'settings') return <Settings page onA2hs={() => setA2hs(true)} />;
+  if (!desktop && route.name === 'settings')
+    return (
+      <>
+        <Settings page onA2hs={() => setA2hs(true)} />
+        {a2hs && <A2hsSheet onClose={() => setA2hs(false)} />}
+      </>
+    );
 
   return (
     <div class={desktop ? 'two-pane' : 'one-pane'}>
