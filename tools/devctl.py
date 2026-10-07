@@ -1,20 +1,28 @@
 """Control the DrPasswords board over its native USB port.
 
-  devctl.py dl                 -> app CDC 1200-baud touch -> ROM download mode (/dev/cu.usbmodem101)
+  devctl.py dl                 -> app CDC 1200-baud touch -> ROM download mode (/dev/cu.usbmodem<location>01)
   devctl.py run [secs]         -> watchdog reset from ROM into the app, then capture app log for secs
   devctl.py flash <dir> [secs] -> dl, write bins from <dir>/flash_files.txt (offset path per line), run+log
   devctl.py log <secs>         -> read app CDC log without resetting
 """
-import glob, subprocess, sys, time
+import glob, re, subprocess, sys, time
 import serial
 
 PY = sys.executable
 ET = __import__("os").path.expanduser("~/.platformio/packages/tool-esptoolpy/esptool.py")
-ROM = "/dev/cu.usbmodem101"
+# The ROM's USB-JTAG/serial port is named after the USB location
+# (usbmodem101, usbmodem2101 on another port); the app's after its serial
+# number (usbmodemE072A1D72E4C3).
+ROM_RE = re.compile(r"/dev/cu\.usbmodem\d+$")
+
+
+def rom_port():
+    ports = [p for p in glob.glob("/dev/cu.usbmodem*") if ROM_RE.match(p)]
+    return ports[0] if ports else None
 
 
 def app_port():
-    ports = [p for p in glob.glob("/dev/cu.usbmodem*") if p != ROM]
+    ports = [p for p in glob.glob("/dev/cu.usbmodem*") if not ROM_RE.match(p)]
     return ports[0] if ports else None
 
 
@@ -29,7 +37,7 @@ def wait(pred, secs):
 
 
 def to_dl():
-    if glob.glob(ROM):
+    if rom_port():
         print("dl-ok")
         return True
     p = app_port()
@@ -41,7 +49,7 @@ def to_dl():
             s.close()
         except Exception as e:
             print("touch error", e)
-    ok = wait(lambda: glob.glob(ROM), 20)
+    ok = wait(lambda: rom_port(), 20)
     print("dl-ok" if ok else "dl-fail")
     return bool(ok)
 
@@ -51,7 +59,7 @@ def esptool(*args):
 
 
 def esptool_before(before, *args):
-    r = subprocess.run([PY, ET, "--chip", "esp32s3", "-p", ROM, "--before", before, *args],
+    r = subprocess.run([PY, ET, "--chip", "esp32s3", "-p", rom_port() or "/dev/cu.usbmodem101", "--before", before, *args],
                        capture_output=True, text=True)
     out = (r.stdout + r.stderr).strip().splitlines()
     print("\n".join(out[-4:]))
@@ -100,7 +108,7 @@ def flash(d, secs):
         if esptool_before(before, "--after", "no_reset", "write_flash", "-z", "--flash_size", "keep", *args):
             break
         print(f"flash attempt {attempt + 1} failed; retrying")
-        wait(lambda: glob.glob(ROM), 10)
+        wait(lambda: rom_port(), 10)
     else:
         print("FLASH FAILED")
         sys.exit(1)
