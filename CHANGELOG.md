@@ -8,6 +8,22 @@ All notable changes to Keyra are documented here. The format follows
 
 ### Added
 
+- **Passkeys and security key over USB** ([docs/FIDO.md](docs/FIDO.md)). Keyra
+  enumerates a second HID interface (FIDO usage page `0xF1D0`) next to the
+  keyboard in both builds and speaks CTAPHID, CTAP 2.0 (MakeCredential,
+  GetAssertion, GetNextAssertion, GetInfo, Reset, Selection; ES256; discoverable
+  credentials, up to 50) and U2F/CTAP1. A short press while the LED double-blinks
+  white approves, a long press refuses; requests wait up to 30 s for the vault to
+  be unlocked. Credential keys are wrapped with a key derived from the vault's
+  data key; passkey records are encrypted vault files. Self attestation, AAGUID
+  `b722a2aa-5acc-4835-9c91-5fa93812679d`, not FIDO certified, no ClientPIN yet.
+- Web app: **Settings → Passkeys** lists passkeys (site, account, date added)
+  and deletes them (`GET /api/fido`, `DELETE /api/fido/{id}`).
+- Host tests for the FIDO core (CBOR vectors, CTAPHID framing, MakeCredential/
+  GetAssertion and U2F signatures checked with an independent verifier,
+  malformed input) and `tools/fido_harness.py`, which runs python-fido2's
+  client and server against the core through a fake HID link.
+
 - Web app: **Scan QR from a photo** next to the 2FA field. Reads a plain
   `otpauth://totp/` QR in the browser (jsQR, Apache-2.0; photos are downscaled on
   a scratch canvas, never uploaded) and fills the key, plus the name and user name
@@ -56,6 +72,10 @@ All notable changes to Keyra are documented here. The format follows
   browser; Ready shows "Connecting to <device>…" and then where it will type.
 
 ### Changed
+
+- USB: both descriptors gain the FIDO interface (interface 1; the dev build's
+  CDC console moves to interfaces 2-3) and `bcdDevice` becomes 0x0110 (release)
+  / 0x0111 (dev) so hosts do not reuse cached descriptors.
 
 - The captive DNS answers only clients on Keyra's own Wi-Fi, and connectivity
   probes are answered only there.

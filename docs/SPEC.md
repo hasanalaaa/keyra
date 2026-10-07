@@ -60,6 +60,7 @@ Keyra/
       keyra_io/             button (GPIO0) + RGB LED status
       keyra_net/            SoftAP, DNS, mDNS, captive-probe answers
       keyra_api/            HTTP server, REST API, sessions, pending-action state machine, static web assets
+      keyra_fido/           USB FIDO2/U2F security key (CTAPHID, CTAP2, passkeys; §10)
     test/host/              host test runner (CMake + ctest, plain C++)
   web/                      Vite + Preact + TypeScript single-page app
     mock/                   Node mock of the device API (for UI dev, screenshots, e2e)
@@ -137,7 +138,7 @@ bool   typeable(const char* text);                   // printable US-ASCII only
 // keyra_io/include/keyra/io.hpp
 namespace keyra::io {
 enum class Button { Short, Long };
-enum class Led { Off, Locked, Idle, Pending, Typing, Success, Error, AwaitPresence, Setup };
+enum class Led { Off, Locked, Idle, Pending, Typing, Success, Error, AwaitPresence, Setup, Pairing, Fido };
 void init();                                   // LED + button task
 bool nextButton(Button& out, TickType_t wait); // event queue
 void led(Led state);
@@ -426,3 +427,28 @@ A Manifest V3 extension (`extension/`, Chrome/Edge/Firefox; Safari via
   username/password/both → the user presses the button → Keyra types. The
   extension never receives stored passwords.
 - Privacy: only the hostname is sent for matching; full URL only on Save.
+
+---
+
+## 10. v1.3 — Passkeys and security key (USB FIDO2/U2F)
+
+Design, key formats and honest limits: [FIDO.md](FIDO.md). Contract points:
+
+- **USB.** Both builds are composite HID devices: interface 0 = boot keyboard
+  (EP 0x81), interface 1 = FIDO (usage page `0xF1D0`, usage 1, 64-byte input
+  and output reports, EP OUT 0x04 / IN 0x84, 5 ms). The dev build adds the CDC
+  console as interfaces 2-3. `bcdDevice` 0x0110 (release) / 0x0111 (dev).
+- **Component** `keyra_fido`: CTAPHID, CTAP 2.0 (`U2F_V2`, `FIDO_2_0`; ES256;
+  rk/up/uv), U2F, the `fido` task. Plain-C++ core under `src/core`, host-tested;
+  `keyra_hid` only carries the reports (`hid::setFidoReceiver`, `hid::fidoSend`).
+- **Button.** While a FIDO request waits (`fido::awaitingTouch()`), the actions
+  task routes presses there before the pending-action machine: short = approve,
+  long = refuse. The LED shows `Led::Fido`. Requests need the vault unlocked
+  (they wait ≤ 30 s for it) and a press within 30 s.
+- **Vault.** Passkey records `f/<id>.bin` (AES-256-GCM with the DEK, AAD
+  `"keyra/f/v1/<id>"`, ≤ 50, ≤ 1 KiB each) and `fido.bin` (wrapping-key salt);
+  `vault::passkey*` in `keyra/vault.hpp`. Not in backups.
+- **API** (session):
+  - `GET /api/fido` → `{passkeys:[{id, rpId, userName, displayName, created}], max:50}`
+    (newest first; `created` unix seconds, 0 = unknown)
+  - `DELETE /api/fido/{id}` → 204 / 404 `not_found`

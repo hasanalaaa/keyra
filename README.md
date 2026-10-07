@@ -63,6 +63,7 @@ A long press (1.5 seconds) cancels a pending action, or locks the vault if nothi
 | | |
 |---|---|
 | **Types like a keyboard** | USB HID keyboard (US layout). Handles Caps Lock and always releases keys, even on errors. |
+| **Passkeys and security key (USB)** | Keyra is also a FIDO2/U2F security key: create and use passkeys, or use it as a second factor, on sites that support security keys. Press the button when the light double-blinks white. Up to 50 passkeys, listed in **Settings → Passkeys**. Not FIDO certified; see [docs/FIDO.md](docs/FIDO.md). |
 | **Bluetooth keyboard** | Bluetooth LE (HID over GATT) for phones, tablets and computers, with the same typing engine. Pairing only opens for 2 minutes after a button press; up to 4 devices; forget any of them from the app. |
 | **Phone-first web app** | Installable to the home screen. Search, favorites, recents, password generator and strength meter. |
 | **Arabic and English** | Full RTL support, auto-detected, switchable at any time. |
@@ -71,7 +72,7 @@ A long press (1.5 seconds) cancels a pending action, or locks the vault if nothi
 | **Unlock rate limiting** | Failed attempts are counted before the key derivation runs; power-cycling does not reset the delay. |
 | **Import** | Move from Apple Passwords, Chrome, Bitwarden or 1Password CSV exports, or move 2FA keys from a Google Authenticator export QR. |
 | **Encrypted backup** | A passphrase-protected JSON file; restore by merging or replacing. |
-| **Physical confirmation** | Typing, setup, Wi-Fi changes, Bluetooth pairing and factory reset all need a button press. |
+| **Physical confirmation** | Typing, passkey and security-key sign-ins, setup, Wi-Fi changes, Bluetooth pairing and factory reset all need a button press. |
 | **Home Wi-Fi (optional)** | Keyra can join your home network so `keyra.local` opens from any device on it. Each new browser there is approved once with the button. |
 | **Status LED** | Locked, ready, typing, success and error, readable at a glance. |
 | **Auto-lock** | Locks after idle (1 to 120 minutes) and zeroizes keys in RAM. |
@@ -96,6 +97,7 @@ The short version. The full threat model, cryptographic design and rate-limit sc
 - Encrypts every entry with AES-256-GCM under a random data key, itself protected by a key derived from your passphrase (PBKDF2-HMAC-SHA256, calibrated to about 1.2 s).
 - Rate-limits unlock attempts and counts them durably.
 - Types only after a physical button press. The computer never gets a storage or network channel from Keyra.
+- Signs passkey and security-key requests only while unlocked and after a button press; passkey keys are encrypted with the vault key ([docs/FIDO.md](docs/FIDO.md)).
 - Lets a new Bluetooth device pair only during a 2-minute window opened by a button press; the rest of the time only already-paired devices can even connect.
 - Keeps decrypted data in RAM only while unlocked, and zeroizes it on lock.
 
@@ -106,6 +108,7 @@ The short version. The full threat model, cryptographic design and rate-limit sc
 - **Flash encryption and secure boot are optional** and off by default. They are irreversible eFuse steps ([docs/HARDWARE.md](docs/HARDWARE.md#optional-hardening-irreversible)).
 - **Keyra has not been independently audited.**
 - A keylogger on the computer can still see what Keyra types, as with any keyboard.
+- **The security key is not FIDO certified** and uses self attestation; without a secure element its keys are as safe as your passphrase. "User verification" means Keyra is unlocked, not a PIN or fingerprint for each sign-in.
 - **Bluetooth pairing is "Just Works"** (Keyra has no screen to show a code). Someone within radio range during the 2-minute pairing window could pair their own device, or try to sit in the middle of yours. Pair where you can see who is around, and check the device list afterwards. Details in [SECURITY.md](SECURITY.md#bluetooth).
 
 If you need to report a vulnerability, please use a **private GitHub Security Advisory** as described in [SECURITY.md](SECURITY.md#reporting-a-vulnerability).
@@ -194,6 +197,7 @@ keyra/
 │   │   ├── keyra_vault/       crypto, encrypted storage, TOTP, backup (host-tested)
 │   │   ├── keyra_hid/         typing engine over USB (TinyUSB) or Bluetooth, dev CDC port
 │   │   ├── keyra_ble/         Bluetooth LE keyboard (NimBLE, HID over GATT), pairing and bonds
+│   │   ├── keyra_fido/        USB security key: CTAPHID, CTAP2 + U2F, passkeys (host-tested)
 │   │   ├── keyra_io/          button (GPIO0) and RGB status LED
 │   │   ├── keyra_net/         Wi-Fi access point, DNS, mDNS (keyra.local)
 │   │   └── keyra_api/         HTTP server, REST API, sessions, pending-action state machine
@@ -201,8 +205,8 @@ keyra/
 │   ├── partitions.csv         8 MB layout: 2 app slots + LittleFS vault
 │   └── sdkconfig.defaults / sdkconfig.release   dev and release profiles
 ├── web/                       Preact + TypeScript app, built into one gzipped file
-├── tools/                     devctl.py: flash, reset and log over native USB
-├── docs/                      SPEC.md, DESIGN.md, HARDWARE.md, IMAGE_PROMPTS.md, images/
+├── tools/                     devctl.py (flash, reset, log), fido_harness.py (python-fido2 vs. the FIDO core)
+├── docs/                      SPEC.md, DESIGN.md, HARDWARE.md, FIDO.md, IMAGE_PROMPTS.md, images/
 └── .github/                   CI, issue and PR templates
 ```
 
@@ -211,9 +215,13 @@ keyra/
 ## Development
 
 ```sh
-# Host tests: vault, TOTP, key map, action state machine. No board needed.
+# Host tests: vault, TOTP, key map, action state machine, FIDO core. No board needed.
 # Requires CMake, a C++17 compiler and OpenSSL 3 headers (libssl-dev, or openssl@3 on Homebrew).
 cmake -S firmware/test/host -B build/host && cmake --build build/host && ctest --test-dir build/host
+
+# The FIDO core against python-fido2's client and server (fake HID link, no board)
+python3 -m venv .venv && .venv/bin/pip install fido2
+.venv/bin/python tools/fido_harness.py build/host/keyra_fido/fido_harness
 
 # Web: typecheck and unit tests
 npm --prefix web ci
@@ -235,6 +243,8 @@ Ideas, not promises. Priorities follow what real users on real boards report.
 
 - [x] 0.1: encrypted vault, USB typing, phone app (EN/AR), TOTP, import, backup, CI
 - [x] Bluetooth LE keyboard (unreleased; on the main branch)
+- [x] USB passkeys / FIDO2 + U2F security key (unreleased; on the main branch)
+- [ ] Security-key PIN (ClientPIN with the master passphrase), `hmac-secret`, passkeys in backups
 - [ ] Tested board matrix and a prebuilt release for each
 - [ ] Browser-based flashing from the release page
 - [ ] More keyboard layouts (the key map is US-only today)
@@ -272,7 +282,13 @@ No. Keyra creates its own Wi-Fi network, and your phone does not need internet w
 Not for everyday use at home: open http://keyra.local on your home network instead. Keyra's own Wi-Fi is still useful. It is how you set Keyra up and how you reach it when the home network is down (with **Keep Keyra's own Wi-Fi on** turned off, it comes back after a minute without the home network). It is also the safer way to unlock on a network you do not fully trust, because traffic on it is visible only to devices that know Keyra's Wi-Fi password (see [SECURITY.md](SECURITY.md#home-wi-fi-optional)). If you never want it while at home, turn **Keep Keyra's own Wi-Fi on** off.
 
 **Can the computer read my vault?**
-Keyra presents only a keyboard to the computer. It has no storage interface and no network path to it. The computer sees what gets typed, and nothing else. Over Bluetooth it is the same: a paired device sees a keyboard, Keyra's name and maker, and a battery level, nothing more.
+Keyra presents a keyboard and a security key to the computer. It has no storage interface and no network path to it. The computer sees what gets typed, and it can ask the security key to sign a website's challenge, which needs your button press; it can never read the vault or a key. Over Bluetooth a paired device sees a keyboard, Keyra's name and maker, and a battery level, nothing more.
+
+**Is Keyra a YubiKey replacement?**
+No. Keyra can create and use passkeys and act as a security key over USB, and for many personal accounts that works well. But a YubiKey keeps its keys in a secure chip that cannot be read out, is FIDO certified, has a PIN for every sign-in, and works over NFC. Keyra has no secure chip (its keys are as safe as your passphrase and the flash encryption setting), is not certified, treats "unlocked" as user verification, and works only by USB (phones need a USB connection). Some sites, mostly corporate ones, refuse uncertified keys. Register a second key or keep another sign-in method on every account. Details in [docs/FIDO.md](docs/FIDO.md).
+
+**Which passkey sites work?**
+Any site that accepts a USB security key or "passkey on a security key", in Chrome, Edge, Safari or Firefox on macOS, Windows and Linux. Passkeys need Keyra plugged in and unlocked; keep the phone app handy to unlock it. Passkeys are not in Keyra's backups yet.
 
 **What does it cost?**
 A compatible ESP32-S3 board is usually a few dollars to about ten.

@@ -504,6 +504,7 @@ morph/ripple/scale; ring colour change + check appear instantly, same 1.9 s dwel
 | expired / no_usb / failed | `Error` | red `#EF4444` three blinks, 150 ms on / 150 ms off |
 | cancelled | `Idle` | off |
 | Bluetooth pairing window (Settings → Bluetooth) | `Pairing` | cyan, sinusoidal breathe, period 1200 ms, up to 120 s |
+| a website waits for the security-key press (docs/FIDO.md) | `Fido` | white, two 120 ms blinks per second (no breathe, so it never looks like a typing prompt), up to 30 s |
 Brightness follows Settings → LED brightness. If the firmware differs, change the UI constants `--d-breath` and
 colours — the structure stays.
 
