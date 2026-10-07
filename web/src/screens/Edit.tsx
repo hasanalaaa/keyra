@@ -5,7 +5,7 @@ import { QR_ERRORS, QrPhoto } from '../components/QrPhoto';
 import { Alert, Sheet, type SheetCtl } from '../components/Sheet';
 import { ApiError, api } from '../lib/api';
 import { copyText } from '../lib/clipboard';
-import { DEFAULT_GEN, generatePassword, untypeable, type GenOptions } from '../lib/generator';
+import { DEFAULT_GEN, generatePassword, toTypeable, untypeable, type GenOptions } from '../lib/generator';
 import { t } from '../lib/i18n';
 import { back, replace } from '../lib/router';
 import { parseQrText, titleOf, toOtpauth, type OtpAccount } from '../lib/qrImport';
@@ -133,12 +133,12 @@ export function EditAccount({ id }: { id?: number }) {
       >
         <TextField label={t('name')} placeholder={t('namePh')} value={form.title} onValue={set('title')} onBlur={blur('title')} error={touched.title ? nameErr : null} enterkeyhint="next" />
         <TextField label={t('websiteOpt')} placeholder="example.com" value={form.url} onValue={set('url')} ltr inputMode="url" autocapitalize="off" spellcheck={false} enterkeyhint="next" />
-        <TextField label={t('username')} value={form.username} onValue={set('username')} ltr autocapitalize="off" spellcheck={false} enterkeyhint="next" />
+        <TextField label={t('username')} value={form.username} onValue={(v) => set('username')(toTypeable(v))} ltr autocorrect="off" autocapitalize="off" spellcheck={false} enterkeyhint="next" />
         <div class="pw-block">
           <SecretField
             label={t('password')}
             value={form.password}
-            onValue={set('password')}
+            onValue={(v) => set('password')(toTypeable(v))}
             autocomplete="off"
             enterkeyhint="next"
             helper={form.password ? <StrengthMeter value={form.password} /> : undefined}

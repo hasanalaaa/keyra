@@ -336,6 +336,8 @@ void onConnect(int status, uint16_t conn) {
   // The controller already resolved private addresses, so peer_id_addr is
   // the identity a bond is stored under.
   const peers::Key k = keyOf(d.peer_id_addr);
+  ESP_LOGI(TAG, "connection from %s (encrypted=%d bonded=%d)", formatAddr(k.addr).c_str(),
+           int(d.sec_state.encrypted), int(d.sec_state.bonded));
   bool allow;
   {
     std::lock_guard<std::mutex> lock(g_mu);
@@ -458,6 +460,9 @@ void onSubscribe(const ble_gap_event& ev) {
   if (ev.subscribe.conn_handle != g_link.conn) return;
   if (ev.subscribe.attr_handle == gatt::inputHandle()) g_link.subInput = ev.subscribe.cur_notify;
   if (ev.subscribe.attr_handle == gatt::bootInputHandle()) g_link.subBoot = ev.subscribe.cur_notify;
+  ESP_LOGI(TAG, "host %s notifications on handle %u (reason %d): input=%d boot=%d",
+           ev.subscribe.cur_notify ? "enabled" : "disabled", unsigned(ev.subscribe.attr_handle),
+           int(ev.subscribe.reason), int(g_link.subInput), int(g_link.subBoot));
 }
 
 int onGap(ble_gap_event* ev, void*) {
@@ -754,7 +759,11 @@ bool sendKey(uint8_t modifier, uint8_t keycode) {
     {
       std::lock_guard<std::mutex> lock(g_mu);
       const bool sub = gatt::bootProtocol() ? g_link.subBoot : g_link.subInput;
-      if (!g_enabled || !g_link.trusted() || !sub) return false;
+      if (!g_enabled || !g_link.trusted() || !sub) {
+        ESP_LOGW(TAG, "key not sent: enabled=%d trusted=%d subscribed=%d boot=%d", int(g_enabled),
+                 int(g_link.trusted()), int(sub), int(gatt::bootProtocol()));
+        return false;
+      }
       conn = g_link.conn;
     }
     const uint16_t handle = gatt::bootProtocol() ? gatt::bootInputHandle() : gatt::inputHandle();
@@ -763,7 +772,10 @@ bool sendKey(uint8_t modifier, uint8_t keycode) {
     if (om != nullptr) {
       const int rc = ble_gatts_notify_custom(conn, handle, om);  // consumes om either way
       if (rc == 0) return true;
-      if (rc != BLE_HS_ENOMEM) return false;
+      if (rc != BLE_HS_ENOMEM) {
+        ESP_LOGW(TAG, "notify failed: %d", rc);
+        return false;
+      }
     }
     if (esp_timer_get_time() > deadline) return false;  // the host stopped taking reports
     vTaskDelay(1);
