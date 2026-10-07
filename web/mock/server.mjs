@@ -9,9 +9,11 @@
 //   MOCK_BLE=0                         no paired Bluetooth device in the seed
 //   MOCK_VIA=home                      every request arrives "through the home network" (SPEC §8.2);
 //                                      without it, requests to http://127.0.0.1:PORT do, localhost is the AP
+//   MOCK_BACKUP_DAYS=3                 days since the seeded vault's last backup (> 30 shows the reminder)
 //   PORT=8787                          listen port
 //
-// Simulated hardware: POST /__mock/button {press:"short"|"long"} · POST /__mock/usb {usb:bool}
+// Simulated hardware: POST /__mock/button {press:"short"|"long"} · POST /__mock/usb {usb:bool} (unplugging
+//   a computer that was plugged in while unlocked auto-locks, SPEC §10.4)
 //   POST /__mock/ble {pair:"<device name>"} (a device pairs while the window is open) · {connected:bool}
 //     · {autoConnect:bool} (default true: the wanted device connects ~1.5 s after an action is armed)
 // Home Wi‑Fi: any network joins ~2 s after the press, except with the password "wrong-password".
@@ -55,6 +57,10 @@ const defaultSettings = () => ({
   bleConnect: 'on_demand',
   homeWifi: { enabled: false, ssid: '', password: '' }, // password is write-only, never sent
   apMode: 'always',
+  protectReveal: true,
+  lockOnUsb: true,
+  lockOnBle: false,
+  lastBackupAt: 0,
 });
 
 const host = { usb: process.env.MOCK_USB !== '0', capsLock: false };
@@ -122,7 +128,10 @@ let failures = 0;
 let lockedUntil = 0;
 let timeValid = false;
 let lastActivity = Date.now();
-const sessions = new Map(); // token → { csrf, lastUsed, trustId }
+const sessions = new Map(); // token → { csrf, lastUsed, trustId, graceUntil }
+const GRACE_MS = 60000; // SPEC §10.3: after a press, this session may see secrets this long
+let usbSeen = false; // a computer was plugged in since the unlock (charger-only never locks)
+let usbSession = 1; // bumps on every plug-in; a USB action is bound to the one it was armed on
 const trusted = new Map(); // sha256(kt) → { id, name, created, lastSeen }
 const MAX_TRUSTED = 8;
 const homeLink = { connected: false, ip: null, rssi: null, timer: null };
@@ -155,6 +164,7 @@ function expire(now = Date.now()) {
 }
 
 function arm(req) {
+  req.usbSession = req.target.kind === 'usb' && host.usb ? usbSession : 0;
   machine.slot = { kind: 'type', req, deadline: Date.now() + EXPIRY_MS };
   syncDemand();
   autoPress(machine.slot);
@@ -181,7 +191,7 @@ function dropSessionItems() {
   if (s.kind === 'type') {
     machine.last = { ok: false, code: 'cancelled', at: Date.now(), title: s.req.title, what: s.req.what };
     machine.slot = null;
-  } else if (s.op === 'wifi' || s.op === 'restore' || s.op === 'home_wifi' || s.op === 'ble_pair') {
+  } else if (!['setup', 'factory_reset', 'trust_browser'].includes(s.op)) {
     machine.opResult = { op: s.op, code: 'cancelled', at: Date.now() };
     machine.slot = null;
   }
@@ -189,6 +199,7 @@ function dropSessionItems() {
 
 function lockAll() {
   unlocked = false;
+  usbSeen = false;
   sessions.clear();
   dropSessionItems();
   ble.pairingUntil = 0;
@@ -570,6 +581,7 @@ function seed() {
 if (!FRESH) {
   vault = { passphrase: DEMO_PASSPHRASE, entries: seed() };
   settings.wifiPassword = 'Tigris-42-Kx9p';
+  settings.lastBackupAt = nowSec() - Number(process.env.MOCK_BACKUP_DAYS ?? 3) * 86400;
   if (process.env.MOCK_BLE !== '0') ble.bonds.push({ addr: 'F0:2B:7C:41:9A:D3', name: 'MacBook Air', lastSeen: nowSec() - 86400 * 2 });
 }
 
@@ -687,6 +699,9 @@ function match(method, path) {
     case 'state': return one('GET', 'state');
     case 'setup': return one('POST', 'setup');
     case 'unlock': return one('POST', 'unlock');
+    case 'unlock/recovery': return one('POST', 'unlockRecovery');
+    case 'recovery':
+      return method === 'GET' ? { route: 'getRecovery' } : method === 'POST' ? { route: 'createRecovery' } : method === 'DELETE' ? { route: 'deleteRecovery' } : { notAllowed: true };
     case 'lock': return one('POST', 'lock');
     case 'type': return one('POST', 'type');
     case 'generate': return one('POST', 'generate');
@@ -713,18 +728,19 @@ function match(method, path) {
   }
   const tr = /^trusted\/([0-9]{1,10})$/.exec(p);
   if (tr) return Number(tr[1]) > 0 && Number(tr[1]) <= 0xffffffff ? (method === 'DELETE' ? { route: 'untrust', id: Number(tr[1]) } : { notAllowed: true }) : null;
-  const m = /^entries\/([0-9]{1,10})(\/totp)?$/.exec(p);
+  const m = /^entries\/([0-9]{1,10})(\/totp|\/reveal)?$/.exec(p);
   const id = m ? Number(m[1]) : 0;
   if (!m || id === 0 || id > 0xffffffff) return null;
-  if (m[2]) return method === 'GET' ? { route: 'totp', id } : { notAllowed: true };
+  if (m[2] === '/totp') return method === 'GET' ? { route: 'totp', id } : { notAllowed: true };
+  if (m[2] === '/reveal') return method === 'POST' ? { route: 'reveal', id } : { notAllowed: true };
   if (method === 'GET') return { route: 'get', id };
   if (method === 'PUT') return { route: 'update', id };
   if (method === 'DELETE') return { route: 'delete', id };
   return { notAllowed: true };
 }
 
-const OPEN = new Set(['state', 'setup', 'unlock', 'factoryReset']);
-const BODY = new Set(['setup', 'unlock', 'create', 'update', 'import', 'type', 'generate', 'putSettings', 'passphrase', 'backup', 'restore', 'wifiHome']);
+const OPEN = new Set(['state', 'setup', 'unlock', 'unlockRecovery', 'factoryReset']);
+const BODY = new Set(['setup', 'unlock', 'unlockRecovery', 'create', 'update', 'import', 'type', 'generate', 'putSettings', 'passphrase', 'backup', 'restore', 'wifiHome']);
 
 const validPassphrase = (s) => typeof s === 'string' && [...s].length >= 10 && [...s].length <= 128;
 const validWifi = (s) => typeof s === 'string' && s.length >= 8 && s.length <= 63 && /^[\x20-\x7e]+$/.test(s) && s !== 'keyra1234';
@@ -735,6 +751,75 @@ const busy409 = () => fail(409, 'busy', "Keyra is waiting for another request; l
 
 function getEntry(id) {
   return vault.entries.get(id) ?? fail(404, 'not_found', 'No such entry');
+}
+
+// SPEC §10.3: the entry with secrets, or without them (hasPassword/hasTotp, history dates only).
+function entryView(e, revealed) {
+  const { password, totp, history, ...rest } = e;
+  if (revealed) return { ...rest, revealed, hasPassword: !!password, hasTotp: !!totp, password, totp, history };
+  return { ...rest, revealed, hasPassword: !!password, hasTotp: !!totp, history: history.map((h) => ({ changedAt: h.changedAt })) };
+}
+
+const graceLeft = (sess) => (sess ? Math.max(0, (sess.graceUntil ?? 0) - Date.now()) : 0);
+const mayReveal = (sess) => !settings.protectReveal || graceLeft(sess) > 0;
+/** Arms `op`; the press opens this session's grace. */
+function requestPress(res, op, token) {
+  const exp = awaitPresence(op, () => {
+    const s = sessions.get(token);
+    if (!s) return false;
+    s.graceUntil = Date.now() + GRACE_MS;
+  });
+  return send(res, 202, { awaiting: 'button', op, expiresIn: exp });
+}
+
+/** A new session for this browser (+ the renewed trust cookie). */
+function issueSession(res, req, known) {
+  unlocked = true;
+  usbSeen = host.usb;
+  lastActivity = Date.now();
+  if (sessions.size >= MAX_SESSIONS) {
+    const oldest = [...sessions.entries()].sort((x, y) => x[1].lastUsed - y[1].lastUsed)[0][0];
+    sessions.delete(oldest);
+  }
+  const tok = randomBytes(32).toString('hex');
+  const csrf = randomBytes(32).toString('hex');
+  sessions.set(tok, { csrf, lastUsed: Date.now(), trustId: known?.id ?? 0, graceUntil: 0 });
+  const cookies = [`ks=${tok}; HttpOnly; SameSite=Strict; Path=/`];
+  if (known) cookies.push(`kt=${cookie(req, 'kt')}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000`);
+  return send(res, 200, { csrf }, { 'Set-Cookie': cookies });
+}
+
+function trustRequest(res, req) {
+  const kt = randomBytes(32).toString('hex');
+  const name = browserName(req.headers['user-agent']);
+  const exp = awaitPresence(
+    'trust_browser',
+    () => {
+      if (trusted.size >= MAX_TRUSTED) {
+        const [h, old] = [...trusted.entries()].sort((x, y) => Math.max(x[1].lastSeen, x[1].created) - Math.max(y[1].lastSeen, y[1].created))[0];
+        trusted.delete(h);
+        for (const [tok, s] of sessions) if (s.trustId === old.id) sessions.delete(tok);
+      }
+      trusted.set(sha(kt), { id: randomBytes(4).readUInt32BE() || 1, name, created: nowSec(), lastSeen: nowSec() });
+      console.log(`[mock] trusted ${name}`);
+    },
+    { tryOnly: true },
+  );
+  if (exp === null) busy409();
+  return send(res, 202, { awaiting: 'button', op: 'trust_browser', expiresIn: exp }, { 'Set-Cookie': `kt=${kt}; HttpOnly; SameSite=Strict; Path=/` });
+}
+
+function throttle() {
+  if (Date.now() < lockedUntil) {
+    const retryAfterMs = lockedUntil - Date.now();
+    fail(429, 'rate_limited', 'Too many attempts', { retryAfterMs }, { 'Retry-After': String(Math.ceil(retryAfterMs / 1000)) });
+  }
+  failures++;
+}
+function wrongAttempt(message) {
+  const retryAfterMs = failures <= 4 ? 0 : Math.min(900, 2 ** (failures - 4)) * 1000;
+  lockedUntil = Date.now() + retryAfterMs;
+  fail(401, 'wrong', message, { retryAfterMs });
 }
 
 async function api(req, res, path) {
@@ -818,6 +903,7 @@ async function api(req, res, path) {
           via,
         },
         timeValid,
+        graceMs: session ? graceLeft(sess) : 0,
       });
     }
 
@@ -847,54 +933,52 @@ async function api(req, res, path) {
       const pass = str(b, 'passphrase');
       if (Buffer.byteLength(pass) > 1024) bad('passphrase too long');
       if (!vault) fail(409, 'not_initialized', 'Keyra is not set up yet');
-      if (Date.now() < lockedUntil) {
-        const retryAfterMs = lockedUntil - Date.now();
-        fail(429, 'rate_limited', 'Too many attempts', { retryAfterMs }, { 'Retry-After': String(Math.ceil(retryAfterMs / 1000)) });
-      }
-      failures++;
+      throttle();
       await sleep(KDF_MS);
-      if (pass !== vault.passphrase) {
-        const retryAfterMs = failures <= 4 ? 0 : Math.min(900, 2 ** (failures - 4)) * 1000;
-        lockedUntil = Date.now() + retryAfterMs;
-        fail(401, 'wrong', 'Wrong passphrase', { retryAfterMs });
-      }
+      if (pass !== vault.passphrase) wrongAttempt('Wrong passphrase');
       failures = 0;
       lockedUntil = 0;
       const known = knownBrowser(req);
-      if (via === 'home' && !known) {
-        // SPEC §8.2: right passphrase, unknown browser on the home network → the button first.
-        const kt = randomBytes(32).toString('hex');
-        const name = browserName(req.headers['user-agent']);
-        const exp = awaitPresence(
-          'trust_browser',
-          () => {
-            if (trusted.size >= MAX_TRUSTED) {
-              const [h, old] = [...trusted.entries()].sort((x, y) => Math.max(x[1].lastSeen, x[1].created) - Math.max(y[1].lastSeen, y[1].created))[0];
-              trusted.delete(h);
-              for (const [tok, s] of sessions) if (s.trustId === old.id) sessions.delete(tok);
-            }
-            trusted.set(sha(kt), { id: randomBytes(4).readUInt32BE() || 1, name, created: nowSec(), lastSeen: nowSec() });
-            console.log(`[mock] trusted ${name}`);
-          },
-          { tryOnly: true },
-        );
-        if (exp === null) busy409();
-        return send(res, 202, { awaiting: 'button', op: 'trust_browser', expiresIn: exp }, { 'Set-Cookie': `kt=${kt}; HttpOnly; SameSite=Strict; Path=/` });
-      }
+      // SPEC §8.2: right passphrase, unknown browser on the home network → the button first.
+      if (via === 'home' && !known) return trustRequest(res, req);
       if (known) known.lastSeen = nowSec();
-      unlocked = true;
-      lastActivity = Date.now();
-      if (sessions.size >= MAX_SESSIONS) {
-        const oldest = [...sessions.entries()].sort((x, y) => x[1].lastUsed - y[1].lastUsed)[0][0];
-        sessions.delete(oldest);
-      }
-      const tok = randomBytes(32).toString('hex');
-      const csrf = randomBytes(32).toString('hex');
-      sessions.set(tok, { csrf, lastUsed: Date.now(), trustId: known?.id ?? 0 });
-      const cookies = [`ks=${tok}; HttpOnly; SameSite=Strict; Path=/`];
-      if (known) cookies.push(`kt=${cookie(req, 'kt')}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000`);
-      return send(res, 200, { csrf }, { 'Set-Cookie': cookies });
+      return issueSession(res, req, known);
     }
+
+    case 'unlockRecovery': {
+      // SPEC §10.2: the recovery key sets a new passphrase and unlocks.
+      const key = str(b, 'recoveryKey');
+      const next = str(b, 'next');
+      if (!/^[0-9a-f]{40}$/.test(key)) bad('recoveryKey must be 40 hex characters');
+      if (!validPassphrase(next)) bad('next must be 10-128 characters');
+      if (!vault) fail(409, 'not_initialized', 'Keyra is not set up yet');
+      throttle();
+      await sleep(80);
+      if (!vault.recovery || !safeEqual(key, vault.recovery.key)) wrongAttempt('Wrong recovery key');
+      failures = 0;
+      lockedUntil = 0;
+      const known = knownBrowser(req);
+      if (via === 'home' && !known) return trustRequest(res, req);
+      vault.passphrase = next;
+      console.log('[mock] unlocked with the recovery key; passphrase replaced');
+      return issueSession(res, req, known);
+    }
+
+    case 'getRecovery':
+      return send(res, 200, { enabled: !!vault.recovery, created: vault.recovery?.created ?? 0 });
+
+    case 'createRecovery': {
+      if (graceLeft(sess) <= 0) return requestPress(res, 'recovery', token);
+      const key = randomBytes(20).toString('hex');
+      vault.recovery = { key, created: nowSec() };
+      return send(res, 200, { recoveryKey: key, created: vault.recovery.created });
+    }
+
+    case 'deleteRecovery':
+      if (graceLeft(sess) <= 0) return requestPress(res, 'recovery', token);
+      if (!vault.recovery) fail(404, 'not_found', 'No recovery key');
+      vault.recovery = null;
+      return send(res, 204);
 
     case 'lock':
       lockAll();
@@ -904,7 +988,13 @@ async function api(req, res, path) {
       return send(res, 200, { entries: [...vault.entries.values()].map(summary) });
 
     case 'get':
-      return send(res, 200, { ...getEntry(m.id) });
+      return send(res, 200, entryView(getEntry(m.id), mayReveal(sess)));
+
+    case 'reveal': {
+      const e = getEntry(m.id);
+      if (!mayReveal(sess)) return requestPress(res, 'reveal', token);
+      return send(res, 200, entryView(e, true));
+    }
 
     case 'create': {
       const e = readEntry(b, true);
@@ -1065,6 +1155,14 @@ async function api(req, res, path) {
         next.apMode = b.apMode;
       }
       if (b.homeWifi !== undefined) bad('home Wi-Fi changes go through PUT /api/wifi/home');
+      for (const k of ['lockOnUsb', 'lockOnBle', 'protectReveal']) {
+        if (b[k] === undefined) continue;
+        if (typeof b[k] !== 'boolean') bad(`${k} must be a boolean`);
+        next[k] = b[k];
+      }
+      // Turning protection off waits for the button (SPEC §10.3); turning it on applies at once.
+      const unprotect = settings.protectReveal && next.protectReveal === false;
+      if (unprotect) next.protectReveal = true;
       let ssid = '';
       let pw = '';
       if (b.wifiSsid !== undefined) {
@@ -1076,6 +1174,14 @@ async function api(req, res, path) {
         if (b.wifiPassword !== settings.wifiPassword) pw = b.wifiPassword;
       }
       settings = next;
+      if (unprotect && !(ssid || pw)) {
+        return awaiting(
+          res,
+          awaitPresence('unprotect', () => {
+            settings.protectReveal = false;
+          }),
+        );
+      }
       if (ssid || pw) {
         return awaiting(
           res,
@@ -1103,6 +1209,8 @@ async function api(req, res, path) {
     case 'backup': {
       const pass = str(b, 'passphrase');
       if ([...pass].length < 12 || Buffer.byteLength(pass) > 1024) bad('backup passphrase must be at least 12 characters');
+      if (!mayReveal(sess)) return requestPress(res, 'backup', token);
+      settings.lastBackupAt = nowSec();
       const d = new Date();
       const ymd = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
       const out = exportBackup(pass);
@@ -1243,6 +1351,10 @@ const publicSettings = () => ({
   bleConnect: settings.bleConnect,
   homeWifi: { enabled: settings.homeWifi.enabled, ssid: settings.homeWifi.ssid },
   apMode: settings.apMode,
+  protectReveal: settings.protectReveal,
+  lockOnUsb: settings.lockOnUsb,
+  lockOnBle: settings.lockOnBle,
+  lastBackupAt: settings.lastBackupAt,
 });
 
 // ---------- static (exactly what the firmware embeds) + captive probes ----------
@@ -1287,6 +1399,28 @@ function serveStatic(req, res, path) {
   res.end(readFileSync(file));
 }
 
+// ---------- USB host (SPEC §10.4: host binding and auto-lock on unplug) ----------
+
+function setUsb(on) {
+  if (on === host.usb) return;
+  host.usb = on;
+  if (on) {
+    usbSession++;
+    if (unlocked) usbSeen = true;
+    return;
+  }
+  const s = machine.slot;
+  if (s?.kind === 'type' && s.req.usbSession) {
+    machine.last = { ok: false, code: 'host_changed', at: Date.now(), title: s.req.title, what: s.req.what };
+    machine.slot = null;
+  }
+  // The firmware waits 1 s to ride out a bus reset; the mock locks at once.
+  if (unlocked && usbSeen && settings.lockOnUsb) {
+    console.log('[mock] USB host gone: auto-lock');
+    lockAll();
+  }
+}
+
 // ---------- mock controls ----------
 
 async function mockControl(req, res, path) {
@@ -1316,8 +1450,8 @@ async function mockControl(req, res, path) {
     return send(res, 200, { autoConnect: ble.autoConnect });
   }
   if (path === '/__mock/usb' && typeof b.usb === 'boolean') {
-    host.usb = b.usb;
-    return send(res, 200, { usb: host.usb });
+    setUsb(b.usb);
+    return send(res, 200, { usb: host.usb, unlocked });
   }
   return send(res, 400, { error: 'invalid', message: 'POST /__mock/button {press}, /__mock/usb {usb}, /__mock/ble {pair|connected}' });
 }
