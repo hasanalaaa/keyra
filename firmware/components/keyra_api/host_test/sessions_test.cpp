@@ -100,7 +100,17 @@ void graceIsPerSessionAndExpires() {
 
 }  // namespace
 
+// A session belongs to the unlock it was made in: after the vault locked
+// itself and unlocked again, the old token stays dead.
+void testGenerationTiesSessionToUnlock() {
+  Sessions s(fakeRandom);
+  const auto a = s.create(0, 0, 1);
+  CHECK(s.csrfFor(a.token, 1, 1).has_value());
+  CHECK(!s.csrfFor(a.token, 2, 2).has_value());
+}
+
 int main() {
+  testGenerationTiesSessionToUnlock();
   graceIsPerSessionAndExpires();
   issuesDistinctHexTokens();
   evictsLeastRecentlyUsedBeyondFour();

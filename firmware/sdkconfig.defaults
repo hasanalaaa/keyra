@@ -87,3 +87,9 @@ CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_INTERNAL=y
 CONFIG_BT_NIMBLE_LOG_LEVEL_WARNING=y
 # Wi-Fi SoftAP and BLE share the 2.4 GHz radio: software coexistence.
 CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y
+
+# The API parses request bodies on the httpd task (12 KB stack). cJSON
+# recurses about 64 bytes per nesting level, so its default limit of 1000 let
+# ~200 '[' from anyone on the network overflow the stack. Real bodies (a
+# restore with its backup inside) nest about 6 deep.
+CONFIG_CJSON_NESTING_LIMIT=16

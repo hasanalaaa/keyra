@@ -24,7 +24,9 @@
 
 namespace keyra::vault::backup {
 
-inline constexpr uint32_t kMaxIterations = 10000000;  // bounds import cost on a hostile file
+// Bounds import cost on a hostile file: no Keyra calibrates above 2M
+// (Vault::kMaxIterations), and 10M kept the vault locked for minutes.
+inline constexpr uint32_t kMaxIterations = 2000000;
 inline constexpr int64_t kVersion = 2;                // written; 1 and 2 are read
 
 struct Envelope {

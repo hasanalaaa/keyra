@@ -182,6 +182,7 @@ Status Vault::loadMeta() {
   } else {
     return Status::Corrupt;
   }
+  static_assert(Vault::kMaxIterations <= backup::kMaxIterations, "a backup of this vault must import");
   if (!hasPass || m.pass.iterations == 0 || m.pass.iterations > backup::kMaxIterations) return Status::Corrupt;
   meta_ = m;
   return Status::Ok;
@@ -293,6 +294,7 @@ Status Vault::setup(const std::string& passphrase) {
   mem::zeroize(dek.data(), dek.size());
   slots_.clear();
   initialized_ = unlocked_ = true;
+  ++generation_;
   return Status::Ok;
 }
 
@@ -390,6 +392,7 @@ Status Vault::finishUnlock(Key& dek) {
     return s;
   }
   unlocked_ = true;
+  ++generation_;
   // A failed migration write is not fatal: version 1 stays readable and the
   // next unlock tries again. Any real storage fault shows on the next entry write.
   if (meta_.version == 1) (void)writeMeta(meta_);
@@ -633,12 +636,12 @@ Status Vault::touch(uint32_t id, int64_t now) {
   return s;
 }
 
-Status Vault::changePassphrase(const std::string& cur, const std::string& next) {
+Status Vault::changePassphrase(const std::string& cur, const std::string& next, uint32_t* retryAfterMs) {
   std::lock_guard<std::mutex> g(m_);
   if (Status s = requireUnlocked(); s != Status::Ok) return s;
   if (next.empty()) return Status::Invalid;
   Key dek;
-  Status s = attempt(cur, dek, nullptr);  // a wrong `cur` is throttled like unlock
+  Status s = attempt(cur, dek, retryAfterMs);  // a wrong `cur` is throttled like unlock
   mem::zeroize(dek.data(), dek.size());
   if (s != Status::Ok) return s;
   Meta m = meta_;  // the recovery wrap (if any) stays

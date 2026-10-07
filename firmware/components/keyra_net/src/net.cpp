@@ -532,20 +532,44 @@ esp_err_t scan(std::vector<Network>& out) {
   return job->result;
 }
 
+namespace {
+
+// The client's own address is on the AP's network. lwIP accepts a packet for
+// any of its addresses on any interface, so a home-LAN host that routes
+// 192.168.4.1 via Keyra reaches the AP address from outside: the local
+// address alone does not prove the request came in on the AP.
+bool peerOnAp(int fd) {
+  sockaddr_storage ps{};
+  socklen_t len = sizeof ps;
+  if (getpeername(fd, reinterpret_cast<sockaddr*>(&ps), &len) != 0) return false;
+  if (ps.ss_family == AF_INET) return inApSubnet(ntohl(reinterpret_cast<const sockaddr_in*>(&ps)->sin_addr.s_addr));
+  if (ps.ss_family != AF_INET6) return false;
+  const auto* p6 = reinterpret_cast<const sockaddr_in6*>(&ps);
+  if (const uint32_t v4 = fromV4Mapped(p6->sin6_addr.s6_addr)) return inApSubnet(v4);
+  // Link-local: the scope is the interface the packet arrived on.
+  return g_apNetif && p6->sin6_scope_id == static_cast<uint32_t>(esp_netif_get_netif_impl_index(g_apNetif));
+}
+
+}  // namespace
+
 Via viaForSocket(int fd) {
   sockaddr_storage ss{};
   socklen_t len = sizeof ss;
   if (fd < 0 || getsockname(fd, reinterpret_cast<sockaddr*>(&ss), &len) != 0) return Via::Home;
-  if (ss.ss_family == AF_INET) return classify(ntohl(reinterpret_cast<const sockaddr_in*>(&ss)->sin_addr.s_addr));
+  Via local = Via::Home;
+  if (ss.ss_family == AF_INET) local = classify(ntohl(reinterpret_cast<const sockaddr_in*>(&ss)->sin_addr.s_addr));
   if (ss.ss_family == AF_INET6) {
     const uint8_t* a = reinterpret_cast<const sockaddr_in6*>(&ss)->sin6_addr.s6_addr;
-    if (const uint32_t v4 = fromV4Mapped(a)) return classify(v4);
-    // Native IPv6 (link-local): it came in on the AP only if it is the AP's own address.
-    esp_ip6_addr_t ap{};
-    if (g_apNetif && esp_netif_get_ip6_linklocal(g_apNetif, &ap) == ESP_OK && std::memcmp(ap.addr, a, 16) == 0)
-      return Via::Ap;
+    if (const uint32_t v4 = fromV4Mapped(a)) {
+      local = classify(v4);
+    } else {
+      // Native IPv6 (link-local): the AP's own address.
+      esp_ip6_addr_t ap{};
+      if (g_apNetif && esp_netif_get_ip6_linklocal(g_apNetif, &ap) == ESP_OK && std::memcmp(ap.addr, a, 16) == 0)
+        local = Via::Ap;
+    }
   }
-  return Via::Home;
+  return local == Via::Ap && peerOnAp(fd) ? Via::Ap : Via::Home;
 }
 
 bool timeSynced() {

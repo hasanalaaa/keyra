@@ -44,6 +44,8 @@ enum class Status {
 Status init();  // mount storage, load meta
 bool initialized();
 bool unlocked();
+// Changes on every unlock (sessions are tied to the unlock they were made in).
+uint32_t unlockGeneration();
 Status setup(const std::string& passphrase);  // creates meta + empty vault, leaves it unlocked
 // retryAfterMs (may be null) is set on WrongPassphrase and RateLimited: how long
 // until the next attempt is accepted (0 when no delay applies yet).
@@ -63,7 +65,8 @@ Status get(uint32_t id, Entry& out);
 Status put(Entry& e);
 Status remove(uint32_t id);
 Status touch(uint32_t id, int64_t now);  // lastUsed
-Status changePassphrase(const std::string& cur, const std::string& next);
+// A wrong `cur` is throttled like unlock; `retryAfterMs` as for unlock().
+Status changePassphrase(const std::string& cur, const std::string& next, uint32_t* retryAfterMs = nullptr);
 
 // Recovery key (SPEC §12.2): a random key from the hardware RNG that wraps a
 // second copy of the DEK, so a forgotten passphrase is not the end of the data.

@@ -247,11 +247,14 @@ bool commitSetup(SetupJob& j) {
     ESP_LOGE(TAG, "vault setup: %s", vault::statusName(st));
     return false;
   }
-  settings::Settings s = settings::get();
-  s.wifiPassword = j.wifiPassword.s;
-  if (!j.deviceName.empty()) s.deviceName = j.deviceName;
-  if (settings::save(s) != ESP_OK) return false;
-  ble::setName(s.deviceName);
+  std::string name;
+  if (settings::update([&](settings::Settings& s) {
+        s.wifiPassword = j.wifiPassword.s;
+        if (!j.deviceName.empty()) s.deviceName = j.deviceName;
+        name = s.deviceName;
+      }) != ESP_OK)
+    return false;
+  ble::setName(name);
   sessions().activity(monoMs());  // the vault is left unlocked for the client's unlock call
   reconfigureNetSoon();
   return true;
@@ -263,10 +266,11 @@ struct WifiJob {
 };
 
 bool commitWifi(WifiJob& j) {
-  settings::Settings s = settings::get();
-  if (!j.ssid.empty()) s.wifiSsid = j.ssid == settings::defaultSsid() ? std::string() : j.ssid;
-  if (!j.password.s.empty()) s.wifiPassword = j.password.s;
-  if (settings::save(s) != ESP_OK) return false;
+  if (settings::update([&](settings::Settings& s) {
+        if (!j.ssid.empty()) s.wifiSsid = j.ssid == settings::defaultSsid() ? std::string() : j.ssid;
+        if (!j.password.s.empty()) s.wifiPassword = j.password.s;
+      }) != ESP_OK)
+    return false;
   reconfigureNetSoon();
   return true;
 }
@@ -411,7 +415,7 @@ esp_err_t postSetup(Ctx& c) {
 
 // A new session for this browser: `ks` cookie (+ renewed `kt` when trusted) and the CSRF token.
 esp_err_t sendSession(httpd_req_t* r, uint32_t trustId, const std::string& ktToken) {
-  const Sessions::Issued s = sessions().create(monoMs(), trustId);
+  const Sessions::Issued s = sessions().create(monoMs(), trustId, vault::unlockGeneration());
   const std::string cookie = "ks=" + s.token + "; HttpOnly; SameSite=Strict; Path=/";
   httpd_resp_set_hdr(r, "Set-Cookie", cookie.c_str());
   const std::string kt = "kt=" + ktToken + "; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000";
@@ -744,6 +748,7 @@ esp_err_t getSettings(Ctx& c) {
 }
 
 esp_err_t putSettings(Ctx& c) {
+  const auto editing = settings::editLock();  // until save(): no other change can slip in between
   const settings::Settings cur = settings::get();
   settings::Settings next = cur;
   const cJSON* b = c.body.get();
@@ -818,9 +823,7 @@ esp_err_t putSettings(Ctx& c) {
   }
   if (unprotect) {
     const int64_t expires = machine().awaitPresence(actions::Op::Unprotect, [] {
-      settings::Settings s = settings::get();
-      s.protectReveal = false;
-      return settings::save(s) == ESP_OK;
+      return settings::update([](settings::Settings& s) { s.protectReveal = false; }) == ESP_OK;
     });
     return sendAwaitingButton(c.r, expires);
   }
@@ -834,7 +837,11 @@ esp_err_t postPassphrase(Ctx& c) {
   if (!requireString(c, "current", current.s, err) || !requireString(c, "next", next.s, err)) return err;
   if (current.s.size() > kMaxPassphraseBytes) return badRequest(c.r, "passphrase too long");
   if (!validate::passphrase(next.s)) return badRequest(c.r, "next must be 10-128 characters");
-  const Status st = vault::changePassphrase(current.s, next.s);
+  uint32_t retryMs = 0;
+  const Status st = vault::changePassphrase(current.s, next.s, &retryMs);
+  // Same answers as unlock, so the app can show the wait.
+  if (st == Status::WrongPassphrase) return sendRetry(c.r, http::k401, "wrong", "Wrong passphrase", retryMs);
+  if (st == Status::RateLimited) return sendRetry(c.r, http::k429, "rate_limited", "Too many attempts", retryMs);
   if (st != Status::Ok) return sendVaultError(c.r, st);
   return http::sendEmpty(c.r, http::k204);
 }
@@ -852,9 +859,8 @@ esp_err_t postBackup(Ctx& c) {
   const Status st = vault::exportBackup(pass.s, out.s);
   if (st != Status::Ok) return sendVaultError(c.r, st);
   if (const int64_t now = unixSecondsOrZero(); now != 0) {
-    settings::Settings s = settings::get();
-    s.lastBackupAt = now;
-    if (settings::save(s) != ESP_OK) ESP_LOGW(TAG, "could not record the backup time");
+    if (settings::update([now](settings::Settings& s) { s.lastBackupAt = now; }) != ESP_OK)
+      ESP_LOGW(TAG, "could not record the backup time");
   }
 
   char disposition[96];
@@ -959,11 +965,7 @@ esp_err_t postBlePair(Ctx& c) {
 
 // Saves (or, with Unknown, drops) a bond's operating system.
 esp_err_t saveBleOs(const ble::Addr& addr, hostos::Os os) {
-  settings::Settings s = settings::get();
-  const std::string next = hostos::set(s.osBle, addr, os);
-  if (next == s.osBle) return ESP_OK;
-  s.osBle = next;
-  return settings::save(s);
+  return settings::update([&](settings::Settings& s) { s.osBle = hostos::set(s.osBle, addr, os); });
 }
 
 esp_err_t putBleOs(Ctx& c) {
@@ -1109,7 +1111,7 @@ esp_err_t handleApi(httpd_req_t* r, Method method, std::string_view path) {
   size_t cookieLen = sizeof cookie;
   if (httpd_req_get_cookie_val(r, "ks", cookie, &cookieLen) == ESP_OK) {
     c.token = cookie;
-    csrf = sessions().csrfFor(c.token, monoMs());
+    csrf = sessions().csrfFor(c.token, monoMs(), vault::unlockGeneration());
   }
   c.session = csrf.has_value() && vault::unlocked();
   if (needsSession(c.match.route)) {

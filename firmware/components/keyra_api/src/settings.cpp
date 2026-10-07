@@ -8,6 +8,7 @@
 #include "esp_mac.h"
 #include "keyra/hid.hpp"
 #include "keyra/sequence.hpp"
+#include "keyra/vault.hpp"
 #include "nvs.h"
 #include "host_os.hpp"
 #include "validate.hpp"
@@ -146,6 +147,22 @@ esp_err_t save(const Settings& s) {
   ESP_RETURN_ON_ERROR(err, TAG, "write");
   g_cache = s;
   return ESP_OK;
+}
+
+namespace {
+std::mutex g_editMu;
+}  // namespace
+
+std::unique_lock<std::mutex> editLock() { return std::unique_lock<std::mutex>(g_editMu); }
+
+esp_err_t update(const std::function<void(Settings&)>& change) {
+  const auto lock = editLock();
+  Settings s = get();
+  change(s);
+  const esp_err_t err = save(s);
+  vault::wipe(s.wifiPassword);
+  vault::wipe(s.homePassword);
+  return err;
 }
 
 esp_err_t erase() {

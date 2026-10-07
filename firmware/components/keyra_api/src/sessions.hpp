@@ -30,9 +30,12 @@ class Sessions {
   };
   // Evicts the least recently used session when all slots are taken.
   // `trustId`: the trusted browser (SPEC §8.2) this session was opened from, 0 = none.
-  Issued create(int64_t nowMs, uint32_t trustId = 0);
-  // The session's CSRF token when `token` is live; marks it used.
-  std::optional<std::string> csrfFor(std::string_view token, int64_t nowMs);
+  // `generation`: the vault unlock it belongs to (vault::unlockGeneration()).
+  Issued create(int64_t nowMs, uint32_t trustId = 0, uint32_t generation = 0);
+  // The session's CSRF token when `token` is live and from this unlock
+  // `generation`; marks it used. A token from an earlier unlock is dead even
+  // if the vault was locked without clear() (an internal lock).
+  std::optional<std::string> csrfFor(std::string_view token, int64_t nowMs, uint32_t generation = 0);
   void clear();
   // Starts the reveal grace for this live session; false when it is gone.
   bool grantGrace(std::string_view token, int64_t nowMs);
@@ -52,6 +55,7 @@ class Sessions {
     std::string token, csrf;
     int64_t lastUsed = 0;
     uint32_t trustId = 0;
+    uint32_t generation = 0;
     int64_t graceUntil = 0;
   };
   Slot* findLocked(std::string_view token);

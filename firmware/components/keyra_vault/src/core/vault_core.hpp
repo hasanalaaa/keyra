@@ -64,6 +64,8 @@ class Vault {
   Status init();
   bool initialized() const { return initialized_; }
   bool unlocked() const { return unlocked_; }
+  // Bumped on every unlock: a session from an earlier unlock never comes back.
+  uint32_t generation() const { return generation_; }
   Status setup(const std::string& passphrase);
   Status unlock(const std::string& passphrase, uint32_t* retryAfterMs);
   void lock();
@@ -72,7 +74,7 @@ class Vault {
   Status put(Entry& e);
   Status remove(uint32_t id);
   Status touch(uint32_t id, int64_t now);
-  Status changePassphrase(const std::string& cur, const std::string& next);
+  Status changePassphrase(const std::string& cur, const std::string& next, uint32_t* retryAfterMs = nullptr);
   Status createRecovery(int64_t now, RecoveryKey& out);
   Status removeRecovery();
   RecoveryInfo recoveryInfo();
@@ -147,6 +149,7 @@ class Vault {
   Options opt_;
   std::mutex m_;  // backed by FreeRTOS on device; std::atomic flags keep state polls lock-free
   std::atomic<bool> ready_{false}, initialized_{false}, unlocked_{false};
+  std::atomic<uint32_t> generation_{0};
   Meta meta_;
   Key dek_{};
   std::vector<Slot, ZeroingAllocator<Slot>> slots_;

@@ -24,11 +24,13 @@ struct HomeJob {
 };
 
 bool commitHome(HomeJob& j) {
+  if (settings::update([&](settings::Settings& s) {
+        s.homeEnabled = j.enabled;
+        if (!j.ssid.empty()) s.homeSsid = j.ssid;
+        if (!j.password.s.empty()) s.homePassword = j.password.s;
+      }) != ESP_OK)
+    return false;
   settings::Settings s = settings::get();
-  s.homeEnabled = j.enabled;
-  if (!j.ssid.empty()) s.homeSsid = j.ssid;
-  if (!j.password.s.empty()) s.homePassword = j.password.s;
-  if (settings::save(s) != ESP_OK) return false;
   const esp_err_t err = net::setHome(settings::home(s));
   if (err != ESP_OK) ESP_LOGE(TAG, "applying home Wi-Fi: %s", esp_err_to_name(err));
   vault::wipe(s.homePassword);

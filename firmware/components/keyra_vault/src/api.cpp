@@ -13,6 +13,7 @@ Vault& instance();  // defined by the platform file
 Status init() { return detail::instance().init(); }
 bool initialized() { return detail::instance().initialized(); }
 bool unlocked() { return detail::instance().unlocked(); }
+uint32_t unlockGeneration() { return detail::instance().generation(); }
 Status setup(const std::string& passphrase) { return detail::instance().setup(passphrase); }
 Status unlock(const std::string& passphrase, uint32_t* retryAfterMs) {
   return detail::instance().unlock(passphrase, retryAfterMs);
@@ -23,8 +24,8 @@ Status get(uint32_t id, Entry& out) { return detail::instance().get(id, out); }
 Status put(Entry& e) { return detail::instance().put(e); }
 Status remove(uint32_t id) { return detail::instance().remove(id); }
 Status touch(uint32_t id, int64_t now) { return detail::instance().touch(id, now); }
-Status changePassphrase(const std::string& cur, const std::string& next) {
-  return detail::instance().changePassphrase(cur, next);
+Status changePassphrase(const std::string& cur, const std::string& next, uint32_t* retryAfterMs) {
+  return detail::instance().changePassphrase(cur, next, retryAfterMs);
 }
 Status createRecovery(int64_t now, RecoveryKey& out) { return detail::instance().createRecovery(now, out); }
 Status removeRecovery() { return detail::instance().removeRecovery(); }

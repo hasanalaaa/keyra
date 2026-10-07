@@ -1,6 +1,8 @@
 #pragma once
 // Device settings persisted in NVS namespace "keyra" (SPEC §5 /api/settings).
 #include <cstdint>
+#include <functional>
+#include <mutex>
 #include <string>
 
 #include "esp_err.h"
@@ -61,6 +63,13 @@ constexpr uint8_t kMaxLedBrightness = 100;
 esp_err_t load();                  // reads NVS once at boot; invalid values fall back to defaults
 Settings get();
 esp_err_t save(const Settings&);   // persists every field and updates the cached copy
+// Read-modify-write as one step. Settings are saved from the httpd task, the
+// slow worker and the actions task; two get()-change-save() cycles that
+// overlapped used to undo each other's change.
+esp_err_t update(const std::function<void(Settings&)>& change);
+// For an edit that cannot be one callback (PUT /api/settings): hold this from
+// get() to save(). Never call update() while holding it.
+std::unique_lock<std::mutex> editLock();
 esp_err_t erase();                 // factory reset: back to defaults
 std::string defaultSsid();         // "Keyra-XXXX" from the last two SoftAP MAC bytes
 std::string ssid(const Settings&); // effective SSID

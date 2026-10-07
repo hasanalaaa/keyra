@@ -1,6 +1,7 @@
 #include "http.hpp"
 
 #include "esp_log.h"
+#include "esp_timer.h"
 
 namespace keyra::api::http {
 namespace {
@@ -57,7 +58,15 @@ esp_err_t readBody(httpd_req_t* r, std::string& out) {
   out.assign(r->content_len, '\0');
   size_t got = 0;
   int timeouts = 0;
+  // The httpd task serves one request at a time: a client trickling a byte
+  // every few seconds must not hold it. 10 s, plus 1 s per 32 KiB (a 2 MiB
+  // restore gets ~74 s).
+  const int64_t deadline = esp_timer_get_time() + (10 + int64_t(r->content_len / 32768)) * 1000000;
   while (got < r->content_len) {
+    if (esp_timer_get_time() > deadline) {
+      ESP_LOGW(TAG, "body too slow: %u/%u bytes", unsigned(got), unsigned(r->content_len));
+      return ESP_FAIL;
+    }
     const int n = httpd_req_recv(r, out.data() + got, r->content_len - got);
     if (n == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts <= kRecvRetries) continue;
     if (n <= 0) {
