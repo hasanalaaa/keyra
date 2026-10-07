@@ -39,12 +39,16 @@ export function bits(pw: string): number {
   return Math.max(0, b);
 }
 
-export function strength(pw: string): Strength {
-  if (!pw) return 0;
-  if (COMMON.has(pw.toLowerCase())) return 1;
-  const b = bits(pw);
+/** DESIGN §4.7 bands. Also used for the generator's exact entropy. */
+export function levelOfBits(b: number): Exclude<Strength, 0> {
   if (b < 36) return 1;
   if (b < 60) return 2;
   if (b < 80) return 3;
   return 4;
+}
+
+export function strength(pw: string): Strength {
+  if (!pw) return 0;
+  if (COMMON.has(pw.toLowerCase())) return 1;
+  return levelOfBits(bits(pw));
 }

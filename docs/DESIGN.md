@@ -417,16 +417,28 @@ subtract 8 bits per repeated-char run ≥ 3 and 8 for sequences (`abc`, `123`); 
 Label (caption 600, same colour as the segments — all four pass 4.5:1) sits on the end side; announce changes
 with `aria-live="polite"` only when the label changes. Unfilled segments `--ring-track`. Fill animates 200 ms.
 
-### 4.8 Generator (inside Add/Edit as a sheet "Create password")
-Preview card (surface-2, radius 16, padding 16): password in `--fs-code` mono, coloured characters (4.6),
-wraps at any character (`overflow-wrap:anywhere`), `dir=ltr`, tap = copy. Below: **length** slider 12–40
-(default 20) with live value; toggles (each a settings-style row): "Uppercase A–Z", "Lowercase a–z",
-"Numbers 0–9", "Symbols !@#$%^&*-_=+?" (all default on), "Avoid look-alikes 0 O 1 l I |" (default on). Footer:
-secondary "New one" (`refresh-cw`) and primary "Use this password". Algorithm: `crypto.getRandomValues` with
-rejection sampling (no modulo bias); guarantee ≥ 1 char of each enabled class; Fisher–Yates shuffle with the same
-RNG; characters restricted to printable US-ASCII (Keyra types only that). At least one class must stay on
-(last toggle disables itself). If `crypto` is unavailable (it is available on insecure origins for
-`getRandomValues`; only `subtle`/`randomUUID` are gated) show the error state; never fall back to `Math.random`.
+### 4.8 Generator (SPEC §9.1: vault top bar "Generate" sheet, and inline in Add/Edit)
+Passwords come from the device (`POST /api/generate`, hardware RNG); the browser only mirrors the rules to show
+exact entropy at once and to offer only settings the device accepts. Preview card (surface-2, radius 16, padding 16):
+password in mono 22 px, coloured characters (4.6), wraps at any character, `dir=ltr`, tap = copy; dims while a new one
+loads. Under it: strength meter (4.7) driven by the exact entropy, label "Strong · 118 bits". Settings card: **length**
+slider 8–128 (default 20) with a 64 px number field; switches "Lowercase a–z", "Uppercase A–Z", "Numbers 0–9",
+"Symbols !@#$" (all on; the last one on cannot be turned off); under Numbers/Symbols a −/+ stepper "Minimum numbers" /
+"Minimum symbols" (1 up to the largest value the device accepts); "Avoid look-alikes (0 O o 1 l I |)" (on). Settings
+are remembered per browser (`localStorage["keyra.gen"]`, never the password).
+- **Generate sheet:** preview, meter, secondary sm "New one" (`refresh-cw`) + "Copy"; primary full "Type it"
+  (`keyboard`); tinted "Type twice" + secondary "Save" (`download`); then the settings card. Type it / twice → the Ready
+  card (4.11) replaces the sheet body (chip "New password" / "New password · twice"), and the same password is back
+  after "Typed". Save → two rows "New account" (opens Add with the password filled in; not via URL or storage) /
+  "Update an account" (search + list → alert "Replace the password of “{title}”?" · "The old one stays in its password
+  history." → toast "Saved. The old password is in its history." → that account opens).
+- **Inline (Add/Edit):** the "Create password" ghost button opens the same preview + settings in a surface-2 panel under
+  the password field, footer secondary "New one" + primary "Use this password".
+- **Type text…** (SPEC §9.2, in the top bar's ⋯ menu with Import and Backup): mono textarea (≤ 256, counter), warning
+  listing characters Keyra can't type, switch "Type it twice" + segmented Tab | Enter, primary "Type it" → Ready
+  (chip "Text"); the text is cleared after "Typed".
+- **Password history** (SPEC §9.3): account sheet group under the details, rows "Used until {date}" + masked value,
+  eye and copy; footer "Keyra keeps the last 10 passwords."
 
 ### 4.9 Sheets & dialogs
 - **Phone (< 900): bottom sheet.** Body `--surface` opaque, top radius 28, `--sh-3`, max-height `calc(100dvh - 12px - env(safe-area-inset-top))`,

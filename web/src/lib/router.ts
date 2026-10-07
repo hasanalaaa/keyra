@@ -1,5 +1,5 @@
 // Hash routes (DESIGN §5): #/welcome, #/setup/1..3, #/unlock, #/, #/a/:id, #/a/:id/edit, #/new,
-// #/import, #/backup, #/settings. Hash routing keeps Back working and sheets deep-linkable.
+// #/import, #/backup, #/settings, #/generate, #/type (SPEC §9.1–9.2). Hash routing keeps Back working and sheets deep-linkable.
 import { useEffect, useState } from 'preact/hooks';
 
 export type Route =
@@ -12,7 +12,9 @@ export type Route =
   | { name: 'new' }
   | { name: 'import' }
   | { name: 'backup' }
-  | { name: 'settings' };
+  | { name: 'settings' }
+  | { name: 'generate' }
+  | { name: 'typeText' };
 
 export function parseRoute(hash: string): Route {
   const parts = hash.replace(/^#\/?/, '').split('/').filter(Boolean);
@@ -36,6 +38,10 @@ export function parseRoute(hash: string): Route {
       return { name: 'backup' };
     case 'settings':
       return { name: 'settings' };
+    case 'generate':
+      return { name: 'generate' };
+    case 'type':
+      return { name: 'typeText' };
     default:
       return { name: 'list' };
   }

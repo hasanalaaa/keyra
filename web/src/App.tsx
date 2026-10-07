@@ -17,6 +17,8 @@ const TITLES: Partial<Record<Route['name'], Key>> = {
   import: 'importTitle',
   backup: 'backupTitle',
   settings: 'settings',
+  generate: 'genTitle',
+  typeText: 'typeTextTitle',
 };
 
 export function App() {

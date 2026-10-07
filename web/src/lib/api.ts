@@ -1,4 +1,5 @@
-import type { BleInfo, DeviceState, Entry, EntryInput, EntrySummary, Network, Settings, Totp, TrustedBrowser, TypeWhat, Pending, PresenceOp } from './types';
+import type { BleInfo, DeviceState, Entry, EntryInput, EntrySummary, Network, Settings, Totp, TrustedBrowser, TypeTextRequest, TypeWhat, Pending, PresenceOp } from './types';
+import { generateRequest, type GenSettings } from './generator';
 
 export class ApiError extends Error {
   constructor(
@@ -125,6 +126,10 @@ export const api = {
   /** `target`: "usb" or a paired device's address; omitted = the device's own choice (SPEC §8.1). */
   type: (id: number, what: TypeWhat, target?: string) => json<{ pending: Pending }>('POST', '/type', { id, what, target }),
   typeTest: (target?: string) => json<{ pending: Pending }>('POST', '/type', { test: true, target }),
+  /** Free text (SPEC §9.2). */
+  typeText: (r: TypeTextRequest & { target?: string }) => json<{ pending: Pending }>('POST', '/type', r),
+  /** On the device, from its hardware RNG (SPEC §9.1). */
+  generate: (s: GenSettings) => json<{ password: string; entropyBits: number }>('POST', '/generate', generateRequest(s)),
   cancelType: () => json<void>('POST', '/type/cancel'),
   settings: () => json<Settings>('GET', '/settings'),
   /** 200 → Settings; 202 → presence required (Wi-Fi changes). */

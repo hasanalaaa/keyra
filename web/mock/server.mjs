@@ -32,6 +32,7 @@ const MAX_BODY = 64 * 1024;
 const MAX_RESTORE_BODY = 2 * 1024 * 1024;
 const MAX_ENTRIES = 1000;
 const MAX_SESSIONS = 4;
+const MAX_HISTORY = 10;
 const LIMITS = { title: 128, url: 512, username: 256, password: 256, totp: 512, notes: 2048 };
 const STR_FIELDS = Object.keys(LIMITS);
 const DIST = fileURLToPath(new URL('../dist/', import.meta.url));
@@ -234,7 +235,8 @@ function press(kind) {
         const e = vault?.entries.get(s.req.id);
         if (code === 'typed' && e) e.lastUsed = nowSec();
       }, 250 + Math.min(1500, (text?.length ?? 0) * settings.keyDelayMs));
-      return `typing ${s.req.what} · ${s.req.title}`;
+      // Free text: only its length, so e2e can check "twice" without the mock echoing secrets.
+      return s.req.what === 'text' ? `typing text (${text.length} chars)` : `typing ${s.req.what} · ${s.req.title}`;
     }
     return 'nothing to do (blink)';
   }
@@ -255,6 +257,7 @@ function press(kind) {
 /** What the HID engine would type for a request (null = entry vanished). */
 function typedText(req) {
   if (req.what === 'test') return 'Keyra test 123';
+  if (req.what === 'text') return req.text + (req.twice ? (req.enterBetween ? '\n' : '\t') + req.text : '');
   const e = vault?.entries.get(req.id);
   if (!e) return null;
   const sep = settings.bothSeparator === 'enter' ? '\n' : '\t';
@@ -325,7 +328,7 @@ function exportBackup(pass) {
   const data = Buffer.concat([c.update(plain), c.final(), c.getAuthTag()]);
   return JSON.stringify({
     format: 'keyra-backup',
-    v: 1,
+    v: 2,
     kdf: { alg: 'pbkdf2-sha256', iter: BACKUP_ITER, salt: salt.toString('base64') },
     iv: iv.toString('base64'),
     data: data.toString('base64'),
@@ -334,7 +337,7 @@ function exportBackup(pass) {
 
 /** → entries array, or 'invalid' / 'wrong'. */
 function openBackup(pass, b) {
-  if (b?.format !== 'keyra-backup' || b.v !== 1 || b.kdf?.alg !== 'pbkdf2-sha256' || !Number.isInteger(b.kdf.iter)) return 'invalid';
+  if (b?.format !== 'keyra-backup' || ![1, 2].includes(b.v) || b.kdf?.alg !== 'pbkdf2-sha256' || !Number.isInteger(b.kdf.iter)) return 'invalid';
   const salt = Buffer.from(String(b.kdf.salt ?? ''), 'base64');
   const iv = Buffer.from(String(b.iv ?? ''), 'base64');
   const data = Buffer.from(String(b.data ?? ''), 'base64');
@@ -359,6 +362,14 @@ function openBackup(pass, b) {
   for (const item of list) {
     const e = readEntry(item, true);
     if (typeof e === 'string' || !validEntry(e)) return 'invalid';
+    // v2: up to 10 previous passwords (SPEC §9.3); absent in v1.
+    const h = item.history ?? [];
+    if (!Array.isArray(h) || h.length > MAX_HISTORY) return 'invalid';
+    for (const x of h) {
+      if (!x || typeof x !== 'object' || typeof (x.password ?? '') !== 'string' || !Number.isInteger(x.changedAt ?? 0)) return 'invalid';
+      if (Buffer.byteLength(x.password ?? '') > LIMITS.password) return 'invalid';
+    }
+    e.history = h.map((x) => ({ password: x.password ?? '', changedAt: x.changedAt ?? 0 }));
     e.id = Number.isInteger(item.id) && item.id > 0 && item.id <= 0xffffffff ? item.id : 0;
     out.push(e);
   }
@@ -387,6 +398,73 @@ function importBackup(incoming, replace) {
   return { added, updated };
 }
 
+// ---------- generator (same rules as firmware keyra_api/src/generator.cpp) ----------
+
+const GEN_SYMBOLS = '!@#$%^&*-_=+?';
+const GEN_AMBIGUOUS = '0Oo1lI|`\'"';
+
+/** P(length uniform draws meet every class minimum), via exponential generating functions. */
+function genAcceptance(classes, L) {
+  const n = classes.reduce((a, c) => a + c.chars.length, 0);
+  let acc = new Array(L + 1).fill(0);
+  acc[0] = 1;
+  for (const c of classes) {
+    const q = c.chars.length / n;
+    const term = [];
+    for (let k = 0, t = 1; k <= L; k++) {
+      if (k > 0) t *= q / k;
+      term.push(k >= c.min ? t : 0);
+    }
+    const next = new Array(L + 1).fill(0);
+    for (let a = 0; a <= L; a++) if (acc[a]) for (let k = 0; a + k <= L; k++) next[a + k] += acc[a] * term[k];
+    acc = next;
+  }
+  let f = 1;
+  for (let i = 2; i <= L; i++) f *= i;
+  return Math.min(1, acc[L] * f);
+}
+
+/** → {password, entropyBits} or an error message (400). */
+function generate(b) {
+  const L = b.length;
+  if (!Number.isInteger(L)) return '"length" (8-128) is required';
+  for (const k of ['lower', 'upper', 'digits', 'symbols']) if (typeof b[k] !== 'boolean') return '"lower", "upper", "digits" and "symbols" (booleans) are required';
+  for (const k of ['minDigits', 'minSymbols']) if (b[k] !== undefined && !(Number.isInteger(b[k]) && b[k] >= 0 && b[k] <= 128)) return `${k} must be 0-128`;
+  if (b.avoidAmbiguous !== undefined && typeof b.avoidAmbiguous !== 'boolean') return 'avoidAmbiguous must be a boolean';
+  const symbolSet = b.symbolSet ?? GEN_SYMBOLS;
+  const symErr = 'symbolSet must be 1-32 distinct ASCII punctuation characters';
+  if (typeof symbolSet !== 'string' || !/^[!-/:-@[-`{-~]{1,32}$/.test(symbolSet) || new Set(symbolSet).size !== symbolSet.length) return symErr;
+  if (L < 8 || L > 128) return 'length must be 8-128';
+  if (!b.lower && !b.upper && !b.digits && !b.symbols) return 'enable at least one of lower, upper, digits, symbols';
+  const minD = b.minDigits ?? 0;
+  const minS = b.minSymbols ?? 0;
+  const minErr = 'minDigits/minSymbols need their class enabled and must fit in the length';
+  if (minD > L || minS > L || (!b.digits && minD > 0) || (!b.symbols && minS > 0)) return minErr;
+  const strip = (s) => (b.avoidAmbiguous ? [...s].filter((c) => !GEN_AMBIGUOUS.includes(c)).join('') : s);
+  const classes = [
+    [b.lower, 'abcdefghijklmnopqrstuvwxyz', 1],
+    [b.upper, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 1],
+    [b.digits, '0123456789', Math.max(1, minD)],
+    [b.symbols, symbolSet, Math.max(1, minS)],
+  ]
+    .filter(([on]) => on)
+    .map(([, chars, min]) => ({ chars: strip(chars), min }));
+  if (classes.some((c) => !c.chars)) return 'avoidAmbiguous leaves an enabled class without characters';
+  if (classes.reduce((a, c) => a + c.min, 0) > L) return minErr;
+  const p = genAcceptance(classes, L);
+  if (p < 1e-3) return 'minimums are too high for this length';
+  const alphabet = classes.map((c) => c.chars).join('');
+  const limit = 256 - (256 % alphabet.length);
+  for (;;) {
+    let pw = '';
+    while (pw.length < L) {
+      for (const byte of randomBytes(64)) if (byte < limit && pw.length < L) pw += alphabet[byte % alphabet.length];
+    }
+    if (classes.every((c) => [...pw].filter((ch) => c.chars.includes(ch)).length >= c.min))
+      return { password: pw, entropyBits: Math.floor(L * Math.log2(alphabet.length) + Math.log2(p)) };
+  }
+}
+
 // ---------- entries ----------
 
 const nowSec = () => Math.floor(Date.now() / 1000);
@@ -412,7 +490,7 @@ const summary = (e) => ({
 });
 
 /** Copies present fields onto `base`; returns an error message on a wrong type. */
-function readEntry(src, withTimestamps, base = { title: '', url: '', username: '', password: '', totp: '', notes: '', favorite: false, created: 0, updated: 0, lastUsed: 0 }) {
+function readEntry(src, withTimestamps, base = { title: '', url: '', username: '', password: '', totp: '', notes: '', favorite: false, created: 0, updated: 0, lastUsed: 0, history: [] }) {
   const e = { ...base };
   for (const k of STR_FIELDS) {
     if (src[k] === undefined) continue;
@@ -483,6 +561,7 @@ function seed() {
       created,
       updated: created,
       lastUsed: usedDaysAgo ? Math.round(now - usedDaysAgo * day) : 0,
+      history: [],
     });
   }
   return entries;
@@ -610,6 +689,7 @@ function match(method, path) {
     case 'unlock': return one('POST', 'unlock');
     case 'lock': return one('POST', 'lock');
     case 'type': return one('POST', 'type');
+    case 'generate': return one('POST', 'generate');
     case 'type/cancel': return one('POST', 'typeCancel');
     case 'passphrase': return one('POST', 'passphrase');
     case 'backup': return one('POST', 'backup');
@@ -644,7 +724,7 @@ function match(method, path) {
 }
 
 const OPEN = new Set(['state', 'setup', 'unlock', 'factoryReset']);
-const BODY = new Set(['setup', 'unlock', 'create', 'update', 'import', 'type', 'putSettings', 'passphrase', 'backup', 'restore', 'wifiHome']);
+const BODY = new Set(['setup', 'unlock', 'create', 'update', 'import', 'type', 'generate', 'putSettings', 'passphrase', 'backup', 'restore', 'wifiHome']);
 
 const validPassphrase = (s) => typeof s === 'string' && [...s].length >= 10 && [...s].length <= 128;
 const validWifi = (s) => typeof s === 'string' && s.length >= 8 && s.length <= 63 && /^[\x20-\x7e]+$/.test(s) && s !== 'keyra1234';
@@ -834,15 +914,19 @@ async function api(req, res, path) {
       e.id = freshId();
       e.created ||= nowSec();
       e.updated ||= nowSec();
+      e.history = []; // owned by the device, never taken from a client
       vault.entries.set(e.id, e);
       return send(res, 201, { id: e.id });
     }
 
     case 'update': {
-      const e = readEntry(b, false, getEntry(m.id));
+      const old = getEntry(m.id);
+      const e = readEntry(b, false, old);
       if (typeof e === 'string') bad(e);
       if (!validEntry(e)) bad('Invalid data');
       e.updated = nowSec();
+      // Like Vault::put: a changed password moves the old one to the front of the history.
+      e.history = old.password && e.password !== old.password ? [{ password: old.password, changedAt: e.updated }, ...old.history].slice(0, MAX_HISTORY) : old.history;
       vault.entries.set(m.id, e);
       return send(res, 200, { id: m.id });
     }
@@ -896,6 +980,17 @@ async function api(req, res, path) {
           target = { kind: 'ble', addr };
         } else bad('"target" must be "usb" or a device address');
       }
+      if (b.text !== undefined) {
+        // Free text (SPEC §9.2), like handlers_gen.cpp textRequest.
+        if (['id', 'what', 'test', 'submit'].some((k) => b[k] !== undefined)) bad('"text" cannot be combined with id, what, test or submit');
+        if (typeof b.text !== 'string') bad('"text" (string) is required');
+        if (!/^[\x20-\x7e]{1,256}$/.test(b.text)) bad('text must be 1-256 characters Keyra can type (printable ASCII, no control characters)');
+        if (b.repeat !== undefined && b.repeat !== 1 && b.repeat !== 2) bad('repeat must be 1 or 2');
+        if (b.separator !== undefined && b.separator !== 'tab' && b.separator !== 'enter') bad('separator must be "tab" or "enter"');
+        const req = { id: 0, title: null, what: 'text', submit: false, target, text: b.text, twice: b.repeat === 2, enterBetween: b.separator === 'enter' };
+        const { text: _t, twice: _w, enterBetween: _e, ...pending } = arm(req);
+        return send(res, 202, { pending: { kind: 'type', ...pending } });
+      }
       if (b.test) return send(res, 202, { pending: { kind: 'type', ...arm({ id: 0, title: 'Keyra test', what: 'test', submit: false, target }) } });
       if (!Number.isInteger(b.id) || b.id < 1 || b.id > 0xffffffff) bad('"id" (entry id) is required');
       if (!['username', 'password', 'both', 'totp'].includes(b.what)) bad('"what" must be username, password, both or totp');
@@ -910,6 +1005,12 @@ async function api(req, res, path) {
       if (missing) bad('Entry has no value for that field');
       if (b.what === 'totp' && !timeValid) fail(409, 'no_time', 'Device clock is not set');
       return send(res, 202, { pending: { kind: 'type', ...arm({ id: e.id, title: e.title, what: b.what, submit, target }) } });
+    }
+
+    case 'generate': {
+      const r = generate(b);
+      if (typeof r === 'string') bad(r);
+      return send(res, 200, r);
     }
 
     case 'typeCancel': {

@@ -381,6 +381,15 @@ in Keyra, so generation must not be buried inside "Add account".
   - **Copy**, **Regenerate**; entropy + strength label; last settings remembered
     per browser.
 
+- Implementation notes (v1.2): every enabled class appears at least once
+  (`minDigits`/`minSymbols` raise that floor; 0 and 1 mean the same). Default
+  symbols `!@#$%^&*-_=+?`; `symbolSet` = 1–32 distinct ASCII punctuation
+  characters. `length`, `lower`, `upper`, `digits` and `symbols` are required.
+  Settings whose candidates would meet the minimums less than once in 1,000
+  draws are refused (400 "minimums are too high"); `entropyBits` is exact
+  (floor of log2 of the number of possible passwords). The web app keeps the
+  settings in `localStorage["keyra.gen"]`.
+
 ### 9.2 Type any text (remote keyboard)
 
 `POST /api/type {text, repeat?:1|2, separator?:"tab"|"enter"}` (session) arms a
@@ -390,11 +399,21 @@ characters for the active layout (control characters rejected), wiped from RAM
 after typing/cancel/expiry. Pending shows `{kind:"type", what:"text", title:null}`.
 The UI offers it in the generator and as "Type text…" in the vault menu.
 
+Implementation notes (v1.2): `text` cannot be combined with `id`, `what`,
+`test` or `submit`; `target` works as for entry actions. `last.title` is also
+null for free text.
+
 ### 9.3 Password history
 
 Each entry keeps up to 10 previous passwords `{password, changedAt}` inside the
 encrypted entry (no plaintext metadata on flash). `PUT /api/entries/{id}` with a
 new `password` pushes the old one. `GET /api/entries/{id}` returns `history`.
+
+Implementation notes (v1.2): only an update that changes the password adds to
+the history (`changedAt` = the update time, 0 when the device has no clock);
+the vault ignores any `history` a client sends. Entry plaintext format 2
+carries it (format 1 is still read and rewritten on the next write). Backup
+files are version 2 with `history` per entry; version 1 files still import.
 
 ### 9.4 Keyra Companion (browser extension) — DEFERRED
 

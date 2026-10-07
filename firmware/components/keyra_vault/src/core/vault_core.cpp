@@ -49,6 +49,20 @@ bool endsWith(const std::string& s, const char* suffix) {
 
 const uint8_t* bytes(const char* s) { return reinterpret_cast<const uint8_t*>(s); }
 
+// rec.history := stored history of `old`, with old's password in front when
+// rec changes it. Copies, not moves: the caller wipes `old` as a whole.
+void keepHistory(const Entry& old, Entry& rec) {
+  for (OldPassword& h : rec.history) wipe(h.password);
+  rec.history.clear();
+  rec.history.reserve(kMaxHistory);  // no regrowth (see codec::decode)
+  if (!old.password.empty() && old.password != rec.password)
+    rec.history.push_back(OldPassword{old.password, rec.updated});
+  for (const OldPassword& h : old.history) {
+    if (rec.history.size() == kMaxHistory) break;
+    rec.history.push_back(h);
+  }
+}
+
 struct Identity {  // merge key for imports without a matching id
   uint32_t id;
   std::string title, username, url;
@@ -382,14 +396,17 @@ Status Vault::put(Entry& e) {
   if (e.id == 0) {
     if (slots_.size() >= kMaxEntries) s = Status::Full;
     else if (!newId(rec.id)) s = Status::StorageError;
+    keepHistory(Entry{}, rec);
   } else if (Slot* slot = find(e.id)) {
-    if (rec.created == 0 || rec.lastUsed == 0) {
-      Entry old;
-      if (!codec::decode(slot->plain.data(), slot->plain.size(), old)) s = Status::Corrupt;
+    Entry old;
+    if (codec::decode(slot->plain.data(), slot->plain.size(), old)) {
       if (rec.created == 0) rec.created = old.created;
       if (rec.lastUsed == 0) rec.lastUsed = old.lastUsed;
-      wipe(old);
+      keepHistory(old, rec);
+    } else {
+      s = Status::Corrupt;
     }
+    wipe(old);
   } else {
     s = Status::NotFound;
   }
