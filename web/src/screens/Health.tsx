@@ -2,8 +2,8 @@
 // works it out itself and sends only entry ids, so no password reaches the phone.
 import { useEffect, useState } from 'preact/hooks';
 import { Icon } from '../components/Icon';
-import { Monogram, Spinner } from '../components/ui';
-import { Sheet } from '../components/Sheet';
+import { Button, Monogram, Spinner } from '../components/ui';
+import { Alert, Sheet } from '../components/Sheet';
 import { api } from '../lib/api';
 import { errorText, isLockedError } from '../lib/errors';
 import { accountCount, t } from '../lib/i18n';
@@ -11,6 +11,11 @@ import { go } from '../lib/router';
 import { loadEntries, toast, useApp } from '../lib/store';
 import type { EntrySummary, Health } from '../lib/types';
 import { shortDate } from '../lib/wifi';
+
+/** Accounts with a password already changed since "change every password" started. */
+function changedSince(h: Health): number {
+  return h.rotate ? Math.max(0, h.checked - h.rotate.pending.length) : 0;
+}
 
 /** Accounts flagged at least once (a reused weak password counts once). */
 export function issueCount(h: Health): number {
@@ -21,6 +26,21 @@ export function HealthSheet({ onClose }: { onClose: () => void }) {
   const app = useApp();
   const [h, setH] = useState<Health | null>(null);
   const [failed, setFailed] = useState(false);
+  const [confirm, setConfirm] = useState<'start' | 'end' | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const rotate = async (on: boolean) => {
+    setConfirm(null);
+    setBusy(true);
+    try {
+      setH(await api.healthRotate(on));
+      toast(t(on ? 'rotateStarted' : 'rotateEnded'), 'ok');
+    } catch (e) {
+      if (!isLockedError(e)) toast(errorText(e), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   useEffect(() => {
     if (!app.entries) void loadEntries();
@@ -49,8 +69,27 @@ export function HealthSheet({ onClose }: { onClose: () => void }) {
     );
   else {
     const n = issueCount(h);
+    const rot = h.rotate;
     body = (
       <>
+        {rot ? (
+          <section class="group rotate">
+            <h2 class="section-head">{t('rotateTitle')}</h2>
+            <div class="card rotate-card">
+              <p class="row-label">
+                <strong>{rot.pending.length ? t('rotateLeft', { left: rot.pending.length, total: rot.pending.length + changedSince(h) }) : t('rotateDone')}</strong>
+                <span class="caption">{t('rotateSince', { date: shortDate(rot.since, app.lang) })}</span>
+              </p>
+              <div class="rotate-bar" role="progressbar" aria-valuemin={0} aria-valuemax={h.checked} aria-valuenow={h.checked - rot.pending.length}>
+                <span style={{ inlineSize: `${h.checked ? ((h.checked - rot.pending.length) / h.checked) * 100 : 100}%` }} />
+              </div>
+            </div>
+            {rot.pending.length > 0 && <ul class="card rows">{rot.pending.map((id) => row(id, t('rotateTodo')))}</ul>}
+            <Button variant="secondary" disabled={busy} onClick={() => (rot.pending.length ? setConfirm('end') : void rotate(false))}>
+              {t('rotateEnd')}
+            </Button>
+          </section>
+        ) : null}
         <div class={`card health-summary ${n ? 'warn' : 'ok'}`} role="status">
           <Icon name={n ? 'triangle-alert' : 'shield-check'} size={28} />
           <span class="row-label">
@@ -84,6 +123,15 @@ export function HealthSheet({ onClose }: { onClose: () => void }) {
           </section>
         )}
         {!h.clock && <p class="caption">{t('healthNoClock')}</p>}
+        {!rot && h.checked > 0 && (
+          <section class="group">
+            <h2 class="section-head">{t('rotateTitle')}</h2>
+            <p class="group-foot">{t('rotateWhy')}</p>
+            <Button variant="secondary" disabled={busy || !h.clock} onClick={() => setConfirm('start')}>
+              {t('rotateStart')}
+            </Button>
+          </section>
+        )}
       </>
     );
   }
@@ -94,6 +142,22 @@ export function HealthSheet({ onClose }: { onClose: () => void }) {
         {body}
         <p class="caption">{t('healthPrivacy')}</p>
       </div>
+      {confirm === 'start' && (
+        <Alert
+          title={t('rotateStartTitle')}
+          body={t('rotateStartBody')}
+          actions={[{ label: t('rotateStart'), run: () => void rotate(true) }]}
+          onCancel={() => setConfirm(null)}
+        />
+      )}
+      {confirm === 'end' && h?.rotate && (
+        <Alert
+          title={t('rotateEndTitle')}
+          body={t('rotateEndBody', { n: h.rotate.pending.length })}
+          actions={[{ label: t('rotateEnd'), variant: 'danger-confirm', run: () => void rotate(false) }]}
+          onCancel={() => setConfirm(null)}
+        />
+      )}
     </Sheet>
   );
 }

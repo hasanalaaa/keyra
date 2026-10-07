@@ -58,9 +58,23 @@ void reuseAndAge() {
   CHECK(check({}, kNow).checked == 0);
 }
 
+void rotation() {
+  const std::string pw = "k7#Qv9!pL2@xW4$z";
+  const std::vector<Item> items = {
+      {1, pw, kNow - 10 * kDay},  // before the start: still to change
+      {2, pw, kNow + 60},         // changed after it
+      {3, pw, 0},                 // unknown date: to change
+      {4, "", 0},                 // no password: nothing to change
+      {5, pw, kNow},              // set at the very moment it started: done
+  };
+  CHECK((notChangedSince(items, kNow) == std::vector<uint32_t>{1, 3}));
+  CHECK(notChangedSince({}, kNow).empty());
+}
+
 }  // namespace
 
 int main() {
+  rotation();
   levels();
   reuseAndAge();
   return KEYRA_TEST_RESULT();

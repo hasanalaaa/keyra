@@ -54,6 +54,7 @@ struct Settings {
   bool lockOnUsb = true;
   bool lockOnBle = false;
   int64_t lastBackupAt = 0;  // unix seconds, 0 = never (or no clock then)
+  int64_t rotateSince = 0;   // SPEC §13.1 "change every password" started (unix s); 0 = off
 };
 
 constexpr uint8_t kMinAutoLockMin = 1, kMaxAutoLockMin = 120;

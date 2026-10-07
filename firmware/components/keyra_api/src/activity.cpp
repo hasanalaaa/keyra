@@ -91,6 +91,8 @@ const char* kindName(Kind k) {
     case Kind::EntryDeleted: return "entry_deleted";
     case Kind::TextTyped: return "text_typed";
     case Kind::BlePairing: return "ble_pairing";
+    case Kind::RotateStarted: return "rotate_started";
+    case Kind::RotateEnded: return "rotate_ended";
   }
   return "unknown";
 }

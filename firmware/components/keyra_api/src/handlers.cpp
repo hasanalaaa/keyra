@@ -544,6 +544,9 @@ esp_err_t getHealth(Ctx& c) {
   }
   const int64_t now = unixSecondsOrZero();
   const health::Report rep = health::check(items, now);
+  const int64_t rotateSince = settings::get().rotateSince;
+  const std::vector<uint32_t> toChange = rotateSince > 0 ? health::notChangedSince(items, rotateSince)
+                                                          : std::vector<uint32_t>{};
   items.clear();
   for (vault::Entry& e : all) vault::wipe(e);
 
@@ -570,7 +573,27 @@ esp_err_t getHealth(Ctx& c) {
     cJSON_AddNumberToObject(j, "since", static_cast<double>(since));
     cJSON_AddItemToArray(old, j);
   }
+  if (rotateSince > 0) {
+    cJSON* rot = cJSON_AddObjectToObject(o.get(), "rotate");
+    cJSON_AddNumberToObject(rot, "since", static_cast<double>(rotateSince));
+    cJSON* pending = cJSON_AddArrayToObject(rot, "pending");
+    for (uint32_t id : toChange) cJSON_AddItemToArray(pending, cJSON_CreateNumber(id));
+  }
   return http::sendJson(c.r, http::k200, o.get());
+}
+
+// SPEC §13.1: start or end "change every password"; answers like GET /api/health.
+esp_err_t postHealthRotate(Ctx& c) {
+  bool on = false;
+  if (json::getBool(c.body.get(), "on", on) != Field::Ok) return badRequest(c.r, "\"on\" (boolean) is required");
+  const int64_t now = unixSecondsOrZero();
+  if (on && now == 0) return http::sendError(c.r, http::k409, "no_time", "Device clock is not set");
+  const int64_t was = settings::get().rotateSince;
+  if (settings::update([&](settings::Settings& s) { s.rotateSince = on ? now : 0; }) != ESP_OK)
+    return http::sendError(c.r, http::k500, "storage", "Could not save settings");
+  if (on) activity::log(activity::Kind::RotateStarted);
+  else if (was > 0) activity::log(activity::Kind::RotateEnded);
+  return getHealth(c);
 }
 
 esp_err_t listEntries(Ctx& c) {
@@ -1119,6 +1142,7 @@ bool takesBody(Route r) {
     case Route::BleSetOs:
     case Route::UnlockRecovery:
     case Route::PresenceCancel:
+    case Route::HealthRotate:
       return true;
     default:
       return false;
@@ -1168,6 +1192,7 @@ esp_err_t dispatch(Ctx& c) {
     case Route::Lock: return postLock(c);
     case Route::ListEntries: return listEntries(c);
     case Route::Health: return getHealth(c);
+    case Route::HealthRotate: return postHealthRotate(c);
     case Route::Activity: return getActivity(c);
     case Route::CreateEntry: return createEntry(c);
     case Route::ImportEntries: return importEntries(c);

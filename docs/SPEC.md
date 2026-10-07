@@ -624,6 +624,18 @@ password (`keyra_api/src/health.cpp`, host-tested).
   `changedAt` of the newest history item, else the entry's `created`. Needs a
   valid clock (`clock: false` → nothing is old); unknown dates are never old.
 
+### 13.1 Change every password
+
+For when a backup, the phone or the passphrase may have leaked. `POST
+/api/health/rotate {on}` (session) starts it (`settings.rotateSince` = now;
+409 `no_time` without a clock) or ends it (0), and answers like `GET
+/api/health`, which then carries `rotate: {since, pending:[id…]}`: entries
+with a password whose current one was set before `since` (unknown dates
+count as not changed). Nothing per entry is stored — changing a password
+moves the old one into its history with the change time, and that is what
+takes it off the list. Starting and ending are logged (`rotate_started`,
+`rotate_ended`). The app asks before ending while accounts are left.
+
 ## 15. Activity log
 
 Settings → **Activity** lists what happened on this Keyra, newest first:

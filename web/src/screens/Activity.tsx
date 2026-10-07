@@ -31,6 +31,8 @@ export function eventText(e: ActivityEvent): string {
     case 'recovery_removed': return t('actRecoveryRemoved');
     case 'ble_forgot': return t('actBleForgot', { title });
     case 'ble_pairing': return t('actBlePairing');
+    case 'rotate_started': return t('actRotateStarted');
+    case 'rotate_ended': return t('actRotateEnded');
     case 'trusted_removed': return t('actTrustedRemoved', { title });
     case 'entry_deleted': return t('actDeleted', { title });
     default: return t('actOther');
@@ -48,6 +50,8 @@ function iconOf(e: ActivityEvent): IconName {
     case 'backup': return 'download';
     case 'restore': return 'upload';
     case 'passphrase':
+    case 'rotate_started':
+    case 'rotate_ended':
     case 'recovery_created':
     case 'recovery_removed': return 'key-round';
     case 'ble_forgot':

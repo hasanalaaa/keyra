@@ -99,6 +99,7 @@ esp_err_t load() {
     s.lockOnUsb = readInt<uint8_t>(h, "lockUsb", s.lockOnUsb, nvs_get_u8) != 0;
     s.lockOnBle = readInt<uint8_t>(h, "lockBle", s.lockOnBle, nvs_get_u8) != 0;
     s.lastBackupAt = readInt<int64_t>(h, "lastBackup", s.lastBackupAt, nvs_get_i64);
+    s.rotateSince = readInt<int64_t>(h, "rotSince", s.rotateSince, nvs_get_i64);
     nvs_close(h);
   } else if (err != ESP_ERR_NVS_NOT_FOUND) {
     ESP_LOGE(TAG, "nvs_open: %s", esp_err_to_name(err));
@@ -142,6 +143,7 @@ esp_err_t save(const Settings& s) {
   if (err == ESP_OK) err = nvs_set_u8(h, "lockUsb", s.lockOnUsb ? 1 : 0);
   if (err == ESP_OK) err = nvs_set_u8(h, "lockBle", s.lockOnBle ? 1 : 0);
   if (err == ESP_OK) err = nvs_set_i64(h, "lastBackup", s.lastBackupAt);
+  if (err == ESP_OK) err = nvs_set_i64(h, "rotSince", s.rotateSince);
   if (err == ESP_OK) err = nvs_commit(h);
   nvs_close(h);
   ESP_RETURN_ON_ERROR(err, TAG, "write");

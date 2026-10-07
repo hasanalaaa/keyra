@@ -104,6 +104,8 @@ export interface ActivityEvent {
     | 'entry_deleted'
     | 'text_typed'
     | 'ble_pairing'
+    | 'rotate_started'
+    | 'rotate_ended'
     | 'unknown';
   at: number;
   id?: number;
@@ -120,6 +122,8 @@ export interface Health {
   weak: { id: number; level: 1 | 2 }[];
   reused: number[][]; // groups of ids that share one password
   old: { id: number; since: number }[]; // unix seconds the password was set
+  /** SPEC §13.1 "change every password": started at `since`; `pending` = not changed since. */
+  rotate?: { since: number; pending: number[] };
 }
 
 export interface Passkey {

@@ -118,4 +118,12 @@ Report check(const std::vector<Item>& items, int64_t now) {
   return r;
 }
 
+std::vector<uint32_t> notChangedSince(const std::vector<Item>& items, int64_t since) {
+  std::vector<uint32_t> out;
+  for (const Item& it : items) {
+    if (!it.password.empty() && it.setAt < since) out.push_back(it.id);
+  }
+  return out;
+}
+
 }  // namespace keyra::api::health

@@ -29,6 +29,8 @@ enum class Kind : uint8_t {
   EntryDeleted = 13,   // id + title
   TextTyped = 14,      // detail as Typed; the text itself is never logged
   BlePairing = 15,     // the pairing window was opened with a press
+  RotateStarted = 16,  // "change every password" (SPEC §13.1) started
+  RotateEnded = 17,    // ... and ended
 };
 
 enum class LockWhy : uint8_t { Manual = 0, Idle = 1, Usb = 2, Ble = 3, Button = 4 };

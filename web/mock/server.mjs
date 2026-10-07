@@ -60,6 +60,7 @@ const defaultSettings = () => ({
   apMode: 'always',
   protectReveal: true,
   lockOnUsb: true,
+  rotateSince: 0, // SPEC §13.1
   lockOnBle: false,
   lastBackupAt: 0,
 });
@@ -599,7 +600,12 @@ function health(entries) {
   }
   const reused = [...groups.values()].filter((g) => g.length > 1).map((g) => g.sort((a, b) => a - b));
   const byId = (a, b) => a.id - b.id;
-  return { checked: withPw.length, clock: !!now, weak: weak.sort(byId), reused, old: old.sort(byId) };
+  const out = { checked: withPw.length, clock: !!now, weak: weak.sort(byId), reused, old: old.sort(byId) };
+  if (settings.rotateSince > 0) {
+    const setAt = (e) => (e.history.length ? e.history[0].changedAt : e.created);
+    out.rotate = { since: settings.rotateSince, pending: withPw.filter((e) => setAt(e) < settings.rotateSince).map((e) => e.id) };
+  }
+  return out;
 }
 
 // ---------- seed ----------
@@ -841,6 +847,7 @@ function match(method, rawPath) {
     case 'trusted': return one('GET', 'trusted');
     case 'fido': return one('GET', 'passkeys');
     case 'health': return one('GET', 'health');
+    case 'health/rotate': return one('POST', 'healthRotate');
     case 'activity': return one('GET', 'activity');
     case 'ble': return one('GET', 'ble');
     case 'ble/pair': return one('POST', 'blePair');
@@ -867,7 +874,7 @@ function match(method, rawPath) {
 }
 
 const OPEN = new Set(['state', 'setup', 'unlock', 'unlockRecovery', 'factoryReset', 'presenceCancel']);
-const BODY = new Set(['setup', 'unlock', 'unlockRecovery', 'create', 'update', 'import', 'type', 'generate', 'putSettings', 'passphrase', 'backup', 'restore', 'wifiHome', 'bleSetOs', 'presenceCancel']);
+const BODY = new Set(['healthRotate', 'setup', 'unlock', 'unlockRecovery', 'create', 'update', 'import', 'type', 'generate', 'putSettings', 'passphrase', 'backup', 'restore', 'wifiHome', 'bleSetOs', 'presenceCancel']);
 
 const validPassphrase = (s) => typeof s === 'string' && [...s].length >= 10 && [...s].length <= 128;
 const validWifi = (s) => typeof s === 'string' && s.length >= 8 && s.length <= 63 && /^[\x20-\x7e]+$/.test(s) && s !== 'keyra1234';
@@ -1440,6 +1447,16 @@ async function api(req, res, path) {
 
     case 'health':
       return send(res, 200, health([...vault.entries.values()]));
+
+    case 'healthRotate': {
+      if (typeof b.on !== 'boolean') bad('"on" (boolean) is required');
+      if (b.on && !timeValid) fail(409, 'no_time', 'Device clock is not set');
+      const was = settings.rotateSince;
+      settings.rotateSince = b.on ? nowSec() : 0;
+      if (b.on) logEvent('rotate_started');
+      else if (was) logEvent('rotate_ended');
+      return send(res, 200, health([...vault.entries.values()]));
+    }
 
     case 'activity':
       return send(res, 200, { events: [...(vault.activity ?? [])].reverse().map(({ id, n, title, ...e }) => ({ ...e, ...(id ? { id } : {}), ...(n ? { n } : {}), ...(title ? { title } : {}) })), max: ACTIVITY_MAX });

@@ -187,6 +187,7 @@ export const api = {
   trusted: async () => (await json<{ browsers: TrustedBrowser[] }>('GET', '/trusted')).browsers,
   revokeTrusted: (id: number) => json<void>('DELETE', `/trusted/${id}`),
   health: () => json<Health>('GET', '/health'),
+  healthRotate: (on: boolean) => json<Health>('POST', '/health/rotate', { on }),
   activity: () => json<{ events: ActivityEvent[]; max: number }>('GET', '/activity'),
   passkeys: async () => await json<{ passkeys: Passkey[]; max: number }>('GET', '/fido'),
   deletePasskey: (id: number) => json<void>('DELETE', `/fido/${id}`),

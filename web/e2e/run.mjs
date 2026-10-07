@@ -415,7 +415,17 @@ async function healthFlow(base, opts) {
   check((await page.locator('.health .acc-row').count()) === 4, 'four flagged accounts listed');
   check(/4/.test((await page.locator('.health-summary strong').textContent()) ?? ''), 'summary counts 4 accounts');
   await shot(page, `health${tag}`);
-  await page.locator('.health .acc-row', { hasText: 'Router' }).click();
+  // Change every password (SPEC §13.1): start, everything is listed, end with a confirmation.
+  await page.locator('.health .btn', { hasText: opts.lang === 'en' ? 'Start' : 'ابدأ' }).click();
+  await page.locator('.alert .btn-primary').click();
+  await page.locator('.rotate-card').waitFor();
+  check((await page.locator('.rotate .acc-row').count()) === 24, 'every account with a password is on the list');
+  await page.locator('.rotate-card').scrollIntoViewIfNeeded();
+  await shot(page, `health-rotate${tag}`);
+  await page.locator('.rotate > .btn').click();
+  await page.locator('.alert .btn-danger-confirm').click();
+  await page.locator('.rotate-card').waitFor({ state: 'detached' });
+  await page.locator('.health .acc-row', { hasText: 'Router' }).first().click();
   await page.locator('.details').waitFor();
   check(page.url().includes('#/a/'), 'a flagged account opens');
   console.log('  ✓ health flow passed');

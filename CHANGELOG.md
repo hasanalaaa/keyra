@@ -8,6 +8,11 @@ All notable changes to Keyra are documented here. The format follows
 
 ### Added
 
+- **Change every password** (SPEC §13.1): Password health can start a
+  "change every password" round after a possible leak; it lists every account
+  whose password was not changed since, with progress, and nothing per entry is
+  stored (the password history decides).
+
 - **Activity log** (SPEC §15): Settings → Activity lists unlocks, wrong
   passphrase attempts, locks and their reason, typing, shown passwords, backups,
   restores and security changes — encrypted in the vault, at most 200 events,

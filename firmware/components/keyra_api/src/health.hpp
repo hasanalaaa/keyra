@@ -35,4 +35,8 @@ struct Report {
 // `now`: unix seconds, or 0 when the clock is unknown (nothing is then "old").
 Report check(const std::vector<Item>& items, int64_t now);
 
+// "Change every password" (SPEC §13.1): entries with a password not set since
+// `since` (an unknown set date counts as not changed), in input order.
+std::vector<uint32_t> notChangedSince(const std::vector<Item>& items, int64_t since);
+
 }  // namespace keyra::api::health
