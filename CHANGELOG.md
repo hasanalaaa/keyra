@@ -6,7 +6,24 @@ All notable changes to Keyra are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-08
+
+Highlights:
+- Updates over Wi-Fi: Settings → Firmware update (signed, button-gated, rolls back on failure)
+- Password health and "change every password"
+- Activity log, encrypted, with a warning after wrong passphrase attempts
+- Accounts that delete themselves after their password is typed
+- Bluetooth: pair a new device while another is connected
+
+
 ### Added
+
+- **Firmware updates over the network** (SPEC §14): Settings → Firmware update
+  checks the latest GitHub release and installs it, or takes a file. Images
+  must be signed with the owner's key (Secure Boot V2 RSA-3072, checked by the
+  running firmware, no eFuses), older versions are refused, installing needs a
+  press, and a new image that fails its first boot is rolled back.
+  `tools/sign_release.sh` and `tools/release.sh` sign and publish releases.
 
 - **Delete after typing** (SPEC §16): an account can delete itself after its
   password is typed N times (1–99). Entry format 4 and backups carry

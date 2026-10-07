@@ -493,6 +493,57 @@ async function burnFlow(base, opts) {
   await ctx.close();
 }
 
+// ---------- Firmware update (SPEC §14): from a file and from the latest release ----------
+
+/** An ESP-IDF app image as far as the mock checks it: magic, app description, signature sector. */
+function fakeFirmware(version) {
+  const b = Buffer.alloc(64 * 1024);
+  b[0] = 0xe9;
+  b.writeUInt32LE(0xabcd5432, 0x20);
+  b.write(version, 0x30, 'latin1');
+  b.write('keyra', 0x50, 'latin1');
+  b[b.length - 4096] = 0xe7;
+  return b;
+}
+
+async function updateFlow(base, opts) {
+  const { ctx, page, tag } = await open(base, opts);
+  console.log(`update ${tag || '(phone, ar, light)'}`);
+  await page.locator('input[type=password]').waitFor();
+  await unlockUi(page);
+  await page.evaluate(() => (location.hash = '#/settings'));
+  await page.locator('.settings .seg').first().waitFor();
+  await page.locator('.nav-row', { hasText: opts.lang === 'en' ? 'Firmware update' : 'تحديث البرنامج' }).click();
+  await page.locator('.update-summary').waitFor();
+  // From GitHub (the mock's release is 1.1.0, the device 1.0.0).
+  await page.locator('.update .btn-primary').click();
+  await page.locator('.update-notes').waitFor({ timeout: 8000 });
+  await shot(page, `update${tag}`);
+  await page.locator('.update .btn-primary').click();
+  await page.locator('[role=progressbar]').waitFor();
+  await page.locator('.ready-ready').waitFor({ timeout: 10000 });
+  check((await button(base)) === 'approved update', 'button installs the update');
+  await page.locator('.ready-typed').waitFor({ timeout: 5000 });
+  // The mock "restarts" into 1.1.0: locked, and the new version shows.
+  await page.locator('button', { hasText: /^(Unlock|فتح)$/ }).click({ timeout: 10000 });
+  await page.evaluate(() => (location.hash = '#/'));
+  await unlockUi(page);
+  const v = await (await fetch(`${base}/api/state`)).json();
+  check(v.device.version === '1.1.0', `running the new version (got ${v.device.version})`);
+  // From a file: an older image is refused, the same version is taken.
+  await page.evaluate(() => (location.hash = '#/settings'));
+  await page.locator('.settings .seg').first().waitFor();
+  await page.locator('.nav-row', { hasText: opts.lang === 'en' ? 'Firmware update' : 'تحديث البرنامج' }).click();
+  const before = errors.length;
+  await page.locator('.update input[type=file]').setInputFiles({ name: 'keyra-firmware.bin', mimeType: 'application/octet-stream', buffer: fakeFirmware('1.0.0') });
+  await page.locator('.ready-error').waitFor({ timeout: 8000 });
+  // The browser logs the refusal (409 downgrade); that one is the point of the test.
+  for (let i = errors.length - 1; i >= before; i--) if (/status of 409/.test(errors[i])) errors.splice(i, 1);
+  check(/older|أقدم/.test((await page.locator('.ready-error').textContent()) ?? ''), 'an older version is refused');
+  console.log('  ✓ update flow passed');
+  await ctx.close();
+}
+
 async function passkeysFlow(base, opts) {
   const { ctx, page, tag } = await open(base, opts);
   console.log(`passkeys ${tag || '(phone, ar, light)'}`);
@@ -662,6 +713,8 @@ try {
   await activityFlow(await startMock(), { lang: 'en', dark: true });
   await burnFlow(await startMock(), {});
   await burnFlow(await startMock(), { lang: 'en', dark: true });
+  await updateFlow(await startMock({ MOCK_HOME_ONLINE: '1' }), {});
+  await updateFlow(await startMock({ MOCK_HOME_ONLINE: '1' }), { lang: 'en', dark: true });
 
   quantizeShots();
   if (errors.length) {

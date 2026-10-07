@@ -636,6 +636,48 @@ moves the old one into its history with the change time, and that is what
 takes it off the list. Starting and ending are logged (`rotate_started`,
 `rotate_ended`). The app asks before ending while accounts are left.
 
+## 14. Firmware updates over the network
+
+Settings → **Firmware update**. Keyra installs only images signed with the key
+its own firmware was signed with, never an older version, and only after a
+press of its button; a new image that fails its first boot is rolled back.
+
+- **Signing.** Secure Boot V2 RSA-3072 signature blocks, checked by the running
+  firmware (`CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT`,
+  `CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT`). No eFuses are burned: this
+  stops a network attacker (or a stolen session) from installing other
+  firmware, not someone holding the board with a USB cable. The trusted key is
+  the one in the running image's signature block, so the first signed image
+  goes on by USB; unsigned builds (CI, `idf.py build`) cannot update over the
+  network at all. Builds are unsigned; `tools/sign_release.sh` signs with the
+  owner's key (`~/.keyra/keyra-signing-key.pem` or `$KEYRA_SIGNING_KEY`), which
+  never enters the repository. Losing the key means updates by USB only.
+- **Versions.** `PROJECT_VER` (`MAJOR.MINOR.PATCH`); an image older than the
+  running one is refused (`downgrade`), the same version may be reinstalled.
+  The image must be a Keyra app (`project_name` "keyra").
+- **Sources.** (a) `POST /api/update` with the image as the body (≤ one app
+  partition, 3 MiB), streamed into the idle OTA partition. (b) `POST
+  /api/update/check` → `{current, latest, newer, size, notes}` from the latest
+  GitHub release of `CONFIG_KEYRA_UPDATE_REPO` (default `hasanalaaa/keyra`,
+  asset `keyra-firmware.bin`; needs home Wi‑Fi, else 409 `offline`); `POST
+  /api/update/download` → 202 and Keyra fetches that asset itself over HTTPS
+  (certificate bundle, redirects followed). The client never names a URL.
+- **Staging.** Either way the image is checked (`esp_ota_end`: image and
+  signature; then name and version) and becomes *staged*: written to the idle
+  partition but not bootable. `state.update` (sessions only) =
+  `{phase: receiving|staged|failed, source: upload|github, done, total,
+  version, error}`. Errors: `bad_signature`, `bad_image`, `downgrade`,
+  `too_large`, `offline`, `network`, `no_release`, `busy`, `flash_failed`.
+- **Install.** `POST /api/update/apply` → 202, presence op `update`; the press
+  sets the boot partition and Keyra restarts ~2 s later (the vault is locked
+  by the restart). The new image runs on probation
+  (`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`) and confirms itself once the API is
+  up and the vault mounts; a crash or a vault it cannot read before that
+  returns the bootloader to the previous image.
+- **Releases.** `tools/release.sh` builds the release profile, signs it and
+  publishes `v<version>` with `keyra-firmware.bin` plus the files for a first
+  USB install; the notes are the version's CHANGELOG section.
+
 ## 15. Activity log
 
 Settings → **Activity** lists what happened on this Keyra, newest first:

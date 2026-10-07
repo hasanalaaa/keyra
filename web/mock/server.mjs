@@ -9,6 +9,7 @@
 //   MOCK_BLE=0                         no paired Bluetooth device in the seed
 //   MOCK_VIA=home                      every request arrives "through the home network" (SPEC §8.2);
 //                                      without it, requests to http://127.0.0.1:PORT do, localhost is the AP
+//   MOCK_HOME_ONLINE=1                 Keyra is on the home network (Firmware update can check GitHub)
 //   MOCK_BACKUP_DAYS=3                 days since the seeded vault's last backup (> 30 shows the reminder)
 //   PORT=8787                          listen port
 //
@@ -57,7 +58,8 @@ const defaultSettings = () => ({
   output: 'auto',
   bleConnect: 'on_demand',
   osUsb: '', // SPEC §10.5
-  homeWifi: { enabled: false, ssid: '', password: '' }, // password is write-only, never sent
+  // password is write-only, never sent; MOCK_HOME_ONLINE starts already joined
+  homeWifi: process.env.MOCK_HOME_ONLINE === '1' ? { enabled: true, ssid: 'Al-Rashid Home', password: 'home-wifi-pass' } : { enabled: false, ssid: '', password: '' },
   apMode: 'always',
   protectReveal: true,
   lockOnUsb: true,
@@ -139,7 +141,8 @@ let usbSeen = false; // a computer was plugged in since the unlock (charger-only
 let usbSession = 1; // bumps on every plug-in; a USB action is bound to the one it was armed on
 const trusted = new Map(); // sha256(kt) → { id, name, created, lastSeen }
 const MAX_TRUSTED = 8;
-const homeLink = { connected: false, ip: null, rssi: null, error: '', timer: null };
+// MOCK_HOME_ONLINE=1: already on the home network (update checks need the internet, SPEC §14).
+const homeLink = process.env.MOCK_HOME_ONLINE === '1' ? { connected: true, ip: '192.168.1.50', rssi: -48, error: '', timer: null } : { connected: false, ip: null, rssi: null, error: '', timer: null };
 const NETWORKS = [
   { ssid: 'Al-Rashid Home', rssi: -48, secure: true, channel: 11 },
   { ssid: 'Al-Rashid Home 5G', rssi: -61, secure: true, channel: 1 },

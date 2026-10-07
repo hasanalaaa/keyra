@@ -1,4 +1,4 @@
-import type { BleInfo, DeviceState, Entry, HostOs, EntryInput, ActivityEvent, EntrySummary, Health, Network, Passkey, RecoveryInfo, Settings, Totp, TrustedBrowser, TypeTextRequest, TypeWhat, Pending, PresenceOp } from './types';
+import type { BleInfo, DeviceState, Entry, HostOs, EntryInput, ActivityEvent, EntrySummary, Health, Network, Passkey, UpdateCheck, RecoveryInfo, Settings, Totp, TrustedBrowser, TypeTextRequest, TypeWhat, Pending, PresenceOp } from './types';
 import { generateRequest, type GenSettings } from './generator';
 
 export class ApiError extends Error {
@@ -88,6 +88,39 @@ async function json<T>(method: string, path: string, body?: unknown, timeoutMs?:
   const res = await request(method, path, body, timeoutMs);
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
+}
+
+/**
+ * POST /api/update with the firmware file as the body (SPEC §14), reporting upload progress.
+ * XHR rather than fetch: fetch cannot report upload progress.
+ */
+function uploadFirmware(file: Blob, onProgress: (sent: number, total: number) => void): Promise<{ version: string }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/update');
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.setRequestHeader('X-Keyra-Time', String(Date.now()));
+    if (csrf) xhr.setRequestHeader('X-Keyra-CSRF', csrf);
+    xhr.timeout = 10 * 60 * 1000;
+    xhr.upload.onprogress = (e) => onProgress(e.loaded, e.lengthComputable ? e.total : file.size);
+    xhr.onerror = xhr.ontimeout = () => reject(new ApiError(0, 'network', 'Network error'));
+    xhr.onload = () => {
+      let j: { error?: string; message?: string; version?: string } = {};
+      try {
+        j = JSON.parse(xhr.responseText || '{}');
+      } catch {
+        // Not JSON: the status decides.
+      }
+      if (xhr.status === 200 && j.version) return resolve({ version: j.version });
+      const code = j.error ?? 'http_' + xhr.status;
+      if (xhr.status === 401 && code === 'locked') {
+        setCsrf(null);
+        onLocked();
+      }
+      reject(new ApiError(xhr.status, code, j.message ?? xhr.statusText));
+    };
+    xhr.send(file);
+  });
 }
 
 interface Session {
@@ -187,6 +220,11 @@ export const api = {
   trusted: async () => (await json<{ browsers: TrustedBrowser[] }>('GET', '/trusted')).browsers,
   revokeTrusted: (id: number) => json<void>('DELETE', `/trusted/${id}`),
   health: () => json<Health>('GET', '/health'),
+  updateUpload: uploadFirmware,
+  // Keyra asks GitHub itself: a TLS handshake and an answer from the internet.
+  updateCheck: () => json<UpdateCheck>('POST', '/update/check', undefined, 45000),
+  updateDownload: () => json<{ downloading: boolean }>('POST', '/update/download'),
+  updateApply: () => json<Awaiting & { version: string }>('POST', '/update/apply'),
   healthRotate: (on: boolean) => json<Health>('POST', '/health/rotate', { on }),
   activity: () => json<{ events: ActivityEvent[]; max: number }>('GET', '/activity'),
   passkeys: async () => await json<{ passkeys: Passkey[]; max: number }>('GET', '/fido'),

@@ -7,3 +7,26 @@ describe('issueCount', () => {
     expect(issueCount({ checked: 3, clock: false, weak: [], reused: [], old: [] })).toBe(0);
   });
 });
+
+import { looksLikeFirmware, updateError } from '../src/screens/Update';
+import { setLang } from '../src/lib/i18n';
+
+describe('firmware update helpers', () => {
+  it('accepts only something shaped like an ESP-IDF app image', async () => {
+    const img = new Uint8Array(8192);
+    img[0] = 0xe9;
+    expect(await looksLikeFirmware(new Blob([img]))).toBe(true);
+    img[0] = 0x7b; // "{" — a JSON backup picked by mistake
+    expect(await looksLikeFirmware(new Blob([img]))).toBe(false);
+    expect(await looksLikeFirmware(new Blob([new Uint8Array(100)]))).toBe(false);
+    const huge = new Uint8Array(3 * 1024 * 1024 + 1);
+    huge[0] = 0xe9;
+    expect(await looksLikeFirmware(new Blob([huge]))).toBe(false);
+  });
+  it('explains each refusal', () => {
+    setLang('en');
+    expect(updateError('bad_signature')).toMatch(/signed/);
+    expect(updateError('downgrade')).toMatch(/older/);
+    expect(updateError('something new')).toMatch(/couldn't be written/);
+  });
+});

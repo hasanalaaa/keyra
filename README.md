@@ -64,6 +64,7 @@ A long press (1.5 seconds) cancels a pending action, or locks the vault if nothi
 |---|---|
 | **Types like a keyboard** | USB and Bluetooth keyboard. Handles Caps Lock and always releases keys, even on errors. |
 | **Any input language** | Tell Keyra each computer's system once: on Windows it types character codes that ignore the active language; on a Mac or iPhone in Arabic it switches to English, types, and switches back. |
+| **Updates over Wi-Fi** | **Settings → Firmware update** checks GitHub for a new version and installs it after a press of Keyra's button. Only firmware signed with your key is accepted, never an older version, and a version that fails to start rolls back by itself. |
 | **Delete after typing** | Mark an account to delete itself after its password is typed once (or a set number of times): one-time recovery codes and temporary passwords clean themselves up. |
 | **Activity log** | **Settings → Activity** shows unlocks, wrong passphrase attempts, locks and why, what was typed and when, backups and more. Encrypted on Keyra, never a password, and it can't be cleared from the app. |
 | **Password health** | **Settings → Password health** lists reused, weak and year-old passwords. Keyra checks them itself; only the list of accounts reaches the phone, never a password. |
@@ -153,8 +154,10 @@ Pin details, flashing options, enclosure ideas and the optional hardening steps:
 ```sh
 esptool.py --chip esp32s3 -p <PORT> --before default-reset --after hard-reset \
   write_flash --flash-mode dio --flash-size 8MB --flash-freq 80m \
-  0x0 bootloader.bin 0x8000 partition-table.bin 0xf000 ota_data_initial.bin 0x20000 keyra.bin
+  0x0 bootloader.bin 0x8000 partition-table.bin 0xf000 ota_data_initial.bin 0x20000 keyra-firmware.bin
 ```
+
+That is needed once. After it, **Settings → Firmware update** installs new versions over Wi-Fi (Keyra on your home network): it checks the [Releases page](https://github.com/hasanalaaa/keyra/releases), downloads, verifies the signature and installs after a press of Keyra's button.
 
 ### Option B: build from source
 

@@ -1,6 +1,6 @@
 # Keyra — Design System & Screen Spec (v1)
 
-Audience: the frontend engineer (Preact + TypeScript + plain CSS, one inlined file, ≤ 170 KB gzip total
+Audience: the frontend engineer (Preact + TypeScript + plain CSS, one inlined file, ≤ 190 KB gzip total
 including fonts) and the owner (image prompts in §7). Companion to `SPEC.md` (§1 is the experience).
 Every number below is final unless marked `ASSUMPTION`. Contrast ratios were **computed** (WCAG 2.x
 relative luminance), not eyeballed. Font size was **measured** by actually subsetting the font.
@@ -28,7 +28,7 @@ electric-blue accent that is literally the device's LED.**
    LED-blue).
 4. **Purposeful spring motion.** Springs (Material 3 Expressive, Apple) via CSS `linear()`; every animation
    states a fact ("ready", "typed", "expired"), nothing decorative; full reduced-motion path.
-5. **Arabic-first craft within 170 KB.** One embedded geometric Arabic+Latin variable font (Readex Pro,
+5. **Arabic-first craft within 190 KB.** One embedded geometric Arabic+Latin variable font (Readex Pro,
    OFL, 29.5 KB measured), logical CSS only, Arabic sized 6 % up with 1.7 line-height, Western digits
    everywhere so on-screen codes match what Keyra types. No icon font, no image assets, no animation lib.
 
@@ -1040,7 +1040,7 @@ Arabic / RTL
 
 ---
 
-## Appendix A — Byte budget (gzip, target ≤ 170 KB; estimate ≈ 95 KB)
+## Appendix A — Byte budget (gzip, target ≤ 190 KB; estimate ≈ 95 KB)
 | Item | KB |
 |---|---|
 | Preact + hooks (+ `preact/compat` **not** used) | 5 |
@@ -1052,6 +1052,8 @@ Arabic / RTL
 Headroom ≈ 50 KB: do **not** spend it on a second font, a charting lib, an animation lib or a CSV lib (≈ 60 lines of code).
 The limit was raised from 150 to 170 KB for the recovery kit (SPEC §10.2), which needs a QR encoder
 (`qrcode` core, ≈ 8 KB) and the audited Shamir library; `web/scripts/postbuild.mjs` enforces it.
+It was raised again to 190 KB with Password health, Activity and Firmware update (SPEC §13–§16):
+about 0.2 s more on Keyra's own Wi-Fi, and the app partition still has over 1 MB free.
 
 ## Appendix B — Assumptions the lead must confirm (flagged `ASSUMPTION` above)
 1. **LED patterns** (4.11.1): Pending = blue breathe 1600 ms period; Success green 700 ms; Error red 3 blinks. Tell the firmware owner or change `--d-breath`.

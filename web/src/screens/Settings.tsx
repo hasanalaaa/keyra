@@ -22,6 +22,7 @@ import { HomeWifiSheet } from './HomeWifi';
 import { PasskeysSheet } from './Passkeys';
 import { HealthSheet } from './Health';
 import { ActivitySheet } from './Activity';
+import { UpdateSheet } from './Update';
 import { TrustedSheet } from './Trusted';
 import { RecoverySheet } from './Recovery';
 import { shortDate } from '../lib/wifi';
@@ -34,7 +35,7 @@ const SPEEDS = [
 ] as const;
 const AUTOLOCK = [1, 5, 15, 30, 60, 120];
 
-type Sub = 'wifi' | 'home' | 'trusted' | 'health' | 'activity' | 'passkeys' | 'autolock' | 'passphrase' | 'test' | 'erase' | 'recovery' | 'unprotect' | null;
+type Sub = 'wifi' | 'home' | 'trusted' | 'health' | 'activity' | 'update' | 'passkeys' | 'autolock' | 'passphrase' | 'test' | 'erase' | 'recovery' | 'unprotect' | null;
 
 export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void }) {
   const app = useApp();
@@ -231,12 +232,7 @@ export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void 
       </Section>
       <Section title={t('groupAbout')}>
         {!desktop && <NavRow label={t('addToHome')} onClick={onA2hs} />}
-        <div class="row">
-          <span class="row-label">{t('version')}</span>
-          <span class="row-value mono" dir="ltr">
-            {d?.device.version}
-          </span>
-        </div>
+        <NavRow label={t('updRow')} value={<bdi dir="ltr">{d?.device.version}</bdi>} onClick={() => setSub('update')} />
         <div class="row">
           <span class="row-label">{t('model')}</span>
           <span class="row-value" dir="ltr">
@@ -262,6 +258,7 @@ export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void 
       {sub === 'trusted' && <TrustedSheet onClose={() => setSub(null)} />}
       {sub === 'health' && <HealthSheet onClose={() => setSub(null)} />}
       {sub === 'activity' && <ActivitySheet onClose={() => setSub(null)} />}
+      {sub === 'update' && <UpdateSheet onClose={() => setSub(null)} />}
       {sub === 'passkeys' && <PasskeysSheet onClose={() => setSub(null)} />}
       {sub === 'autolock' && s && (
         <AutoLockSheet
