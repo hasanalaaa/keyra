@@ -26,8 +26,8 @@ constexpr int kMaxStrokes = 2;
 // (control characters always give 0).
 int strokesFor(Layout layout, uint32_t cp, KeyStroke out[kMaxStrokes]);
 
-// Decodes one UTF-8 code point and advances `p`. False on malformed input.
-bool nextCodePoint(const char*& p, uint32_t& cp);
+// Decodes one UTF-8 code point from [p, end) and advances `p`. False on malformed input.
+bool nextCodePoint(const char*& p, const char* end, uint32_t& cp);
 
 // What the host shows for one key press under `layout`; 0 for nothing or a dead key.
 uint32_t charFor(Layout layout, KeyStroke s);

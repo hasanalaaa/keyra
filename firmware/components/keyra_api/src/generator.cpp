@@ -36,6 +36,13 @@ std::string without(const char* chars, const char* drop) {
   return out;
 }
 
+std::string keepOnly(const std::string& chars, const std::string& allowed) {
+  std::string out;
+  for (char c : chars)
+    if (allowed.find(c) != std::string::npos) out += c;
+  return out;
+}
+
 // Draws bytes from the injected source in small batches and wipes them after,
 // since they decide the password.
 class ByteStream {
@@ -86,6 +93,7 @@ Error plan(const Params& p, Plan& out) {
     if (!w.on) continue;
     Plan::Class& c = out.classes[out.classCount];
     c.chars = without(w.chars, p.avoidAmbiguous ? kAmbiguous : "");
+    if (p.restrict) c.chars = keepOnly(c.chars, p.allowed);
     c.min = w.min;
     if (c.chars.empty()) return Error::EmptyClass;
     for (char ch : c.chars) out.classOf[static_cast<unsigned char>(ch)] = static_cast<int8_t>(out.classCount);
@@ -167,7 +175,7 @@ const char* message(Error e) {
     case Error::NoClass: return "enable at least one of lower, upper, digits, symbols";
     case Error::Minimum: return "minDigits/minSymbols need their class enabled and must fit in the length";
     case Error::SymbolSet: return "symbolSet must be 1-32 distinct ASCII punctuation characters";
-    case Error::EmptyClass: return "avoidAmbiguous leaves an enabled class without characters";
+    case Error::EmptyClass: return "avoidAmbiguous or layoutSafe leaves an enabled class without characters";
     case Error::TooStrict: return "minimums are too high for this length";
   }
   return "invalid";

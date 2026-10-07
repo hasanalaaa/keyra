@@ -49,6 +49,7 @@ Result tapKey(uint8_t hidKeycode, const Options&);   // e.g. KEY_TAB, KEY_ENTER
 Result typeProbe(const Options&);                    // the Layout Doctor probe (no Enter, only Shift)
 // UTF-8 text whose every character `layout` can type (control characters never).
 bool   typeable(const char* text, Layout layout);
+bool   typeable(std::string_view text, Layout layout);
 
 size_t     layoutCount();
 LayoutInfo layoutInfo(Layout);

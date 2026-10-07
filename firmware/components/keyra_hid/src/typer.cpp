@@ -1,5 +1,7 @@
 #include "typer.hpp"
 
+#include <cstring>
+
 #include "keymap.hpp"
 
 namespace keyra::hid {
@@ -74,10 +76,11 @@ Result Typer::run(Transport& t, Job job, const char* text, uint8_t tapKeycode, c
 
   if (ok) {
     if (job == Job::Text) {
-      for (const char* p = text; ok && *p != '\0';) {
+      const char* end = text + std::strlen(text);
+      for (const char* p = text; ok && p < end;) {
         uint32_t cp = 0;
         KeyStroke ks[kMaxStrokes];
-        nextCodePoint(p, cp);  // cannot fail: typeable() was checked
+        nextCodePoint(p, end, cp);  // cannot fail: typeable() was checked
         const int n = strokesFor(opt.layout, cp, ks);
         for (int i = 0; ok && i < n; ++i) ok = stroke(t, ks[i].modifier, ks[i].keycode, delay, delay);
       }

@@ -6,6 +6,8 @@
 #include "esp_check.h"
 #include "esp_log.h"
 #include "esp_mac.h"
+#include "keyra/hid.hpp"
+#include "keyra/sequence.hpp"
 #include "nvs.h"
 #include "validate.hpp"
 
@@ -53,6 +55,10 @@ Settings sanitized(Settings s) {
     ESP_LOGW(TAG, "stored home Wi-Fi invalid; home Wi-Fi off");
     s.homeEnabled = false;
   }
+  hid::Layout l;
+  if (!hid::findLayout(s.layoutUsb, l)) s.layoutUsb = d.layoutUsb;
+  if (!hid::findLayout(s.layoutBle, l)) s.layoutBle = d.layoutBle;
+  if (!seq::valid(s.bothSequence)) s.bothSequence.clear();
   return s;
 }
 
@@ -80,6 +86,9 @@ esp_err_t load() {
     s.homeSsid = readString(h, "homeSsid", s.homeSsid);
     s.homePassword = readString(h, "homePass", s.homePassword);
     s.apMode = static_cast<net::ApMode>(readInt<uint8_t>(h, "apMode", static_cast<uint8_t>(s.apMode), nvs_get_u8));
+    s.layoutUsb = readString(h, "layUsb", s.layoutUsb);
+    s.layoutBle = readString(h, "layBle", s.layoutBle);
+    s.bothSequence = readString(h, "bothSeq", s.bothSequence);
     nvs_close(h);
   } else if (err != ESP_ERR_NVS_NOT_FOUND) {
     ESP_LOGE(TAG, "nvs_open: %s", esp_err_to_name(err));
@@ -114,6 +123,9 @@ esp_err_t save(const Settings& s) {
   if (err == ESP_OK) err = nvs_set_str(h, "homeSsid", s.homeSsid.c_str());
   if (err == ESP_OK) err = nvs_set_str(h, "homePass", s.homePassword.c_str());
   if (err == ESP_OK) err = nvs_set_u8(h, "apMode", static_cast<uint8_t>(s.apMode));
+  if (err == ESP_OK) err = nvs_set_str(h, "layUsb", s.layoutUsb.c_str());
+  if (err == ESP_OK) err = nvs_set_str(h, "layBle", s.layoutBle.c_str());
+  if (err == ESP_OK) err = nvs_set_str(h, "bothSeq", s.bothSequence.c_str());
   if (err == ESP_OK) err = nvs_commit(h);
   nvs_close(h);
   ESP_RETURN_ON_ERROR(err, TAG, "write");

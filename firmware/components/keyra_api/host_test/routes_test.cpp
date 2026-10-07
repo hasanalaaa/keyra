@@ -29,6 +29,9 @@ void apiRoutes() {
   CHECK(is(matchApi(Method::Post, "/api/generate"), Route::Generate));
   CHECK(matchApi(Method::Get, "/api/generate").kind == Match::Kind::MethodNotAllowed);
   CHECK(needsSession(Route::Generate) && needsCsrf(Method::Post, Route::Generate));
+  CHECK(is(matchApi(Method::Get, "/api/keyboard"), Route::Keyboard));
+  CHECK(matchApi(Method::Put, "/api/keyboard").kind == Match::Kind::MethodNotAllowed);
+  CHECK(needsSession(Route::Keyboard));
   CHECK(is(matchApi(Method::Post, "/api/type/cancel"), Route::TypeCancel));
   CHECK(is(matchApi(Method::Get, "/api/settings"), Route::GetSettings));
   CHECK(is(matchApi(Method::Put, "/api/settings"), Route::PutSettings));

@@ -15,6 +15,7 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "handlers_gen.hpp"
+#include "handlers_kbd.hpp"
 #include "handlers_net.hpp"
 #include "http.hpp"
 #include "keyra/ble.hpp"
@@ -121,7 +122,7 @@ bool readEntry(const cJSON* src, vault::Entry& e, bool withTimestamps, std::stri
     const char* key;
     std::string* dst;
   } fields[] = {{"title", &e.title}, {"url", &e.url},   {"username", &e.username},
-                {"password", &e.password}, {"totp", &e.totp}, {"notes", &e.notes}};
+                {"password", &e.password}, {"totp", &e.totp}, {"notes", &e.notes}, {"sequence", &e.sequence}};
   for (const StrField& f : fields) {
     if (json::getString(src, f.key, *f.dst) == Field::BadType) {
       err = std::string("\"") + f.key + "\" must be a string";
@@ -131,6 +132,13 @@ bool readEntry(const cJSON* src, vault::Entry& e, bool withTimestamps, std::stri
   if (json::getBool(src, "favorite", e.favorite) == Field::BadType) {
     err = "\"favorite\" must be a boolean";
     return false;
+  }
+  if (!e.sequence.empty()) {
+    const seq::Error se = seq::parse(e.sequence, nullptr);
+    if (se != seq::Error::None) {
+      err = std::string("sequence: ") + seq::message(se);
+      return false;
+    }
   }
   if (!withTimestamps) return true;
   struct IntField {
@@ -207,6 +215,7 @@ cJSON* settingsJson(const settings::Settings& s) {
   cJSON_AddStringToObject(o, "output", outputName(s.output));
   cJSON_AddStringToObject(o, "bleConnect", s.bleConnect == settings::BleConnect::Always ? "always" : "on_demand");
   netapi::addSettings(o, s);
+  kbdapi::addSettings(o, s);
   return o;
 }
 
@@ -332,6 +341,7 @@ esp_err_t getState(Ctx& c) {
     cJSON_AddBoolToObject(p, "submit", pending->req.submit);
     cJSON_AddNumberToObject(p, "expiresIn", static_cast<double>(pending->expiresInMs));
     addTarget(p, "target", pending->req.target);
+    kbdapi::addPending(p, pending->req);
   } else {
     cJSON_AddNullToObject(o.get(), "pending");
   }
@@ -487,6 +497,7 @@ esp_err_t getEntry(Ctx& c) {
   cJSON_AddNumberToObject(o.get(), "updated", static_cast<double>(e.updated));
   cJSON_AddNumberToObject(o.get(), "lastUsed", static_cast<double>(e.lastUsed));
   genapi::addHistory(o.get(), e);
+  kbdapi::addEntry(o.get(), e);
   vault::wipe(e);
   return http::sendJson(c.r, http::k200, o.get());
 }
@@ -595,10 +606,26 @@ esp_err_t entryTotp(Ctx& c) {
   return http::sendJson(c.r, http::k200, o.get());
 }
 
+esp_err_t sendPending(httpd_req_t* r, const actions::Pending& p) {
+  json::Ptr o(cJSON_CreateObject());
+  cJSON* po = cJSON_AddObjectToObject(o.get(), "pending");
+  cJSON_AddStringToObject(po, "kind", "type");
+  cJSON_AddNumberToObject(po, "id", p.req.id);
+  genapi::addTitle(po, p.req.what, p.req.title);
+  cJSON_AddStringToObject(po, "what", actions::whatName(p.req.what));
+  cJSON_AddBoolToObject(po, "submit", p.req.submit);
+  cJSON_AddNumberToObject(po, "expiresIn", static_cast<double>(p.expiresInMs));
+  addTarget(po, "target", p.req.target);
+  kbdapi::addPending(po, p.req);
+  return http::sendJson(r, http::k202, o.get());
+}
+
 esp_err_t postType(Ctx& c) {
   actions::TypeRequest req;
-  bool test = false;
+  bool test = false, probe = false;
   if (json::getBool(c.body.get(), "test", test) == Field::BadType) return badRequest(c.r, "\"test\" must be a boolean");
+  if (json::getBool(c.body.get(), "probe", probe) == Field::BadType)
+    return badRequest(c.r, "\"probe\" must be a boolean");
   // Where to type: named in the request ("usb" or a bonded device), else the default.
   const settings::Settings st = settings::get();
   const ble::Status bst = ble::status();
@@ -620,7 +647,9 @@ esp_err_t postType(Ctx& c) {
     esp_err_t err = ESP_OK;
     if (!genapi::textRequest(c.r, c.body.get(), target, req, err)) return err;
   } else if (test) {
-    req = {0, "Keyra test", actions::What::Test, false, target, nullptr};
+    req = {0, "Keyra test", actions::What::Test, false, target, nullptr, nullptr, 0};
+  } else if (probe) {  // Layout Doctor (SPEC §10.3)
+    req = {0, "Keyboard check", actions::What::Probe, false, target, nullptr, nullptr, 0};
   } else {
     int64_t id = 0;
     std::string whatStr;
@@ -628,35 +657,34 @@ esp_err_t postType(Ctx& c) {
       return badRequest(c.r, "\"id\" (entry id) is required");
     const auto what = json::getString(c.body.get(), "what", whatStr) == Field::Ok ? actions::parseWhat(whatStr)
                                                                                   : std::nullopt;
-    if (!what) return badRequest(c.r, "\"what\" must be username, password, both or totp");
+    if (!what) return badRequest(c.r, "\"what\" must be username, password, both, totp or sequence");
     bool submit = *what == actions::What::Both && settings::get().submitAfterBoth;
     if (json::getBool(c.body.get(), "submit", submit) == Field::BadType)
       return badRequest(c.r, "\"submit\" must be a boolean");
+    if (*what == actions::What::Sequence && cJSON_HasObjectItem(c.body.get(), "submit"))
+      return badRequest(c.r, "a sequence says itself whether to press Enter; \"submit\" is not allowed");
 
     vault::Entry e;
     const Status st = vault::get(static_cast<uint32_t>(id), e);
     if (st != Status::Ok) return sendVaultError(c.r, st);
+    if (*what == actions::What::Sequence) {
+      esp_err_t err = ESP_OK;
+      const bool ok = kbdapi::sequenceRequest(c.r, e, target, req, err);
+      vault::wipe(e);
+      if (!ok) return err;
+      return sendPending(c.r, machine().arm(std::move(req)));
+    }
     const bool missing = (*what == actions::What::Username && e.username.empty()) ||
                          (*what == actions::What::Password && e.password.empty()) ||
                          (*what == actions::What::Both && (e.username.empty() || e.password.empty())) ||
                          (*what == actions::What::Totp && e.totp.empty());
-    req = {static_cast<uint32_t>(id), e.title, *what, submit, target, nullptr};
+    req = {static_cast<uint32_t>(id), e.title, *what, submit, target, nullptr, nullptr, 0};
     vault::wipe(e);
     if (missing) return badRequest(c.r, "Entry has no value for that field");
     if (*what == actions::What::Totp && !timeValid())
       return http::sendError(c.r, http::k409, "no_time", "Device clock is not set");
   }
-  const actions::Pending p = machine().arm(req);
-  json::Ptr o(cJSON_CreateObject());
-  cJSON* po = cJSON_AddObjectToObject(o.get(), "pending");
-  cJSON_AddStringToObject(po, "kind", "type");
-  cJSON_AddNumberToObject(po, "id", p.req.id);
-  genapi::addTitle(po, p.req.what, p.req.title);
-  cJSON_AddStringToObject(po, "what", actions::whatName(p.req.what));
-  cJSON_AddBoolToObject(po, "submit", p.req.submit);
-  cJSON_AddNumberToObject(po, "expiresIn", static_cast<double>(p.expiresInMs));
-  addTarget(po, "target", p.req.target);
-  return http::sendJson(c.r, http::k202, o.get());
+  return sendPending(c.r, machine().arm(std::move(req)));
 }
 
 esp_err_t postTypeCancel(Ctx& c) {
@@ -707,6 +735,10 @@ esp_err_t putSettings(Ctx& c) {
   if ((f = json::getString(b, "apMode", str)) == Field::BadType || (f == Field::Ok && str != "always" && str != "fallback"))
     return badRequest(c.r, "apMode must be \"always\" or \"fallback\"");
   if (f == Field::Ok) next.apMode = str == "fallback" ? net::ApMode::Fallback : net::ApMode::Always;
+  {
+    esp_err_t err = ESP_OK;
+    if (!kbdapi::readSettings(c.r, b, next, err)) return err;
+  }
   // Joining a network changes who can reach Keyra, so it is button-gated there.
   if (cJSON_HasObjectItem(b, "homeWifi")) return badRequest(c.r, "home Wi-Fi changes go through PUT /api/wifi/home");
 
@@ -936,6 +968,7 @@ esp_err_t dispatch(Ctx& c) {
     case Route::ListTrusted: return trust::sendList(c.r);
     case Route::DeleteTrusted: return trust::revoke(c.r, c.match.id);
     case Route::Generate: return genapi::postGenerate(c.r, c.body.get());
+    case Route::Keyboard: return kbdapi::getKeyboard(c.r);
   }
   return http::sendError(c.r, http::k404, "not_found", "No such endpoint");
 }

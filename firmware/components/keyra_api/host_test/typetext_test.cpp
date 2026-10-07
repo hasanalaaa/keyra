@@ -93,19 +93,33 @@ void wipedAfter(const char* what, F drop) {
   CHECK(g_dirtyFrees == 0);
 }
 
+bool typeText(const std::string& s, const char* layout = "us") {
+  keyra::hid::Layout l = 0;
+  CHECK(keyra::hid::findLayout(layout, l));
+  return validate::typeText(s, l);
+}
+
 void validation() {
-  CHECK(validate::typeText(" "));
-  CHECK(validate::typeText("Hello, world! ~`'\"\\{}"));
-  CHECK(validate::typeText(std::string(256, 'a')));
-  CHECK(!validate::typeText(""));
-  CHECK(!validate::typeText(std::string(257, 'a')));
-  CHECK(!validate::typeText("tab\there"));
-  CHECK(!validate::typeText("line\nbreak"));
-  CHECK(!validate::typeText("cr\r"));
-  CHECK(!validate::typeText(std::string("nul\0x", 5)));
-  CHECK(!validate::typeText("del\x7f"));
-  CHECK(!validate::typeText("café"));    // not on the US layout
-  CHECK(!validate::typeText("مرحبا"));
+  CHECK(typeText(" "));
+  CHECK(typeText("Hello, world! ~`'\"\\{}"));
+  CHECK(typeText(std::string(256, 'a')));
+  CHECK(!typeText(""));
+  CHECK(!typeText(std::string(257, 'a')));
+  CHECK(!typeText("tab\there"));
+  CHECK(!typeText("line\nbreak"));
+  CHECK(!typeText("cr\r"));
+  CHECK(!typeText(std::string("nul\0x", 5)));
+  CHECK(!typeText("del\x7f"));
+  CHECK(!typeText("café"));    // not on the US layout
+  CHECK(!typeText("مرحبا"));
+  // The target's layout decides (SPEC §10.1).
+  CHECK(typeText("مرحبا", "ar"));
+  CHECK(!typeText("hello", "ar"));
+  CHECK(typeText("café", "fr"));
+  std::string arabic256;
+  for (int i = 0; i < 256; ++i) arabic256 += "\xD8\xB4";  // 256 characters, 512 bytes
+  CHECK(typeText(arabic256, "ar"));
+  CHECK(!typeText(arabic256 + "\xD8\xB4", "ar"));
 }
 
 void detectorWorks() {
@@ -125,7 +139,7 @@ void wipedOnEveryPath() {
   });
   wipedAfter("long press", [](Machine& m) { CHECK(m.onButton(Button::Long, true).effect == Effect::Cancelled); });
   wipedAfter("lock", [](Machine& m) { m.dropSessionItems(); });
-  wipedAfter("another action", [](Machine& m) { m.arm({7, "Mail", What::Password, false, {}, nullptr}); });
+  wipedAfter("another action", [](Machine& m) { m.arm({7, "Mail", What::Password, false, {}, nullptr, nullptr, 0}); });
   wipedAfter("a presence op", [](Machine& m) { m.awaitPresence(Op::Wifi, [] { return true; }); });
   wipedAfter("typing", [](Machine& m) {
     {

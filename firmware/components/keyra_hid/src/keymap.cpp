@@ -67,7 +67,8 @@ int strokesFor(Layout layout, uint32_t cp, KeyStroke out[kMaxStrokes]) {
   return 2;
 }
 
-bool nextCodePoint(const char*& p, uint32_t& cp) {
+bool nextCodePoint(const char*& p, const char* end, uint32_t& cp) {
+  if (p >= end) return false;
   const auto c = static_cast<uint8_t>(*p);
   size_t len;
   if (c < 0x80) {
@@ -85,8 +86,9 @@ bool nextCodePoint(const char*& p, uint32_t& cp) {
   } else {
     return false;
   }
+  if (static_cast<size_t>(end - p) < len) return false;
   for (size_t k = 1; k < len; ++k) {
-    const auto cc = static_cast<uint8_t>(p[k]);  // a NUL here fails the check, so no overrun
+    const auto cc = static_cast<uint8_t>(p[k]);
     if ((cc & 0xC0) != 0x80) return false;
     cp = (cp << 6) | (cc & 0x3F);
   }
@@ -128,15 +130,17 @@ bool findLayout(std::string_view id, Layout& out) {
   return false;
 }
 
-bool typeable(const char* text, Layout layout) {
-  if (text == nullptr) return false;
+bool typeable(std::string_view text, Layout layout) {
   KeyStroke ks[kMaxStrokes];
-  for (const char* p = text; *p != '\0';) {
+  const char* end = text.data() + text.size();
+  for (const char* p = text.data(); p < end;) {
     uint32_t cp = 0;
-    if (!nextCodePoint(p, cp) || strokesFor(layout, cp, ks) == 0) return false;
+    if (!nextCodePoint(p, end, cp) || strokesFor(layout, cp, ks) == 0) return false;
   }
   return true;
 }
+
+bool typeable(const char* text, Layout layout) { return text != nullptr && typeable(std::string_view(text), layout); }
 
 bool sameOnAll(uint32_t cp, const Layout* layouts, size_t n) {
   if (n == 0) return false;
