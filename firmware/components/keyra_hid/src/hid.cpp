@@ -55,6 +55,7 @@ class BleTransport final : public Transport {
   bool ready() override { return ble::ready(); }
   bool capsLock() override { return ble::capsLock(); }
   bool numLock() override { return ble::numLock(); }
+  bool ledsKnown() override { return ble::ledsKnown(); }
   void delayMs(uint32_t ms) override { sleepMs(ms); }
   bool send(uint8_t modifier, uint8_t keycode) override { return ble::sendKey(modifier, keycode); }
 };

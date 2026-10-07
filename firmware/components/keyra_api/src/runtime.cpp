@@ -303,7 +303,9 @@ void maybeReconfigureNet() {
 void syncBleDemand() {
   const auto p = machine().pending();
   if (p && p->req.target.kind == Kind::Ble) {
-    ble::want(p->req.target.addr);
+    // Not while a job types: asking for another host would cut the link that
+    // is receiving a password. The next pass (every ~100 ms) asks again.
+    if (!g_typing) ble::want(p->req.target.addr);
     machine().setLinkReady(bleReadyFor(p->req.target.addr));
     g_bleArmed = true;
   } else if (g_bleArmed && !g_typing) {

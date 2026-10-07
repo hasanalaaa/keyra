@@ -247,7 +247,10 @@ void reconcile() {
   for (const peers::Key& k : keys) {
     if (!wanted || k.addr == *wanted) accept.push_back(k);
   }
-  if (wanted && accept.empty()) wanted.reset();
+  if (wanted && accept.empty()) {
+    wanted.reset();
+    accept = keys;  // nobody in particular: every bonded host may reconnect
+  }
 
   if (pairing) {
     ble_npl_callout_reset(&t_windowEnd, ble_npl_time_ms_to_ticks32(static_cast<uint32_t>(leftMs)));
@@ -341,7 +344,16 @@ void onConnect(int status, uint16_t conn) {
   t_adv = Adv::Off;  // a connectable advertisement ends with the connection attempt
   ble_gap_conn_desc d{};
   if (status != 0 || ble_gap_conn_find(conn, &d) != 0) {
-    reconcile();
+    // A link that broke before NimBLE reported it arrives here (status
+    // BLE_HS_EAGAIN) with no DISCONNECT to follow, and its slot is freed only
+    // after this callback: advertising now fails with ENOMEM (seen as
+    // "advertising (bonded) failed: 6"). Retry from the event queue instead.
+    {
+      std::lock_guard<std::mutex> lock(g_mu);
+      g_early = EarlySubs{};
+    }
+    gatt::resetLink();
+    ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &t_kickEv);
     return;
   }
   // The controller already resolved private addresses, so peer_id_addr is
@@ -369,7 +381,8 @@ void onConnect(int status, uint16_t conn) {
     ble_gap_terminate(conn, BLE_ERR_REM_USER_CONN_TERM);
     return;
   }
-  gatt::resetLink();
+  // No gatt::resetLink() here: a bonded host may already have written its LED
+  // report before CONNECT; the link state is reset on disconnect instead.
   // A bonded host that re-encrypted on its own is reported encrypted already
   // (onEncrypted() deferred that event): asking again would get no answer, and
   // the 30 s SMP timeout then dropped the link every 30 s.
@@ -391,6 +404,7 @@ void onDisconnect(uint16_t conn, int reason) {
       if (g_link.trusted() && reason != BLE_HS_ERR_HCI_BASE + BLE_ERR_CONN_TERM_LOCAL) g_lost = g_link.peer.addr;
       g_link = Link{};
     }
+    if (g_early.conn == conn) g_early = EarlySubs{};  // handles are reused
   }
   if (t_repairing == conn) t_repairing = BLE_HS_CONN_HANDLE_NONE;
   gatt::resetLink();
@@ -485,6 +499,7 @@ int onRepeatPairing(uint16_t conn) {
     return BLE_GAP_REPEAT_PAIRING_IGNORE;
   }
   ble_store_util_delete_peer(&d.peer_id_addr);
+  refreshBonds();  // the old keys are gone even if this pairing fails
   t_repairing = conn;
   return BLE_GAP_REPEAT_PAIRING_RETRY;
 }
@@ -564,7 +579,9 @@ void onReset(int reason) {
   std::lock_guard<std::mutex> lock(g_mu);
   g_synced = false;
   g_link = Link{};
+  g_early = EarlySubs{};
   t_adv = Adv::Off;
+  gatt::resetLink();
 }
 
 void hostTask(void*) {
@@ -799,6 +816,14 @@ bool capsLock() {
   return (gatt::leds() & kLedCapsLockBit) != 0;
 }
 
+bool ledsKnown() {
+  {
+    std::lock_guard<std::mutex> lock(g_mu);
+    if (!g_link.trusted()) return false;
+  }
+  return gatt::ledsKnown();
+}
+
 bool numLock() {
   {
     std::lock_guard<std::mutex> lock(g_mu);
@@ -833,7 +858,12 @@ bool sendKey(uint8_t modifier, uint8_t keycode) {
         return false;
       }
     }
-    if (esp_timer_get_time() > deadline) return false;  // the host stopped taking reports
+    if (esp_timer_get_time() > deadline) {
+      // A key-down may have gone out: a host keeps a key held until it gets a
+      // release, and drops every key when the link ends.
+      if (modifier == 0 && keycode == 0) ble_gap_terminate(conn, BLE_ERR_REM_USER_CONN_TERM);
+      return false;  // the host stopped taking reports
+    }
     vTaskDelay(1);
   }
 }

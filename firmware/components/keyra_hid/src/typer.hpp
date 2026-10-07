@@ -14,6 +14,9 @@ class Transport {
   virtual bool ready() = 0;                                   // mounted & not suspended
   virtual bool capsLock() = 0;                                // last host LED report
   virtual bool numLock() { return true; }                     // last host LED report
+  // False until the host has sent an LED report on this link (a fresh
+  // Bluetooth link): Caps/Num Lock read "off" then whatever they are.
+  virtual bool ledsKnown() { return true; }
   virtual bool send(uint8_t modifier, uint8_t keycode) = 0;   // one boot-keyboard report; bounded wait
   virtual void delayMs(uint32_t ms) = 0;
 };

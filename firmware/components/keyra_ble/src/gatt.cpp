@@ -35,6 +35,7 @@ constexpr uint8_t kProtoReport = 0x01;
 
 std::atomic<uint8_t> s_protocol{kProtoReport};
 std::atomic<uint8_t> s_leds{0};
+std::atomic<bool> s_ledsKnown{false};  // the host wrote its LED report on this link
 
 uint16_t s_hInput = 0, s_hBootInput = 0;
 
@@ -96,6 +97,7 @@ int access(uint16_t, uint16_t, ble_gatt_access_ctxt* ctxt, void* arg) {
       }
       if ((rc = readByte(ctxt, b)) != 0) return rc;
       s_leds.store(b);  // bit 1 = Caps Lock, same layout as USB
+      s_ledsKnown.store(true);
       return 0;
     case Attr::InputRef: return append(ctxt, kRefInput, sizeof kRefInput);
     case Attr::OutputRef: return append(ctxt, kRefOutput, sizeof kRefOutput);
@@ -184,10 +186,12 @@ uint16_t inputHandle() { return s_hInput; }
 uint16_t bootInputHandle() { return s_hBootInput; }
 bool bootProtocol() { return s_protocol.load() == kProtoBoot; }
 uint8_t leds() { return s_leds.load(); }
+bool ledsKnown() { return s_ledsKnown.load(); }
 
 void resetLink() {
   s_protocol.store(kProtoReport);
   s_leds.store(0);
+  s_ledsKnown.store(false);
 }
 
 }  // namespace keyra::ble::gatt

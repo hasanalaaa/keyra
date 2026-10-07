@@ -13,6 +13,7 @@ uint16_t inputHandle();      // Report characteristic (report protocol)
 uint16_t bootInputHandle();  // Boot Keyboard Input (boot protocol)
 bool bootProtocol();         // host selected boot protocol (BIOS-style hosts)
 uint8_t leds();              // last LED output report from the connected host
+bool ledsKnown();            // ... and whether one arrived on this link at all
 void resetLink();            // new connection: report protocol, LEDs off
 
 }  // namespace keyra::ble::gatt

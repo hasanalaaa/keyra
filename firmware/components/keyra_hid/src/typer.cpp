@@ -101,6 +101,10 @@ Result Typer::run(Transport& t, Job job, const char* text, uint8_t tapKeycode, u
   bool numTurnedOn = false;
 
   const bool printing = job == Job::Probe || (job == Job::Text && *text != '\0');
+  // A fresh link: give the host a moment to report Caps Lock, or a password
+  // could be typed with inverted case. Hosts that never report just wait once.
+  for (uint32_t waited = 0; printing && !t.ledsKnown() && waited < kCapsSettleMs; waited += kCapsPollMs)
+    t.delayMs(kCapsPollMs);
   // Alt codes need the keypad to type digits, not move the cursor.
   if (printing && job == Job::Text && opt.altCodes)
     ok = lockKey(t, KEY_NUM_LOCK, &Transport::numLock, true, delay, numTurnedOn);

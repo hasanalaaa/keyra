@@ -33,6 +33,8 @@ class FakeHost : public Transport {
   bool ready() override { return mounted; }
   bool capsLock() override { return caps; }
   bool numLock() override { return num; }
+  bool leds = true;  // false: a fresh link whose host has not reported LEDs yet
+  bool ledsKnown() override { return leds; }
   void delayMs(uint32_t ms) override { delays.push_back(ms); }
   bool send(uint8_t mod, uint8_t key) override {
     const int idx = attempts++;
@@ -477,6 +479,22 @@ void testChord() {
   CHECK(t.chord(h, 0, KEY_SPACE, opt()) == Result::Unsupported);
 }
 
+// A fresh Bluetooth link: wait for the host's LED report (Caps Lock) first, but
+// only so long; a host that never reports still gets its text.
+void testWaitsForLedReport() {
+  FakeHost h;
+  h.leds = false;
+  int polls = 0;
+  h.onSend = nullptr;
+  Typer t;
+  CHECK(t.type(h, "a", opt()) == Result::Ok);
+  for (uint32_t d : h.delays) if (d == Typer::kCapsPollMs) ++polls;
+  CHECK_EQ(polls, int(Typer::kCapsSettleMs / Typer::kCapsPollMs));
+  FakeHost known;
+  CHECK(t.type(known, "a", opt()) == Result::Ok);
+  for (uint32_t d : known.delays) CHECK(d != Typer::kCapsPollMs);
+}
+
 }  // namespace
 
 int main() {
@@ -508,5 +526,6 @@ int main() {
   testNumLockOnlyForAltCodes();
   testAltCodesTypeableAnyLayout();
   testChord();
+  testWaitsForLedReport();
   TEST_MAIN_END();
 }

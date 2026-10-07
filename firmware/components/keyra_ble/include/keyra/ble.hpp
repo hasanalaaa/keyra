@@ -72,6 +72,9 @@ Status status();
 bool ready();     // bonded host connected, link encrypted, keyboard reports subscribed
 bool capsLock();  // from the host's LED output report
 bool numLock();   // likewise
+// Whether the host has sent its LED report on this link yet (until then
+// capsLock() reads false whatever the host's state).
+bool ledsKnown();
 // One 8-byte boot-keyboard report. Waits ≤100 ms for a free buffer; false
 // when the link is gone or the host stopped taking reports.
 bool sendKey(uint8_t modifier, uint8_t keycode);
