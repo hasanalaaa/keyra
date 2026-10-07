@@ -43,6 +43,13 @@ Match matchApi(Method m, std::string_view path) {
   if (p == "state") return only(m, Method::Get, Route::State);
   if (p == "setup") return only(m, Method::Post, Route::Setup);
   if (p == "unlock") return only(m, Method::Post, Route::Unlock);
+  if (p == "unlock/recovery") return only(m, Method::Post, Route::UnlockRecovery);
+  if (p == "recovery") {
+    if (m == Method::Get) return found(Route::GetRecovery);
+    if (m == Method::Post) return found(Route::CreateRecovery);
+    if (m == Method::Delete) return found(Route::DeleteRecovery);
+    return notAllowed();
+  }
   if (p == "lock") return only(m, Method::Post, Route::Lock);
   if (p == "type") return only(m, Method::Post, Route::Type);
   if (p == "type/cancel") return only(m, Method::Post, Route::TypeCancel);
@@ -83,12 +90,18 @@ Match matchApi(Method m, std::string_view path) {
   constexpr std::string_view kEntries = "entries/";
   if (p.substr(0, kEntries.size()) != kEntries) return {};
   std::string_view rest = p.substr(kEntries.size());
-  constexpr std::string_view kTotp = "/totp";
-  const bool totp = rest.size() > kTotp.size() && rest.substr(rest.size() - kTotp.size()) == kTotp;
-  if (totp) rest.remove_suffix(kTotp.size());
+  constexpr std::string_view kTotp = "/totp", kReveal = "/reveal";
+  auto suffix = [&](std::string_view sfx) {
+    const bool has = rest.size() > sfx.size() && rest.substr(rest.size() - sfx.size()) == sfx;
+    if (has) rest.remove_suffix(sfx.size());
+    return has;
+  };
+  const bool totp = suffix(kTotp);
+  const bool reveal = !totp && suffix(kReveal);
   uint32_t id = 0;
   if (!parseId(rest, id)) return {};
   if (totp) return m == Method::Get ? found(Route::EntryTotp, id) : notAllowed();
+  if (reveal) return m == Method::Post ? found(Route::RevealEntry, id) : notAllowed();
   if (m == Method::Get) return found(Route::GetEntry, id);
   if (m == Method::Put) return found(Route::UpdateEntry, id);
   if (m == Method::Delete) return found(Route::DeleteEntry, id);
@@ -96,13 +109,15 @@ Match matchApi(Method m, std::string_view path) {
 }
 
 bool needsSession(Route r) {
-  return r != Route::State && r != Route::Setup && r != Route::Unlock && r != Route::FactoryReset;
+  return r != Route::State && r != Route::Setup && r != Route::Unlock && r != Route::UnlockRecovery &&
+         r != Route::FactoryReset;
 }
 
 bool needsCsrf(Method m, Route r) {
   // setup/unlock/factory-reset have no session yet (or a forgotten passphrase);
   // setup and factory-reset are gated by the physical button instead.
-  return m != Method::Get && r != Route::Unlock && r != Route::Setup && r != Route::FactoryReset;
+  return m != Method::Get && r != Route::Unlock && r != Route::UnlockRecovery && r != Route::Setup &&
+         r != Route::FactoryReset;
 }
 
 bool isOwnHost(std::string_view host, std::string_view homeIp) {

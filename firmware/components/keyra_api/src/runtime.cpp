@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <cstring>
+#include <mutex>
 
 #include "clock.hpp"
 #include "esp_log.h"
@@ -36,6 +37,10 @@ bool g_bleArmed = false;  // actions task only: an armed action asked keyra_ble 
 
 using Kind = Target::Kind;
 std::atomic<int64_t> g_netAt{0};
+// Auto-lock when the computer goes away (SPEC §10.4). Fed by the actions task
+// and (bleUsed) the type task.
+std::mutex g_watchMu;
+actions::HostWatch g_watch;
 
 void fillRandom(uint8_t* p, size_t n) { esp_fill_random(p, n); }
 
@@ -147,7 +152,13 @@ void typeTask(void*) {
     const Code c = runJob(job);
     ESP_LOGI(TAG, "type %s: %s", actions::whatName(job.what), actions::codeName(c));
     // Keep the Bluetooth link a little for a quick second action, then let go.
-    if (job.target.kind == Kind::Ble) ble::done();
+    if (job.target.kind == Kind::Ble) {
+      ble::done();
+      if (c == Code::Typed) {
+        std::lock_guard<std::mutex> lock(g_watchMu);
+        g_watch.bleUsed(job.target.addr);
+      }
+    }
     g_typing = false;
     machine().typingFinished(job, c);
     sessions().activity(monoMs());
@@ -181,8 +192,27 @@ void onButton(io::Button b) {
 }
 
 void maybeAutoLock() {
+  const settings::Settings s = settings::get();
+  const bool usb = hid::mounted();
+  // Before the lock below, so an action bound to the vanished computer reports host_changed.
+  machine().setUsbMounted(usb);
+  const std::optional<ble::Addr> lost = ble::takeLost();
+  bool hostGone = false;
+  {
+    std::lock_guard<std::mutex> lock(g_watchMu);
+    hostGone = g_watch.pollUsb(monoMs(), vault::unlocked(), usb, s.lockOnUsb);
+    if (hostGone) ESP_LOGI(TAG, "USB host gone: auto-lock");
+    if (lost && g_watch.bleLost(*lost, vault::unlocked(), s.lockOnBle)) {
+      ESP_LOGI(TAG, "Bluetooth host gone: auto-lock");
+      hostGone = true;
+    }
+  }
+  if (hostGone) {
+    lockAll();
+    return;
+  }
   if (!vault::unlocked()) return;
-  const int64_t limit = int64_t{settings::get().autoLockMin} * 60 * 1000;
+  const int64_t limit = int64_t{s.autoLockMin} * 60 * 1000;
   if (sessions().idleFor(monoMs(), limit)) {
     ESP_LOGI(TAG, "idle auto-lock");
     lockAll();

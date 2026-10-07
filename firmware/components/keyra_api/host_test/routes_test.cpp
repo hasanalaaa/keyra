@@ -57,6 +57,21 @@ void apiRoutes() {
   CHECK(matchApi(Method::Post, "/api/ble").kind == K::MethodNotAllowed);
   CHECK(matchApi(Method::Get, "/api/ble/pair").kind == K::MethodNotAllowed);
 
+  // SPEC §10: reveal grace and the recovery key.
+  CHECK(is(matchApi(Method::Post, "/api/entries/42/reveal"), Route::RevealEntry, 42));
+  CHECK(matchApi(Method::Get, "/api/entries/42/reveal").kind == K::MethodNotAllowed);
+  CHECK(matchApi(Method::Post, "/api/entries/0/reveal").kind == K::NotFound);
+  CHECK(matchApi(Method::Post, "/api/entries/1/totp/reveal").kind == K::NotFound);
+  CHECK(is(matchApi(Method::Get, "/api/recovery"), Route::GetRecovery));
+  CHECK(is(matchApi(Method::Post, "/api/recovery"), Route::CreateRecovery));
+  CHECK(is(matchApi(Method::Delete, "/api/recovery"), Route::DeleteRecovery));
+  CHECK(matchApi(Method::Put, "/api/recovery").kind == K::MethodNotAllowed);
+  CHECK(is(matchApi(Method::Post, "/api/unlock/recovery"), Route::UnlockRecovery));
+  CHECK(!needsSession(Route::UnlockRecovery) && !needsCsrf(Method::Post, Route::UnlockRecovery));
+  CHECK(needsSession(Route::RevealEntry) && needsCsrf(Method::Post, Route::RevealEntry));
+  CHECK(needsSession(Route::GetRecovery) && needsCsrf(Method::Post, Route::CreateRecovery));
+  CHECK(needsCsrf(Method::Delete, Route::DeleteRecovery));
+
   CHECK(matchApi(Method::Get, "/api/lock").kind == K::MethodNotAllowed);
   CHECK(matchApi(Method::Get, "/api/entries/import").kind == K::MethodNotAllowed);
   CHECK(matchApi(Method::Post, "/api/entries/3").kind == K::MethodNotAllowed);

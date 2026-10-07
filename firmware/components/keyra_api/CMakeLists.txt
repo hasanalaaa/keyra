@@ -3,7 +3,7 @@ idf_component_register(
          "src/runtime.cpp" "src/actions.cpp" "src/sessions.cpp" "src/routes.cpp"
          "src/clock.cpp" "src/validate.cpp" "src/settings.cpp" "src/target.cpp"
          "src/trust.cpp" "src/trusted.cpp" "src/handlers_net.cpp"
-         "src/handlers_gen.cpp" "src/generator.cpp"
+         "src/handlers_gen.cpp" "src/generator.cpp" "src/handlers_protect.cpp"
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "src"
     REQUIRES esp_common keyra_net

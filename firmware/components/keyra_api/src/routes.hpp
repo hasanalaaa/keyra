@@ -17,6 +17,7 @@ enum class Route {
   WifiScan, WifiHome, ListTrusted, DeleteTrusted,
   GetBle, BlePair, BleForget,
   Generate,
+  RevealEntry, GetRecovery, CreateRecovery, DeleteRecovery, UnlockRecovery,
 };
 
 struct Match {

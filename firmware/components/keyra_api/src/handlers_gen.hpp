@@ -18,6 +18,7 @@ bool textRequest(httpd_req_t* r, const cJSON* body, const Target& target, action
 // pending.title / last.title: the entry title, or null for free text (no entry).
 void addTitle(cJSON* o, actions::What what, const std::string& title);
 // GET /api/entries/{id} → history:[{password, changedAt}], newest first.
-void addHistory(cJSON* o, const vault::Entry& e);
+// `withPasswords` false: only the dates (secrets not revealed, SPEC §10.3).
+void addHistory(cJSON* o, const vault::Entry& e, bool withPasswords);
 
 }  // namespace keyra::api::genapi

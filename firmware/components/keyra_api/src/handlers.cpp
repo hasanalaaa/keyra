@@ -16,6 +16,7 @@
 #include "freertos/task.h"
 #include "handlers_gen.hpp"
 #include "handlers_net.hpp"
+#include "handlers_protect.hpp"
 #include "http.hpp"
 #include "keyra/ble.hpp"
 #include "keyra/hid.hpp"
@@ -206,6 +207,10 @@ cJSON* settingsJson(const settings::Settings& s) {
   cJSON_AddBoolToObject(o, "bleEnabled", s.bleEnabled);
   cJSON_AddStringToObject(o, "output", outputName(s.output));
   cJSON_AddStringToObject(o, "bleConnect", s.bleConnect == settings::BleConnect::Always ? "always" : "on_demand");
+  cJSON_AddBoolToObject(o, "protectReveal", s.protectReveal);
+  cJSON_AddBoolToObject(o, "lockOnUsb", s.lockOnUsb);
+  cJSON_AddBoolToObject(o, "lockOnBle", s.lockOnBle);
+  cJSON_AddNumberToObject(o, "lastBackupAt", static_cast<double>(s.lastBackupAt));
   netapi::addSettings(o, s);
   return o;
 }
@@ -366,6 +371,9 @@ esp_err_t getState(Ctx& c) {
   }
   netapi::addState(o.get(), c.via);
   cJSON_AddBoolToObject(o.get(), "timeValid", timeValid());
+  // Reveal grace left for this session (SPEC §10.3); 0 without a session.
+  cJSON_AddNumberToObject(o.get(), "graceMs",
+                          c.session ? static_cast<double>(sessions().graceLeft(c.token, monoMs())) : 0);
   return http::sendJson(c.r, http::k200, o.get());
 }
 
@@ -385,6 +393,18 @@ esp_err_t postSetup(Ctx& c) {
   const auto expires = machine().tryAwaitPresence(actions::Op::Setup, [job] { return commitSetup(*job); });
   if (!expires) return sendBusy(c.r);
   return sendAwaitingButton(c.r, *expires);
+}
+
+// A new session for this browser: `ks` cookie (+ renewed `kt` when trusted) and the CSRF token.
+esp_err_t sendSession(httpd_req_t* r, uint32_t trustId, const std::string& ktToken) {
+  const Sessions::Issued s = sessions().create(monoMs(), trustId);
+  const std::string cookie = "ks=" + s.token + "; HttpOnly; SameSite=Strict; Path=/";
+  httpd_resp_set_hdr(r, "Set-Cookie", cookie.c_str());
+  const std::string kt = "kt=" + ktToken + "; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000";
+  if (trustId != 0) httpd_resp_set_hdr(r, "Set-Cookie", kt.c_str());
+  json::Ptr o(cJSON_CreateObject());
+  cJSON_AddStringToObject(o.get(), "csrf", s.csrf.c_str());
+  return http::sendJson(r, http::k200, o.get());
 }
 
 esp_err_t postUnlock(Ctx& c) {
@@ -415,14 +435,35 @@ esp_err_t postUnlock(Ctx& c) {
     return trust::requestApproval(c.r);
   }
 
-  const Sessions::Issued s = sessions().create(monoMs(), trustId);
-  const std::string cookie = "ks=" + s.token + "; HttpOnly; SameSite=Strict; Path=/";
-  httpd_resp_set_hdr(c.r, "Set-Cookie", cookie.c_str());
-  const std::string kt = "kt=" + ktToken + "; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000";
-  if (trustId != 0) httpd_resp_set_hdr(c.r, "Set-Cookie", kt.c_str());
-  json::Ptr o(cJSON_CreateObject());
-  cJSON_AddStringToObject(o.get(), "csrf", s.csrf.c_str());
-  return http::sendJson(c.r, http::k200, o.get());
+  return sendSession(c.r, trustId, ktToken);
+}
+
+// Forgotten passphrase (SPEC §10.2): the recovery key sets a new passphrase and
+// unlocks. Same rate limit and home-network trust rule as /api/unlock.
+esp_err_t postUnlockRecovery(Ctx& c) {
+  json::Secret hex, next;
+  esp_err_t err = ESP_OK;
+  if (!requireString(c, "recoveryKey", hex.s, err) || !requireString(c, "next", next.s, err)) return err;
+  vault::RecoveryKey key{};
+  if (!protect::parseRecoveryKey(hex.s, key)) return badRequest(c.r, "recoveryKey must be 40 hex characters");
+  if (!validate::passphrase(next.s)) return badRequest(c.r, "next must be 10-128 characters");
+  uint32_t retryMs = 0;
+  std::string ktToken;
+  const uint32_t trustId = trust::recognise(c.r, ktToken);
+  Status st = Status::Ok;
+  const bool approval = trust::needsApproval(c.via == net::Via::Home, trustId != 0);
+  // Prove the key first, so the button is only asked for when it was right.
+  st = approval ? vault::checkRecovery(key, &retryMs) : vault::recover(key, next.s, &retryMs);
+  if (st == Status::Ok && approval) {
+    for (volatile uint8_t& b : key) b = 0;
+    return trust::requestApproval(c.r);
+  }
+  for (volatile uint8_t& b : key) b = 0;
+  if (st == Status::WrongPassphrase) return sendRetry(c.r, http::k401, "wrong", "Wrong recovery key", retryMs);
+  if (st == Status::RateLimited) return sendRetry(c.r, http::k429, "rate_limited", "Too many attempts", retryMs);
+  if (st != Status::Ok) return sendVaultError(c.r, st);
+  ESP_LOGI(TAG, "unlocked with the recovery key; passphrase replaced");
+  return sendSession(c.r, trustId, ktToken);
 }
 
 esp_err_t postLock(Ctx& c) {
@@ -470,23 +511,19 @@ esp_err_t listEntries(Ctx& c) {
   return err;
 }
 
-esp_err_t getEntry(Ctx& c) {
+// GET: secrets only inside the reveal grace (or with protection off).
+// POST …/reveal: the same, but asks for the button first when needed (SPEC §10.3).
+esp_err_t getEntry(Ctx& c, bool ask) {
   vault::Entry e;
   const Status st = vault::get(c.match.id, e);
   if (st != Status::Ok) return sendVaultError(c.r, st);
+  const bool revealed = protect::mayReveal(c.token);
+  if (ask && !revealed) {
+    vault::wipe(e);
+    return protect::requestPress(c.r, actions::Op::Reveal, c.token);
+  }
   json::Ptr o(cJSON_CreateObject());
-  cJSON_AddNumberToObject(o.get(), "id", e.id);
-  cJSON_AddStringToObject(o.get(), "title", e.title.c_str());
-  cJSON_AddStringToObject(o.get(), "url", e.url.c_str());
-  cJSON_AddStringToObject(o.get(), "username", e.username.c_str());
-  cJSON_AddStringToObject(o.get(), "password", e.password.c_str());
-  cJSON_AddStringToObject(o.get(), "totp", e.totp.c_str());
-  cJSON_AddStringToObject(o.get(), "notes", e.notes.c_str());
-  cJSON_AddBoolToObject(o.get(), "favorite", e.favorite);
-  cJSON_AddNumberToObject(o.get(), "created", static_cast<double>(e.created));
-  cJSON_AddNumberToObject(o.get(), "updated", static_cast<double>(e.updated));
-  cJSON_AddNumberToObject(o.get(), "lastUsed", static_cast<double>(e.lastUsed));
-  genapi::addHistory(o.get(), e);
+  protect::addEntry(o.get(), e, revealed);
   vault::wipe(e);
   return http::sendJson(c.r, http::k200, o.get());
 }
@@ -707,6 +744,14 @@ esp_err_t putSettings(Ctx& c) {
   if ((f = json::getString(b, "apMode", str)) == Field::BadType || (f == Field::Ok && str != "always" && str != "fallback"))
     return badRequest(c.r, "apMode must be \"always\" or \"fallback\"");
   if (f == Field::Ok) next.apMode = str == "fallback" ? net::ApMode::Fallback : net::ApMode::Always;
+  if (json::getBool(b, "lockOnUsb", next.lockOnUsb) == Field::BadType) return badRequest(c.r, "lockOnUsb must be a boolean");
+  if (json::getBool(b, "lockOnBle", next.lockOnBle) == Field::BadType) return badRequest(c.r, "lockOnBle must be a boolean");
+  if (json::getBool(b, "protectReveal", next.protectReveal) == Field::BadType)
+    return badRequest(c.r, "protectReveal must be a boolean");
+  // Turning protection off would let a stolen session read everything, so that
+  // one change waits for the button (turning it on applies at once).
+  const bool unprotect = cur.protectReveal && !next.protectReveal;
+  next.protectReveal = cur.protectReveal || next.protectReveal;
   // Joining a network changes who can reach Keyra, so it is button-gated there.
   if (cJSON_HasObjectItem(b, "homeWifi")) return badRequest(c.r, "home Wi-Fi changes go through PUT /api/wifi/home");
 
@@ -728,6 +773,14 @@ esp_err_t putSettings(Ctx& c) {
 
   if (!wifi->ssid.empty() || !wifi->password.s.empty()) {
     const int64_t expires = machine().awaitPresence(actions::Op::Wifi, [wifi] { return commitWifi(*wifi); });
+    return sendAwaitingButton(c.r, expires);
+  }
+  if (unprotect) {
+    const int64_t expires = machine().awaitPresence(actions::Op::Unprotect, [] {
+      settings::Settings s = settings::get();
+      s.protectReveal = false;
+      return settings::save(s) == ESP_OK;
+    });
     return sendAwaitingButton(c.r, expires);
   }
   json::Ptr o(settingsJson(next));
@@ -752,8 +805,16 @@ esp_err_t postBackup(Ctx& c) {
   const long chars = validate::utf8Length(pass.s);
   if (chars < 12 || pass.s.size() > kMaxPassphraseBytes)
     return badRequest(c.r, "backup passphrase must be at least 12 characters");
+  if (!vault::unlocked()) return sendVaultError(c.r, Status::Locked);
+  // The whole vault leaves the device: a press first (SPEC §10.3); the client retries.
+  if (!protect::mayReveal(c.token)) return protect::requestPress(c.r, actions::Op::Backup, c.token);
   const Status st = vault::exportBackup(pass.s, out.s);
   if (st != Status::Ok) return sendVaultError(c.r, st);
+  if (const int64_t now = unixSecondsOrZero(); now != 0) {
+    settings::Settings s = settings::get();
+    s.lastBackupAt = now;
+    if (settings::save(s) != ESP_OK) ESP_LOGW(TAG, "could not record the backup time");
+  }
 
   char disposition[96];
   const time_t now = static_cast<time_t>(unixMs() / 1000);
@@ -866,6 +927,7 @@ bool takesBody(Route r) {
     case Route::Setup: case Route::Unlock: case Route::CreateEntry: case Route::UpdateEntry:
     case Route::ImportEntries: case Route::Type: case Route::PutSettings: case Route::Passphrase:
     case Route::Backup: case Route::Restore: case Route::WifiHome: case Route::Generate:
+    case Route::UnlockRecovery:
       return true;
     default:
       return false;
@@ -874,7 +936,7 @@ bool takesBody(Route r) {
 
 bool isSlow(Route r) {
   // WifiScan blocks for seconds while the radio scans.
-  return r == Route::Unlock || r == Route::Passphrase || r == Route::Backup || r == Route::Restore ||
+  return r == Route::Unlock || r == Route::UnlockRecovery || r == Route::Passphrase || r == Route::Backup || r == Route::Restore ||
          r == Route::WifiScan;
 }
 
@@ -916,7 +978,12 @@ esp_err_t dispatch(Ctx& c) {
     case Route::ListEntries: return listEntries(c);
     case Route::CreateEntry: return createEntry(c);
     case Route::ImportEntries: return importEntries(c);
-    case Route::GetEntry: return getEntry(c);
+    case Route::GetEntry: return getEntry(c, false);
+    case Route::RevealEntry: return getEntry(c, true);
+    case Route::UnlockRecovery: return postUnlockRecovery(c);
+    case Route::GetRecovery: return protect::getRecovery(c.r);
+    case Route::CreateRecovery: return protect::createRecovery(c.r, c.token);
+    case Route::DeleteRecovery: return protect::deleteRecovery(c.r, c.token);
     case Route::UpdateEntry: return updateEntry(c);
     case Route::DeleteEntry: return deleteEntry(c);
     case Route::EntryTotp: return entryTotp(c);
