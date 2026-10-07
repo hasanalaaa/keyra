@@ -1,4 +1,5 @@
-// keyra::hid public API on top of TinyUSB (SPEC §4.1).
+// keyra::hid public API: TinyUSB and keyra_ble transports under one typing
+// engine; the caller picks the transport per job (SPEC §4.1, §8.1).
 #include "keyra/hid.hpp"
 
 #include <atomic>
@@ -7,6 +8,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "keyra/ble.hpp"
 #include "tinyusb.h"
 #include "typer.hpp"
 #include "usb_desc.hpp"
@@ -46,8 +48,22 @@ class TinyUsbTransport final : public Transport {
   }
 };
 
-TinyUsbTransport s_transport;
-Typer s_typer{s_transport};
+class BleTransport final : public Transport {
+ public:
+  bool ready() override { return ble::ready(); }
+  bool capsLock() override { return ble::capsLock(); }
+  void delayMs(uint32_t ms) override { sleepMs(ms); }
+  bool send(uint8_t modifier, uint8_t keycode) override { return ble::sendKey(modifier, keycode); }
+};
+
+TinyUsbTransport s_usb;
+BleTransport s_ble;
+Typer s_typer;
+
+Transport& transportFor(const Options& opt) {
+  if (opt.via == Host::Ble) return s_ble;
+  return s_usb;
+}
 
 }  // namespace
 
@@ -62,13 +78,15 @@ void init(bool devCdc) {
 
 void forgetHostLeds() { s_leds.store(0); }
 
-bool mounted() { return s_transport.ready(); }
+bool mounted() { return s_usb.ready(); }
 
-bool capsLock() { return s_transport.capsLock(); }
+bool bleConnected() { return s_ble.ready(); }
 
-Result typeText(const char* text, const Options& opt) { return s_typer.type(text, opt); }
+bool capsLock() { return s_usb.capsLock(); }
 
-Result tapKey(uint8_t hidKeycode, const Options& opt) { return s_typer.tap(hidKeycode, opt); }
+Result typeText(const char* text, const Options& opt) { return s_typer.type(transportFor(opt), text, opt); }
+
+Result tapKey(uint8_t hidKeycode, const Options& opt) { return s_typer.tap(transportFor(opt), hidKeycode, opt); }
 
 }  // namespace keyra::hid
 

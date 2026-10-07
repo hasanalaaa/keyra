@@ -125,7 +125,7 @@ void wipedOnEveryPath() {
   });
   wipedAfter("long press", [](Machine& m) { CHECK(m.onButton(Button::Long, true).effect == Effect::Cancelled); });
   wipedAfter("lock", [](Machine& m) { m.dropSessionItems(); });
-  wipedAfter("another action", [](Machine& m) { m.arm({7, "Mail", What::Password, false, nullptr}); });
+  wipedAfter("another action", [](Machine& m) { m.arm({7, "Mail", What::Password, false, {}, nullptr}); });
   wipedAfter("a presence op", [](Machine& m) { m.awaitPresence(Op::Wifi, [] { return true; }); });
   wipedAfter("typing", [](Machine& m) {
     {

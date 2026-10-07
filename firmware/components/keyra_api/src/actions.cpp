@@ -62,8 +62,8 @@ std::optional<int64_t> Machine::tryAwaitPresence(Op op, Commit commit) {
 
 void Machine::dropSessionItems() {
   std::lock_guard<std::mutex> lock(mu_);
-  const bool sessionOp =
-      kind_ == Kind::Presence && (op_ == Op::Wifi || op_ == Op::RestoreReplace || op_ == Op::HomeWifi);
+  const bool sessionOp = kind_ == Kind::Presence &&
+                         (op_ == Op::Wifi || op_ == Op::RestoreReplace || op_ == Op::HomeWifi || op_ == Op::BlePair);
   if (kind_ == Kind::Type) {
     hasLast_ = true;
     last_ = {false, Code::Cancelled, 0, req_.title, req_.what};
@@ -71,6 +71,11 @@ void Machine::dropSessionItems() {
   }
   if (sessionOp) recordOpLocked(op_, OpCode::Cancelled, now_());
   if (kind_ == Kind::Type || sessionOp) clearSlotLocked();
+}
+
+void Machine::setLinkReady(bool ready) {
+  std::lock_guard<std::mutex> lock(mu_);
+  linkReady_ = ready;
 }
 
 Decision Machine::onButton(Button b, bool unlocked) {
@@ -85,6 +90,10 @@ Decision Machine::onButton(Button b, bool unlocked) {
       d.commit = std::move(commit_);
       running_ = op_;
       clearSlotLocked();
+    } else if (kind_ == Kind::Type && !typing_ && req_.target.kind == Target::Kind::Ble && !linkReady_) {
+      // Still connecting: typing now could only fail. Keep the action armed.
+      d.effect = Effect::Blink;
+      flashLocked(Indicator::Off, now, kBlinkMs);
     } else if (kind_ == Kind::Type && !typing_) {
       d.effect = Effect::Run;
       d.run = std::move(req_);
@@ -176,7 +185,7 @@ std::optional<Presence> Machine::presence() {
   return std::nullopt;
 }
 
-Indicator Machine::indicator(bool initialized, bool unlocked) {
+Indicator Machine::indicator(bool initialized, bool unlocked, bool blePairing) {
   std::lock_guard<std::mutex> lock(mu_);
   const int64_t now = now_();
   expireLocked(now);
@@ -184,6 +193,7 @@ Indicator Machine::indicator(bool initialized, bool unlocked) {
   if (typing_ || running_) return Indicator::Typing;
   if (kind_ == Kind::Type) return Indicator::Pending;
   if (now < flashUntil_) return flash_;
+  if (blePairing) return Indicator::Pairing;
   if (!initialized) return Indicator::Setup;
   return unlocked ? Indicator::Idle : Indicator::Locked;
 }
@@ -191,8 +201,10 @@ Indicator Machine::indicator(bool initialized, bool unlocked) {
 void Machine::expireLocked(int64_t now) {
   if (kind_ == Kind::None || now < deadline_) return;
   if (kind_ == Kind::Type) {
+    // A Bluetooth host that never showed up is the more useful explanation.
+    const bool noHost = req_.target.kind == Target::Kind::Ble && !linkReady_;
     hasLast_ = true;
-    last_ = {false, Code::Expired, 0, req_.title, req_.what};
+    last_ = {false, noHost ? Code::NoHost : Code::Expired, 0, req_.title, req_.what};
     lastAt_ = deadline_;
   } else {
     recordOpLocked(op_, OpCode::Expired, deadline_);
@@ -240,6 +252,7 @@ const char* opName(Op op) {
     case Op::FactoryReset: return "factory_reset";
     case Op::HomeWifi: return "home_wifi";
     case Op::TrustBrowser: return "trust_browser";
+    case Op::BlePair: return "ble_pair";
   }
   return "setup";
 }
@@ -260,6 +273,7 @@ const char* codeName(Code c) {
     case Code::Cancelled: return "cancelled";
     case Code::Expired: return "expired";
     case Code::NoUsb: return "no_usb";
+    case Code::NoHost: return "no_host";
     case Code::UnsupportedChar: return "unsupported_char";
     case Code::Failed: return "failed";
   }

@@ -1,3 +1,4 @@
+#include <array>
 #include <string>
 
 #include "clock.hpp"
@@ -45,6 +46,17 @@ void apiRoutes() {
   CHECK(matchApi(Method::Delete, "/api/trusted/0").kind == K::NotFound);
   CHECK(matchApi(Method::Delete, "/api/trusted/x").kind == K::NotFound);
 
+  CHECK(is(matchApi(Method::Get, "/api/ble"), Route::GetBle));
+  CHECK(is(matchApi(Method::Post, "/api/ble/pair"), Route::BlePair));
+  const Match fg = matchApi(Method::Delete, "/api/ble/bonds/a4:c1:38:0B:7F:3A");
+  CHECK(is(fg, Route::BleForget));
+  CHECK(fg.addr == (std::array<uint8_t, 6>{0xA4, 0xC1, 0x38, 0x0B, 0x7F, 0x3A}));
+  CHECK(matchApi(Method::Get, "/api/ble/bonds/A4:C1:38:0B:7F:3A").kind == K::MethodNotAllowed);
+  CHECK(matchApi(Method::Delete, "/api/ble/bonds/A4:C1:38:0B:7F").kind == K::NotFound);
+  CHECK(matchApi(Method::Delete, "/api/ble/bonds/").kind == K::NotFound);
+  CHECK(matchApi(Method::Post, "/api/ble").kind == K::MethodNotAllowed);
+  CHECK(matchApi(Method::Get, "/api/ble/pair").kind == K::MethodNotAllowed);
+
   CHECK(matchApi(Method::Get, "/api/lock").kind == K::MethodNotAllowed);
   CHECK(matchApi(Method::Get, "/api/entries/import").kind == K::MethodNotAllowed);
   CHECK(matchApi(Method::Post, "/api/entries/3").kind == K::MethodNotAllowed);
@@ -74,6 +86,9 @@ void policy() {
   CHECK(needsCsrf(Method::Post, Route::Lock));
   CHECK(needsCsrf(Method::Delete, Route::DeleteEntry));
   CHECK(needsCsrf(Method::Put, Route::PutSettings));
+  CHECK(needsSession(Route::GetBle) && needsSession(Route::BlePair) && needsSession(Route::BleForget));
+  CHECK(needsCsrf(Method::Post, Route::BlePair));
+  CHECK(needsCsrf(Method::Delete, Route::BleForget));
   CHECK(needsSession(Route::WifiScan) && needsSession(Route::WifiHome));
   CHECK(needsSession(Route::ListTrusted) && needsSession(Route::DeleteTrusted));
   CHECK(needsCsrf(Method::Put, Route::WifiHome) && needsCsrf(Method::Delete, Route::DeleteTrusted));

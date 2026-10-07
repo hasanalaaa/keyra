@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import { api, hasCsrf, setLockedHandler, forgetSession, type Awaiting } from './api';
 import { detectLang, setLang, type Lang, type LangPref } from './i18n';
-import type { DeviceState, EntrySummary } from './types';
+import type { BleInfo, DeviceState, EntrySummary } from './types';
 
 export type ThemePref = 'auto' | 'light' | 'dark';
 export type LockReason = 'idle' | 'button' | 'manual' | 'session' | null;
@@ -22,6 +22,8 @@ export interface AppState {
   authed: boolean;
   lockReason: LockReason;
   entries: EntrySummary[] | null;
+  /** GET /api/ble, refreshed when the Bluetooth link changes (names the device Ready types into). */
+  ble: BleInfo | null;
   langPref: LangPref;
   lang: Lang;
   themePref: ThemePref;
@@ -57,6 +59,7 @@ let state: AppState = {
   authed: false,
   lockReason: null,
   entries: null,
+  ble: null,
   langPref,
   lang: detectLang(langPref, navigator.language || 'en'),
   themePref: readPref<ThemePref>(THEME_KEY, ['auto', 'light', 'dark'], 'auto'),
@@ -139,7 +142,7 @@ function lockReasonNow(d: DeviceState | null): LockReason {
 function becameLocked(d: DeviceState | null): void {
   if (!state.authed) return;
   forgetSession();
-  setState({ authed: false, lockReason: lockReasonNow(d), entries: null });
+  setState({ authed: false, lockReason: lockReasonNow(d), entries: null, ble: null });
   manualLock = false;
 }
 
@@ -183,7 +186,9 @@ export async function pollNow(): Promise<void> {
     const d = await api.state();
     const authed = d.unlocked && d.session && hasCsrf();
     if (state.authed && !authed) becameLocked(d);
+    const linkChanged = state.device?.host.ble !== d.host.ble;
     setState({ device: d, deviceAt: sent, online: true });
+    if (state.authed && (linkChanged || (d.host.ble && !state.ble))) void loadBle();
     stateFailures = 0;
   } catch {
     // One slow or dropped poll (e.g. right after a Wi-Fi switch) is not an outage.
@@ -216,6 +221,7 @@ export function startApp(): void {
     if (d && d.unlocked && d.session && hasCsrf()) {
       setState({ authed: true });
       void loadEntries();
+      void loadBle();
     }
   });
 }
@@ -228,7 +234,7 @@ export async function unlock(passphrase: string): Promise<Awaiting | null> {
   if (awaiting) return awaiting;
   markActivity();
   setState({ authed: true, lockReason: null });
-  await Promise.all([pollNow(), loadEntries()]);
+  await Promise.all([pollNow(), loadEntries(), loadBle()]);
   return null;
 }
 
@@ -241,6 +247,14 @@ export async function lockNow(): Promise<void> {
   }
   becameLocked(state.device);
   void pollNow();
+}
+
+export async function loadBle(): Promise<void> {
+  try {
+    setState({ ble: await api.ble() });
+  } catch {
+    // Locked/offline are handled elsewhere; Ready simply names no device.
+  }
 }
 
 export async function loadEntries(): Promise<void> {

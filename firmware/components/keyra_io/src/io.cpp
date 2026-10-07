@@ -45,6 +45,7 @@ Pattern toPattern(Led l) {
     case Led::Error:         return Pattern::Error;
     case Led::AwaitPresence: return Pattern::AwaitPresence;
     case Led::Setup:         return Pattern::Setup;
+    case Led::Pairing:       return Pattern::Pairing;
   }
   return Pattern::Off;
 }

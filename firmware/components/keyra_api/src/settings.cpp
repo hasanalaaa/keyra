@@ -46,6 +46,8 @@ Settings sanitized(Settings s) {
   if (s.keyDelayMs < kMinKeyDelayMs || s.keyDelayMs > kMaxKeyDelayMs) s.keyDelayMs = d.keyDelayMs;
   if (s.bothSeparator != Separator::Tab && s.bothSeparator != Separator::Enter) s.bothSeparator = d.bothSeparator;
   if (s.ledBrightness > kMaxLedBrightness) s.ledBrightness = d.ledBrightness;
+  if (s.output != Output::Auto && s.output != Output::Usb && s.output != Output::Ble) s.output = d.output;
+  if (s.bleConnect != BleConnect::OnDemand && s.bleConnect != BleConnect::Always) s.bleConnect = d.bleConnect;
   if (s.apMode != net::ApMode::Always && s.apMode != net::ApMode::Fallback) s.apMode = d.apMode;
   if (s.homeEnabled && (!api::validate::ssid(s.homeSsid) || !api::validate::homePassword(s.homePassword))) {
     ESP_LOGW(TAG, "stored home Wi-Fi invalid; home Wi-Fi off");
@@ -70,6 +72,10 @@ esp_err_t load() {
         readInt<uint8_t>(h, "bothSep", static_cast<uint8_t>(s.bothSeparator), nvs_get_u8));
     s.submitAfterBoth = readInt<uint8_t>(h, "submitBoth", s.submitAfterBoth, nvs_get_u8) != 0;
     s.ledBrightness = readInt<uint8_t>(h, "ledBright", s.ledBrightness, nvs_get_u8);
+    s.bleEnabled = readInt<uint8_t>(h, "bleOn", s.bleEnabled, nvs_get_u8) != 0;
+    s.output = static_cast<Output>(readInt<uint8_t>(h, "output", static_cast<uint8_t>(s.output), nvs_get_u8));
+    s.bleConnect =
+        static_cast<BleConnect>(readInt<uint8_t>(h, "bleConn", static_cast<uint8_t>(s.bleConnect), nvs_get_u8));
     s.homeEnabled = readInt<uint8_t>(h, "homeOn", s.homeEnabled, nvs_get_u8) != 0;
     s.homeSsid = readString(h, "homeSsid", s.homeSsid);
     s.homePassword = readString(h, "homePass", s.homePassword);
@@ -101,6 +107,9 @@ esp_err_t save(const Settings& s) {
   if (err == ESP_OK) err = nvs_set_u8(h, "bothSep", static_cast<uint8_t>(s.bothSeparator));
   if (err == ESP_OK) err = nvs_set_u8(h, "submitBoth", s.submitAfterBoth ? 1 : 0);
   if (err == ESP_OK) err = nvs_set_u8(h, "ledBright", s.ledBrightness);
+  if (err == ESP_OK) err = nvs_set_u8(h, "bleOn", s.bleEnabled ? 1 : 0);
+  if (err == ESP_OK) err = nvs_set_u8(h, "output", static_cast<uint8_t>(s.output));
+  if (err == ESP_OK) err = nvs_set_u8(h, "bleConn", static_cast<uint8_t>(s.bleConnect));
   if (err == ESP_OK) err = nvs_set_u8(h, "homeOn", s.homeEnabled ? 1 : 0);
   if (err == ESP_OK) err = nvs_set_str(h, "homeSsid", s.homeSsid.c_str());
   if (err == ESP_OK) err = nvs_set_str(h, "homePass", s.homePassword.c_str());

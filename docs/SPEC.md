@@ -258,17 +258,49 @@ the same "prepare → press the button" flow. USB stays the default.
   that window it advertises only to bonded hosts (filter accept list) and
   rejects new pairings. LE Secure Connections, bonding, "Just Works" (no
   display/keypad); max 4 bonds stored in NVS.
-- `keyra::hid` routes typing to a transport: setting `output`
-  `"auto"|"usb"|"ble"`. `auto` = USB when mounted, else the connected BLE host.
-  The typing engine, keymap, Caps Lock wrap and "always release" guarantees are
-  shared by both transports.
-- Settings: `bleEnabled` (default true), `output` (default `"auto"`).
+- **Connect on demand (default).** Setting `bleConnect` `"on_demand"|"always"`.
+  An iPhone/iPad hides its on-screen keyboard while any Bluetooth keyboard is
+  connected, so by default Keyra neither advertises nor holds a link while idle:
+  - When a type action is armed for a Bluetooth host, Keyra advertises with the
+    filter accept list holding only that host until it connects (`state.host.connecting`).
+  - A short press types only once the host is connected; before that it is
+    ignored and the action stays armed. If it never connects within the 60 s
+    expiry, the result is `no_host`.
+  - After typing (any result) Keyra keeps the link ~20 s so a quick second
+    action reuses it, then disconnects. Cancel, expiry, replacement and lock
+    end it at once. A host that has just paired is also kept ~20 s.
+  - `always`: bonded hosts may reconnect whenever they are around (accept
+    list = all bonds); an action armed for one host still drops another.
+  The pairing window is unaffected.
+- **Target.** Each type action picks its host when armed: `POST /api/type`
+  takes optional `target: "usb" | "<bond addr>"`. Without it, from setting
+  `output` `"auto"|"usb"|"ble"`: `usb` = USB (even unplugged → `no_usb`);
+  `ble` = the most recently used bond (the connected one first); `auto` = USB
+  when mounted, else as `ble`. Every part of the action (both, submit) goes to
+  that host. The typing engine, keymap, Caps Lock wrap and "always release"
+  guarantees are shared by both transports.
+- Settings: `bleEnabled` (default true), `output` (default `"auto"`),
+  `bleConnect` (default `"on_demand"`).
 - API (session):
   - `GET /api/ble` → `{enabled, pairing:{active:bool, expiresIn:ms}, connected:{addr, name}|null, bonds:[{addr, name, lastSeen}]}`
-  - `POST /api/ble/pair` → 202 (presence op `ble_pair`)
+  - `POST /api/ble/pair` → 202 (presence op `ble_pair`); refused up front with
+    409 `ble_disabled` (Bluetooth off), 409 `bonds_full` (4 bonds) or 503
+    `ble_unavailable` (stack failed to start). The window closes early once one
+    host has paired, when the vault locks, or when Bluetooth is turned off.
   - `DELETE /api/ble/bonds/{addr}` → 204 (disconnects it if connected)
-  - `GET /api/state` → `host:{usb, ble, capsLock, output:"usb"|"ble"|null}` (`output` = where a typed action would go now).
-- New `Result.code` `no_host` (nothing connected on the selected output; `no_usb` kept for USB-only output).
+  - `GET /api/state` → `host:{usb, ble, capsLock, output:"usb"|"ble"|null, bleTarget:{addr,name}|null, connecting:bool}`.
+    `ble` = a Bluetooth host is connected right now; `output` = the kind of
+    host a new action would use (null = none available); `bleTarget` = the
+    host the armed action will type into; `connecting` = still waiting for it.
+    `pending` gains `target` (`"usb"`, an address, or null).
+  - `POST /api/type` with an unknown bond → 404 `not_found`; a bond while
+    Bluetooth is off → 409 `ble_disabled`.
+- New `Result.code` `no_host` (nothing to type into on Bluetooth or auto, or the
+  Bluetooth host never connected; `no_usb` kept for a USB target).
+- A BLE host counts as connected (`host.ble`) only when bonded, encrypted and
+  subscribed to keyboard reports.
+- Factory reset forgets all bonds. `DELETE /api/ble/bonds/{addr}` → 404 `not_found`
+  for an unknown address; `addr` is `XX:XX:XX:XX:XX:XX` (identity address).
 
 ### 8.2 Home Wi-Fi (station mode)
 
@@ -364,7 +396,11 @@ Each entry keeps up to 10 previous passwords `{password, changedAt}` inside the
 encrypted entry (no plaintext metadata on flash). `PUT /api/entries/{id}` with a
 new `password` pushes the old one. `GET /api/entries/{id}` returns `history`.
 
-### 9.4 Keyra Companion (browser extension)
+### 9.4 Keyra Companion (browser extension) — DEFERRED
+
+> Not being built. Kept here as a design note; work resumes only when the
+> owner asks for it (branch `feat/companion` holds an unfinished start).
+
 
 A Manifest V3 extension (`extension/`, Chrome/Edge/Firefox; Safari via
 `xcrun safari-web-extension-converter`). Needs Keyra reachable from the computer

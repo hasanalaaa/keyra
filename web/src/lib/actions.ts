@@ -101,11 +101,12 @@ export function useTypeAction(id: number, free: 'test' | 'text' = 'test') {
     return () => clearTimeout(h);
   }, [outcome]);
 
-  const start = async (what: What, text?: TypeTextRequest): Promise<boolean> => {
+  const start = async (what: What, target?: string, text?: TypeTextRequest): Promise<boolean> => {
     setOutcome(null);
     try {
       const startedAt = Date.now();
-      const r = what === 'test' ? await api.typeTest() : what === 'text' ? await api.typeText(text!) : await api.type(id, what);
+      const r =
+        what === 'test' ? await api.typeTest(target) : what === 'text' ? await api.typeText({ ...text!, target }) : await api.type(id, what, target);
       const total = Math.max(1000, r.pending.expiresIn);
       setAct({ what, startedAt, deadline: Date.now() + r.pending.expiresIn, total, goneAt: 0 });
       return true;

@@ -1,7 +1,7 @@
 // Shapes of the device API (SPEC §5). This file is the client's view of the contract.
 
 export type TypeWhat = 'username' | 'password' | 'both' | 'totp';
-export type ResultCode = 'typed' | 'cancelled' | 'expired' | 'no_usb' | 'unsupported_char' | 'failed';
+export type ResultCode = 'typed' | 'cancelled' | 'expired' | 'no_usb' | 'no_host' | 'unsupported_char' | 'failed';
 
 export interface Pending {
   kind: 'type';
@@ -10,6 +10,7 @@ export interface Pending {
   what: TypeWhat | 'test' | 'text';
   submit: boolean;
   expiresIn: number;
+  target?: string | null; // "usb" or a Bluetooth device address
 }
 
 export interface TypeResult {
@@ -20,7 +21,7 @@ export interface TypeResult {
   what?: TypeWhat | 'test' | 'text';
 }
 
-export type PresenceOp = 'setup' | 'wifi' | 'restore' | 'factory_reset' | 'home_wifi' | 'trust_browser';
+export type PresenceOp = 'setup' | 'wifi' | 'restore' | 'factory_reset' | 'home_wifi' | 'trust_browser' | 'ble_pair';
 
 export interface PresenceResult {
   op: PresenceOp;
@@ -42,7 +43,12 @@ export interface DeviceState {
   unlocked: boolean;
   session: boolean;
   autoLockMin: number;
-  host: { usb: boolean; capsLock: boolean };
+  /** `output`: where a typed action would go right now; null = nothing connected on the selected output. */
+  /**
+   * `ble`: a Bluetooth host is connected right now. `output`: the kind of host a new action would use (null = none).
+   * `bleTarget`: the device the armed action will type into; `connecting`: still waiting for it to connect.
+   */
+  host: { usb: boolean; ble: boolean; capsLock: boolean; output: 'usb' | 'ble' | null; bleTarget: BlePeer | null; connecting: boolean };
   pending: Pending | null;
   last: TypeResult | null;
   presence: Presence;
@@ -123,6 +129,28 @@ export interface Settings {
   ledBrightness: number;
   homeWifi: { enabled: boolean; ssid: string };
   apMode: 'always' | 'fallback';
+  bleEnabled: boolean;
+  output: Output;
+  bleConnect: 'on_demand' | 'always';
+}
+
+/** Where typing goes: `auto` = USB when plugged in, else the connected Bluetooth device. */
+export type Output = 'auto' | 'usb' | 'ble';
+
+export interface BlePeer {
+  addr: string; // "A4:C1:38:0B:7F:3A"
+  name: string; // the device's own name; '' until Keyra has read it
+}
+
+export interface BleBond extends BlePeer {
+  lastSeen: number; // unix seconds, 0 = unknown
+}
+
+export interface BleInfo {
+  enabled: boolean;
+  pairing: { active: boolean; expiresIn: number };
+  connected: BlePeer | null;
+  bonds: BleBond[];
 }
 
 export interface Totp {

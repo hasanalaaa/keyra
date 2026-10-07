@@ -150,6 +150,8 @@
 .acc-tools { display:flex; align-self:flex-start; }
 .action-area { min-block-size:120px; }
 .actions { display:flex; flex-direction:column; gap:var(--s-3); }
+.target-picker { display:flex; flex-direction:column; gap:var(--s-2); }
+.target-picker .caption { color:var(--text-3); }
 .act-both {
   display:flex; align-items:center; gap:var(--s-4); min-block-size:64px; padding:var(--s-3) var(--s-5); border-radius:var(--r-lg);
   background:var(--accent); color:var(--on-accent); text-align:start; transition:transform var(--d-fast) var(--ease-out), background-color var(--d-fast);

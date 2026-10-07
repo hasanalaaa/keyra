@@ -72,7 +72,7 @@ void testIdleIsMostlyDark() {
 }
 
 void testPulsesVary() {
-  for (Pattern p : {Pattern::Pending, Pattern::AwaitPresence, Pattern::Locked, Pattern::Setup}) {
+  for (Pattern p : {Pattern::Pending, Pattern::AwaitPresence, Pattern::Locked, Pattern::Setup, Pattern::Pairing}) {
     LedAnimator a;
     a.set(p, 0);
     int lo = 255, hi = 0;
@@ -91,6 +91,21 @@ void testPulsesVary() {
   for (uint32_t t = 0; t < 4000; t += 20) CHECK(a.frame(t).r < 64);
 }
 
+// Pairing (Bluetooth window) is cyan: blue and green lit, never red, so it
+// reads apart from the violet presence prompt and the blue pending pulse.
+void testPairingIsCyan() {
+  LedAnimator a;
+  a.set(Pattern::Pairing, 0);
+  bool lit = false;
+  for (uint32_t t = 0; t < 2400; t += 20) {
+    const Rgb c = a.frame(t);
+    CHECK_EQ(c.r, 0);
+    if (c.g > 0 && c.b > 0) lit = true;
+    CHECK(c.g <= c.b);
+  }
+  CHECK(lit);
+}
+
 }  // namespace
 
 int main() {
@@ -100,5 +115,6 @@ int main() {
   testErrorReturnsToPrevious();
   testIdleIsMostlyDark();
   testPulsesVary();
+  testPairingIsCyan();
   TEST_MAIN_END();
 }

@@ -5,6 +5,7 @@
 import { chromium } from 'playwright';
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
+import { createServer as createNetServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { migrationUri, qrPng } from './fixtures.mjs';
 
@@ -22,7 +23,21 @@ mkdirSync(SHOTS, { recursive: true });
 // ---------- mock processes ----------
 
 const mocks = [];
-async function startMock(port, env = {}) {
+
+/** A port nobody is listening on, so parallel e2e runs on one machine never collide. */
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const srv = createNetServer();
+    srv.on('error', reject);
+    srv.listen(0, () => {
+      const { port } = srv.address();
+      srv.close(() => resolve(port));
+    });
+  });
+}
+
+async function startMock(env = {}) {
+  const port = await freePort();
   const p = spawn(process.execPath, ['mock/server.mjs'], { cwd: WEB, env: { ...process.env, PORT: String(port), ...env }, stdio: ['ignore', 'pipe', 'inherit'] });
   mocks.push(p);
   await new Promise((resolve, reject) => {
@@ -274,6 +289,67 @@ async function vaultShots(base, opts) {
   await ctx.close();
 }
 
+// ---------- flow 3: Bluetooth — pair a device, type into it, forget it ----------
+
+async function bleFlow(base, opts) {
+  const { ctx, page, tag } = await open(base, opts);
+  console.log(`bluetooth ${tag || '(phone, ar, light)'}`);
+  await page.locator('input[type=password]').waitFor();
+  await unlockUi(page);
+  await page.evaluate(() => (location.hash = '#/settings'));
+  const section = page.locator('section.group:has(#bluetooth)');
+  await section.locator('.bond-row').first().waitFor();
+  await section.scrollIntoViewIfNeeded();
+  await shot(page, `bluetooth${tag}`);
+
+  // Pair: press the button, then the phone/computer picks Keyra from its list.
+  await section.locator('.pair-row').click();
+  await page.locator('.ready-ready').waitFor();
+  check((await button(base)) === 'approved ble_pair', 'button opens the pairing window');
+  await page.locator('.ready-ready .ready-title', { hasText: /[“«]Keyra[”»]/ }).waitFor({ timeout: 5000 });
+  await shot(page, `ble-pair${tag}`, 900);
+  const r = await fetch(`${base}/__mock/ble`, { method: 'POST', body: JSON.stringify({ pair: "Hasan's iPad" }) });
+  check((await r.json()).paired === true, 'mock device pairs inside the window');
+  await page.locator('.ready-typed').waitFor({ timeout: 5000 });
+  await page.locator('.layer .sheet').waitFor({ state: 'detached', timeout: 6000 });
+  await section.locator('.bond-row', { hasText: "Hasan's iPad" }).waitFor();
+
+  // On demand: once the pairing link is let go, typing connects just for the action.
+  const mock = (body) => fetch(`${base}/__mock/ble`, { method: 'POST', body: JSON.stringify(body) });
+  await mock({ connected: false });
+  await mock({ autoConnect: false }); // connect by hand below, so the "Connecting…" state can be seen
+  await fetch(`${base}/__mock/usb`, { method: 'POST', body: JSON.stringify({ usb: false }) });
+  await page.evaluate(() => (location.hash = '#/'));
+  await page.locator('.top-bar .chip', { hasText: /Bluetooth|بلوتوث/ }).waitFor({ timeout: 8000 });
+  await row(page, 'GitHub').click();
+  // Pick the iPad in the account sheet's "Type into" picker (remembered per browser).
+  await page.locator('.target-picker button', { hasText: "Hasan's iPad" }).click();
+  check((await page.evaluate(() => localStorage.getItem('keyra.target'))) !== null, 'target remembered');
+  await page.locator('.act-both').click();
+  await page.locator('.ready-ready .ready-title', { hasText: "Hasan's iPad" }).waitFor({ timeout: 5000 });
+  await shot(page, `ready-connecting${tag}`, 1200);
+  check((await button(base)) === 'connecting (blink)', 'a press before the host connects does nothing');
+  await mock({ connected: true });
+  await page.locator('.ready-ready .notice', { hasText: "Hasan's iPad" }).waitFor({ timeout: 5000 });
+  await shot(page, `ready-ble${tag}`, 1200);
+  check((await button(base)).startsWith('typing both'), 'button types over Bluetooth');
+  await page.locator('.ready-typed').waitFor({ timeout: 5000 });
+  await page.locator('.actions').waitFor({ timeout: 5000 });
+  await page.keyboard.press('Escape');
+  await page.locator('.layer .sheet').waitFor({ state: 'detached' });
+
+  // Forget it again.
+  await page.evaluate(() => (location.hash = '#/settings'));
+  const ipad = section.locator('.bond-row', { hasText: "Hasan's iPad" });
+  await ipad.waitFor();
+  await page.waitForTimeout(400); // let the page transition finish before opening the alert
+  await ipad.locator('.icon-btn').click();
+  await page.locator('.alert-actions button').first().click();
+  await section.locator('.bond-row', { hasText: "Hasan's iPad" }).waitFor({ state: 'detached' });
+  console.log('  ✓ Bluetooth flow passed');
+  await ctx.close();
+}
+
 // ---------- flow 3: home Wi‑Fi + trusted browser (SPEC §8.2), phone, English ----------
 
 async function homeFlow(base, opts) {
@@ -328,10 +404,10 @@ function quantizeShots() {
 const t0 = Date.now();
 try {
   browser = await chromium.launch();
-  const seeded = await startMock(8791);
-  const fresh1 = await startMock(8792, { MOCK_FRESH: '1' });
-  const fresh2 = await startMock(8793, { MOCK_FRESH: '1' });
-  const home = await startMock(8794, { MOCK_VIA: 'home' });
+  const seeded = await startMock();
+  const fresh1 = await startMock({ MOCK_FRESH: '1' });
+  const fresh2 = await startMock({ MOCK_FRESH: '1' });
+  const home = await startMock({ MOCK_VIA: 'home' });
 
   await firstRunFlow(fresh1, {});
   await firstRunFlow(fresh2, { desktop: true, lang: 'en', dark: true });
@@ -348,6 +424,8 @@ try {
     await vaultShots(seeded, opts);
   }
 
+  await bleFlow(await startMock(), {});
+  await bleFlow(await startMock(), { lang: 'en' });
   await homeFlow(home, { lang: 'en' });
 
   quantizeShots();

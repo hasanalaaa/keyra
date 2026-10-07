@@ -6,11 +6,14 @@
 //   MOCK_FRESH=1 npm run mock          uninitialized device (onboarding)
 //   MOCK_AUTO_BUTTON=1 npm run mock    approves every pending item 3 s after it is armed
 //   MOCK_USB=0                         start "not plugged in"
+//   MOCK_BLE=0                         no paired Bluetooth device in the seed
 //   MOCK_VIA=home                      every request arrives "through the home network" (SPEC §8.2);
 //                                      without it, requests to http://127.0.0.1:PORT do, localhost is the AP
 //   PORT=8787                          listen port
 //
 // Simulated hardware: POST /__mock/button {press:"short"|"long"} · POST /__mock/usb {usb:bool}
+//   POST /__mock/ble {pair:"<device name>"} (a device pairs while the window is open) · {connected:bool}
+//     · {autoConnect:bool} (default true: the wanted device connects ~1.5 s after an action is armed)
 // Home Wi‑Fi: any network joins ~2 s after the press, except with the password "wrong-password".
 import { createServer } from 'node:http';
 import { createCipheriv, createDecipheriv, createHash, createHmac, pbkdf2Sync, randomBytes, timingSafeEqual } from 'node:crypto';
@@ -46,11 +49,71 @@ const defaultSettings = () => ({
   bothSeparator: 'tab',
   submitAfterBoth: false,
   ledBrightness: 60,
+  bleEnabled: true,
+  output: 'auto',
+  bleConnect: 'on_demand',
   homeWifi: { enabled: false, ssid: '', password: '' }, // password is write-only, never sent
   apMode: 'always',
 });
 
 const host = { usb: process.env.MOCK_USB !== '0', capsLock: false };
+// Bluetooth (SPEC §8.1): pairing window, bonded devices (max 4), the connected one.
+const PAIR_WINDOW_MS = 120000;
+const MAX_BONDS = 4;
+const LINGER_MS = 20000; // on demand: keep the link this long after typing
+const CONNECT_MS = 1500; // how long the simulated host takes to connect
+const ble = { pairingUntil: 0, bonds: [], connected: null, wanted: null, lingerTimer: null, autoConnect: true };
+const pairing = () => settings.bleEnabled && Date.now() < ble.pairingUntil;
+const bleReady = () => settings.bleEnabled && ble.connected !== null;
+/** keyra_api pickTarget(): usb → USB; ble → most recent bond; auto → USB if plugged in, else as ble. */
+function pickTarget() {
+  if (settings.output === 'usb' || (settings.output === 'auto' && host.usb)) return { kind: 'usb' };
+  if (!settings.bleEnabled || !ble.bonds.length) return { kind: 'none' };
+  const best = ble.bonds.find((b) => b.addr === ble.connected) ?? [...ble.bonds].sort((a, b) => b.lastSeen - a.lastSeen)[0];
+  return { kind: 'ble', addr: best.addr };
+}
+const targetText = (t) => (t.kind === 'usb' ? 'usb' : t.kind === 'ble' ? t.addr : null);
+function connectBle(addr) {
+  if (!settings.bleEnabled || !ble.bonds.some((b) => b.addr === addr)) return;
+  clearTimeout(ble.lingerTimer);
+  ble.connected = addr;
+  ble.bonds.find((b) => b.addr === addr).lastSeen = nowSec();
+}
+/** On demand, Keyra lets go of the link after a linger (or at once). Always keeps it. */
+function releaseBle(lingerMs) {
+  clearTimeout(ble.lingerTimer);
+  if (settings.bleConnect === 'always') return;
+  if (lingerMs) ble.lingerTimer = setTimeout(() => (ble.connected = null), lingerMs);
+  else ble.connected = null;
+}
+/** keyra_api syncBleDemand(): follow the armed action's Bluetooth host. */
+function syncDemand() {
+  const s = machine.slot;
+  const want = s?.kind === 'type' && s.req.target.kind === 'ble' ? s.req.target.addr : null;
+  if (want) {
+    if (ble.wanted !== want) {
+      ble.wanted = want;
+      clearTimeout(ble.lingerTimer);
+      if (ble.connected && ble.connected !== want) ble.connected = null; // make room for the wanted host
+      if (ble.connected !== want && ble.autoConnect) setTimeout(() => ble.wanted === want && connectBle(want), CONNECT_MS);
+    }
+  } else if (ble.wanted && !machine.typing) {
+    ble.wanted = null;
+    releaseBle(0);
+  }
+}
+function randomAddr() {
+  return [...randomBytes(6)].map((b) => b.toString(16).padStart(2, '0').toUpperCase()).join(':');
+}
+function blePair(name) {
+  if (!pairing() || ble.bonds.length >= MAX_BONDS) return false;
+  const addr = randomAddr();
+  ble.bonds.push({ addr, name, lastSeen: nowSec() });
+  ble.connected = addr;
+  ble.pairingUntil = 0; // one approval, one pairing
+  releaseBle(LINGER_MS);
+  return true;
+}
 let settings = defaultSettings();
 let vault = null; // { passphrase, entries: Map<id, Entry> } once initialized
 let unlocked = false;
@@ -82,15 +145,19 @@ const machine = {
 function expire(now = Date.now()) {
   const s = machine.slot;
   if (!s || now < s.deadline) return;
-  if (s.kind === 'type') machine.last = { ok: false, code: 'expired', at: s.deadline, title: s.req.title, what: s.req.what };
-  else machine.opResult = { op: s.op, code: 'expired', at: s.deadline };
+  if (s.kind === 'type') {
+    // A Bluetooth host that never connected is the better explanation.
+    const code = s.req.target.kind === 'ble' && ble.connected !== s.req.target.addr ? 'no_host' : 'expired';
+    machine.last = { ok: false, code, at: s.deadline, title: s.req.title, what: s.req.what };
+  } else machine.opResult = { op: s.op, code: 'expired', at: s.deadline };
   machine.slot = null;
 }
 
 function arm(req) {
   machine.slot = { kind: 'type', req, deadline: Date.now() + EXPIRY_MS };
+  syncDemand();
   autoPress(machine.slot);
-  return { ...req, expiresIn: EXPIRY_MS };
+  return { ...req, target: targetText(req.target), expiresIn: EXPIRY_MS };
 }
 
 /** awaitPresence replaces the slot; tryAwaitPresence (no session) never displaces anything. */
@@ -113,7 +180,7 @@ function dropSessionItems() {
   if (s.kind === 'type') {
     machine.last = { ok: false, code: 'cancelled', at: Date.now(), title: s.req.title, what: s.req.what };
     machine.slot = null;
-  } else if (s.op === 'wifi' || s.op === 'restore' || s.op === 'home_wifi') {
+  } else if (s.op === 'wifi' || s.op === 'restore' || s.op === 'home_wifi' || s.op === 'ble_pair') {
     machine.opResult = { op: s.op, code: 'cancelled', at: Date.now() };
     machine.slot = null;
   }
@@ -123,10 +190,12 @@ function lockAll() {
   unlocked = false;
   sessions.clear();
   dropSessionItems();
+  ble.pairingUntil = 0;
 }
 
 function press(kind) {
   expire();
+  syncDemand();
   const s = machine.slot;
   lastActivity = Date.now(); // button use counts as activity, like the firmware
   if (kind === 'short') {
@@ -145,17 +214,23 @@ function press(kind) {
       }, 300);
       return `approved ${s.op}`;
     }
+    const t = s?.kind === 'type' ? s.req.target : null;
+    if (t?.kind === 'ble' && ble.connected !== t.addr) return 'connecting (blink)'; // stays armed
     if (s?.kind === 'type' && !machine.typing) {
       machine.slot = null;
       machine.typing = true;
+      ble.wanted = null; // the job owns the link now
       const text = typedText(s.req);
       setTimeout(() => {
         machine.typing = false;
         let code = 'typed';
-        if (!host.usb) code = 'no_usb';
+        if (t.kind === 'none') code = 'no_host';
+        else if (t.kind === 'usb' && !host.usb) code = 'no_usb';
+        else if (t.kind === 'ble' && ble.connected !== t.addr) code = 'no_host';
         else if (text === null) code = 'failed';
         else if (/[^\x20-\x7e\t\n]/.test(text)) code = 'unsupported_char';
         machine.last = { ok: code === 'typed', code, at: Date.now(), title: s.req.title, what: s.req.what };
+        if (t.kind === 'ble') releaseBle(LINGER_MS);
         const e = vault?.entries.get(s.req.id);
         if (code === 'typed' && e) e.lastUsed = nowSec();
       }, 250 + Math.min(1500, (text?.length ?? 0) * settings.keyDelayMs));
@@ -416,6 +491,7 @@ function seed() {
 if (!FRESH) {
   vault = { passphrase: DEMO_PASSPHRASE, entries: seed() };
   settings.wifiPassword = 'Tigris-42-Kx9p';
+  if (process.env.MOCK_BLE !== '0') ble.bonds.push({ addr: 'F0:2B:7C:41:9A:D3', name: 'MacBook Air', lastSeen: nowSec() - 86400 * 2 });
 }
 
 // ---------- HTTP plumbing ----------
@@ -547,6 +623,13 @@ function match(method, path) {
     case 'wifi/scan': return one('GET', 'wifiScan');
     case 'wifi/home': return one('PUT', 'wifiHome');
     case 'trusted': return one('GET', 'trusted');
+    case 'ble': return one('GET', 'ble');
+    case 'ble/pair': return one('POST', 'blePair');
+  }
+  const bond = /^ble\/bonds\/(.*)$/.exec(p);
+  if (bond) {
+    if (!/^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/.test(bond[1])) return null;
+    return method === 'DELETE' ? { route: 'bleForget', addr: bond[1].toUpperCase() } : { notAllowed: true };
   }
   const tr = /^trusted\/([0-9]{1,10})$/.exec(p);
   if (tr) return Number(tr[1]) > 0 && Number(tr[1]) <= 0xffffffff ? (method === 'DELETE' ? { route: 'untrust', id: Number(tr[1]) } : { notAllowed: true }) : null;
@@ -585,6 +668,7 @@ async function api(req, res, path) {
   if (method !== 'GET' && !originAllowed(req)) fail(403, 'csrf', 'Cross-origin request refused');
 
   expire();
+  syncDemand();
   if (unlocked && Date.now() - lastActivity > settings.autoLockMin * 60000) {
     console.log('[mock] idle auto-lock');
     lockAll();
@@ -620,10 +704,22 @@ async function api(req, res, path) {
         unlocked,
         session,
         autoLockMin: settings.autoLockMin,
-        host,
+        host: (() => {
+          const next = pickTarget();
+          const armed = session && s?.kind === 'type' && s.req.target.kind === 'ble' ? s.req.target.addr : null;
+          const bond = ble.bonds.find((b) => b.addr === armed);
+          return {
+            usb: host.usb,
+            ble: bleReady(),
+            capsLock: host.capsLock,
+            output: next.kind === 'none' ? null : next.kind,
+            bleTarget: bond ? { addr: bond.addr, name: bond.name } : null,
+            connecting: !!armed && ble.connected !== armed,
+          };
+        })(),
         pending:
           session && s?.kind === 'type'
-            ? { kind: 'type', id: s.req.id, title: s.req.title, what: s.req.what, submit: s.req.submit, expiresIn: s.deadline - Date.now() }
+            ? { kind: 'type', id: s.req.id, title: s.req.title, what: s.req.what, submit: s.req.submit, expiresIn: s.deadline - Date.now(), target: targetText(s.req.target) }
             : null,
         last: session && machine.last ? { ...machine.last, at: Date.now() - machine.last.at } : null,
         presence: {
@@ -790,7 +886,17 @@ async function api(req, res, path) {
 
     case 'type': {
       if (b.test !== undefined && typeof b.test !== 'boolean') bad('"test" must be a boolean');
-      if (b.test) return send(res, 202, { pending: { kind: 'type', ...arm({ id: 0, title: 'Keyra test', what: 'test', submit: false }) } });
+      let target = pickTarget();
+      if (b.target !== undefined) {
+        if (b.target === 'usb') target = { kind: 'usb' };
+        else if (typeof b.target === 'string' && /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/.test(b.target)) {
+          if (!settings.bleEnabled) fail(409, 'ble_disabled', 'Bluetooth is turned off');
+          const addr = b.target.toUpperCase();
+          if (!ble.bonds.some((x) => x.addr === addr)) fail(404, 'not_found', 'No such device');
+          target = { kind: 'ble', addr };
+        } else bad('"target" must be "usb" or a device address');
+      }
+      if (b.test) return send(res, 202, { pending: { kind: 'type', ...arm({ id: 0, title: 'Keyra test', what: 'test', submit: false, target }) } });
       if (!Number.isInteger(b.id) || b.id < 1 || b.id > 0xffffffff) bad('"id" (entry id) is required');
       if (!['username', 'password', 'both', 'totp'].includes(b.what)) bad('"what" must be username, password, both or totp');
       if (b.submit !== undefined && typeof b.submit !== 'boolean') bad('"submit" must be a boolean');
@@ -803,7 +909,7 @@ async function api(req, res, path) {
         (b.what === 'totp' && !e.totp);
       if (missing) bad('Entry has no value for that field');
       if (b.what === 'totp' && !timeValid) fail(409, 'no_time', 'Device clock is not set');
-      return send(res, 202, { pending: { kind: 'type', ...arm({ id: e.id, title: e.title, what: b.what, submit }) } });
+      return send(res, 202, { pending: { kind: 'type', ...arm({ id: e.id, title: e.title, what: b.what, submit, target }) } });
     }
 
     case 'typeCancel': {
@@ -811,6 +917,7 @@ async function api(req, res, path) {
       if (s?.kind === 'type') {
         machine.last = { ok: false, code: 'cancelled', at: Date.now(), title: s.req.title, what: s.req.what };
         machine.slot = null;
+        syncDemand();
       }
       return send(res, 204);
     }
@@ -832,6 +939,18 @@ async function api(req, res, path) {
       int('autoLockMin', 1, 120, 'autoLockMin must be 1-120');
       int('keyDelayMs', 1, 100, 'keyDelayMs must be 1-100');
       int('ledBrightness', 0, 100, 'ledBrightness must be 0-100');
+      if (b.bleEnabled !== undefined) {
+        if (typeof b.bleEnabled !== 'boolean') bad('bleEnabled must be a boolean');
+        next.bleEnabled = b.bleEnabled;
+      }
+      if (b.output !== undefined) {
+        if (!['auto', 'usb', 'ble'].includes(b.output)) bad('output must be "auto", "usb" or "ble"');
+        next.output = b.output;
+      }
+      if (b.bleConnect !== undefined) {
+        if (!['on_demand', 'always'].includes(b.bleConnect)) bad('bleConnect must be "on_demand" or "always"');
+        next.bleConnect = b.bleConnect;
+      }
       if (b.bothSeparator !== undefined) {
         if (b.bothSeparator !== 'tab' && b.bothSeparator !== 'enter') bad('bothSeparator must be "tab" or "enter"');
         next.bothSeparator = b.bothSeparator;
@@ -962,6 +1081,7 @@ async function api(req, res, path) {
           lockAll();
           vault = null;
           settings = defaultSettings();
+          Object.assign(ble, { pairingUntil: 0, bonds: [], connected: null, wanted: null });
           trusted.clear();
           applyHome();
           failures = 0;
@@ -972,6 +1092,38 @@ async function api(req, res, path) {
         { tryOnly: true },
       );
       return exp === null ? busy409() : awaiting(res, exp);
+    }
+
+    case 'ble': {
+      const peer = (b) => ({ addr: b.addr, name: b.name });
+      const live = ble.bonds.find((x) => x.addr === ble.connected);
+      return send(res, 200, {
+        enabled: settings.bleEnabled,
+        pairing: { active: pairing(), expiresIn: pairing() ? ble.pairingUntil - Date.now() : 0 },
+        connected: settings.bleEnabled && live ? peer(live) : null,
+        bonds: ble.bonds.map((b) => ({ ...peer(b), lastSeen: b.lastSeen })),
+      });
+    }
+
+    case 'blePair': {
+      if (!settings.bleEnabled) fail(409, 'ble_disabled', 'Bluetooth is turned off');
+      if (ble.bonds.length >= MAX_BONDS) fail(409, 'bonds_full', 'Keyra already knows 4 devices; forget one first');
+      return awaiting(
+        res,
+        awaitPresence('ble_pair', () => {
+          ble.pairingUntil = Date.now() + PAIR_WINDOW_MS;
+          console.log('[mock] Bluetooth pairing window open for 120 s');
+          if (AUTO_BUTTON) setTimeout(() => blePair("Hasan's iPad"), 2000);
+        }),
+      );
+    }
+
+    case 'bleForget': {
+      const i = ble.bonds.findIndex((x) => x.addr === m.addr);
+      if (i < 0) fail(404, 'not_found', 'No such device');
+      if (ble.connected === m.addr) ble.connected = null;
+      ble.bonds.splice(i, 1);
+      return send(res, 204);
     }
   }
   return fail(404, 'not_found', 'No such endpoint');
@@ -985,6 +1137,9 @@ const publicSettings = () => ({
   bothSeparator: settings.bothSeparator,
   submitAfterBoth: settings.submitAfterBoth,
   ledBrightness: settings.ledBrightness,
+  bleEnabled: settings.bleEnabled,
+  output: settings.output,
+  bleConnect: settings.bleConnect,
   homeWifi: { enabled: settings.homeWifi.enabled, ssid: settings.homeWifi.ssid },
   apMode: settings.apMode,
 });
@@ -1046,11 +1201,24 @@ async function mockControl(req, res, path) {
     console.log(`[mock] button ${b.press}: ${what}`);
     return send(res, 200, { result: what });
   }
+  if (path === '/__mock/ble' && typeof b.pair === 'string') {
+    const ok = blePair(b.pair);
+    return send(res, ok ? 200 : 409, { paired: ok });
+  }
+  if (path === '/__mock/ble' && typeof b.connected === 'boolean') {
+    if (b.connected) connectBle(ble.wanted ?? ble.bonds[0]?.addr);
+    else ble.connected = null;
+    return send(res, 200, { connected: ble.connected });
+  }
+  if (path === '/__mock/ble' && typeof b.autoConnect === 'boolean') {
+    ble.autoConnect = b.autoConnect;
+    return send(res, 200, { autoConnect: ble.autoConnect });
+  }
   if (path === '/__mock/usb' && typeof b.usb === 'boolean') {
     host.usb = b.usb;
     return send(res, 200, { usb: host.usb });
   }
-  return send(res, 400, { error: 'invalid', message: 'POST /__mock/button {press:"short"|"long"} or /__mock/usb {usb:boolean}' });
+  return send(res, 400, { error: 'invalid', message: 'POST /__mock/button {press}, /__mock/usb {usb}, /__mock/ble {pair|connected}' });
 }
 
 // ---------- server ----------

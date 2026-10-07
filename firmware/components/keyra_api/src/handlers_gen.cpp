@@ -63,33 +63,27 @@ esp_err_t postGenerate(httpd_req_t* r, const cJSON* b) {
   return http::sendJson(r, http::k200, o.get());
 }
 
-esp_err_t postTypeText(httpd_req_t* r, const cJSON* b) {
+bool textRequest(httpd_req_t* r, const cJSON* b, const Target& target, actions::TypeRequest& out, esp_err_t& err) {
+  auto fail = [&](const char* message) {
+    err = badRequest(r, message);
+    return false;
+  };
   for (const char* other : {"id", "what", "test", "submit"}) {
-    if (cJSON_HasObjectItem(b, other)) return badRequest(r, "\"text\" cannot be combined with id, what, test or submit");
+    if (cJSON_HasObjectItem(b, other)) return fail("\"text\" cannot be combined with id, what, test or submit");
   }
   auto text = std::make_shared<actions::FreeText>();  // wiped when the last holder drops it
-  if (json::getString(b, "text", text->text) != Field::Ok) return badRequest(r, "\"text\" (string) is required");
+  if (json::getString(b, "text", text->text) != Field::Ok) return fail("\"text\" (string) is required");
   if (!validate::typeText(text->text))
-    return badRequest(r, "text must be 1-256 characters Keyra can type (printable ASCII, no control characters)");
+    return fail("text must be 1-256 characters Keyra can type (printable ASCII, no control characters)");
   int64_t repeat = 1;
-  if (json::getInt(b, "repeat", 1, 2, repeat) == Field::BadType) return badRequest(r, "repeat must be 1 or 2");
+  if (json::getInt(b, "repeat", 1, 2, repeat) == Field::BadType) return fail("repeat must be 1 or 2");
   std::string sep = "tab";
-  Field f;
-  if ((f = json::getString(b, "separator", sep)) == Field::BadType || (sep != "tab" && sep != "enter"))
-    return badRequest(r, "separator must be \"tab\" or \"enter\"");
+  if (json::getString(b, "separator", sep) == Field::BadType || (sep != "tab" && sep != "enter"))
+    return fail("separator must be \"tab\" or \"enter\"");
   text->twice = repeat == 2;
   text->enterBetween = sep == "enter";
-
-  const actions::Pending p = machine().arm({0, std::string(), actions::What::Text, false, std::move(text)});
-  json::Ptr o(cJSON_CreateObject());
-  cJSON* po = cJSON_AddObjectToObject(o.get(), "pending");
-  cJSON_AddStringToObject(po, "kind", "type");
-  cJSON_AddNumberToObject(po, "id", 0);
-  cJSON_AddNullToObject(po, "title");
-  cJSON_AddStringToObject(po, "what", actions::whatName(actions::What::Text));
-  cJSON_AddBoolToObject(po, "submit", false);
-  cJSON_AddNumberToObject(po, "expiresIn", static_cast<double>(p.expiresInMs));
-  return http::sendJson(r, http::k202, o.get());
+  out = {0, std::string(), actions::What::Text, false, target, std::move(text)};
+  return true;
 }
 
 void addTitle(cJSON* o, actions::What what, const std::string& title) {
