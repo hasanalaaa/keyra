@@ -35,7 +35,45 @@ bool equalsIgnoreCase(std::string_view a, std::string_view b) {
 
 }  // namespace
 
+bool percentDecode(std::string_view in, std::string& out) {
+  out.clear();
+  out.reserve(in.size());
+  auto hex = [](char c) -> int {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+  };
+  for (size_t i = 0; i < in.size(); ++i) {
+    if (in[i] != '%') {
+      out.push_back(in[i]);
+      continue;
+    }
+    if (i + 2 >= in.size()) return false;
+    const int hi = hex(in[i + 1]), lo = hex(in[i + 2]);
+    if (hi < 0 || lo < 0) return false;
+    const char c = static_cast<char>(hi * 16 + lo);
+    // An encoded separator or NUL would let one path pose as another.
+    if (c == '\0' || c == '/') return false;
+    out.push_back(c);
+    i += 2;
+  }
+  return true;
+}
+
+namespace {
+Match matchDecoded(Method m, std::string_view path);
+}  // namespace
+
 Match matchApi(Method m, std::string_view path) {
+  if (path.find('%') == std::string_view::npos) return matchDecoded(m, path);
+  std::string decoded;
+  if (!percentDecode(path, decoded)) return {};
+  return matchDecoded(m, decoded);
+}
+
+namespace {
+Match matchDecoded(Method m, std::string_view path) {
   constexpr std::string_view kPrefix = "/api/";
   if (path.substr(0, kPrefix.size()) != kPrefix) return {};
   const std::string_view p = path.substr(kPrefix.size());
@@ -115,6 +153,8 @@ Match matchApi(Method m, std::string_view path) {
   if (m == Method::Delete) return found(Route::DeleteEntry, id);
   return notAllowed();
 }
+
+}  // namespace
 
 bool needsSession(Route r) {
   return r != Route::State && r != Route::Setup && r != Route::Unlock && r != Route::UnlockRecovery &&

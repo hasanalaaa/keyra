@@ -111,6 +111,12 @@ All notable changes to Keyra are documented here. The format follows
 
 ### Fixed
 
+- Choosing a Bluetooth device's system and forgetting a device both failed
+  with "Something went wrong": the app percent-encoded the address
+  (`A4%3AC1…`) and the firmware matched paths literally. The app now sends the
+  address as is, and the firmware decodes `%XX` before routing (malformed
+  escapes and encoded `/` or NUL never match). The mock server does the same,
+  so it can no longer hide this.
 - Bluetooth dropped every 30 s: when a bonded host re-encrypts by itself,
   NimBLE reports the encryption (and the restored subscriptions) before the
   connection. Keyra then asked an already encrypted link to encrypt again, got

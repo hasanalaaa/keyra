@@ -707,7 +707,16 @@ function applyHome() {
 
 // ---------- routes (routes.cpp matchApi) ----------
 
-function match(method, path) {
+// Like percentDecode() in routes.cpp: %XX decoded; malformed, NUL or '/' → no match.
+function decodePath(path) {
+  if (!path.includes('%')) return path;
+  if (/%(?![0-9A-Fa-f]{2})/.test(path) || /%(00|2[Ff])/.test(path)) return null;
+  return path.replace(/%([0-9A-Fa-f]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+}
+
+function match(method, rawPath) {
+  const path = decodePath(rawPath);
+  if (path === null) return null;
   const p = path.slice('/api/'.length);
   const one = (want, route) => (method === want ? { route } : { notAllowed: true });
   switch (p) {

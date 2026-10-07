@@ -163,8 +163,8 @@ export const api = {
   factoryReset: () => json<Awaiting>('POST', '/factory-reset'),
   ble: () => json<BleInfo>('GET', '/ble'),
   blePair: () => json<Awaiting>('POST', '/ble/pair'),
-  bleForget: (addr: string) => json<void>('DELETE', `/ble/bonds/${encodeURIComponent(addr)}`),
-  bleSetOs: (addr: string, os: HostOs) => json<void>('PUT', `/ble/bonds/${encodeURIComponent(addr)}`, { os }),
+  bleForget: (addr: string) => json<void>('DELETE', `/ble/bonds/${addr}`),
+  bleSetOs: (addr: string, os: HostOs) => json<void>('PUT', `/ble/bonds/${addr}`, { os }),
   /** Blocks a few seconds on the device while the radio scans. */
   wifiScan: async () => (await json<{ networks: Network[] }>('GET', '/wifi/scan', undefined, 45000)).networks,
   putHomeWifi: (b: { enabled: boolean; ssid?: string; password?: string }) => json<Awaiting>('PUT', '/wifi/home', b),

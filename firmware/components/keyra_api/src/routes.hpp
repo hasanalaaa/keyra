@@ -4,6 +4,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <string_view>
 
 namespace keyra::api {
@@ -30,7 +31,11 @@ struct Match {
 };
 
 // `path` is the URI path without query string, e.g. "/api/entries/42/totp".
+// Percent-escapes are decoded first (browsers may send "A4%3AC1…" for a bond
+// address); a malformed escape or an encoded NUL or '/' is NotFound.
 Match matchApi(Method m, std::string_view path);
+// "%3A" → ':'. False on a malformed escape or a decoded NUL or '/'.
+bool percentDecode(std::string_view in, std::string& out);
 bool needsSession(Route r);
 bool needsCsrf(Method m, Route r);
 

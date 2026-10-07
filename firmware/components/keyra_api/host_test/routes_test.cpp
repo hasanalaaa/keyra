@@ -66,6 +66,20 @@ void apiRoutes() {
   CHECK(is(os, Route::BleSetOs));
   CHECK(os.addr == fg.addr);
   CHECK(matchApi(Method::Put, "/api/ble/bonds/nope").kind == K::NotFound);
+  // Browsers may percent-encode the colons (encodeURIComponent): same route.
+  const Match enc = matchApi(Method::Put, "/api/ble/bonds/A4%3AC1%3A38%3A0B%3A7F%3A3A");
+  CHECK(is(enc, Route::BleSetOs) && enc.addr == fg.addr);
+  CHECK(is(matchApi(Method::Delete, "/api/ble/bonds/a4%3ac1%3a38%3a0b%3a7f%3a3a"), Route::BleForget));
+  CHECK(is(matchApi(Method::Get, "/api/%73tate"), Route::State));
+  // Malformed escapes, an encoded '/' or NUL never match anything.
+  CHECK(matchApi(Method::Get, "/api/state%").kind == K::NotFound);
+  CHECK(matchApi(Method::Get, "/api/state%4").kind == K::NotFound);
+  CHECK(matchApi(Method::Get, "/api/state%zz").kind == K::NotFound);
+  CHECK(matchApi(Method::Delete, "/api/ble%2Fbonds%2FA4:C1:38:0B:7F:3A").kind == K::NotFound);
+  CHECK(matchApi(Method::Get, "/api/state%00").kind == K::NotFound);
+  std::string out;
+  CHECK(percentDecode("a%20b%3A", out) && out == "a b:");
+  CHECK(!percentDecode("%2f", out));
   CHECK(matchApi(Method::Get, "/api/ble/bonds/A4:C1:38:0B:7F:3A").kind == K::MethodNotAllowed);
   CHECK(matchApi(Method::Delete, "/api/ble/bonds/A4:C1:38:0B:7F").kind == K::NotFound);
   CHECK(matchApi(Method::Delete, "/api/ble/bonds/").kind == K::NotFound);
