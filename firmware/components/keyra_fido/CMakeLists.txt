@@ -2,6 +2,7 @@
 # src/core is plain C++ (host-tested in host_test/); src/esp is the device wiring.
 idf_component_register(
   SRCS
+    "src/core/attest.cpp"
     "src/core/cbor.cpp"
     "src/core/ctap.cpp"
     "src/core/ctaphid.cpp"

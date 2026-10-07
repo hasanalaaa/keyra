@@ -74,8 +74,9 @@ struct Rig {
   OpenSslCrypto crypto;
   MemStore store;
   MemCounter counter;
+  MemAttestation attestation;
   TouchGate gate;
-  Device dev{link, crypto, store, counter, gate, {0, 1, 0}};
+  Device dev{link, crypto, store, counter, attestation, gate, {0, 1, 0}};
   uint32_t cid = 0;
 
   Rig() {

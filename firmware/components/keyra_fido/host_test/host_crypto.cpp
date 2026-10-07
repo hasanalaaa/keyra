@@ -13,6 +13,7 @@
 #include <openssl/rand.h>
 #include <openssl/sha.h>
 #include <openssl/x509.h>
+#include <openssl/x509v3.h>
 
 #include <cstring>
 
@@ -102,6 +103,17 @@ bool verifyEs256(const uint8_t pub[65], const std::vector<uint8_t>& msg, const s
   EVP_PKEY_CTX_free(ctx);
   OSSL_PARAM_free(params);
   OSSL_PARAM_BLD_free(b);
+  return ok;
+}
+
+bool selfSignedCertOk(const std::vector<uint8_t>& certDer) {
+  const uint8_t* p = certDer.data();
+  X509* x = d2i_X509(nullptr, &p, static_cast<long>(certDer.size()));
+  EVP_PKEY* key = x ? X509_get_pubkey(x) : nullptr;
+  const bool ok = key && p == certDer.data() + certDer.size() && X509_verify(x, key) == 1 &&
+                  X509_check_issued(x, x) == X509_V_OK;
+  EVP_PKEY_free(key);
+  X509_free(x);
   return ok;
 }
 

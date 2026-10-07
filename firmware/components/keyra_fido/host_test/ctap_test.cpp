@@ -6,7 +6,6 @@
 
 #include "core/cbor.hpp"
 #include "core/ctap.hpp"
-#include "core/u2f_attestation.hpp"
 #include "fakes.hpp"
 #include "host_crypto.hpp"
 #include "keyra_test.hpp"
@@ -29,7 +28,8 @@ struct Rig {
   MemStore store;
   MemCounter counter;
   ScriptUser user;
-  Authenticator auth{crypto, store, counter};
+  MemAttestation attestation;
+  Authenticator auth{crypto, store, counter, attestation};
   Rig() { user.open = &store.open; }
 
   uint8_t call(uint8_t cmd, const Bytes& params, Value& out) {
@@ -447,10 +447,21 @@ void u2fFlows() {
   CHECK(reg[certAt] == 0x30 && reg[certAt + 1] == 0x82);
   const size_t certLen = 4 + (size_t(reg[certAt + 2]) << 8 | reg[certAt + 3]);
   const Bytes cert(reg.begin() + certAt, reg.begin() + certAt + certLen);
-  CHECK(cert == Bytes(std::begin(u2f::kAttestationCert), std::end(u2f::kAttestationCert)));
+  // Per-device attestation: made on first use, self-signed, then reused.
+  CHECK(r.attestation.has && r.attestation.saves == 1 && cert == r.attestation.cert);
+  CHECK(selfSignedCertOk(cert));
   const Bytes regSig(reg.begin() + certAt + certLen, reg.end());
   const Bytes signedReg = cat(cat(cat(cat(Bytes{0}, app), chal), kh), pub);
   CHECK(verifyWithCert(cert, signedReg, regSig));
+
+  Bytes reg2 = r.auth.msg(a.data(), a.size(), r.user);
+  CHECK(sw(reg2) == 0x9000 && r.attestation.saves == 1);
+  CHECK(std::search(reg2.begin(), reg2.end(), cert.begin(), cert.end()) != reg2.end());
+  // A wiped store (factory reset) makes a new key and certificate.
+  r.attestation.has = false;
+  reg2 = r.auth.msg(a.data(), a.size(), r.user);
+  CHECK(sw(reg2) == 0x9000 && r.attestation.saves == 2 && r.attestation.cert != cert);
+  CHECK(selfSignedCertOk(r.attestation.cert));
 
   // AUTHENTICATE: check-only, enforce, don't-enforce.
   const Bytes body = cat(cat(cat(chal, app), Bytes{static_cast<uint8_t>(kh.size())}), kh);

@@ -15,7 +15,9 @@ All notable changes to Keyra are documented here. The format follows
   credentials, up to 50) and U2F/CTAP1. A short press while the LED double-blinks
   white approves, a long press refuses; requests wait up to 30 s for the vault to
   be unlocked. Credential keys are wrapped with a key derived from the vault's
-  data key; passkey records are encrypted vault files. Self attestation, AAGUID
+  data key; passkey records are encrypted vault files. U2F attestation uses a
+  per-device key made on first use with a self-signed certificate built on the
+  device (NVS; new after factory reset). Self attestation, AAGUID
   `b722a2aa-5acc-4835-9c91-5fa93812679d`, not FIDO certified, no ClientPIN yet.
 - Web app: **Settings → Passkeys** lists passkeys (site, account, date added)
   and deletes them (`GET /api/fido`, `DELETE /api/fido/{id}`).

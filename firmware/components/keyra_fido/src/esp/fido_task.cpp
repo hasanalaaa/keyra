@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <cstring>
+#include <vector>
 
 #include "core/device.hpp"
 #include "esp_log.h"
@@ -24,6 +25,8 @@ namespace {
 constexpr const char* TAG = "fido";
 constexpr char kNvsNamespace[] = "keyra_fido";
 constexpr char kNvsCounter[] = "ctr";
+constexpr char kNvsAttKey[] = "att_key";
+constexpr char kNvsAttCert[] = "att_cert";
 // Requests are at most maxMsgSize (1200 B, getInfo) = 22 reports; hosts send
 // one per 5 ms poll, the task drains them in microseconds unless it is signing.
 constexpr int kQueueDepth = 32;
@@ -93,12 +96,43 @@ class NvsCounter final : public Counter {
   }
 };
 
+// This Keyra's U2F attestation key and self-signed certificate (core/attest.hpp).
+// Plain NVS: the key attests nothing beyond "this Keyra" and signs nothing a
+// relying party trusts for security, so it is not wrapped by the vault.
+class NvsAttestation final : public AttestationStore {
+ public:
+  bool load(uint8_t priv[32], std::vector<uint8_t>& cert) override {
+    nvs_handle_t h;
+    if (nvs_open(kNvsNamespace, NVS_READONLY, &h) != ESP_OK) return false;
+    size_t keyLen = 32, certLen = 0;
+    bool ok = nvs_get_blob(h, kNvsAttKey, priv, &keyLen) == ESP_OK && keyLen == 32 &&
+              nvs_get_blob(h, kNvsAttCert, nullptr, &certLen) == ESP_OK && certLen > 0 && certLen <= 1024;
+    if (ok) {
+      cert.resize(certLen);
+      ok = nvs_get_blob(h, kNvsAttCert, cert.data(), &certLen) == ESP_OK;
+    }
+    nvs_close(h);
+    return ok;
+  }
+  bool save(const uint8_t priv[32], const std::vector<uint8_t>& cert) override {
+    nvs_handle_t h;
+    if (nvs_open(kNvsNamespace, NVS_READWRITE, &h) != ESP_OK) return false;
+    esp_err_t err = nvs_set_blob(h, kNvsAttKey, priv, 32);
+    if (err == ESP_OK) err = nvs_set_blob(h, kNvsAttCert, cert.data(), cert.size());
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    if (err != ESP_OK) ESP_LOGE(TAG, "attestation: %s", esp_err_to_name(err));
+    return err == ESP_OK;
+  }
+};
+
 void fidoTask(void*) {
   static UsbLink link;
   static esp::PsaCrypto crypto;
   static VaultStore store;
   static NvsCounter counter;
-  static Device device(link, crypto, store, counter, s_gate, {0, 1, 0});
+  static NvsAttestation attestation;
+  static Device device(link, crypto, store, counter, attestation, s_gate, {0, 1, 0});
   for (;;) device.step(50);
 }
 
@@ -121,5 +155,16 @@ bool awaitingTouch() { return s_gate.awaiting(); }
 bool ledActive() { return s_gate.awaiting() || monoMs() < UsbLink::s_winkUntil.load(); }
 
 void press(bool shortPress) { s_gate.press(shortPress, monoMs()); }
+
+bool forgetAttestation() {
+  nvs_handle_t h;
+  if (nvs_open(kNvsNamespace, NVS_READWRITE, &h) != ESP_OK) return false;
+  esp_err_t a = nvs_erase_key(h, kNvsAttKey), b = nvs_erase_key(h, kNvsAttCert);
+  if (a == ESP_ERR_NVS_NOT_FOUND) a = ESP_OK;
+  if (b == ESP_ERR_NVS_NOT_FOUND) b = ESP_OK;
+  const esp_err_t c = a == ESP_OK && b == ESP_OK ? nvs_commit(h) : ESP_FAIL;
+  nvs_close(h);
+  return c == ESP_OK;
+}
 
 }  // namespace keyra::fido

@@ -7,7 +7,6 @@
 #include <cstring>
 
 #include "cbor.hpp"
-#include "u2f_attestation.hpp"
 
 namespace keyra::fido {
 namespace {
@@ -83,25 +82,6 @@ void writeCose(cbor::Writer& w, const uint8_t pub[65]) {
 }
 
 }  // namespace
-
-std::vector<uint8_t> derSignature(const uint8_t sig[64]) {
-  auto integer = [](const uint8_t* x) {
-    size_t i = 0;
-    while (i < 31 && x[i] == 0) ++i;  // minimal encoding
-    std::vector<uint8_t> v;
-    v.push_back(0x02);
-    const bool pad = (x[i] & 0x80) != 0;  // keep it positive
-    v.push_back(static_cast<uint8_t>(32 - i + (pad ? 1 : 0)));
-    if (pad) v.push_back(0);
-    v.insert(v.end(), x + i, x + 32);
-    return v;
-  };
-  const auto r = integer(sig), s = integer(sig + 32);
-  std::vector<uint8_t> out{0x30, static_cast<uint8_t>(r.size() + s.size())};
-  out.insert(out.end(), r.begin(), r.end());
-  out.insert(out.end(), s.begin(), s.end());
-  return out;
-}
 
 std::vector<uint8_t> Authenticator::cbor(const uint8_t* req, size_t n, User& user, int64_t now) {
   std::vector<uint8_t> body;
@@ -544,15 +524,19 @@ uint16_t Authenticator::u2fRegister(const uint8_t* body, User& user, std::vector
   signed_.insert(signed_.end(), challenge, challenge + 32);
   signed_.insert(signed_.end(), kh, kh + sizeof kh);
   signed_.insert(signed_.end(), pub, pub + 65);
-  uint8_t sig[64];
-  if (!crypto_.p256Sign(u2f::kAttestationKey, signed_.data(), signed_.size(), sig)) return u2f::kSwOther;
+  uint8_t attKey[32], sig[64];
+  std::vector<uint8_t> cert;
+  ok = attest::get(crypto_, attestation_, attKey, cert) &&
+       crypto_.p256Sign(attKey, signed_.data(), signed_.size(), sig);
+  std::memset(attKey, 0, sizeof attKey);
+  if (!ok) return u2f::kSwOther;
   const auto der = derSignature(sig);
 
   out.push_back(0x05);
   out.insert(out.end(), pub, pub + 65);
   out.push_back(static_cast<uint8_t>(sizeof kh));
   out.insert(out.end(), kh, kh + sizeof kh);
-  out.insert(out.end(), std::begin(u2f::kAttestationCert), std::end(u2f::kAttestationCert));
+  out.insert(out.end(), cert.begin(), cert.end());
   out.insert(out.end(), der.begin(), der.end());
   return u2f::kSwOk;
 }

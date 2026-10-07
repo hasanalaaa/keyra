@@ -9,7 +9,7 @@ find_package(OpenSSL 3 REQUIRED)
 
 set(FIDO ${CMAKE_CURRENT_SOURCE_DIR}/..)
 add_library(keyra_fido_core STATIC
-  ${FIDO}/src/core/cbor.cpp ${FIDO}/src/core/ctaphid.cpp ${FIDO}/src/core/ctap.cpp ${FIDO}/src/core/cred.cpp
+  ${FIDO}/src/core/attest.cpp ${FIDO}/src/core/cbor.cpp ${FIDO}/src/core/ctaphid.cpp ${FIDO}/src/core/ctap.cpp ${FIDO}/src/core/cred.cpp
   ${FIDO}/src/core/touch.cpp ${FIDO}/src/core/device.cpp host_crypto.cpp)
 target_include_directories(keyra_fido_core PUBLIC ${FIDO}/src ${FIDO}/include ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_options(keyra_fido_core PUBLIC -Wall -Wextra -Werror)

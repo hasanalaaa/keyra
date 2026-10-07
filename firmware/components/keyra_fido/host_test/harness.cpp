@@ -1,6 +1,6 @@
 // The FIDO core as a process: 64-byte HID reports on stdin → reports on
 // stdout. Passkeys go into the real vault core (host platform, in RAM),
-// crypto is OpenSSL, and the "button" is pressed automatically
+// crypto is OpenSSL, the U2F attestation key is made on first use, and the "button" is pressed automatically
 // KEYRA_HARNESS_PRESS_MS (default 300) after a request starts waiting, so
 // hosts see real keepalives. tools/fido_harness.py drives it with python-fido2.
 #include <poll.h>
@@ -12,6 +12,7 @@
 #include <ctime>
 
 #include "core/device.hpp"
+#include "fakes.hpp"
 #include "host_crypto.hpp"
 #include "keyra/vault.hpp"
 #include "vault_store.hpp"
@@ -88,6 +89,7 @@ int main() {
   test::OpenSslCrypto crypto;
   VaultStore store;
   MemCounter counter;
-  Device dev(link, crypto, store, counter, gate, {0, 1, 0});
+  test::MemAttestation attestation;  // a fresh attestation key per run
+  Device dev(link, crypto, store, counter, attestation, gate, {0, 1, 0});
   for (;;) dev.step(50);
 }

@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "attest.hpp"
 #include "cred.hpp"
 #include "platform.hpp"
 
@@ -36,12 +37,10 @@ constexpr uint16_t kSwOk = 0x9000, kSwConditions = 0x6985, kSwWrongData = 0x6A80
                    kSwIns = 0x6D00, kSwCla = 0x6E00, kSwOther = 0x6F00;
 }  // namespace u2f
 
-// DER ECDSA-Sig-Value from r || s.
-std::vector<uint8_t> derSignature(const uint8_t sig[64]);
-
 class Authenticator {
  public:
-  Authenticator(Crypto& c, Store& s, Counter& n) : crypto_(c), store_(s), counter_(n) {}
+  Authenticator(Crypto& c, Store& s, Counter& n, AttestationStore& a)
+      : crypto_(c), store_(s), counter_(n), attestation_(a) {}
 
   // CTAPHID_CBOR: command byte + CBOR → status byte + CBOR.
   std::vector<uint8_t> cbor(const uint8_t* req, size_t n, User& user, int64_t nowMs);
@@ -86,6 +85,7 @@ class Authenticator {
   Crypto& crypto_;
   Store& store_;
   Counter& counter_;
+  AttestationStore& attestation_;
   Next next_;
 };
 

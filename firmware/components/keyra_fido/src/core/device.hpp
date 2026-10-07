@@ -28,7 +28,8 @@ class Link {
 
 class Device final : public User {
  public:
-  Device(Link& link, Crypto& c, Store& s, Counter& n, TouchGate& gate, hid::Ctaphid::Version v);
+  Device(Link& link, Crypto& c, Store& s, Counter& n, AttestationStore& a, TouchGate& gate,
+         hid::Ctaphid::Version v);
 
   void step(uint32_t waitMs);  // handle at most one incoming report
 

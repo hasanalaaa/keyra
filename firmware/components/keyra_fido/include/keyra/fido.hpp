@@ -17,6 +17,10 @@ bool awaitingTouch();
 void press(bool shortPress);
 bool ledActive();  // awaitingTouch(), or a host WINK in the last 1.5 s
 
+// Factory reset: drops this Keyra's U2F attestation key and certificate; a new
+// pair is made on the next U2F registration. The signature counter stays.
+bool forgetAttestation();
+
 // Discoverable credentials for Settings → Passkeys (vault must be unlocked).
 struct Passkey {
   uint32_t id = 0;  // vault record id

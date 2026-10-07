@@ -4,12 +4,13 @@
 
 namespace keyra::fido {
 
-Device::Device(Link& link, Crypto& c, Store& s, Counter& n, TouchGate& gate, hid::Ctaphid::Version v)
+Device::Device(Link& link, Crypto& c, Store& s, Counter& n, AttestationStore& a, TouchGate& gate,
+               hid::Ctaphid::Version v)
     : link_(link),
       store_(s),
       gate_(gate),
       hid_([&link](const uint8_t* p) { link.send(p); }, v, [&link] { link.wink(); }),
-      auth_(c, s, n) {}
+      auth_(c, s, n, a) {}
 
 void Device::step(uint32_t waitMs) {
   uint8_t pkt[hid::kPacket];

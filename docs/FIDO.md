@@ -31,7 +31,7 @@ answered "conditions not satisfied" so the browser keeps retrying.
 | CTAP1 / U2F | `REGISTER`, `AUTHENTICATE` (check-only, enforce, don't-enforce), `VERSION`. U2F credentials also work through CTAP2 (the WebAuthn `appid` extension). |
 | Versions advertised | `U2F_V2`, `FIDO_2_0`. The CTAP 2.1 command set above is implemented, but `FIDO_2_1` is not claimed, because 2.1 makes `pinUvAuthToken` mandatory for authenticators with user verification and Keyra does not implement ClientPIN yet. |
 | Extensions | None in v1 (`hmac-secret`, `credProtect`, `largeBlob` are not offered). |
-| Attestation | **Self attestation** (`packed`, no certificate) for CTAP2. U2F registration needs a certificate, so Keyra signs it with a fixed key whose private half is published in this repository; it attests nothing. |
+| Attestation | **Self attestation** (`packed`, no certificate) for CTAP2. U2F registration needs a certificate, so each Keyra makes its own P-256 attestation key on first use (hardware RNG) and a self-signed X.509 certificate for it, both kept in NVS and replaced by a factory reset. It identifies only "this Keyra" and is not certified. |
 | AAGUID | `b722a2aa-5acc-4835-9c91-5fa93812679d` (random, fixed for every Keyra). |
 | Discoverable credentials | Up to **50**, listed and deletable in the web app (Settings → Passkeys). |
 | Signature counter | One global counter in NVS, incremented before every signature. It never goes backwards, also not across a factory reset. |
@@ -73,6 +73,11 @@ unlocked. A flash dump without the passphrase reveals no credential key.
   The private key is random (hardware RNG). The AAD binds the credential to its
   relying party: presented to another RP it does not decrypt. `flags` bit 0
   marks a discoverable credential.
+- **U2F attestation key** (per device, NVS, not vault-wrapped): it only signs
+  registration statements, never authenticates you, so it needs no passphrase
+  protection. Its certificate is a minimal X.509 v1, CN "Keyra U2F self
+  attestation", valid 2026-01-01 to 9999-12-31, built on the device
+  (`core/attest.cpp`). No private key is shipped in the firmware or the repo.
 - **Discoverable credentials** are vault records `f/<id>.bin`, encrypted with
   the DEK like entries (AES-256-GCM, AAD `"keyra/f/v1/<id>"`). A record holds
   the RP ID, user handle, user name, display name, creation time and the

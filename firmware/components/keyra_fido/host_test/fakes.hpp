@@ -3,6 +3,7 @@
 #include <deque>
 #include <map>
 
+#include "core/attest.hpp"
 #include "core/platform.hpp"
 
 namespace keyra::fido::test {
@@ -42,6 +43,27 @@ class MemStore final : public Store {
     recs.clear();
     key[0] ^= 0xFF;  // new wrapping key
     return Result::Ok;
+  }
+};
+
+class MemAttestation final : public AttestationStore {
+ public:
+  bool has = false;
+  uint8_t priv[32] = {};
+  std::vector<uint8_t> cert;
+  int saves = 0;
+  bool load(uint8_t out[32], std::vector<uint8_t>& c) override {
+    if (!has) return false;
+    std::copy(priv, priv + 32, out);
+    c = cert;
+    return true;
+  }
+  bool save(const uint8_t in[32], const std::vector<uint8_t>& c) override {
+    std::copy(in, in + 32, priv);
+    cert = c;
+    has = true;
+    ++saves;
+    return true;
   }
 };
 

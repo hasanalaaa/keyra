@@ -254,9 +254,11 @@ exact key formats and the list of what is implemented are in
   PIN or fingerprint for each sign-in. Anyone holding an unlocked Keyra can use
   your passkeys. There is no ClientPIN yet.
 - **Not certified, self attestation.** CTAP2 registrations use self attestation.
-  U2F registration requires a certificate, so every Keyra uses one fixed
-  self-signed certificate whose private key is published in the source; it
-  proves nothing about the device. Relying parties that require attested,
+  U2F registration requires a certificate, so each Keyra generates its own
+  P-256 attestation key on first use and self-signs a certificate for it (both
+  in NVS, replaced by a factory reset). It is not vault-encrypted, because it
+  only signs registration statements and never signs you in; it vouches for
+  nothing beyond "this Keyra". Relying parties that require attested,
   certified authenticators will refuse Keyra.
 - **Phishing.** The browser supplies the RP ID; a credential ID presented under
   another RP ID does not decrypt. Deleted passkeys stop working even if a site

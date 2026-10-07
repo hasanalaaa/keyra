@@ -19,6 +19,7 @@
 #include "handlers_net.hpp"
 #include "http.hpp"
 #include "keyra/ble.hpp"
+#include "keyra/fido.hpp"
 #include "keyra/hid.hpp"
 #include "keyra/io.hpp"
 #include "keyra/settings.hpp"
@@ -278,6 +279,7 @@ bool commitRestoreReplace(RestoreJob& j) {
   if (berr != ESP_OK) ESP_LOGE(TAG, "forgetting Bluetooth hosts: %s", esp_err_to_name(berr));
   const Status st = vault::factoryReset();
   if (st != Status::Ok) ESP_LOGE(TAG, "vault factory reset: %s", vault::statusName(st));
+  if (!fido::forgetAttestation()) ESP_LOGE(TAG, "forgetting the U2F attestation key failed");
   const esp_err_t err = settings::erase();
   if (err != ESP_OK) ESP_LOGE(TAG, "settings erase: %s", esp_err_to_name(err));
   safeRestart();

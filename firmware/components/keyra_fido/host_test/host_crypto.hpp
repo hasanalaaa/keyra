@@ -22,6 +22,8 @@ class OpenSslCrypto final : public Crypto {
 // Verifies a DER ECDSA-SHA256 signature with an uncompressed P-256 public key,
 // using OpenSSL's EVP_DigestVerify (no code shared with the signer above).
 bool verifyEs256(const uint8_t pub[65], const std::vector<uint8_t>& msg, const std::vector<uint8_t>& der);
+// A DER X.509 certificate that OpenSSL parses, whose signature verifies with its own key.
+bool selfSignedCertOk(const std::vector<uint8_t>& certDer);
 // Same, with the public key taken from a DER X.509 certificate.
 bool verifyWithCert(const std::vector<uint8_t>& certDer, const std::vector<uint8_t>& msg,
                     const std::vector<uint8_t>& der);
