@@ -1,6 +1,7 @@
 // CTAP2 and U2F: known-answer GetInfo, MakeCredential/GetAssertion round trips
 // whose ES256 signatures are checked with OpenSSL's verifier (independent of
 // the signing path), resident credentials, U2F formats, error paths.
+#include <algorithm>
 #include <cstring>
 #include <string>
 

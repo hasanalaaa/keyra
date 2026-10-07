@@ -1,5 +1,6 @@
 // Device loop + TouchGate: keepalives while waiting for the button, cancel,
 // timeout, refusal, busy channels, the U2F press latch, unlock wait.
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <deque>
