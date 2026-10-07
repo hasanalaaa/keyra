@@ -21,6 +21,7 @@ import { minHint } from './common';
 import { HomeWifiSheet } from './HomeWifi';
 import { PasskeysSheet } from './Passkeys';
 import { HealthSheet } from './Health';
+import { ActivitySheet } from './Activity';
 import { TrustedSheet } from './Trusted';
 import { RecoverySheet } from './Recovery';
 import { shortDate } from '../lib/wifi';
@@ -33,7 +34,7 @@ const SPEEDS = [
 ] as const;
 const AUTOLOCK = [1, 5, 15, 30, 60, 120];
 
-type Sub = 'wifi' | 'home' | 'trusted' | 'health' | 'passkeys' | 'autolock' | 'passphrase' | 'test' | 'erase' | 'recovery' | 'unprotect' | null;
+type Sub = 'wifi' | 'home' | 'trusted' | 'health' | 'activity' | 'passkeys' | 'autolock' | 'passphrase' | 'test' | 'erase' | 'recovery' | 'unprotect' | null;
 
 export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void }) {
   const app = useApp();
@@ -124,6 +125,7 @@ export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void 
           </Section>
           <Section title={t('groupSecurity')}>
             <NavRow label={t('healthRow')} onClick={() => setSub('health')} />
+            <NavRow label={t('activityRow')} onClick={() => setSub('activity')} />
             <NavRow label={t('autoLock')} value={t('autoLockAfter', { n: s.autoLockMin })} onClick={() => setSub('autolock')} />
             <NavRow label={t('changePassphrase')} onClick={() => setSub('passphrase')} />
             <NavRow label={t('passkeysRow')} onClick={() => setSub('passkeys')} />
@@ -259,6 +261,7 @@ export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void 
       {sub === 'home' && s && <HomeWifiSheet settings={s} onChange={() => void load()} onClose={() => setSub(null)} />}
       {sub === 'trusted' && <TrustedSheet onClose={() => setSub(null)} />}
       {sub === 'health' && <HealthSheet onClose={() => setSub(null)} />}
+      {sub === 'activity' && <ActivitySheet onClose={() => setSub(null)} />}
       {sub === 'passkeys' && <PasskeysSheet onClose={() => setSub(null)} />}
       {sub === 'autolock' && s && (
         <AutoLockSheet

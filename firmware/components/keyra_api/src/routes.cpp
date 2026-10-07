@@ -110,6 +110,7 @@ Match matchDecoded(Method m, std::string_view path) {
   }
   if (p == "entries/import") return only(m, Method::Post, Route::ImportEntries);
   if (p == "health") return only(m, Method::Get, Route::Health);
+  if (p == "activity") return only(m, Method::Get, Route::Activity);
   if (p == "ble") return only(m, Method::Get, Route::GetBle);
   if (p == "ble/pair") return only(m, Method::Post, Route::BlePair);
   constexpr std::string_view kBonds = "ble/bonds/";

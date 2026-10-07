@@ -112,6 +112,16 @@ Status passkeyWrapKey(uint8_t out[32]);
 // credentials stop decrypting).
 Status passkeyReset();
 
+// Activity log (SPEC §15). One opaque record of at most kMaxActivityBytes,
+// encrypted with the DEK ("activity.bin", AAD "keyra/activity/v1"); keyra_api
+// owns its format. Unlocked only. An empty write removes it; it is not part of
+// backups and goes with factory reset or a new setup.
+inline constexpr size_t kMaxActivityBytes = 16 * 1024;
+Status activityRead(std::vector<uint8_t>& out);  // empty when nothing was logged
+Status activityWrite(const std::vector<uint8_t>& data);
+// Wrong passphrases or recovery keys tried before the latest successful unlock.
+uint32_t failedBeforeUnlock();
+
 const char* statusName(Status s);  // stable lowercase token, e.g. "wrong_passphrase"
 
 // Overwrites a string's whole buffer (size and spare capacity) with zeros and

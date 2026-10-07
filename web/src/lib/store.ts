@@ -1,7 +1,7 @@
 // App-wide state: device state polling, session/lock tracking, entries cache, toasts, preferences.
 import { useEffect, useState } from 'preact/hooks';
-import { api, hasCsrf, setLockedHandler, forgetSession, type Awaiting } from './api';
-import { detectLang, setLang, type Lang, type LangPref } from './i18n';
+import { api, hasCsrf, isAwaiting, setLockedHandler, forgetSession, type Awaiting, type Unlocked } from './api';
+import { detectLang, setLang, t, type Lang, type LangPref } from './i18n';
 import type { BleInfo, DeviceState, EntrySummary } from './types';
 
 export type ThemePref = 'auto' | 'light' | 'dark';
@@ -244,11 +244,13 @@ export async function unlockRecovery(keyHex: string, next: string): Promise<Awai
   return opened(await api.unlockRecovery(keyHex, next));
 }
 
-async function opened(awaiting: Awaiting | null): Promise<Awaiting | null> {
-  if (awaiting) return awaiting;
+async function opened(r: Awaiting | Unlocked): Promise<Awaiting | null> {
+  if (isAwaiting(r)) return r;
   markActivity();
   setState({ authed: true, lockReason: null });
   await Promise.all([pollNow(), loadEntries(), loadBle(), loadBackupAt()]);
+  // Someone tried wrong passphrases since the last unlock (SPEC §15): say so once.
+  if (r.failedAttempts > 0) toast(t('failedSinceLast', { n: r.failedAttempts }), 'error');
   return null;
 }
 

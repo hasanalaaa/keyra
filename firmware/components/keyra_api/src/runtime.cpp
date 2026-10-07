@@ -215,6 +215,11 @@ void typeTask(void*) {
     const actions::TypeRequest job = std::move(g_job);
     const Code c = runJob(job);
     ESP_LOGI(TAG, "type %s: %s", actions::whatName(job.what), actions::codeName(c));
+    if (c == Code::Typed && job.what != What::Test && job.what != What::Probe) {
+      const uint8_t over = job.target.kind == Kind::Ble ? 1 : 0;
+      if (job.what == What::Text) activity::log(activity::Kind::TextTyped, 0, {}, over);
+      else activity::log(activity::Kind::Typed, job.id, job.title, over);
+    }
     // Keep the Bluetooth link a little for a quick second action, then let go.
     if (job.target.kind == Kind::Ble) {
       ble::done();
@@ -254,7 +259,7 @@ void onButton(io::Button b) {
       machine().commitFinished(ok);
       break;
     }
-    case actions::Effect::Lock: lockAll(); break;
+    case actions::Effect::Lock: lockAll(activity::LockWhy::Button); break;
     case actions::Effect::None:
     case actions::Effect::Blink:
     case actions::Effect::Cancelled: break;
@@ -268,24 +273,26 @@ void maybeAutoLock() {
   machine().setUsbMounted(usb);
   const std::optional<ble::Addr> lost = ble::takeLost();
   bool hostGone = false;
+  activity::LockWhy why = activity::LockWhy::Usb;
   {
     std::lock_guard<std::mutex> lock(g_watchMu);
     hostGone = g_watch.pollUsb(monoMs(), vault::unlocked(), usb, s.lockOnUsb);
     if (hostGone) ESP_LOGI(TAG, "USB host gone: auto-lock");
     if (lost && g_watch.bleLost(*lost, vault::unlocked(), s.lockOnBle)) {
       ESP_LOGI(TAG, "Bluetooth host gone: auto-lock");
+      if (!hostGone) why = activity::LockWhy::Ble;
       hostGone = true;
     }
   }
   if (hostGone) {
-    lockAll();
+    lockAll(why);
     return;
   }
   if (!vault::unlocked()) return;
   const int64_t limit = int64_t{s.autoLockMin} * 60 * 1000;
   if (sessions().idleFor(monoMs(), limit)) {
     ESP_LOGI(TAG, "idle auto-lock");
-    lockAll();
+    lockAll(activity::LockWhy::Idle);
   }
 }
 
@@ -372,7 +379,8 @@ bool timeValid() { return clock::valid(unixMs()); }
 
 int64_t unixSecondsOrZero() { return timeValid() ? unixMs() / 1000 : 0; }
 
-void lockAll() {
+void lockAll(activity::LockWhy why) {
+  activity::log(activity::Kind::Lock, 0, {}, static_cast<uint8_t>(why));
   vault::lock();
   sessions().clear();
   machine().dropSessionItems();

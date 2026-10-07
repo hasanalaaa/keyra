@@ -86,6 +86,32 @@ export interface Network {
   channel: number;
 }
 
+/** GET /api/activity (SPEC §15), newest first. `at` is unix seconds (0 = the device had no clock). */
+export interface ActivityEvent {
+  kind:
+    | 'unlock'
+    | 'failed_unlocks'
+    | 'lock'
+    | 'typed'
+    | 'revealed'
+    | 'backup'
+    | 'restore'
+    | 'passphrase'
+    | 'recovery_created'
+    | 'recovery_removed'
+    | 'ble_forgot'
+    | 'trusted_removed'
+    | 'entry_deleted'
+    | 'text_typed'
+    | 'ble_pairing'
+    | 'unknown';
+  at: number;
+  id?: number;
+  n?: number;
+  detail: number;
+  title?: string;
+}
+
 /** A discoverable FIDO credential (passkey) stored on Keyra (docs/FIDO.md). */
 /** GET /api/health (SPEC §13): entry ids and flags only, never a password. */
 export interface Health {

@@ -1,4 +1,4 @@
-import type { BleInfo, DeviceState, Entry, HostOs, EntryInput, EntrySummary, Health, Network, Passkey, RecoveryInfo, Settings, Totp, TrustedBrowser, TypeTextRequest, TypeWhat, Pending, PresenceOp } from './types';
+import type { BleInfo, DeviceState, Entry, HostOs, EntryInput, ActivityEvent, EntrySummary, Health, Network, Passkey, RecoveryInfo, Settings, Totp, TrustedBrowser, TypeTextRequest, TypeWhat, Pending, PresenceOp } from './types';
 import { generateRequest, type GenSettings } from './generator';
 
 export class ApiError extends Error {
@@ -90,6 +90,15 @@ async function json<T>(method: string, path: string, body?: unknown, timeoutMs?:
   return (await res.json()) as T;
 }
 
+interface Session {
+  csrf: string;
+  failedAttempts?: number; // absent on firmware before SPEC §15
+}
+
+export interface Unlocked {
+  failedAttempts: number;
+}
+
 export interface Awaiting {
   awaiting: 'button';
   expiresIn: number;
@@ -103,19 +112,22 @@ export const api = {
   // resolve keyra.local again before the request can even start.
   state: () => json<DeviceState>('GET', '/state', undefined, 12000),
   setup: (passphrase: string, wifiPassword: string) => json<Awaiting>('POST', '/setup', { passphrase, wifiPassword }),
-  /** null = unlocked; Awaiting = this browser must first be trusted with the button (home network, SPEC §8.2). */
-  async unlock(passphrase: string): Promise<Awaiting | null> {
-    const r = await json<{ csrf: string } | Awaiting>('POST', '/unlock', { passphrase }, 30000);
+  /**
+   * Unlocked → `{ failedAttempts }` (wrong guesses since the last unlock, SPEC §15);
+   * Awaiting = this browser must first be trusted with the button (home network, SPEC §8.2).
+   */
+  async unlock(passphrase: string): Promise<Awaiting | Unlocked> {
+    const r = await json<Session | Awaiting>('POST', '/unlock', { passphrase }, 30000);
     if (isAwaiting(r)) return r;
     setCsrf(r.csrf);
-    return null;
+    return { failedAttempts: r.failedAttempts ?? 0 };
   },
   /** Forgotten passphrase (SPEC §12.2): the recovery key (40 hex) sets `next` and unlocks. */
-  async unlockRecovery(recoveryKey: string, next: string): Promise<Awaiting | null> {
-    const r = await json<{ csrf: string } | Awaiting>('POST', '/unlock/recovery', { recoveryKey, next }, 30000);
+  async unlockRecovery(recoveryKey: string, next: string): Promise<Awaiting | Unlocked> {
+    const r = await json<Session | Awaiting>('POST', '/unlock/recovery', { recoveryKey, next }, 30000);
     if (isAwaiting(r)) return r;
     setCsrf(r.csrf);
-    return null;
+    return { failedAttempts: r.failedAttempts ?? 0 };
   },
   async lock(): Promise<void> {
     try {
@@ -175,6 +187,7 @@ export const api = {
   trusted: async () => (await json<{ browsers: TrustedBrowser[] }>('GET', '/trusted')).browsers,
   revokeTrusted: (id: number) => json<void>('DELETE', `/trusted/${id}`),
   health: () => json<Health>('GET', '/health'),
+  activity: () => json<{ events: ActivityEvent[]; max: number }>('GET', '/activity'),
   passkeys: async () => await json<{ passkeys: Passkey[]; max: number }>('GET', '/fido'),
   deletePasskey: (id: number) => json<void>('DELETE', `/fido/${id}`),
 };

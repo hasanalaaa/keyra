@@ -394,3 +394,9 @@
 .health-summary.warn > svg { color:var(--warn); }
 .health .group .card + .card { margin-block-start:var(--s-2); }
 .health .group-foot { padding-block:0 var(--s-3); }
+
+/* Activity (SPEC §15) */
+.activity-row { align-items:flex-start; }
+.activity-row .row-icon { color:var(--text-3); margin-block-start:2px; }
+.activity-row .row-label { display:flex; flex-direction:column; gap:2px; min-inline-size:0; }
+.activity-row.warn .row-icon { color:var(--warn); }

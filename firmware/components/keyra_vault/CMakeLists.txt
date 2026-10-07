@@ -10,6 +10,7 @@ idf_component_register(
     "src/core/sequence.cpp"
     "src/core/text.cpp"
     "src/core/totp_core.cpp"
+    "src/core/vault_activity.cpp"
     "src/core/vault_core.cpp"
     "src/core/vault_passkeys.cpp"
     "src/esp/esp_platform.cpp"

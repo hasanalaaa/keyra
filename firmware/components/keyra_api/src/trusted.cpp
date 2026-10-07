@@ -169,13 +169,18 @@ esp_err_t sendList(httpd_req_t* r) {
 
 esp_err_t revoke(httpd_req_t* r, uint32_t id) {
   bool wasCurrent = false;
+  std::string name;
   {
     std::lock_guard<std::mutex> lock(g_mu);
     const auto current = findLocked(cookieToken(r));
     wasCurrent = current && g_store.all()[*current].id == id;
+    for (const Browser& b : g_store.all()) {
+      if (b.id == id) name = b.name;
+    }
     if (!g_store.remove(id)) return http::sendError(r, http::k404, "not_found", "No such trusted browser");
     if (persistLocked() != ESP_OK) return http::sendError(r, http::k500, "storage", "Could not save");
   }
+  activity::log(activity::Kind::TrustedRemoved, 0, name);
   const size_t ended = sessions().endTrusted(id);
   ESP_LOGI(TAG, "browser trust revoked; %u session(s) ended", unsigned(ended));
   if (wasCurrent) httpd_resp_set_hdr(r, "Set-Cookie", "kt=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0");

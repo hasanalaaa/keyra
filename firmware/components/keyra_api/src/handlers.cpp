@@ -20,6 +20,7 @@
 #include "handlers_net.hpp"
 #include "handlers_protect.hpp"
 #include "health.hpp"
+#include "activity.hpp"
 #include "http.hpp"
 #include "keyra/ble.hpp"
 #include "keyra/fido.hpp"
@@ -293,11 +294,12 @@ bool commitRestoreReplace(RestoreJob& j) {
     return false;
   }
   ESP_LOGI(TAG, "restore(replace): %u added", unsigned(added));
+  activity::log(activity::Kind::Restore, 0, {}, 1, static_cast<uint32_t>(added));
   return true;
 }
 
 [[noreturn]] void commitFactoryReset() {
-  lockAll();
+  lockAll(activity::LockWhy::Manual);  // the log goes with the vault a moment later
   // A reset Keyra may be given away: no computer it knew may reconnect.
   const esp_err_t berr = ble::forgetAll();
   if (berr != ESP_OK) ESP_LOGE(TAG, "forgetting Bluetooth hosts: %s", esp_err_to_name(berr));
@@ -420,7 +422,16 @@ esp_err_t postSetup(Ctx& c) {
 }
 
 // A new session for this browser: `ks` cookie (+ renewed `kt` when trusted) and the CSRF token.
-esp_err_t sendSession(httpd_req_t* r, uint32_t trustId, const std::string& ktToken) {
+// Records the unlock (and any wrong guesses before it) in the activity log;
+// returns how many wrong guesses there were, for the app to point out.
+uint32_t logUnlock(uint8_t how) {
+  const uint32_t failed = vault::failedBeforeUnlock();
+  if (failed > 0) activity::log(activity::Kind::FailedUnlocks, 0, {}, 0, failed);
+  activity::log(activity::Kind::Unlock, 0, {}, how);
+  return failed;
+}
+
+esp_err_t sendSession(httpd_req_t* r, uint32_t trustId, const std::string& ktToken, uint32_t failedBefore) {
   const Sessions::Issued s = sessions().create(monoMs(), trustId, vault::unlockGeneration());
   const std::string cookie = "ks=" + s.token + "; HttpOnly; SameSite=Strict; Path=/";
   httpd_resp_set_hdr(r, "Set-Cookie", cookie.c_str());
@@ -428,6 +439,7 @@ esp_err_t sendSession(httpd_req_t* r, uint32_t trustId, const std::string& ktTok
   if (trustId != 0) httpd_resp_set_hdr(r, "Set-Cookie", kt.c_str());
   json::Ptr o(cJSON_CreateObject());
   cJSON_AddStringToObject(o.get(), "csrf", s.csrf.c_str());
+  cJSON_AddNumberToObject(o.get(), "failedAttempts", failedBefore);
   return http::sendJson(r, http::k200, o.get());
 }
 
@@ -459,7 +471,7 @@ esp_err_t postUnlock(Ctx& c) {
     return trust::requestApproval(c.r);
   }
 
-  return sendSession(c.r, trustId, ktToken);
+  return sendSession(c.r, trustId, ktToken, logUnlock(0));
 }
 
 // Forgotten passphrase (SPEC §12.2): the recovery key sets a new passphrase and
@@ -487,13 +499,36 @@ esp_err_t postUnlockRecovery(Ctx& c) {
   if (st == Status::RateLimited) return sendRetry(c.r, http::k429, "rate_limited", "Too many attempts", retryMs);
   if (st != Status::Ok) return sendVaultError(c.r, st);
   ESP_LOGI(TAG, "unlocked with the recovery key; passphrase replaced");
-  return sendSession(c.r, trustId, ktToken);
+  return sendSession(c.r, trustId, ktToken, logUnlock(1));
 }
 
 esp_err_t postLock(Ctx& c) {
-  lockAll();
+  lockAll(activity::LockWhy::Manual);
   httpd_resp_set_hdr(c.r, "Set-Cookie", "ks=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0");
   return http::sendEmpty(c.r, http::k204);
+}
+
+// SPEC §15: newest first. There is deliberately no way to clear it from a session.
+esp_err_t getActivity(Ctx& c) {
+  std::vector<activity::Event> events;
+  if (!activity::list(events)) {
+    if (!vault::unlocked()) return sendVaultError(c.r, Status::Locked);
+    return http::sendError(c.r, http::k500, "storage", "The activity log could not be read");
+  }
+  json::Ptr o(cJSON_CreateObject());
+  cJSON* arr = cJSON_AddArrayToObject(o.get(), "events");
+  for (auto it = events.rbegin(); it != events.rend(); ++it) {
+    cJSON* j = cJSON_CreateObject();
+    cJSON_AddStringToObject(j, "kind", activity::kindName(it->kind));
+    cJSON_AddNumberToObject(j, "at", static_cast<double>(it->at));
+    if (it->id) cJSON_AddNumberToObject(j, "id", it->id);
+    if (it->n) cJSON_AddNumberToObject(j, "n", it->n);
+    cJSON_AddNumberToObject(j, "detail", it->detail);
+    if (!it->title.empty()) cJSON_AddStringToObject(j, "title", it->title.c_str());
+    cJSON_AddItemToArray(arr, j);
+  }
+  cJSON_AddNumberToObject(o.get(), "max", static_cast<double>(activity::kMaxEvents));
+  return http::sendJson(c.r, http::k200, o.get());
 }
 
 // SPEC §13: ids and flags only; the passwords never leave this function.
@@ -588,6 +623,7 @@ esp_err_t getEntry(Ctx& c, bool ask) {
     vault::wipe(e);
     return protect::requestPress(c.r, actions::Op::Reveal, c.token);
   }
+  if (ask) activity::log(activity::Kind::Revealed, e.id, e.title);
   json::Ptr o(cJSON_CreateObject());
   protect::addEntry(o.get(), e, revealed);
   // A custom sequence may hold literal secrets: it follows the password.
@@ -629,8 +665,14 @@ esp_err_t updateEntry(Ctx& c) {
 }
 
 esp_err_t deleteEntry(Ctx& c) {
+  std::string title;
+  if (vault::Entry e; vault::get(c.match.id, e) == Status::Ok) {
+    title = e.title;
+    vault::wipe(e);
+  }
   const Status st = vault::remove(c.match.id);
   if (st != Status::Ok) return sendVaultError(c.r, st);
+  activity::log(activity::Kind::EntryDeleted, c.match.id, title);
   return http::sendEmpty(c.r, http::k204);
 }
 
@@ -907,6 +949,7 @@ esp_err_t postPassphrase(Ctx& c) {
   if (st == Status::WrongPassphrase) return sendRetry(c.r, http::k401, "wrong", "Wrong passphrase", retryMs);
   if (st == Status::RateLimited) return sendRetry(c.r, http::k429, "rate_limited", "Too many attempts", retryMs);
   if (st != Status::Ok) return sendVaultError(c.r, st);
+  activity::log(activity::Kind::Passphrase);
   return http::sendEmpty(c.r, http::k204);
 }
 
@@ -922,6 +965,7 @@ esp_err_t postBackup(Ctx& c) {
   if (!protect::mayReveal(c.token)) return protect::requestPress(c.r, actions::Op::Backup, c.token);
   const Status st = vault::exportBackup(pass.s, out.s);
   if (st != Status::Ok) return sendVaultError(c.r, st);
+  activity::log(activity::Kind::Backup);
   if (const int64_t now = unixSecondsOrZero(); now != 0) {
     if (settings::update([now](settings::Settings& s) { s.lastBackupAt = now; }) != ESP_OK)
       ESP_LOGW(TAG, "could not record the backup time");
@@ -962,6 +1006,7 @@ esp_err_t postRestore(Ctx& c) {
   size_t added = 0, updated = 0;
   const Status st = vault::importBackup(job->passphrase.s, job->backup.s, false, &added, &updated);
   if (st != Status::Ok) return sendVaultError(c.r, st);
+  activity::log(activity::Kind::Restore, 0, {}, 0, static_cast<uint32_t>(added + updated));
   json::Ptr o(cJSON_CreateObject());
   cJSON_AddNumberToObject(o.get(), "added", static_cast<double>(added));
   cJSON_AddNumberToObject(o.get(), "updated", static_cast<double>(updated));
@@ -1023,7 +1068,11 @@ esp_err_t postBlePair(Ctx& c) {
   const ble::PairResult now = ble::canPair();
   if (now != ble::PairResult::Ok) return sendPairRefusal(c.r, now);
   const int64_t expires =
-      machine().awaitPresence(actions::Op::BlePair, [] { return ble::openPairing() == ble::PairResult::Ok; });
+      machine().awaitPresence(actions::Op::BlePair, [] {
+        const bool ok = ble::openPairing() == ble::PairResult::Ok;
+        if (ok) activity::log(activity::Kind::BlePairing);
+        return ok;
+      });
   return sendAwaitingButton(c.r, expires);
 }
 
@@ -1047,8 +1096,13 @@ esp_err_t putBleOs(Ctx& c) {
 }
 
 esp_err_t deleteBleBond(Ctx& c) {
+  std::string name = ble::formatAddr(c.match.addr);
+  for (const ble::Peer& p : ble::status().bonds) {
+    if (p.addr == c.match.addr && !p.name.empty()) name = p.name;
+  }
   const esp_err_t err = ble::forget(c.match.addr);
   if (err == ESP_OK) {
+    activity::log(activity::Kind::BleForgot, 0, name);
     if (saveBleOs(c.match.addr, hostos::Os::Unknown) != ESP_OK) ESP_LOGW(TAG, "dropping the device's system failed");
     return http::sendEmpty(c.r, http::k204);
   }
@@ -1114,6 +1168,7 @@ esp_err_t dispatch(Ctx& c) {
     case Route::Lock: return postLock(c);
     case Route::ListEntries: return listEntries(c);
     case Route::Health: return getHealth(c);
+    case Route::Activity: return getActivity(c);
     case Route::CreateEntry: return createEntry(c);
     case Route::ImportEntries: return importEntries(c);
     case Route::GetEntry: return getEntry(c, false);

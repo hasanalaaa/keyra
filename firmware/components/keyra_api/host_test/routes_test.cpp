@@ -60,6 +60,9 @@ void apiRoutes() {
   CHECK(is(matchApi(Method::Get, "/api/health"), Route::Health));
   CHECK(matchApi(Method::Post, "/api/health").kind == K::MethodNotAllowed);
   CHECK(needsSession(Route::Health));
+  CHECK(is(matchApi(Method::Get, "/api/activity"), Route::Activity));
+  CHECK(matchApi(Method::Delete, "/api/activity").kind == K::MethodNotAllowed);  // the log cannot be wiped
+  CHECK(needsSession(Route::Activity));
 
   CHECK(is(matchApi(Method::Get, "/api/ble"), Route::GetBle));
   CHECK(is(matchApi(Method::Post, "/api/ble/pair"), Route::BlePair));

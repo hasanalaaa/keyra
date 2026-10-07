@@ -624,3 +624,34 @@ password (`keyra_api/src/health.cpp`, host-tested).
   `changedAt` of the newest history item, else the entry's `created`. Needs a
   valid clock (`clock: false` → nothing is old); unknown dates are never old.
 
+## 15. Activity log
+
+Settings → **Activity** lists what happened on this Keyra, newest first:
+unlocks (and how many wrong passphrases or recovery keys were tried before
+each), locks and why, typing (account title, USB or Bluetooth), passwords
+shown after a press, backups and restores, passphrase and recovery-key
+changes, Bluetooth pairing opened or a device forgotten, trusted browsers
+removed, accounts deleted. Never a password, a code or typed text.
+
+- Stored in the vault as `activity.bin`, AES-256-GCM with the DEK (AAD
+  `keyra/activity/v1`), so it can only be read — and only grows — while
+  unlocked. Events that happen while locked are not written; wrong guesses are
+  counted by the vault's persisted unlock-failure counter and logged with the
+  next successful unlock. Not part of backups; a new setup or factory reset
+  starts it empty.
+- The last 200 events (oldest dropped; the record is capped at 16 KiB).
+  Encoding: `keyra_api/src/activity.cpp` (host-tested).
+- `GET /api/activity` (session) →
+  `{events:[{kind, at, id?, n?, detail, title?}], max}`; `at` unix seconds
+  (0 = clock unknown). Kinds: `unlock` (detail 0 passphrase, 1 recovery key),
+  `failed_unlocks` (n), `lock` (detail 0 manual, 1 idle, 2 USB gone, 3
+  Bluetooth host gone, 4 Keyra's button), `typed` / `text_typed` (detail 0
+  USB, 1 Bluetooth), `revealed`, `backup`, `restore` (n; detail 1 = replace),
+  `passphrase`, `recovery_created`, `recovery_removed`, `ble_pairing`,
+  `ble_forgot`, `trusted_removed`, `entry_deleted`; `unknown` for a kind this
+  firmware does not name.
+- There is no endpoint to clear it: a borrowed or stolen session cannot hide
+  what it did.
+- `POST /api/unlock` and `/api/unlock/recovery` answer
+  `{csrf, failedAttempts}`; the app warns once when it is above 0.
+

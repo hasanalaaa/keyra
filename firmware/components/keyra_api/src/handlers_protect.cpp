@@ -4,6 +4,7 @@
 #include "http.hpp"
 #include "handlers_gen.hpp"
 #include "keyra/settings.hpp"
+#include "activity.hpp"
 #include "runtime.hpp"
 
 namespace keyra::api::protect {
@@ -87,6 +88,7 @@ esp_err_t createRecovery(httpd_req_t* r, const std::string& token) {
     ESP_LOGE(TAG, "create recovery key: %s", vault::statusName(st));
     return http::sendError(r, http::k500, "storage", "Could not save the recovery key");
   }
+  activity::log(activity::Kind::RecoveryCreated);
   json::Secret hex;
   hex.s = toHex(key.data(), key.size());
   for (volatile uint8_t& b : key) b = 0;
@@ -101,6 +103,7 @@ esp_err_t deleteRecovery(httpd_req_t* r, const std::string& token) {
   const vault::Status st = vault::removeRecovery();
   if (st == vault::Status::NotFound) return http::sendError(r, http::k404, "not_found", "No recovery key");
   if (st != vault::Status::Ok) return http::sendError(r, http::k500, "storage", "Could not remove the recovery key");
+  activity::log(activity::Kind::RecoveryRemoved);
   return http::sendEmpty(r, http::k204);
 }
 

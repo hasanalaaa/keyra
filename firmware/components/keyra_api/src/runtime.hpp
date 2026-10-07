@@ -3,6 +3,7 @@
 #include <cstdint>
 
 #include "actions.hpp"
+#include "activity.hpp"
 #include "esp_err.h"
 #include "sessions.hpp"
 
@@ -16,8 +17,9 @@ int64_t unixMs();
 bool timeValid();
 int64_t unixSecondsOrZero();  // for vault timestamps; 0 = unknown
 
-// Locks the vault, ends every session and drops session-armed items.
-void lockAll();
+// Locks the vault, ends every session and drops session-armed items; `why`
+// goes in the activity log first (it cannot be written once locked).
+void lockAll(activity::LockWhy why);
 // Restarts the AP from the actions task ~3 s from now, so the HTTP reply that
 // triggered it (or the client's next poll) still reaches the phone.
 void reconfigureNetSoon();

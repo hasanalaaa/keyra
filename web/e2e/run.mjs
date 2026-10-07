@@ -422,6 +422,34 @@ async function healthFlow(base, opts) {
   await ctx.close();
 }
 
+// ---------- Activity (SPEC §15): a wrong guess is reported after the next unlock and logged ----------
+
+async function activityFlow(base, opts) {
+  const { ctx, page, tag } = await open(base, opts);
+  console.log(`activity ${tag || '(phone, ar, light)'}`);
+  await page.locator('input[type=password]').waitFor();
+  const before = errors.length;
+  await page.locator('input[type=password]').fill('not the passphrase');
+  await page.locator('button[type=submit]').click();
+  await page.locator('.field-error').first().waitFor({ timeout: 8000 });
+  // The browser logs the deliberate wrong guess (401); that one is expected.
+  for (let i = errors.length - 1; i >= before; i--) if (/status of 401/.test(errors[i])) errors.splice(i, 1);
+  await unlockUi(page);
+  const warn = page.locator('.toast-error');
+  await warn.waitFor({ timeout: 5000 });
+  check(/1/.test((await warn.textContent()) ?? ''), 'unlock reports the wrong attempt');
+  await page.evaluate(() => (location.hash = '#/settings'));
+  await page.locator('.settings .seg').first().waitFor();
+  await page.locator('.nav-row', { hasText: opts.lang === 'en' ? 'Activity' : 'سجل النشاط' }).click();
+  await page.locator('.activity-row').first().waitFor();
+  const rows = await page.locator('.activity-row bdi').allTextContents();
+  check(/Unlocked|فُتحت/.test(rows[0]), `newest first is the unlock (got "${rows[0]}")`);
+  check(page.locator('.activity-row.warn').first() !== null && (await page.locator('.activity-row.warn').count()) >= 1, 'the failed attempts are listed');
+  await shot(page, `activity${tag}`);
+  console.log('  ✓ activity flow passed');
+  await ctx.close();
+}
+
 async function passkeysFlow(base, opts) {
   const { ctx, page, tag } = await open(base, opts);
   console.log(`passkeys ${tag || '(phone, ar, light)'}`);
@@ -587,6 +615,8 @@ try {
   await passkeysFlow(await startMock(), { lang: 'en', dark: true });
   await healthFlow(await startMock(), {});
   await healthFlow(await startMock(), { lang: 'en', dark: true });
+  await activityFlow(await startMock(), {});
+  await activityFlow(await startMock(), { lang: 'en', dark: true });
 
   quantizeShots();
   if (errors.length) {

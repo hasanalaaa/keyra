@@ -49,6 +49,9 @@ Status passkeyPut(uint32_t& id, const std::vector<uint8_t>& data) { return detai
 Status passkeyRemove(uint32_t id) { return detail::instance().passkeyRemove(id); }
 Status passkeyWrapKey(uint8_t out[32]) { return detail::instance().passkeyWrapKey(out); }
 Status passkeyReset() { return detail::instance().passkeyReset(); }
+Status activityRead(std::vector<uint8_t>& out) { return detail::instance().activityRead(out); }
+Status activityWrite(const std::vector<uint8_t>& data) { return detail::instance().activityWrite(data); }
+uint32_t failedBeforeUnlock() { return detail::instance().failedBeforeUnlock(); }
 
 const char* statusName(Status s) {
   switch (s) {

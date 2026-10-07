@@ -277,6 +277,7 @@ Status Vault::setup(const std::string& passphrase) {
   // could never be decrypted with the new key.
   if (Status s = removeAllEntryFiles(); s != Status::Ok) return s;
   if (Status s = removePasskeyFilesLocked(); s != Status::Ok) return s;
+  if (!p_.storage.remove(kActivityPath)) return Status::StorageError;
   if (!p_.counter.store(0)) return Status::StorageError;
   failures_ = 0;
   lockedUntilMs_ = 0;
@@ -348,6 +349,7 @@ Status Vault::attempt(const std::function<Status(Key&)>& open, Key& dek, uint32_
     mem::zeroize(dek.data(), dek.size());
     return Status::StorageError;
   }
+  failedBefore_ = n - 1;  // n counted this (successful) attempt too
   failures_ = 0;
   lockedUntilMs_ = 0;
   return Status::Ok;

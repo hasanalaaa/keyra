@@ -8,6 +8,12 @@ All notable changes to Keyra are documented here. The format follows
 
 ### Added
 
+- **Activity log** (SPEC §15): Settings → Activity lists unlocks, wrong
+  passphrase attempts, locks and their reason, typing, shown passwords, backups,
+  restores and security changes — encrypted in the vault, at most 200 events,
+  never a secret, and no way to clear it from a session. After an unlock the app
+  warns when wrong passphrases were tried in between (`failedAttempts`).
+
 - **Password health** (SPEC §13): Settings → Password health lists reused,
   could-be-stronger and year-old passwords. Keyra checks them on the device
   (`GET /api/health` returns entry ids and flags only), with the same strength

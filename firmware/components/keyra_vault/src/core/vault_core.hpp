@@ -25,6 +25,8 @@
 //              plaintext = entry_codec.hpp encoding
 //   f/<id>.bin passkey record, same format as e/<id>.bin with AAD "keyra/f/v1/" + <id>
 //   fido.bin   u8 version=1 | salt[16]   (FIDO wrapping-key salt, vault_passkeys.cpp)
+//   activity.bin  activity log (SPEC §15), same format as e/<id>.bin with AAD
+//              "keyra/activity/v1"; the plaintext is keyra_api's encoding (vault_activity.cpp)
 //   *.tmp      in-flight atomic writes (write tmp → close → rename); any found at
 //              init are leftovers of an interrupted write and are deleted.
 //
@@ -48,6 +50,9 @@
 namespace keyra::vault {
 
 uint32_t unlockDelayMs(uint32_t failures);
+
+inline constexpr char kActivityPath[] = "activity.bin";
+inline constexpr size_t kMaxActivity = kMaxActivityBytes;
 
 class Vault {
  public:
@@ -91,6 +96,12 @@ class Vault {
   Status passkeyRemove(uint32_t id);
   Status passkeyWrapKey(uint8_t out[32]);
   Status passkeyReset();
+
+  // Activity log (vault_activity.cpp): one opaque record, encrypted like an entry.
+  Status activityRead(std::vector<uint8_t>& out);
+  Status activityWrite(const std::vector<uint8_t>& data);
+  // Wrong passphrases / recovery keys tried before the last successful unlock.
+  uint32_t failedBeforeUnlock() const { return failedBefore_; }
 
   Crypto& crypto() { return p_.crypto; }
 
@@ -156,6 +167,7 @@ class Vault {
   std::vector<Slot, ZeroingAllocator<Slot>> passkeys_;
   bool passkeysLoaded_ = false;
   uint32_t failures_ = 0;
+  std::atomic<uint32_t> failedBefore_{0};
   uint64_t lockedUntilMs_ = 0;
 };
 

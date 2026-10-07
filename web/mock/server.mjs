@@ -127,6 +127,7 @@ let settings = defaultSettings();
 let vault = null; // { passphrase, entries: Map<id, Entry> } once initialized
 let unlocked = false;
 let failures = 0;
+let failedBefore = 0; // wrong guesses before the latest successful unlock (Vault::failedBeforeUnlock)
 let lockedUntil = 0;
 let timeValid = false;
 let lastActivity = Date.now();
@@ -200,7 +201,21 @@ function dropSessionItems() {
   }
 }
 
-function lockAll() {
+// ---------- activity log (SPEC §15; firmware keyra_api/src/activity*.cpp) ----------
+
+const ACTIVITY_MAX = 200;
+/** Appends while unlocked (the firmware cannot write the encrypted log when locked). */
+function logEvent(kind, { id = 0, title = '', detail = 0, n = 0 } = {}) {
+  if (!unlocked || !vault) return;
+  vault.activity ??= [];
+  vault.activity.push({ kind, at: timeValid ? nowSec() : 0, id, n, detail, title: [...title].join('').slice(0, 64) });
+  if (vault.activity.length > ACTIVITY_MAX) vault.activity.splice(0, vault.activity.length - ACTIVITY_MAX);
+}
+
+const LOCK_WHY = { manual: 0, idle: 1, usb: 2, ble: 3, button: 4 };
+
+function lockAll(why = 'manual') {
+  logEvent('lock', { detail: LOCK_WHY[why] });
   unlocked = false;
   usbSeen = false;
   sessions.clear();
@@ -248,6 +263,11 @@ function press(kind) {
         if (t.kind === 'ble') releaseBle(LINGER_MS);
         const e = vault?.entries.get(s.req.id);
         if (code === 'typed' && e) e.lastUsed = nowSec();
+        if (code === 'typed' && s.req.what !== 'test' && s.req.what !== 'probe') {
+          const detail = t.kind === 'ble' ? 1 : 0;
+          if (s.req.what === 'text') logEvent('text_typed', { detail });
+          else logEvent('typed', { id: s.req.id, title: s.req.title ?? '', detail });
+        }
       }, 250 + Math.min(1500, (text?.length ?? 0) * settings.keyDelayMs));
       // Free text: only its length, so e2e can check "twice" without the mock echoing secrets.
       return s.req.what === 'text' ? `typing text (${text.length} chars)` : `typing ${s.req.what} · ${s.req.title}`;
@@ -262,7 +282,7 @@ function press(kind) {
   }
   if (machine.typing || machine.running) return 'busy (cannot interrupt)';
   if (unlocked) {
-    lockAll();
+    lockAll('button');
     return 'locked';
   }
   return 'nothing to do (blink)';
@@ -639,6 +659,22 @@ function seed() {
 
 // Passkeys (docs/FIDO.md): created by websites over USB on a real Keyra; the
 // mock only lists and deletes them.
+// A few days of history so Settings → Activity is not empty (oldest first, like the firmware).
+function seedActivity() {
+  const now = nowSec();
+  const h = 3600;
+  return [
+    { kind: 'unlock', at: now - 50 * h, id: 0, n: 0, detail: 0, title: '' },
+    { kind: 'typed', at: now - 50 * h + 60, id: 0, n: 0, detail: 0, title: 'GitHub' },
+    { kind: 'lock', at: now - 49 * h, id: 0, n: 0, detail: 1, title: '' },
+    { kind: 'failed_unlocks', at: now - 26 * h, id: 0, n: 2, detail: 0, title: '' },
+    { kind: 'unlock', at: now - 26 * h, id: 0, n: 0, detail: 0, title: '' },
+    { kind: 'typed', at: now - 26 * h + 30, id: 0, n: 0, detail: 1, title: 'Instagram' },
+    { kind: 'backup', at: now - 25 * h, id: 0, n: 0, detail: 0, title: '' },
+    { kind: 'lock', at: now - 25 * h + 600, id: 0, n: 0, detail: 2, title: '' },
+  ];
+}
+
 function seedPasskeys() {
   const now = nowSec();
   const day = 86400;
@@ -651,7 +687,7 @@ function seedPasskeys() {
 }
 
 if (!FRESH) {
-  vault = { passphrase: DEMO_PASSPHRASE, entries: seed(), passkeys: seedPasskeys() };
+  vault = { passphrase: DEMO_PASSPHRASE, entries: seed(), passkeys: seedPasskeys(), activity: seedActivity() };
   settings.wifiPassword = 'Tigris-42-Kx9p';
   settings.lastBackupAt = nowSec() - Number(process.env.MOCK_BACKUP_DAYS ?? 3) * 86400;
   if (process.env.MOCK_BLE !== '0') ble.bonds.push({ addr: 'F0:2B:7C:41:9A:D3', name: 'MacBook Air', lastSeen: nowSec() - 86400 * 2, os: 'mac' });
@@ -805,6 +841,7 @@ function match(method, rawPath) {
     case 'trusted': return one('GET', 'trusted');
     case 'fido': return one('GET', 'passkeys');
     case 'health': return one('GET', 'health');
+    case 'activity': return one('GET', 'activity');
     case 'ble': return one('GET', 'ble');
     case 'ble/pair': return one('POST', 'blePair');
   }
@@ -863,8 +900,11 @@ function requestPress(res, op, token) {
 }
 
 /** A new session for this browser (+ the renewed trust cookie). */
-function issueSession(res, req, known) {
+function issueSession(res, req, known, how = 0) {
   unlocked = true;
+  const failedAttempts = failedBefore;
+  if (failedAttempts > 0) logEvent('failed_unlocks', { n: failedAttempts });
+  logEvent('unlock', { detail: how });
   usbSeen = host.usb;
   lastActivity = Date.now();
   if (sessions.size >= MAX_SESSIONS) {
@@ -876,7 +916,7 @@ function issueSession(res, req, known) {
   sessions.set(tok, { csrf, lastUsed: Date.now(), trustId: known?.id ?? 0, graceUntil: 0 });
   const cookies = [`ks=${tok}; HttpOnly; SameSite=Strict; Path=/`];
   if (known) cookies.push(`kt=${cookie(req, 'kt')}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000`);
-  return send(res, 200, { csrf }, { 'Set-Cookie': cookies });
+  return send(res, 200, { csrf, failedAttempts }, { 'Set-Cookie': cookies });
 }
 
 function trustRequest(res, req) {
@@ -926,7 +966,7 @@ async function api(req, res, path) {
   syncDemand();
   if (unlocked && Date.now() - lastActivity > settings.autoLockMin * 60000) {
     console.log('[mock] idle auto-lock');
-    lockAll();
+    lockAll('idle');
   }
 
   const token = cookie(req, 'ks');
@@ -1027,6 +1067,7 @@ async function api(req, res, path) {
       throttle();
       await sleep(KDF_MS);
       if (pass !== vault.passphrase) wrongAttempt('Wrong passphrase');
+      failedBefore = failures - 1; // throttle() counted this (right) attempt too, like Vault::attempt
       failures = 0;
       lockedUntil = 0;
       const known = knownBrowser(req);
@@ -1046,13 +1087,14 @@ async function api(req, res, path) {
       throttle();
       await sleep(80);
       if (!vault.recovery || !safeEqual(key, vault.recovery.key)) wrongAttempt('Wrong recovery key');
+      failedBefore = failures - 1; // throttle() counted this (right) attempt too, like Vault::attempt
       failures = 0;
       lockedUntil = 0;
       const known = knownBrowser(req);
       if (via === 'home' && !known) return trustRequest(res, req);
       vault.passphrase = next;
       console.log('[mock] unlocked with the recovery key; passphrase replaced');
-      return issueSession(res, req, known);
+      return issueSession(res, req, known, 1);
     }
 
     case 'getRecovery':
@@ -1062,6 +1104,7 @@ async function api(req, res, path) {
       if (graceLeft(sess) <= 0) return requestPress(res, 'recovery', token);
       const key = randomBytes(20).toString('hex');
       vault.recovery = { key, created: nowSec() };
+      logEvent('recovery_created');
       return send(res, 200, { recoveryKey: key, created: vault.recovery.created });
     }
 
@@ -1069,6 +1112,7 @@ async function api(req, res, path) {
       if (graceLeft(sess) <= 0) return requestPress(res, 'recovery', token);
       if (!vault.recovery) fail(404, 'not_found', 'No recovery key');
       vault.recovery = null;
+      logEvent('recovery_removed');
       return send(res, 204);
 
     case 'lock':
@@ -1084,6 +1128,7 @@ async function api(req, res, path) {
     case 'reveal': {
       const e = getEntry(m.id);
       if (!mayReveal(sess)) return requestPress(res, 'reveal', token);
+      logEvent('revealed', { id: e.id, title: e.title });
       return send(res, 200, entryView(e, true));
     }
 
@@ -1112,10 +1157,12 @@ async function api(req, res, path) {
       return send(res, 200, { id: m.id });
     }
 
-    case 'delete':
-      getEntry(m.id);
+    case 'delete': {
+      const gone = getEntry(m.id);
       vault.entries.delete(m.id);
+      logEvent('entry_deleted', { id: m.id, title: gone.title });
       return send(res, 204);
+    }
 
     case 'import': {
       if (!Array.isArray(b.entries)) bad('"entries" (array) is required');
@@ -1314,6 +1361,7 @@ async function api(req, res, path) {
       await sleep(KDF_MS);
       if (cur !== vault.passphrase) fail(401, 'wrong', 'Wrong passphrase');
       vault.passphrase = nxt;
+      logEvent('passphrase');
       return send(res, 204);
     }
 
@@ -1325,6 +1373,7 @@ async function api(req, res, path) {
       const d = new Date();
       const ymd = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
       const out = exportBackup(pass);
+      logEvent('backup');
       res.writeHead(200, {
         ...SECURITY,
         'Content-Type': 'application/json',
@@ -1345,7 +1394,10 @@ async function api(req, res, path) {
           awaitPresence('restore', () => {
             const list = openBackup(pass, b.backup);
             if (typeof list === 'string') return false;
-            return typeof importBackup(list, true) !== 'string';
+            const r = importBackup(list, true);
+            if (typeof r === 'string') return false;
+            logEvent('restore', { detail: 1, n: r.added });
+            return true;
           }),
         );
       }
@@ -1355,6 +1407,7 @@ async function api(req, res, path) {
       if (list === 'invalid') bad('Invalid data');
       const r = importBackup(list, false);
       if (r === 'full') fail(507, 'full', 'Vault is full');
+      logEvent('restore', { n: r.added + r.updated });
       return send(res, 200, r);
     }
 
@@ -1388,6 +1441,9 @@ async function api(req, res, path) {
     case 'health':
       return send(res, 200, health([...vault.entries.values()]));
 
+    case 'activity':
+      return send(res, 200, { events: [...(vault.activity ?? [])].reverse().map(({ id, n, title, ...e }) => ({ ...e, ...(id ? { id } : {}), ...(n ? { n } : {}), ...(title ? { title } : {}) })), max: ACTIVITY_MAX });
+
     case 'passkeys': {
       const list = [...vault.passkeys.values()].sort((a, b) => b.created - a.created);
       return send(res, 200, { passkeys: list, max: 50 });
@@ -1403,6 +1459,7 @@ async function api(req, res, path) {
       const entry = [...trusted.entries()].find(([, t]) => t.id === m.id);
       if (!entry) fail(404, 'not_found', 'No such trusted browser');
       const wasMine = knownBrowser(req) === entry[1];
+      logEvent('trusted_removed', { title: entry[1].name });
       trusted.delete(entry[0]);
       for (const [tok, s] of sessions) if (s.trustId === m.id) sessions.delete(tok);
       return send(res, 204, undefined, wasMine ? { 'Set-Cookie': 'kt=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' } : {});
@@ -1446,6 +1503,7 @@ async function api(req, res, path) {
         res,
         awaitPresence('ble_pair', () => {
           ble.pairingUntil = Date.now() + PAIR_WINDOW_MS;
+          logEvent('ble_pairing');
           console.log('[mock] Bluetooth pairing window open for 120 s');
           if (AUTO_BUTTON) setTimeout(() => blePair("Hasan's iPad"), 2000);
         }),
@@ -1464,6 +1522,7 @@ async function api(req, res, path) {
       const i = ble.bonds.findIndex((x) => x.addr === m.addr);
       if (i < 0) fail(404, 'not_found', 'No such device');
       if (ble.connected === m.addr) ble.connected = null;
+      logEvent('ble_forgot', { title: ble.bonds[i].name || m.addr });
       ble.bonds.splice(i, 1);
       return send(res, 204);
     }
@@ -1551,7 +1610,7 @@ function setUsb(on) {
   // The firmware waits 1 s to ride out a bus reset; the mock locks at once.
   if (unlocked && usbSeen && settings.lockOnUsb) {
     console.log('[mock] USB host gone: auto-lock');
-    lockAll();
+    lockAll('usb');
   }
 }
 
