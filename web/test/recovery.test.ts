@@ -52,6 +52,13 @@ describe('Shamir shares', () => {
     const five = await splitKey(key, 5, 3);
     expect(await combineShares(parsed([shares[0], five[1], five[2]]))).toBe('mismatch');
   });
+  it('different shares with the same x coordinate are a mismatch, not too few', async () => {
+    const [a] = parsed((await splitKey(key, 3, 2)).slice(0, 1));
+    const [b] = parsed((await splitKey(Uint8Array.from(key, (v) => v ^ 0xff), 3, 2)).slice(0, 1));
+    const sameX = { ...b, bytes: Uint8Array.from(b.bytes) };
+    sameX.bytes[sameX.bytes.length - 1] = a.bytes[a.bytes.length - 1];
+    expect(await combineShares([a, sameX])).toBe('mismatch');
+  });
   it('a damaged share is detected', async () => {
     const [s] = await splitKey(key, 3, 2);
     const i = s.search(/[2-9A-H]/);

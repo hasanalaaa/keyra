@@ -131,7 +131,15 @@ export type CombineError = 'too_few' | 'mismatch';
 
 /** Rebuilds the key from parsed shares; checks the fingerprint the shares carry. */
 export async function combineShares(shares: ParsedShare[]): Promise<Uint8Array | CombineError> {
-  const unique = shares.filter((s, i) => shares.findIndex((o) => o.bytes[KEY_BYTES] === s.bytes[KEY_BYTES]) === i);
+  // The same share entered twice counts once. Two *different* shares with the
+  // same x coordinate cannot belong together (x is random per split, so shares
+  // of two keys collide about 1 time in 255): say so instead of "too few".
+  const unique: ParsedShare[] = [];
+  for (const s of shares) {
+    const twin = unique.find((o) => o.bytes[KEY_BYTES] === s.bytes[KEY_BYTES]);
+    if (!twin) unique.push(s);
+    else if (twin.bytes.some((b, i) => b !== s.bytes[i])) return 'mismatch';
+  }
   if (unique.length === 0) return 'too_few';
   const { threshold, fp } = unique[0];
   if (unique.some((s) => s.threshold !== threshold || s.fp !== fp)) return 'mismatch';
