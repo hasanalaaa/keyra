@@ -396,7 +396,11 @@ Each entry keeps up to 10 previous passwords `{password, changedAt}` inside the
 encrypted entry (no plaintext metadata on flash). `PUT /api/entries/{id}` with a
 new `password` pushes the old one. `GET /api/entries/{id}` returns `history`.
 
-### 9.4 Keyra Companion (browser extension)
+### 9.4 Keyra Companion (browser extension) — DEFERRED
+
+> Not being built. Kept here as a design note; work resumes only when the
+> owner asks for it (branch `feat/companion` holds an unfinished start).
+
 
 A Manifest V3 extension (`extension/`, Chrome/Edge/Firefox; Safari via
 `xcrun safari-web-extension-converter`). Needs Keyra reachable from the computer
