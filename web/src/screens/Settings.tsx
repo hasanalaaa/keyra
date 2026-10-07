@@ -1,4 +1,5 @@
 // Settings (DESIGN §5.9): every change saves immediately; Wi-Fi, Bluetooth pairing and erase need the button.
+import { clipBytes, passphraseOk } from '../lib/limits';
 import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Icon } from '../components/Icon';
@@ -9,7 +10,7 @@ import { storedTarget, validTarget } from '../lib/ble';
 import { ApiError, api, isAwaiting } from '../lib/api';
 import { usePresence, useTypeAction } from '../lib/actions';
 import { errorText, isLockedError } from '../lib/errors';
-import { t } from '../lib/i18n';
+import { clock, t } from '../lib/i18n';
 import { back, go, replace } from '../lib/router';
 import { holdFastPolling, lockNow, pollNow, setLangPref, setThemePref, toast, useApp } from '../lib/store';
 import type { Settings as S } from '../lib/types';
@@ -101,8 +102,7 @@ export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void 
               <TextField
                 label={t('deviceName')}
                 value={name}
-                onValue={setName}
-                maxLength={32}
+                onValue={(v) => setName(clipBytes(v))}
                 onBlur={() => name.trim() && name !== s.deviceName && void save({ deviceName: name.trim() })}
                 enterkeyhint="done"
               />
@@ -349,7 +349,7 @@ function PassphraseSheet({ onClose }: { onClose: () => void }) {
   const [wrong, setWrong] = useState(false);
   const [busy, setBusy] = useState(false);
   const ctl = useRef<SheetCtl | null>(null);
-  const ok = cur && Array.from(next).length >= 10 && next === again;
+  const ok = cur && passphraseOk(next) && next === again;
 
   const submit = async (e: Event) => {
     e.preventDefault();
@@ -361,8 +361,11 @@ function PassphraseSheet({ onClose }: { onClose: () => void }) {
       toast(t('passphraseChanged'), 'ok');
       ctl.current?.close();
     } catch (err) {
-      if (err instanceof ApiError && err.code === 'wrong') setWrong(true);
-      else if (!isLockedError(err)) toast(errorText(err), 'error');
+      if (err instanceof ApiError && (err.code === 'wrong' || err.code === 'rate_limited')) {
+        if (err.code === 'wrong') setWrong(true);
+        // Wrong guesses are throttled like unlock: say how long to wait.
+        if (err.retryAfterMs > 0) toast(t('rateLimited', { t: clock(err.retryAfterMs) }), 'error');
+      } else if (!isLockedError(err)) toast(errorText(err), 'error');
       setBusy(false);
     }
   };
@@ -473,7 +476,7 @@ function WifiSheet({ ssid, onClose }: { ssid: string; onClose: () => void }) {
         />
       ) : (
         <form class="form" onSubmit={submit}>
-          <TextField label={t('network')} value={name} onValue={setName} ltr maxLength={32} autocapitalize="off" spellcheck={false} />
+          <TextField label={t('network')} value={name} onValue={(v) => setName(clipBytes(v))} ltr autocapitalize="off" spellcheck={false} />
           <SecretField label={t('s2Label')} value={pw} onValue={setPw} autocomplete="new-password" helper={t('s2Hint')} error={pw && !validWifi(pw) ? t('s2Hint') : null} />
           <Button type="submit" size="lg" full loading={busy} disabled={!ok}>
             {t('save')}

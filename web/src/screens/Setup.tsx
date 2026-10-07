@@ -1,4 +1,5 @@
 // Onboarding (DESIGN §5.2): passphrase → Wi-Fi password → press the button → reconnect → unlock.
+import { passphraseOk } from '../lib/limits';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Button, CopyButton, IconButton, Notice, SecretField, Spinner, StrengthMeter } from '../components/ui';
 import { ErrorCard, Ready } from '../components/Ready';
@@ -73,7 +74,7 @@ function StepPassphrase() {
   const [pass, setPass] = useState(draft.passphrase);
   const [confirm, setConfirm] = useState(draft.confirm);
   const [touched, setTouched] = useState(false);
-  const long = Array.from(pass).length >= 10;
+  const long = passphraseOk(pass);
   const ok = long && pass === confirm;
   const next = (e?: Event) => {
     e?.preventDefault();

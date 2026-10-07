@@ -248,6 +248,7 @@ function ActionError({ code, retry, copy, edit, close }: { code: ErrorCode; retr
 function CodeCard({ id, onType, codeRef, timeValid }: { id: number; onType: () => void; codeRef: { current: Totp | null }; timeValid: boolean }) {
   const [totp, setTotp] = useState<Totp | null>(null);
   const [noTime, setNoTime] = useState(false);
+  const [bad, setBad] = useState(false); // the stored 2FA secret cannot make codes
   const [left, setLeft] = useState(0);
 
   useEffect(() => {
@@ -265,6 +266,8 @@ function CodeCard({ id, onType, codeRef, timeValid }: { id: number; onType: () =
       } catch (e) {
         if (!live) return;
         if (e instanceof ApiError && e.code === 'no_time') setNoTime(true);
+        // A secret the device rejects stays rejected: say so instead of retrying forever.
+        else if (e instanceof ApiError && e.code === 'invalid') setBad(true);
         else h = setTimeout(load, 3000);
       }
     };
@@ -279,6 +282,7 @@ function CodeCard({ id, onType, codeRef, timeValid }: { id: number; onType: () =
   }, [id, timeValid]);
 
   if (noTime) return <div class="code-card"><p class="caption">{t('noClock')}</p></div>;
+  if (bad) return <div class="code-card"><p class="caption">{t('totpBroken')}</p></div>;
   const code = totp?.code ?? '';
   const pretty = code.length === 6 ? `${code.slice(0, 3)} ${code.slice(3)}` : code.length === 8 ? `${code.slice(0, 4)} ${code.slice(4)}` : code;
   return (

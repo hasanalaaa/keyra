@@ -1,4 +1,5 @@
-// CSV import (DESIGN §5.7): source → instructions → preview → batches of 50 → result.
+// CSV import (DESIGN §5.7): source → instructions → preview → batches (≤ 50 entries, ≤ 48 KiB) → result.
+import { batches } from '../lib/batch';
 import { useRef, useState } from 'preact/hooks';
 import { Icon } from '../components/Icon';
 import { QR_ERRORS, QrPhoto } from '../components/QrPhoto';
@@ -19,8 +20,6 @@ const SOURCES: { id: Source; name: string; steps: Key }[] = [
   { id: 'bitwarden', name: 'Bitwarden', steps: 'stepsBitwarden' },
   { id: '1password', name: '1Password', steps: 'steps1Password' },
 ];
-
-const BATCH = 50;
 
 type Mode = 'new' | 'attach';
 interface QrState {
@@ -110,10 +109,12 @@ export function ImportSheet() {
         await api.update(x.id, { totp: x.totp });
         setStep({ s: 'progress', done: ++attached, total });
       }
-      for (let i = 0; i < entries.length; i += BATCH) {
-        const r = await api.importBatch(entries.slice(i, i + BATCH));
+      let sent = 0;
+      for (const part of batches(entries)) {
+        const r = await api.importBatch(part);
         added += r.added;
-        setStep({ s: 'progress', done: attached + Math.min(entries.length, i + BATCH), total });
+        sent += part.length;
+        setStep({ s: 'progress', done: attached + sent, total });
       }
     } catch (e) {
       if (!isLockedError(e)) toast(errorText(e), 'error');

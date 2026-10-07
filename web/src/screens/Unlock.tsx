@@ -1,4 +1,5 @@
 // Unlock and Locked (DESIGN §5.3, §5.11), plus "Forgot passphrase?" → factory reset with the button.
+import { passphraseOk } from '../lib/limits';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { KeyGlyph, LogoTile } from '../components/Icon';
 import { Button, SecretField, TextField } from '../components/ui';
@@ -237,7 +238,7 @@ function RecoverForm({ onBack }: { onBack: () => void }) {
   const lastKey = useRef('');
   const now = useNow(retryUntil > Date.now(), 500);
   const waiting = retryUntil > now;
-  const passOk = Array.from(pass).length >= 10 && pass === pass2;
+  const passOk = passphraseOk(pass) && pass === pass2;
 
   const send = async (hex: string) => {
     setBusy(true);

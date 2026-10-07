@@ -111,6 +111,18 @@ All notable changes to Keyra are documented here. The format follows
 
 ### Fixed
 
+- Audit round (Bluetooth, firmware security, app ↔ firmware contract):
+  - Security: nested-JSON crash from the network (cJSON depth 16), home-LAN
+    spoofing of the AP to skip browser approval, slow-body stall of the web
+    server, 10M-iteration backups, lost settings updates between tasks,
+    sessions reviving after an internal lock.
+  - Bluetooth: advertising stuck off after an early link loss, Caps Lock
+    state lost on reconnect (now also waits for the host's LED report), a new
+    action cutting a password mid-typing, keys stuck after a failed release.
+  - App: imports split by size as well as count (no more network error with
+    long notes), passphrase limits 10–128 and name limits in bytes as on the
+    device, passphrase change shows the wait after wrong attempts, an invalid
+    2FA key shows a message instead of retrying forever.
 - Choosing a Bluetooth device's system and forgetting a device both failed
   with "Something went wrong": the app percent-encoded the address
   (`A4%3AC1…`) and the firmware matched paths literally. The app now sends the
