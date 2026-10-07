@@ -19,6 +19,7 @@
 #include "handlers_kbd.hpp"
 #include "handlers_net.hpp"
 #include "handlers_protect.hpp"
+#include "health.hpp"
 #include "http.hpp"
 #include "keyra/ble.hpp"
 #include "keyra/fido.hpp"
@@ -493,6 +494,48 @@ esp_err_t postLock(Ctx& c) {
   lockAll();
   httpd_resp_set_hdr(c.r, "Set-Cookie", "ks=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0");
   return http::sendEmpty(c.r, http::k204);
+}
+
+// SPEC §13: ids and flags only; the passwords never leave this function.
+esp_err_t getHealth(Ctx& c) {
+  std::vector<vault::Entry> all;
+  const Status st = vault::list(all);
+  if (st != Status::Ok) return sendVaultError(c.r, st);
+  std::vector<health::Item> items;
+  items.reserve(all.size());
+  for (const vault::Entry& e : all) {
+    // The current password was set when the newest old one was replaced.
+    items.push_back({e.id, e.password, e.history.empty() ? e.created : e.history.front().changedAt});
+  }
+  const int64_t now = unixSecondsOrZero();
+  const health::Report rep = health::check(items, now);
+  items.clear();
+  for (vault::Entry& e : all) vault::wipe(e);
+
+  json::Ptr o(cJSON_CreateObject());
+  cJSON_AddNumberToObject(o.get(), "checked", static_cast<double>(rep.checked));
+  cJSON_AddBoolToObject(o.get(), "clock", now != 0);
+  cJSON* weak = cJSON_AddArrayToObject(o.get(), "weak");
+  for (const auto& [id, lv] : rep.weak) {
+    cJSON* j = cJSON_CreateObject();
+    cJSON_AddNumberToObject(j, "id", id);
+    cJSON_AddNumberToObject(j, "level", lv);
+    cJSON_AddItemToArray(weak, j);
+  }
+  cJSON* reused = cJSON_AddArrayToObject(o.get(), "reused");
+  for (const std::vector<uint32_t>& g : rep.reused) {
+    cJSON* arr = cJSON_CreateArray();
+    for (uint32_t id : g) cJSON_AddItemToArray(arr, cJSON_CreateNumber(id));
+    cJSON_AddItemToArray(reused, arr);
+  }
+  cJSON* old = cJSON_AddArrayToObject(o.get(), "old");
+  for (const auto& [id, since] : rep.old) {
+    cJSON* j = cJSON_CreateObject();
+    cJSON_AddNumberToObject(j, "id", id);
+    cJSON_AddNumberToObject(j, "since", static_cast<double>(since));
+    cJSON_AddItemToArray(old, j);
+  }
+  return http::sendJson(c.r, http::k200, o.get());
 }
 
 esp_err_t listEntries(Ctx& c) {
@@ -1070,6 +1113,7 @@ esp_err_t dispatch(Ctx& c) {
     case Route::Unlock: return postUnlock(c);
     case Route::Lock: return postLock(c);
     case Route::ListEntries: return listEntries(c);
+    case Route::Health: return getHealth(c);
     case Route::CreateEntry: return createEntry(c);
     case Route::ImportEntries: return importEntries(c);
     case Route::GetEntry: return getEntry(c, false);

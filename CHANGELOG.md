@@ -8,6 +8,11 @@ All notable changes to Keyra are documented here. The format follows
 
 ### Added
 
+- **Password health** (SPEC §13): Settings → Password health lists reused,
+  could-be-stronger and year-old passwords. Keyra checks them on the device
+  (`GET /api/health` returns entry ids and flags only), with the same strength
+  estimate as the app's meter.
+
 - Typing in any input language (SPEC §10.5): each host has a system (USB in
   Settings → Typing, each Bluetooth device in Settings → Bluetooth; guessed from
   the name at pairing). Windows hosts get Alt + keypad codes (Num Lock handled

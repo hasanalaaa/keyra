@@ -1,4 +1,4 @@
-import type { BleInfo, DeviceState, Entry, HostOs, EntryInput, EntrySummary, Network, Passkey, RecoveryInfo, Settings, Totp, TrustedBrowser, TypeTextRequest, TypeWhat, Pending, PresenceOp } from './types';
+import type { BleInfo, DeviceState, Entry, HostOs, EntryInput, EntrySummary, Health, Network, Passkey, RecoveryInfo, Settings, Totp, TrustedBrowser, TypeTextRequest, TypeWhat, Pending, PresenceOp } from './types';
 import { generateRequest, type GenSettings } from './generator';
 
 export class ApiError extends Error {
@@ -174,6 +174,7 @@ export const api = {
   putHomeWifi: (b: { enabled: boolean; ssid?: string; password?: string }) => json<Awaiting>('PUT', '/wifi/home', b),
   trusted: async () => (await json<{ browsers: TrustedBrowser[] }>('GET', '/trusted')).browsers,
   revokeTrusted: (id: number) => json<void>('DELETE', `/trusted/${id}`),
+  health: () => json<Health>('GET', '/health'),
   passkeys: async () => await json<{ passkeys: Passkey[]; max: number }>('GET', '/fido'),
   deletePasskey: (id: number) => json<void>('DELETE', `/fido/${id}`),
 };

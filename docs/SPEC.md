@@ -603,3 +603,24 @@ sessionStorage, so the same tab can still withdraw its op after a reload.
 `state.net.home.error`: `""` (none yet), `"wrong_password"` (4-way handshake
 or auth failure), `"not_found"`, or `"failed"`. Set when an attempt fails,
 cleared when the network connects or is reconfigured.
+
+## 13. Password health
+
+Settings → **Password health** lists accounts whose password is reused,
+could be stronger, or has not changed for over a year. Keyra works it out
+itself while unlocked; the phone receives entry ids and flags, never a
+password (`keyra_api/src/health.cpp`, host-tested).
+
+- `GET /api/health` (session) →
+  `{checked, clock, weak:[{id, level}], reused:[[id…]], old:[{id, since}]}`.
+  `checked` = entries with a password (notes-only entries are skipped).
+- **Weak**: strength level 1 or 2 by the same estimate as the app's meter
+  (`web/src/lib/strength.ts`: character pool × length, −8 bits per run of 3
+  equal characters or 3-step sequence, a short common-password list forces
+  level 1). Both copies are pinned to the same examples in their tests.
+- **Reused**: groups of ≥ 2 entries with byte-identical passwords (case
+  matters). Groups say which accounts share a password, not what it is.
+- **Old**: the current password was set more than 365 days ago — the
+  `changedAt` of the newest history item, else the entry's `created`. Needs a
+  valid clock (`clock: false` → nothing is old); unknown dates are never old.
+

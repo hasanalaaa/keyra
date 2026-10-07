@@ -386,3 +386,11 @@
 
 /* Notes mixing Arabic and Latin lines: each paragraph takes its own direction. */
 .notes, textarea#notes { unicode-bidi:plaintext; text-align:start; }
+
+/* Password health (SPEC §13) */
+.health-summary { display:flex; align-items:center; gap:var(--s-3); padding:var(--s-4); }
+.health-summary .row-label { display:flex; flex-direction:column; gap:2px; }
+.health-summary.ok > svg { color:var(--ok); }
+.health-summary.warn > svg { color:var(--warn); }
+.health .group .card + .card { margin-block-start:var(--s-2); }
+.health .group-foot { padding-block:0 var(--s-3); }

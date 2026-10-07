@@ -235,7 +235,15 @@ async function firstRunFlow(base, opts) {
   // Backup download
   await page.evaluate(() => (location.hash = '#/backup'));
   await page.locator('.backup input[type=password]').first().fill('backup passphrase 2026');
-  const [download] = await Promise.all([page.waitForEvent('download'), page.locator('.backup .btn-primary').first().click()]);
+  // A backup is handed over only after a press on Keyra (SPEC §12.3).
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    (async () => {
+      await page.locator('.backup .btn-primary').first().click();
+      await page.waitForTimeout(500);
+      check((await button(base)) === 'approved backup', 'button approves the backup');
+    })(),
+  ]);
   check(/^keyra-backup-\d{8}\.json$/.test(download.suggestedFilename()), `backup filename ${download.suggestedFilename()}`);
   const file = JSON.parse(readFileSync(await download.path(), 'utf8'));
   check(file.format === 'keyra-backup' && file.v === 2, 'backup envelope');
@@ -319,7 +327,10 @@ async function bleFlow(base, opts) {
   await mock({ connected: false });
   await mock({ autoConnect: false }); // connect by hand below, so the "Connecting…" state can be seen
   await fetch(`${base}/__mock/usb`, { method: 'POST', body: JSON.stringify({ usb: false }) });
+  // Unplugging the computer it was used from locks Keyra (SPEC §12.4) and says why.
+  await page.locator('button', { hasText: /^(Unlock|فتح)$/ }).click({ timeout: 8000 });
   await page.evaluate(() => (location.hash = '#/'));
+  await unlockUi(page);
   await page.locator('.top-bar .chip', { hasText: /Bluetooth|بلوتوث/ }).waitFor({ timeout: 8000 });
   await row(page, 'GitHub').click();
   // Pick the iPad in the account sheet's "Type into" picker (remembered per browser).
@@ -388,6 +399,28 @@ async function homeFlow(base, opts) {
 }
 
 // ---------- flow 5: Settings → Passkeys (docs/FIDO.md): list and delete ----------
+
+// ---------- Password health (SPEC §13): flags only, accounts open from the list ----------
+
+async function healthFlow(base, opts) {
+  const { ctx, page, tag } = await open(base, opts);
+  console.log(`health ${tag || '(phone, ar, light)'}`);
+  await page.locator('input[type=password]').waitFor();
+  await unlockUi(page);
+  await page.evaluate(() => (location.hash = '#/settings'));
+  await page.locator('.settings .seg').first().waitFor();
+  await page.locator('.nav-row', { hasText: opts.lang === 'en' ? 'Password health' : 'صحة كلمات السر' }).click();
+  await page.locator('.health-summary').waitFor();
+  // The seed: Amazon and Dropbox share a password, Router's is weak, Zain's is over a year old.
+  check((await page.locator('.health .acc-row').count()) === 4, 'four flagged accounts listed');
+  check(/4/.test((await page.locator('.health-summary strong').textContent()) ?? ''), 'summary counts 4 accounts');
+  await shot(page, `health${tag}`);
+  await page.locator('.health .acc-row', { hasText: 'Router' }).click();
+  await page.locator('.details').waitFor();
+  check(page.url().includes('#/a/'), 'a flagged account opens');
+  console.log('  ✓ health flow passed');
+  await ctx.close();
+}
 
 async function passkeysFlow(base, opts) {
   const { ctx, page, tag } = await open(base, opts);
@@ -470,6 +503,9 @@ async function generatorFlow(base, opts) {
   await page.locator('.history-row').waitFor();
   check((await page.locator('.history-row').count()) === 1, 'one old password');
   await page.locator('.history-row .icon-btn').first().click(); // reveal
+  await page.waitForTimeout(400);
+  await button(base); // secrets reach the phone only after a press (SPEC §12.3); it opens a short grace window
+  await page.waitForFunction((pw) => (document.querySelector('.history-row .kv-value')?.textContent ?? '').trim() === pw, pw1, { timeout: 5000 }).catch(() => {});
   check(((await page.locator('.history-row .kv-value').textContent()) ?? '').trim() === pw1, 'history holds the first password');
   await page.locator('.details .kv-row', { hasText: /Password|كلمة المرور/ }).locator('.icon-btn').first().click();
   check((await page.locator('.details .secret').first().textContent())?.trim() === pw2, 'current password is the second one');
@@ -549,6 +585,8 @@ try {
   await generatorFlow(await startMock(), {});
   await passkeysFlow(await startMock(), {});
   await passkeysFlow(await startMock(), { lang: 'en', dark: true });
+  await healthFlow(await startMock(), {});
+  await healthFlow(await startMock(), { lang: 'en', dark: true });
 
   quantizeShots();
   if (errors.length) {

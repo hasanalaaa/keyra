@@ -57,6 +57,10 @@ void apiRoutes() {
   CHECK(needsSession(Route::ListPasskeys) && needsSession(Route::DeletePasskey));
   CHECK(needsCsrf(Method::Delete, Route::DeletePasskey));
 
+  CHECK(is(matchApi(Method::Get, "/api/health"), Route::Health));
+  CHECK(matchApi(Method::Post, "/api/health").kind == K::MethodNotAllowed);
+  CHECK(needsSession(Route::Health));
+
   CHECK(is(matchApi(Method::Get, "/api/ble"), Route::GetBle));
   CHECK(is(matchApi(Method::Post, "/api/ble/pair"), Route::BlePair));
   const Match fg = matchApi(Method::Delete, "/api/ble/bonds/a4:c1:38:0B:7F:3A");

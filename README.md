@@ -64,6 +64,7 @@ A long press (1.5 seconds) cancels a pending action, or locks the vault if nothi
 |---|---|
 | **Types like a keyboard** | USB and Bluetooth keyboard. Handles Caps Lock and always releases keys, even on errors. |
 | **Any input language** | Tell Keyra each computer's system once: on Windows it types character codes that ignore the active language; on a Mac or iPhone in Arabic it switches to English, types, and switches back. |
+| **Password health** | **Settings → Password health** lists reused, weak and year-old passwords. Keyra checks them itself; only the list of accounts reaches the phone, never a password. |
 | **Passkeys and security key (USB)** | Keyra is also a FIDO2/U2F security key: create and use passkeys, or use it as a second factor, on sites that support security keys. Press the button when the light double-blinks white. Up to 50 passkeys, listed in **Settings → Passkeys**. Not FIDO certified; see [docs/FIDO.md](docs/FIDO.md). |
 | **Bluetooth keyboard** | Bluetooth LE (HID over GATT) for phones, tablets and computers, with the same typing engine. Pairing only opens for 2 minutes after a button press; up to 4 devices; forget any of them from the app. |
 | **Phone-first web app** | Installable to the home screen. Search, favorites, recents and a strength meter. |

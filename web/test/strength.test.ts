@@ -49,3 +49,21 @@ describe('strength', () => {
     }
   });
 });
+
+// The device flags weak passwords with a C++ copy of this estimate
+// (firmware/components/keyra_api/src/health.cpp); these are the values its
+// host test pins, so the phone's meter and Password health always agree.
+describe('strength matches the device (health_test.cpp)', () => {
+  it.each([
+    ['password', 1],
+    ['PassWord', 1],
+    ['abc', 1],
+    ['hasan2000', 2],
+    ['Hasan2019!', 3],
+    ['Hasan2000!', 2],
+    ['k7#Qv9!pL2@xW4$z', 4],
+    ['مرحبا', 1],
+  ] as const)('%s → %i', (pw, level) => {
+    expect(strength(pw)).toBe(level);
+  });
+});

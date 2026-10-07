@@ -87,6 +87,15 @@ export interface Network {
 }
 
 /** A discoverable FIDO credential (passkey) stored on Keyra (docs/FIDO.md). */
+/** GET /api/health (SPEC §13): entry ids and flags only, never a password. */
+export interface Health {
+  checked: number; // entries that have a password
+  clock: boolean; // false: the device has no time, so nothing can be "old"
+  weak: { id: number; level: 1 | 2 }[];
+  reused: number[][]; // groups of ids that share one password
+  old: { id: number; since: number }[]; // unix seconds the password was set
+}
+
 export interface Passkey {
   id: number;
   rpId: string;

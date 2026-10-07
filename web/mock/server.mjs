@@ -527,6 +527,61 @@ function readEntry(src, withTimestamps, base = { title: '', url: '', username: '
 
 const validEntry = (e) => STR_FIELDS.every((k) => Buffer.byteLength(e[k]) <= LIMITS[k]);
 
+// ---------- password health (SPEC §13; firmware keyra_api/src/health.cpp) ----------
+
+// Same estimate and common list as web/src/lib/strength.ts.
+const COMMON = new Set([
+  'password', '123456', '12345678', '123456789', '1234567890', 'qwerty', 'qwertyuiop', 'keyra1234',
+  'iloveyou', 'admin', 'welcome', 'letmein', 'monkey', 'dragon', 'football', 'baseball', 'abc123',
+  '111111', '000000', '123123', '654321', 'sunshine', 'princess', 'master', 'shadow', 'superman',
+  'trustno1', 'passw0rd', 'password1', 'password123', 'qwerty123', '1q2w3e4r', 'zaq12wsx', 'starwars',
+  'whatever', 'freedom', 'hello123', 'login', 'access', 'secret', 'michael', 'charlie', 'jordan',
+  'mustang', 'batman', 'computer', 'internet', 'samsung', 'google', 'asdfghjkl',
+]);
+
+function strengthLevel(pw) {
+  if (!pw) return 0;
+  if (COMMON.has(pw.toLowerCase())) return 1;
+  const chars = Array.from(pw);
+  let pool = 0;
+  if (/[a-z]/.test(pw)) pool += 26;
+  if (/[A-Z]/.test(pw)) pool += 26;
+  if (/[0-9]/.test(pw)) pool += 10;
+  if (/[!-/:-@[-`{-~ ]/.test(pw)) pool += 33;
+  if (/[\u0600-\u06FF]/.test(pw)) pool += 36;
+  if (pool === 0) pool = 33;
+  let b = chars.length * Math.log2(pool);
+  const cp = chars.map((ch) => ch.toLowerCase().codePointAt(0));
+  let run = 1, seq = 1, prev = 0;
+  for (let i = 1; i < cp.length; i++) {
+    const d = cp[i] - cp[i - 1];
+    run = d === 0 ? run + 1 : 1;
+    if (run === 3) b -= 8;
+    if (d === 1 || d === -1) seq = seq > 1 && d === prev ? seq + 1 : 2;
+    else seq = 1;
+    if (seq === 3) b -= 8;
+    prev = d;
+  }
+  b = Math.max(0, b);
+  return b < 36 ? 1 : b < 60 ? 2 : b < 80 ? 3 : 4;
+}
+
+function health(entries) {
+  const now = timeValid ? nowSec() : 0;
+  const withPw = entries.filter((e) => e.password);
+  const weak = [], old = [], groups = new Map();
+  for (const e of withPw) {
+    const level = strengthLevel(e.password);
+    if (level < 3) weak.push({ id: e.id, level });
+    const since = e.history.length ? e.history[0].changedAt : e.created;
+    if (now && since && now - since > 365 * 86400) old.push({ id: e.id, since });
+    groups.set(e.password, [...(groups.get(e.password) ?? []), e.id]);
+  }
+  const reused = [...groups.values()].filter((g) => g.length > 1).map((g) => g.sort((a, b) => a - b));
+  const byId = (a, b) => a.id - b.id;
+  return { checked: withPw.length, clock: !!now, weak: weak.sort(byId), reused, old: old.sort(byId) };
+}
+
 // ---------- seed ----------
 
 function seed() {
@@ -547,7 +602,7 @@ function seed() {
     ['WhatsApp Web', 'web.whatsapp.com', '+964 770 123 4567', '', '', 'Linked devices only — no password.', false, 0],
     ['X', 'x.com', 'hasanalaaa', 'Xx-Birdless-Sky-3', '', '', false, 0],
     ['LinkedIn', 'linkedin.com', 'hasan.ali@outlook.com', 'Career-Ladder-2026', '', '', false, 0],
-    ['Dropbox', 'dropbox.com', 'hasan.ali@gmail.com', 'Box-Of-Files-88!', '', '', false, 0],
+    ['Dropbox', 'dropbox.com', 'hasan.ali@gmail.com', 'Prime-Box-Delivery-5', '', '', false, 0],
     ['PayPal', 'paypal.com', 'hasan.ali@gmail.com', 'Pp$Wallet-Green-12', 'otpauth://totp/PayPal:hasan?secret=NBSWY3DPO5XXE3DE&issuer=PayPal', '', false, 0],
     ['Spotify', 'spotify.com', 'hasan.music', 'Maqam-Rast-Oud-7', '', '', false, 0],
     ['Discord', 'discord.com', 'hasan#4821', 'Discord-Night-Owl', '', '', false, 6],
@@ -557,12 +612,13 @@ function seed() {
     ['توترز', 'tooters.iq', 'hasan.ali', 'Food-Tooters-99', '', '', false, 0],
     ['Notion', 'notion.so', 'hasan.ali@gmail.com', 'Notes-Blocks-Pages', '', '', false, 0],
     ['Slack', 'keyra.slack.com', 'hasan@keyra.dev', 'Slack-Channel-Hash', '', '', false, 0],
-    ['Router', '192.168.1.1', 'admin', 'Home-Router-Ü', '', 'TP-Link in the living room.', false, 0],
+    ['Router', '192.168.1.1', 'admin', 'admin1234', '', 'TP-Link in the living room.', false, 0],
   ];
   const entries = new Map();
   for (const [title, url, username, password, totp, notes, favorite, usedDaysAgo] of rows) {
     const id = freshId(entries);
-    const created = now - 200 * day + entries.size * day;
+    // Zain has kept its password for over a year (Password health: "old").
+    const created = title === 'زين العراق' ? now - 500 * day : now - 200 * day + entries.size * day;
     entries.set(id, {
       id,
       title,
@@ -748,6 +804,7 @@ function match(method, rawPath) {
     case 'wifi/home': return one('PUT', 'wifiHome');
     case 'trusted': return one('GET', 'trusted');
     case 'fido': return one('GET', 'passkeys');
+    case 'health': return one('GET', 'health');
     case 'ble': return one('GET', 'ble');
     case 'ble/pair': return one('POST', 'blePair');
   }
@@ -1327,6 +1384,9 @@ async function api(req, res, path) {
       const mine = knownBrowser(req);
       return send(res, 200, { browsers: [...trusted.values()].map((t) => ({ ...t, current: t === mine })) });
     }
+
+    case 'health':
+      return send(res, 200, health([...vault.entries.values()]));
 
     case 'passkeys': {
       const list = [...vault.passkeys.values()].sort((a, b) => b.created - a.created);
