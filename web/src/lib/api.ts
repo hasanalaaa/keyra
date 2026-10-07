@@ -1,4 +1,4 @@
-import type { BleInfo, DeviceState, Entry, EntryInput, EntrySummary, Network, Settings, Totp, TrustedBrowser, TypeTextRequest, TypeWhat, Pending, PresenceOp } from './types';
+import type { BleInfo, DeviceState, Entry, EntryInput, EntrySummary, Network, RecoveryInfo, Settings, Totp, TrustedBrowser, TypeTextRequest, TypeWhat, Pending, PresenceOp } from './types';
 import { generateRequest, type GenSettings } from './generator';
 
 export class ApiError extends Error {
@@ -42,7 +42,7 @@ export const setLockedHandler = (fn: () => void): void => {
 };
 
 // Routes that must work without a session (SPEC §5): no CSRF header, and a 401 is not "locked".
-const OPEN = new Set(['/unlock', '/setup', '/factory-reset', '/state']);
+const OPEN = new Set(['/unlock', '/unlock/recovery', '/setup', '/factory-reset', '/state']);
 
 async function request(method: string, path: string, body?: unknown, timeoutMs = 15000): Promise<Response> {
   const headers: Record<string, string> = { 'X-Keyra-Time': String(Date.now()) };
@@ -108,6 +108,13 @@ export const api = {
     setCsrf(r.csrf);
     return null;
   },
+  /** Forgotten passphrase (SPEC §10.2): the recovery key (40 hex) sets `next` and unlocks. */
+  async unlockRecovery(recoveryKey: string, next: string): Promise<Awaiting | null> {
+    const r = await json<{ csrf: string } | Awaiting>('POST', '/unlock/recovery', { recoveryKey, next }, 30000);
+    if (isAwaiting(r)) return r;
+    setCsrf(r.csrf);
+    return null;
+  },
   async lock(): Promise<void> {
     try {
       await json<void>('POST', '/lock');
@@ -117,6 +124,12 @@ export const api = {
   },
   entries: async () => (await json<{ entries: EntrySummary[] }>('GET', '/entries')).entries,
   entry: (id: number) => json<Entry>('GET', `/entries/${id}`),
+  /** 200 → the entry with its secrets; 202 → press Keyra's button, then call again (SPEC §10.3). */
+  reveal: (id: number) => json<Entry | Awaiting>('POST', `/entries/${id}/reveal`),
+  recovery: () => json<RecoveryInfo>('GET', '/recovery'),
+  /** 200 → the new key, shown once; 202 → press first, then call again. */
+  createRecovery: () => json<{ recoveryKey: string; created: number } | Awaiting>('POST', '/recovery'),
+  removeRecovery: () => json<void | Awaiting>('DELETE', '/recovery'),
   create: (e: EntryInput) => json<{ id: number }>('POST', '/entries', e),
   update: (id: number, e: Partial<EntryInput>) => json<{ id: number }>('PUT', `/entries/${id}`, e),
   remove: (id: number) => json<void>('DELETE', `/entries/${id}`),
@@ -137,8 +150,10 @@ export const api = {
     return json<Settings | Awaiting>('PUT', '/settings', s);
   },
   passphrase: (current: string, next: string) => json<void>('POST', '/passphrase', { current, next }, 30000),
-  async backup(passphrase: string): Promise<Blob> {
+  /** Blob → the file; Awaiting → press Keyra's button, then call again (SPEC §10.3). */
+  async backup(passphrase: string): Promise<Blob | Awaiting> {
     const res = await request('POST', '/backup', { passphrase }, 60000);
+    if (res.status === 202) return (await res.json()) as Awaiting;
     return res.blob();
   },
   restore: (passphrase: string, backup: unknown, mode: 'merge' | 'replace') =>

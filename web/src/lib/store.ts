@@ -24,6 +24,8 @@ export interface AppState {
   entries: EntrySummary[] | null;
   /** GET /api/ble, refreshed when the Bluetooth link changes (names the device Ready types into). */
   ble: BleInfo | null;
+  /** settings.lastBackupAt (unix s, 0 = never; null = not loaded) for the backup reminder (SPEC §10.5). */
+  backupAt: number | null;
   langPref: LangPref;
   lang: Lang;
   themePref: ThemePref;
@@ -60,6 +62,7 @@ let state: AppState = {
   lockReason: null,
   entries: null,
   ble: null,
+  backupAt: null,
   langPref,
   lang: detectLang(langPref, navigator.language || 'en'),
   themePref: readPref<ThemePref>(THEME_KEY, ['auto', 'light', 'dark'], 'auto'),
@@ -142,7 +145,7 @@ function lockReasonNow(d: DeviceState | null): LockReason {
 function becameLocked(d: DeviceState | null): void {
   if (!state.authed) return;
   forgetSession();
-  setState({ authed: false, lockReason: lockReasonNow(d), entries: null, ble: null });
+  setState({ authed: false, lockReason: lockReasonNow(d), entries: null, ble: null, backupAt: null });
   manualLock = false;
 }
 
@@ -222,6 +225,7 @@ export function startApp(): void {
       setState({ authed: true });
       void loadEntries();
       void loadBle();
+      void loadBackupAt();
     }
   });
 }
@@ -230,12 +234,28 @@ export function startApp(): void {
 
 /** Resolves to Awaiting when the device wants this browser trusted first (the caller shows the button wait and retries). */
 export async function unlock(passphrase: string): Promise<Awaiting | null> {
-  const awaiting = await api.unlock(passphrase);
+  return opened(await api.unlock(passphrase));
+}
+
+/** Forgotten passphrase (SPEC §10.2): the recovery key (hex) sets `next` and unlocks. */
+export async function unlockRecovery(keyHex: string, next: string): Promise<Awaiting | null> {
+  return opened(await api.unlockRecovery(keyHex, next));
+}
+
+async function opened(awaiting: Awaiting | null): Promise<Awaiting | null> {
   if (awaiting) return awaiting;
   markActivity();
   setState({ authed: true, lockReason: null });
-  await Promise.all([pollNow(), loadEntries(), loadBle()]);
+  await Promise.all([pollNow(), loadEntries(), loadBle(), loadBackupAt()]);
   return null;
+}
+
+export async function loadBackupAt(): Promise<void> {
+  try {
+    setState({ backupAt: (await api.settings()).lastBackupAt ?? 0 });
+  } catch {
+    // Locked/offline: no reminder.
+  }
 }
 
 export async function lockNow(): Promise<void> {

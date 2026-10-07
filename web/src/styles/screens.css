@@ -287,3 +287,83 @@
 .trusted-row { gap:8px; }
 .trusted-row .chip { flex:none; }
 .kv-row > .chip { grid-row:1 / span 2; align-self:center; }
+
+/* Recovery kit (SPEC §10.2) */
+.kit-key,
+.share-card {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  text-align: center;
+}
+.kit-code {
+  font-size: 1.05rem;
+  letter-spacing: 0.04em;
+  line-height: 1.6;
+  word-break: break-word;
+  user-select: all;
+}
+.qr {
+  border-radius: 12px;
+  background: #fff;
+}
+.shares {
+  display: grid;
+  gap: 12px;
+}
+.print-kit {
+  display: none;
+}
+.backup-reminder {
+  margin-block-end: 16px;
+}
+.reminder-actions {
+  display: flex;
+  gap: 4px;
+}
+
+@media print {
+  /* The kit is portalled straight into <body>; everything else stays off the paper. */
+  body > :not(.print-kit) {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+  }
+  .print-kit {
+    display: block;
+    color: #000;
+    font: 12pt/1.5 system-ui, sans-serif;
+  }
+  .kit-page {
+    padding: 16mm;
+    break-after: page;
+  }
+  .kit-page h1 {
+    font-size: 20pt;
+    margin: 0 0 8mm;
+  }
+  .kit-page dl {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 2mm 6mm;
+    margin: 0 0 8mm;
+  }
+  .kit-page dt {
+    font-weight: 600;
+  }
+  .kit-page dd {
+    margin: 0;
+  }
+  .kit-print-code {
+    font: 600 18pt/1.5 ui-monospace, Menlo, monospace;
+    letter-spacing: 0.05em;
+    border: 1px solid #000;
+    padding: 4mm;
+    margin: 0 0 6mm;
+    word-break: break-word;
+  }
+  .kit-page ol {
+    margin: 8mm 0 0;
+  }
+}

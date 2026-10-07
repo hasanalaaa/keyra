@@ -4,7 +4,10 @@ import { Button, Notice, SecretField, StrengthMeter, SwitchRow, TextField } from
 import { InlineGenerator } from '../components/Generator';
 import { QR_ERRORS, QrPhoto } from '../components/QrPhoto';
 import { Alert, Sheet, type SheetCtl } from '../components/Sheet';
+import { Ready } from '../components/Ready';
 import { ApiError, api } from '../lib/api';
+import { usePressGate } from '../lib/actions';
+import { errorText, isLockedError } from '../lib/errors';
 import { takeDraftPassword } from '../lib/draft';
 import { toTypeable, untypeable } from '../lib/generator';
 import { t } from '../lib/i18n';
@@ -28,16 +31,26 @@ export function EditAccount({ id }: { id?: number }) {
   const ctl = useRef<SheetCtl | null>(null);
   const after = useRef<() => void>(() => back(id ? `/a/${id}` : '/'));
 
+  // Editing shows the password: one press of Keyra's button (SPEC §10.3), none inside the grace minute.
+  const gate = usePressGate('reveal');
   useEffect(() => {
     if (!id) return;
-    api
-      .entry(id)
+    let live = true;
+    gate
+      .run(() => api.reveal(id))
       .then((e) => {
-        const v: EntryInput = { title: e.title, url: e.url, username: e.username, password: e.password, totp: e.totp, notes: e.notes, favorite: e.favorite };
+        if (!live) return;
+        if (!e) return ctl.current?.close(); // cancelled or not pressed: nothing to edit
+        const v: EntryInput = { title: e.title, url: e.url, username: e.username, password: e.password ?? '', totp: e.totp ?? '', notes: e.notes, favorite: e.favorite };
         setInitial(v);
         setForm(v);
       })
-      .catch(() => toast(t('genericError'), 'error'));
+      .catch((err) => {
+        if (live && !isLockedError(err)) toast(errorText(err), 'error');
+      });
+    return () => {
+      live = false;
+    };
   }, [id]);
 
   const set = <K extends keyof EntryInput>(k: K) => (v: EntryInput[K]) => setForm((f) => ({ ...f, [k]: v }));
@@ -126,6 +139,19 @@ export function EditAccount({ id }: { id?: number }) {
         </Button>
       }
     >
+      {gate.phase.kind === 'ready' ? (
+        <Ready
+          state="ready"
+          deadline={gate.phase.deadline}
+          total={gate.phase.total}
+          title={t('editRevealTitle')}
+          body={t('editRevealBody')}
+          onCancel={() => {
+            gate.cancel();
+            ctl.current?.close();
+          }}
+        />
+      ) : (
       <form
         class="form edit-form"
         onSubmit={(e) => {
@@ -196,6 +222,7 @@ export function EditAccount({ id }: { id?: number }) {
         )}
         <button type="submit" hidden />
       </form>
+      )}
       {confirm === 'discard' && (
         <Alert
           title={t('discardTitle')}

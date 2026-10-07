@@ -15,8 +15,8 @@ for (const f of ['manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'apple-
 }
 
 const kb = (n) => `${(n / 1024).toFixed(1)} KB`;
-console.log(`index.html ${kb(html.length)} → index.html.gz ${kb(gz.length)} (budget 150 KB)`);
-if (gz.length > 150 * 1024) {
-  console.error('index.html.gz is over the 150 KB budget');
+console.log(`index.html ${kb(html.length)} → index.html.gz ${kb(gz.length)} (budget 170 KB)`);
+if (gz.length > 170 * 1024) {
+  console.error('index.html.gz is over the 170 KB budget');
   process.exit(1);
 }

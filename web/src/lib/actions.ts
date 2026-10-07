@@ -1,7 +1,7 @@
 // UI state machines for the two kinds of "press Keyra's button" waits (DESIGN §4.11):
 // type actions (state.pending / state.last) and presence ops (state.presence).
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { api, type Awaiting } from './api';
+import { api, isAwaiting, type Awaiting } from './api';
 import { errorText, isLockedError } from './errors';
 import { holdFastPolling, loadEntries, toast, useApp } from './store';
 import { t } from './i18n';
@@ -204,4 +204,57 @@ export function usePresence(op: PresenceOp, opts: { doneOnDisconnect?: boolean }
   const abandon = () => finish({ kind: 'idle' });
 
   return { phase, start, watch, abandon };
+}
+
+/**
+ * Requests that need a press of Keyra's button first (SPEC §10.3: reveal, backup, recovery key).
+ * `run(req)` sends the request; on 202 it waits for the press, then sends it once more (the press
+ * opened this session's grace) and resolves with that answer. null = cancelled, expired or refused.
+ */
+export function usePressGate(op: PresenceOp) {
+  const presence = usePresence(op);
+  const waiting = useRef<{ retry: () => Promise<unknown>; resolve: (v: unknown) => void } | null>(null);
+
+  useEffect(() => {
+    const w = waiting.current;
+    const k = presence.phase.kind;
+    if (!w || k === 'idle' || k === 'ready') return;
+    waiting.current = null;
+    presence.abandon();
+    if (k !== 'done') {
+      if (k === 'failed') toast(t('genericError'), 'error');
+      w.resolve(null);
+      return;
+    }
+    w.retry().then(
+      (r) => w.resolve(isAwaiting(r) ? null : r),
+      (e) => {
+        if (!isLockedError(e)) toast(errorText(e), 'error');
+        w.resolve(null);
+      },
+    );
+  }, [presence.phase.kind]);
+
+  // A gate left waiting (sheet closed) resolves to null so callers never hang.
+  useEffect(() => () => waiting.current?.resolve(null), []);
+
+  async function run<T>(req: () => Promise<T | Awaiting>): Promise<T | null> {
+    const sent = Date.now();
+    const r = await req();
+    if (!isAwaiting(r)) return r;
+    return new Promise<T | null>((resolve) => {
+      waiting.current?.resolve(null);
+      waiting.current = { retry: req, resolve: resolve as (v: unknown) => void };
+      presence.watch(sent, r);
+    });
+  }
+
+  const cancel = () => {
+    const w = waiting.current;
+    waiting.current = null;
+    presence.abandon();
+    w?.resolve(null);
+  };
+
+  return { phase: presence.phase, run, cancel };
 }

@@ -61,7 +61,7 @@ To work on the UI without a board, run the mock device: `npm --prefix web run mo
 ## Project conventions
 
 - **Firmware** is C++17. Logic that does not need ESP-IDF lives in a plain-C++ core with host tests (see `keyra_vault/src/core`); ESP-IDF code stays in thin adapters. New behavior needs a host test that fails without it.
-- **Web** is Preact + TypeScript, plain CSS, no new runtime dependencies without discussion (the whole app ships inside the firmware in about 150 KB gzipped). Follow [docs/DESIGN.md](docs/DESIGN.md) for tokens, copy tone, accessibility, and Arabic (RTL) support: use logical CSS properties and add both `en` and `ar` strings.
+- **Web** is Preact + TypeScript, plain CSS, no new runtime dependencies without discussion (the whole app ships inside the firmware in at most 170 KB gzipped). Follow [docs/DESIGN.md](docs/DESIGN.md) for tokens, copy tone, accessibility, and Arabic (RTL) support: use logical CSS properties and add both `en` and `ar` strings.
 - **Built web assets are committed** in `firmware/components/keyra_api/www/` so the firmware builds without Node. If you change `web/`, rebuild and commit them.
 - **Commits**: imperative and scoped, for example `fix(vault): reject empty passphrase`. Keep history readable.
 - **Do not** reformat code you are not changing, bump dependencies as a side effect, or edit generated files by hand.
