@@ -86,6 +86,10 @@ A long press (1.5 seconds) cancels a pending action, or locks the vault if nothi
 |:--:|:--:|:--:|:--:|
 | <img src="web/screenshots/vault-en.png" width="200" alt="Vault list"> | <img src="web/screenshots/ready-en.png" width="200" alt="Ready to type"> | <img src="web/screenshots/typed-en.png" width="200" alt="Typed"> | <img src="web/screenshots/account-en-dark.png" width="200" alt="Account in dark mode"> |
 
+| New password | Password history | Type text |
+|:--:|:--:|:--:|
+| <img src="web/screenshots/generate-en.png" width="200" alt="Password generator"> | <img src="web/screenshots/account-history-en.png" width="200" alt="Password history"> | <img src="web/screenshots/type-text-en.png" width="200" alt="Type text"> |
+
 <p align="center"><img src="web/screenshots/vault-desktop-dark.png" width="85%" alt="Desktop layout, Arabic, dark"></p>
 
 Arabic (right-to-left) and English, light and dark, phone and desktop — all generated from the real app by `npm --prefix web run e2e` (every screen is in [web/screenshots](web/screenshots)).

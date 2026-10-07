@@ -80,6 +80,10 @@ Keyra جهاز للراحة والعزل، وليس درعاً سحرياً. ا�
 |:--:|:--:|:--:|:--:|
 | <img src="web/screenshots/vault.png" width="200" alt="قائمة الحسابات"> | <img src="web/screenshots/ready.png" width="200" alt="جاهز للكتابة"> | <img src="web/screenshots/typed.png" width="200" alt="تمت الكتابة"> | <img src="web/screenshots/account-dark.png" width="200" alt="الحساب بالوضع الداكن"> |
 
+| كلمة مرور جديدة | سجلّ كلمات المرور | كتابة نص |
+|:--:|:--:|:--:|
+| <img src="web/screenshots/generate.png" width="200" alt="مولّد كلمات المرور"> | <img src="web/screenshots/account-history.png" width="200" alt="سجلّ كلمات المرور"> | <img src="web/screenshots/type-text.png" width="200" alt="كتابة نص"> |
+
 <p align="center"><img src="web/screenshots/vault-desktop-dark.png" width="85%" alt="واجهة الكمبيوتر، داكن"></p>
 
 بالعربي (من اليمين لليسار) والإنكليزي، فاتح وداكن، هاتف وكمبيوتر — كلها مأخوذة من التطبيق الحقيقي عبر `npm --prefix web run e2e` (كل الشاشات في [web/screenshots](web/screenshots)).
