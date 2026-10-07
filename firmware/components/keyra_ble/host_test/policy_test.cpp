@@ -1,3 +1,4 @@
+#include <algorithm>
 // keyra_ble decisions: advertising mode, pairing gate, window, names, addresses,
 // and the report map shared with USB.
 #include <initializer_list>
@@ -145,7 +146,12 @@ void addresses() {
 
 // Same keyboard on both transports: the GATT report map is the USB one.
 void reportMapMatchesUsb() {
-  CHECK(kReportMap == keyra::hid::desc::kHidReport);
+  // Same as USB except Report ID 1 inserted after Collection(Application).
+  const auto& usb = keyra::hid::desc::kHidReport;
+  CHECK(kReportMap.size() == usb.size() + 2);
+  CHECK(std::equal(usb.begin(), usb.begin() + 6, kReportMap.begin()));
+  CHECK(kReportMap[6] == 0x85 && kReportMap[7] == kReportId);
+  CHECK(std::equal(usb.begin() + 6, usb.end(), kReportMap.begin() + 8));
   CHECK_EQ(kInputReportLen, keyra::hid::desc::kHidReportLen);
   CHECK_EQ(kLedCapsLockBit, keyra::hid::desc::kLedCapsLockBit);
 }

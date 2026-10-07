@@ -22,8 +22,8 @@ enum class Attr : uintptr_t {
 // HID 1.11, no country code, flags = NormallyConnectable only: Keyra never
 // asks to wake a sleeping host.
 constexpr uint8_t kHidInfo[4] = {0x11, 0x01, 0x00, 0x02};
-constexpr uint8_t kRefInput[2] = {0x00, 0x01};   // report ID 0, Input
-constexpr uint8_t kRefOutput[2] = {0x00, 0x02};  // report ID 0, Output
+constexpr uint8_t kRefInput[2] = {kReportId, 0x01};   // Input
+constexpr uint8_t kRefOutput[2] = {kReportId, 0x02};  // Output
 // PnP ID: vendor ID source 2 = USB-IF, then VID/PID/version little-endian —
 // the same identity the USB descriptor uses (keyra_hid/src/usb_desc.hpp).
 constexpr uint8_t kPnpId[7] = {0x02, 0x3A, 0x30, 0x00, 0x80, 0x00, 0x01};
@@ -108,8 +108,19 @@ int access(uint16_t, uint16_t, ble_gatt_access_ctxt* ctxt, void* arg) {
 
 constexpr ble_gatt_chr_flags kRead = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_READ_ENC;
 constexpr ble_gatt_chr_flags kWrite = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP | BLE_GATT_CHR_F_WRITE_ENC;
-constexpr ble_gatt_chr_flags kNotify = BLE_GATT_CHR_F_NOTIFY | BLE_GATT_CHR_F_NOTIFY_INDICATE_ENC;
-constexpr uint8_t kDscRead = BLE_ATT_F_READ | BLE_ATT_F_READ_ENC;
+// The CCCD (subscribe switch) stays writable before encryption, as in IDF's own
+// HID profile: macOS writes it during discovery, before pairing, and never
+// retries a refused write, so it paired but never received a keystroke.
+// Subscribing reveals nothing; sendKey() only notifies a bonded, encrypted link.
+constexpr ble_gatt_chr_flags kNotify = BLE_GATT_CHR_F_NOTIFY;
+// The HID *description* (report map, HID info, report references, protocol
+// mode) is public and readable before pairing, as in NimBLE's own HID service:
+// Apple hosts read it first to decide the device is a keyboard and never retry
+// after an "insufficient encryption" error, so they paired but never used HID.
+// Keystrokes stay protected: notifications and report values need encryption,
+// and Keyra only sends to a bonded, encrypted host.
+constexpr ble_gatt_chr_flags kPublicRead = BLE_GATT_CHR_F_READ;
+constexpr uint8_t kDscRead = BLE_ATT_F_READ;
 
 // NimBLE tables are meant to leave unused fields zero (designated initializers).
 #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
@@ -126,9 +137,9 @@ ble_gatt_dsc_def s_outputDscs[] = {
 
 const ble_gatt_chr_def kHidChrs[] = {
     {.uuid = &kUuidProtocolMode.u, .access_cb = access, .arg = tag(Attr::ProtocolMode),
-     .flags = kRead | BLE_GATT_CHR_F_WRITE_NO_RSP | BLE_GATT_CHR_F_WRITE_ENC},
-    {.uuid = &kUuidReportMap.u, .access_cb = access, .arg = tag(Attr::ReportMap), .flags = kRead},
-    {.uuid = &kUuidHidInfo.u, .access_cb = access, .arg = tag(Attr::HidInfo), .flags = kRead},
+     .flags = kPublicRead | BLE_GATT_CHR_F_WRITE_NO_RSP | BLE_GATT_CHR_F_WRITE_ENC},
+    {.uuid = &kUuidReportMap.u, .access_cb = access, .arg = tag(Attr::ReportMap), .flags = kPublicRead},
+    {.uuid = &kUuidHidInfo.u, .access_cb = access, .arg = tag(Attr::HidInfo), .flags = kPublicRead},
     {.uuid = &kUuidControlPoint.u, .access_cb = access, .arg = tag(Attr::ControlPoint),
      .flags = BLE_GATT_CHR_F_WRITE_NO_RSP | BLE_GATT_CHR_F_WRITE_ENC},
     {.uuid = &kUuidReport.u, .access_cb = access, .arg = tag(Attr::Input), .descriptors = s_inputDscs,

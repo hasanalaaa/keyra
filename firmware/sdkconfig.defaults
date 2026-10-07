@@ -57,7 +57,11 @@ CONFIG_BT_CTRL_BLE_MAX_ACT=2
 CONFIG_BT_NIMBLE_SECURITY_ENABLE=y
 CONFIG_BT_NIMBLE_SM_SC=y
 CONFIG_BT_NIMBLE_SM_LEGACY=n
-CONFIG_BT_NIMBLE_SM_SC_ONLY=1
+# Not "SC Only mode": in NimBLE it demands MITM-authenticated pairing for every
+# protected attribute, which a display-less Just Works device can never reach,
+# so hosts could pair but never read the HID service. Legacy pairing stays
+# compiled out above, so pairing is still LE Secure Connections only.
+CONFIG_BT_NIMBLE_SM_SC_ONLY=0
 CONFIG_BT_NIMBLE_NVS_PERSIST=y
 CONFIG_BT_NIMBLE_MAX_BONDS=4
 CONFIG_BT_NIMBLE_MAX_CCCDS=16
