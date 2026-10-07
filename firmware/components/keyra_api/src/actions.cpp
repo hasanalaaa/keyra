@@ -331,6 +331,7 @@ const char* opName(Op op) {
     case Op::Backup: return "backup";
     case Op::Recovery: return "recovery";
     case Op::Unprotect: return "unprotect";
+    case Op::Update: return "update";
   }
   return "setup";
 }
@@ -342,7 +343,7 @@ std::string Machine::presenceCancelToken() {
 
 std::optional<Op> parseOp(const std::string& s) {
   for (Op op : {Op::Setup, Op::Wifi, Op::RestoreReplace, Op::FactoryReset, Op::HomeWifi, Op::TrustBrowser,
-                Op::BlePair, Op::Reveal, Op::Backup, Op::Recovery, Op::Unprotect}) {
+                Op::BlePair, Op::Reveal, Op::Backup, Op::Recovery, Op::Unprotect, Op::Update}) {
     if (s == opName(op)) return op;
   }
   return std::nullopt;

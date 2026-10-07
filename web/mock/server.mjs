@@ -32,6 +32,7 @@ const EXPIRY_MS = 60000;
 const KDF_MS = 450; // the device spends ≈1.2 s; keep the mock snappy but visibly async
 const MAX_BODY = 64 * 1024;
 const MAX_RESTORE_BODY = 2 * 1024 * 1024;
+const MAX_IMAGE = 3 * 1024 * 1024; // one app partition (SPEC §14)
 const MAX_ENTRIES = 1000;
 const MAX_SESSIONS = 4;
 const MAX_HISTORY = 10;
@@ -527,6 +528,77 @@ function readEntry(src, withTimestamps, base = { title: '', url: '', username: '
 
 const validEntry = (e) => STR_FIELDS.every((k) => Buffer.byteLength(e[k]) <= LIMITS[k]);
 
+// ---------- firmware update (SPEC §14; firmware keyra_api/src/handlers_update.cpp) ----------
+
+// What "the latest GitHub release" holds in the mock. MOCK_RELEASE_VERSION overrides it.
+const MOCK_RELEASE = {
+  version: process.env.MOCK_RELEASE_VERSION || '1.1.0',
+  size: 1_700_000,
+  notes: '- Password health\n- Updates over Wi-Fi\n- Bluetooth: pair a new device while another is connected',
+};
+const fw = { phase: 'idle', source: 'upload', done: 0, total: 0, version: '', error: '' };
+const fwState = () => ({ ...fw });
+const homeOnline = () => homeLink.connected || VIA_HOME;
+
+function fwBegin(source, total) {
+  Object.assign(fw, { phase: 'receiving', source, done: 0, total, version: '', error: '' });
+}
+
+const FW_MESSAGES = {
+  bad_signature: "That firmware is not signed with this Keyra's key (or this Keyra was not installed signed)",
+  bad_image: 'That file is not Keyra firmware',
+  downgrade: 'That firmware is older than the one installed',
+  offline: 'Keyra is not on the internet; join your home Wi-Fi first',
+};
+const FW_STATUS = { downgrade: 409, offline: 409 };
+
+/** Records the failure (when `record`) and, unless `quiet`, answers like the firmware. */
+function fwFail(code, record = true, quiet = false) {
+  if (record) Object.assign(fw, { phase: 'failed', error: code });
+  if (!quiet) fail(FW_STATUS[code] ?? 400, code, FW_MESSAGES[code]);
+}
+
+function cmpVersion(a, b) {
+  const p = (v) => /^(\d{1,4})\.(\d{1,4})\.(\d{1,4})(?:-.*)?$/.exec(v)?.slice(1).map(Number);
+  const x = p(a), y = p(b);
+  if (!x || !y) return -1;
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i];
+  return 0;
+}
+
+/**
+ * Checks an ESP-IDF app image the way esp_ota_end() + handlers_update.cpp do, as far as a mock can:
+ * image magic, app description (project "keyra", version), and a Secure Boot V2 signature block
+ * (magic 0xE7 in the last 4 KiB sector). The mock cannot check the signature itself.
+ */
+function fwStage(buf) {
+  if (buf.length < 0x1000 || buf[0] !== 0xe9 || buf.readUInt32LE(0x20) !== 0xabcd5432) return 'bad_image';
+  const str = (off) => buf.subarray(off, off + 32).toString('latin1').replace(/\0.*$/s, '');
+  if (str(0x50) !== 'keyra') return 'bad_image';
+  if (buf.length % 4096 !== 0 || buf[buf.length - 4096] !== 0xe7) return 'bad_signature';
+  const version = str(0x30);
+  if (cmpVersion(version, device.version) < 0) return 'downgrade';
+  Object.assign(fw, { phase: 'staged', version });
+  console.log(`[mock] update ${version} uploaded and verified`);
+  return null;
+}
+
+function readRaw(req, cap) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > cap) {
+        reject(new HttpError(413, 'too_large', 'Request body too large'));
+        req.destroy();
+      } else chunks.push(c);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
 // ---------- password health (SPEC §13; firmware keyra_api/src/health.cpp) ----------
 
 // Same estimate and common list as web/src/lib/strength.ts.
@@ -804,6 +876,10 @@ function match(method, rawPath) {
     case 'wifi/home': return one('PUT', 'wifiHome');
     case 'trusted': return one('GET', 'trusted');
     case 'fido': return one('GET', 'passkeys');
+    case 'update': return one('POST', 'fwUpload');
+    case 'update/check': return one('POST', 'fwCheck');
+    case 'update/download': return one('POST', 'fwDownload');
+    case 'update/apply': return one('POST', 'fwApply');
     case 'health': return one('GET', 'health');
     case 'ble': return one('GET', 'ble');
     case 'ble/pair': return one('POST', 'blePair');
@@ -915,7 +991,7 @@ function wrongAttempt(message) {
 async function api(req, res, path) {
   const method = req.method;
   const via = viaOf(req);
-  const cap = path === '/api/restore' ? MAX_RESTORE_BODY : MAX_BODY;
+  const cap = path === '/api/update' ? MAX_IMAGE : path === '/api/restore' ? MAX_RESTORE_BODY : MAX_BODY;
   if (Number(req.headers['content-length'] || 0) > cap) fail(413, 'too_large', 'Request body too large');
   const m = match(method, path);
   if (!m) fail(404, 'not_found', 'No such endpoint');
@@ -995,6 +1071,7 @@ async function api(req, res, path) {
         },
         timeValid,
         graceMs: session ? graceLeft(sess) : 0,
+        ...(session && fw.phase !== 'idle' ? { update: fwState() } : {}),
       });
     }
 
@@ -1383,6 +1460,54 @@ async function api(req, res, path) {
     case 'trusted': {
       const mine = knownBrowser(req);
       return send(res, 200, { browsers: [...trusted.values()].map((t) => ({ ...t, current: t === mine })) });
+    }
+
+    case 'fwUpload': {
+      if (fw.phase === 'receiving') fail(409, 'busy', 'Another update is in progress');
+      const buf = await readRaw(req, MAX_IMAGE);
+      if (!buf.length) bad('Send the firmware file as the request body');
+      fwBegin('upload', buf.length);
+      fw.done = buf.length;
+      const err = fwStage(buf);
+      if (err) fwFail(err);
+      return send(res, 200, { version: fw.version });
+    }
+
+    case 'fwCheck': {
+      if (!homeOnline()) fwFail('offline', false);
+      return send(res, 200, { current: device.version, latest: MOCK_RELEASE.version, newer: cmpVersion(MOCK_RELEASE.version, device.version) > 0, size: MOCK_RELEASE.size, notes: MOCK_RELEASE.notes });
+    }
+
+    case 'fwDownload': {
+      if (!homeOnline()) fwFail('offline', false);
+      if (fw.phase === 'receiving') fail(409, 'busy', 'Another update is in progress');
+      fwBegin('github', MOCK_RELEASE.size);
+      // ~3 s of "download", then staged like the firmware's background task.
+      const tick = setInterval(() => {
+        fw.done = Math.min(fw.total, fw.done + Math.ceil(fw.total / 12));
+        if (fw.done < fw.total) return;
+        clearInterval(tick);
+        if (cmpVersion(MOCK_RELEASE.version, device.version) < 0) return fwFail('downgrade', false, true);
+        fw.phase = 'staged';
+        fw.version = MOCK_RELEASE.version;
+        console.log(`[mock] update ${fw.version} downloaded and verified`);
+      }, 250);
+      return send(res, 202, { downloading: true });
+    }
+
+    case 'fwApply': {
+      if (fw.phase !== 'staged') fail(409, 'not_staged', 'No verified update is waiting');
+      const version = fw.version;
+      const exp = awaitPresence('update', () => {
+        console.log(`[mock] installing ${version}; restarting`);
+        // Like a reboot into the new firmware: every session ends, the vault locks.
+        setTimeout(() => {
+          device.version = version;
+          fw.phase = 'idle';
+          lockAll();
+        }, 2000);
+      });
+      return send(res, 202, { awaiting: 'button', op: 'update', expiresIn: exp, cancel: machine.slot?.cancel ?? '', version });
     }
 
     case 'health':

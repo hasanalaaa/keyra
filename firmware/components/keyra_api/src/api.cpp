@@ -2,6 +2,7 @@
 
 #include "esp_check.h"
 #include "handlers.hpp"
+#include "handlers_update.hpp"
 #include "trusted.hpp"
 #include "json.hpp"
 #include "runtime.hpp"
@@ -20,5 +21,7 @@ esp_err_t start() {
   ESP_RETURN_ON_ERROR(startServer(), "api", "server");
   return ESP_OK;
 }
+
+void confirmBoot(bool healthy) { update::confirmBoot(healthy); }
 
 }  // namespace keyra::api

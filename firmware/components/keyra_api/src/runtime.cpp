@@ -43,6 +43,7 @@ bool g_bleArmed = false;  // actions task only: an armed action asked keyra_ble 
 
 using Kind = Target::Kind;
 std::atomic<int64_t> g_netAt{0};
+std::atomic<int64_t> g_restartAt{0};
 // Auto-lock when the computer goes away (SPEC §12.4). Fed by the actions task
 // and (bleUsed) the type task.
 std::mutex g_watchMu;
@@ -327,6 +328,7 @@ void actionsTask(void*) {
     }
     maybeAutoLock();
     maybeReconfigureNet();
+    if (const int64_t at = g_restartAt.load(); at != 0 && monoMs() >= at) safeRestart();
     const io::Led want = fido::ledActive()
                              ? io::Led::Fido
                              : toLed(machine().indicator(vault::initialized(), vault::unlocked(), ble::pairing()));
@@ -381,6 +383,8 @@ void lockAll() {
 }
 
 void reconfigureNetSoon() { g_netAt = monoMs() + kNetDelayMs; }
+
+void restartSoon() { g_restartAt = monoMs() + 2000; }
 
 void safeRestart() {
   // Resetting with GPIO0 low latches ROM download mode and the device looks

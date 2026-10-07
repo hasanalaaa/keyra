@@ -19,6 +19,7 @@
 #include "handlers_kbd.hpp"
 #include "handlers_net.hpp"
 #include "handlers_protect.hpp"
+#include "handlers_update.hpp"
 #include "health.hpp"
 #include "http.hpp"
 #include "keyra/ble.hpp"
@@ -350,6 +351,7 @@ esp_err_t getState(Ctx& c) {
   }
   cJSON_AddBoolToObject(host, "connecting", armedBle && !linkUp);
   if (c.session) cJSON_AddStringToObject(host, "usbOs", s.osUsb.c_str());
+  if (c.session) update::addState(o.get());
 
   if (pending) {
     cJSON* p = cJSON_AddObjectToObject(o.get(), "pending");
@@ -1073,8 +1075,9 @@ bool takesBody(Route r) {
 
 bool isSlow(Route r) {
   // WifiScan blocks for seconds while the radio scans.
+  // Update streams a whole firmware image into flash.
   return r == Route::Unlock || r == Route::UnlockRecovery || r == Route::Passphrase || r == Route::Backup || r == Route::Restore ||
-         r == Route::WifiScan;
+         r == Route::WifiScan || r == Route::Update || r == Route::UpdateCheck;
 }
 
 esp_err_t dispatch(Ctx& c);
@@ -1146,6 +1149,10 @@ esp_err_t dispatch(Ctx& c) {
     case Route::DeletePasskey: return fidoapi::remove(c.r, c.match.id);
     case Route::Generate: return genapi::postGenerate(c.r, c.body.get());
     case Route::Keyboard: return kbdapi::getKeyboard(c.r);
+    case Route::Update: return update::upload(c.r);
+    case Route::UpdateCheck: return update::check(c.r);
+    case Route::UpdateDownload: return update::download(c.r);
+    case Route::UpdateApply: return update::apply(c.r);
   }
   return http::sendError(c.r, http::k404, "not_found", "No such endpoint");
 }
@@ -1154,7 +1161,8 @@ esp_err_t dispatch(Ctx& c) {
 
 esp_err_t handleApi(httpd_req_t* r, Method method, std::string_view path) {
   const bool restore = path == "/api/restore";
-  const size_t cap = !restore ? http::kMaxBody
+  const size_t cap = path == "/api/update" ? update::maxImage()
+                     : !restore ? http::kMaxBody
                      : heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0 ? http::kMaxRestoreBodyPsram
                                                                       : http::kMaxRestoreBodyInternal;
   if (r->content_len > cap) {

@@ -8,4 +8,12 @@ config KEYRA_DEV_CDC
         read logs and reboot into download mode. Release builds disable it so the
         device enumerates as a plain keyboard.
 
+config KEYRA_UPDATE_REPO
+    string "GitHub repository that publishes updates (owner/name)"
+    default "hasanalaaa/keyra"
+    help
+        "Check for updates" asks this repository's latest GitHub release for
+        keyra-firmware.bin. Only images signed with the key the running
+        firmware was signed with are installed, whatever the repository serves.
+
 endmenu

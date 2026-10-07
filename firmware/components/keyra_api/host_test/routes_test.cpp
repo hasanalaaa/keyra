@@ -60,6 +60,14 @@ void apiRoutes() {
   CHECK(is(matchApi(Method::Get, "/api/health"), Route::Health));
   CHECK(matchApi(Method::Post, "/api/health").kind == K::MethodNotAllowed);
   CHECK(needsSession(Route::Health));
+  CHECK(is(matchApi(Method::Post, "/api/update"), Route::Update));
+  CHECK(matchApi(Method::Get, "/api/update").kind == K::MethodNotAllowed);
+  CHECK(needsSession(Route::Update) && needsCsrf(Method::Post, Route::Update));
+  CHECK(is(matchApi(Method::Post, "/api/update/check"), Route::UpdateCheck));
+  CHECK(is(matchApi(Method::Post, "/api/update/download"), Route::UpdateDownload));
+  CHECK(is(matchApi(Method::Post, "/api/update/apply"), Route::UpdateApply));
+  CHECK(matchApi(Method::Get, "/api/update/apply").kind == K::MethodNotAllowed);
+  CHECK(needsCsrf(Method::Post, Route::UpdateApply) && needsSession(Route::UpdateDownload));
 
   CHECK(is(matchApi(Method::Get, "/api/ble"), Route::GetBle));
   CHECK(is(matchApi(Method::Post, "/api/ble/pair"), Route::BlePair));
