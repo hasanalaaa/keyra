@@ -106,6 +106,20 @@ void testPairingIsCyan() {
   CHECK(lit);
 }
 
+// FIDO prompt: white, two blinks per second, dark otherwise (no pulse).
+void testFidoDoubleBlink() {
+  LedAnimator a;
+  a.set(Pattern::Fido, 0);
+  int lit = 0;
+  for (uint32_t t = 0; t < 1000; t += 20) {
+    const Rgb c = a.frame(t);
+    CHECK(c.r == c.g && c.g == c.b);
+    if (c.r > 0) ++lit;
+  }
+  CHECK_EQ(lit, 12);  // 2 × 120 ms at 20 ms frames
+  CHECK(a.frame(60).r == 255 && a.frame(180).r == 0 && a.frame(300).r == 255 && a.frame(600).r == 0);
+}
+
 }  // namespace
 
 int main() {
@@ -116,5 +130,6 @@ int main() {
   testIdleIsMostlyDark();
   testPulsesVary();
   testPairingIsCyan();
+  testFidoDoubleBlink();
   TEST_MAIN_END();
 }

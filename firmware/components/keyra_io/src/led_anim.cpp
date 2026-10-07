@@ -27,6 +27,13 @@ float wave(uint32_t t, uint32_t periodMs) {
 
 float flash(uint32_t t) { return (t % (LedAnimator::kFlashOnMs + LedAnimator::kFlashOffMs)) < LedAnimator::kFlashOnMs ? 1.0f : 0.0f; }
 
+// Two short white blinks per second: unlike every pulsing prompt, so a press
+// meant for a FIDO request is not mistaken for one that types.
+float fidoBlink(uint32_t t) {
+  const uint32_t ms = t % 1000;
+  return ms < 120 || (ms >= 240 && ms < 360) ? 1.0f : 0.0f;
+}
+
 struct Level {
   Color c;
   float v;  // 0..1
@@ -44,6 +51,7 @@ Level levelFor(Pattern p, uint32_t t) {
     case Pattern::Error:         return {kRed, flash(t)};
     case Pattern::Setup:         return {kAmber, 0.08f + 0.62f * wave(t, 3000)};
     case Pattern::Pairing:       return {kCyan, 0.1f + 0.9f * wave(t, 1200)};  // Bluetooth pairing window
+    case Pattern::Fido:          return {kWhite, fidoBlink(t)};  // a website asks for the security key
   }
   return {kWhite, 0.0f};
 }
