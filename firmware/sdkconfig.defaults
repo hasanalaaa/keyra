@@ -94,3 +94,18 @@ CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y
 # ~200 '[' from anyone on the network overflow the stack. Real bodies (a
 # restore with its backup inside) nest about 6 deep.
 CONFIG_CJSON_NESTING_LIMIT=16
+
+# Firmware updates over the network (SPEC §14). Images must carry a Secure Boot
+# V2 (RSA-3072) signature made with the same key as the running firmware; the
+# app checks it before switching. No eFuses are touched (this is not hardware
+# Secure Boot: someone holding the board can still flash it by USB). Builds are
+# unsigned; tools/sign_release.sh signs them with the owner's key, kept outside
+# the repository.
+CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT=y
+CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME=y
+CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT=y
+# CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES is not set
+# A new image runs on probation; if it crashes before it confirms itself the
+# bootloader returns to the previous one.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+

@@ -65,6 +65,14 @@ void apiRoutes() {
   CHECK(is(matchApi(Method::Get, "/api/activity"), Route::Activity));
   CHECK(matchApi(Method::Delete, "/api/activity").kind == K::MethodNotAllowed);  // the log cannot be wiped
   CHECK(needsSession(Route::Activity));
+  CHECK(is(matchApi(Method::Post, "/api/update"), Route::Update));
+  CHECK(matchApi(Method::Get, "/api/update").kind == K::MethodNotAllowed);
+  CHECK(needsSession(Route::Update) && needsCsrf(Method::Post, Route::Update));
+  CHECK(is(matchApi(Method::Post, "/api/update/check"), Route::UpdateCheck));
+  CHECK(is(matchApi(Method::Post, "/api/update/download"), Route::UpdateDownload));
+  CHECK(is(matchApi(Method::Post, "/api/update/apply"), Route::UpdateApply));
+  CHECK(matchApi(Method::Get, "/api/update/apply").kind == K::MethodNotAllowed);
+  CHECK(needsCsrf(Method::Post, Route::UpdateApply) && needsSession(Route::UpdateDownload));
 
   CHECK(is(matchApi(Method::Get, "/api/ble"), Route::GetBle));
   CHECK(is(matchApi(Method::Post, "/api/ble/pair"), Route::BlePair));

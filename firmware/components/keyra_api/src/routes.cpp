@@ -94,6 +94,10 @@ Match matchDecoded(Method m, std::string_view path) {
   if (p == "presence/cancel") return only(m, Method::Post, Route::PresenceCancel);
   if (p == "generate") return only(m, Method::Post, Route::Generate);
   if (p == "keyboard") return only(m, Method::Get, Route::Keyboard);
+  if (p == "update") return only(m, Method::Post, Route::Update);
+  if (p == "update/check") return only(m, Method::Post, Route::UpdateCheck);
+  if (p == "update/download") return only(m, Method::Post, Route::UpdateDownload);
+  if (p == "update/apply") return only(m, Method::Post, Route::UpdateApply);
   if (p == "passphrase") return only(m, Method::Post, Route::Passphrase);
   if (p == "backup") return only(m, Method::Post, Route::Backup);
   if (p == "restore") return only(m, Method::Post, Route::Restore);

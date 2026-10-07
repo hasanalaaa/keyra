@@ -21,6 +21,7 @@ enum class Route {
   Keyboard,
   ListPasskeys, DeletePasskey,
   RevealEntry, GetRecovery, CreateRecovery, DeleteRecovery, UnlockRecovery,
+  Update, UpdateCheck, UpdateDownload, UpdateApply,
 };
 
 struct Match {

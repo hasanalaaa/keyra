@@ -23,6 +23,9 @@ void lockAll(activity::LockWhy why);
 // Restarts the AP from the actions task ~3 s from now, so the HTTP reply that
 // triggered it (or the client's next poll) still reaches the phone.
 void reconfigureNetSoon();
+// Restarts from the actions task ~2 s from now, so the client polling state
+// sees the approved op's result first (an installed update).
+void restartSoon();
 // Waits (≤15 s) for GPIO0 to be released so the ROM does not latch download mode.
 [[noreturn]] void safeRestart();
 

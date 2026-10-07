@@ -32,7 +32,8 @@ export type PresenceOp =
   | 'reveal'
   | 'backup'
   | 'recovery'
-  | 'unprotect';
+  | 'unprotect'
+  | 'update';
 
 export interface PresenceResult {
   op: PresenceOp;
@@ -67,6 +68,26 @@ export interface DeviceState {
   timeValid: boolean;
   /** SPEC §12.3: reveal grace left for this session after a press (ms). */
   graceMs?: number;
+  /** SPEC §14: a firmware image being received, checked and waiting, or why it failed (sessions only). */
+  update?: UpdateState;
+}
+
+export interface UpdateState {
+  phase: 'receiving' | 'staged' | 'failed';
+  source: 'upload' | 'github';
+  done: number; // bytes
+  total: number; // bytes, 0 = not known yet
+  version: string; // set once staged
+  error: string; // UpdateError code when failed
+}
+
+/** POST /api/update/check (SPEC §14). */
+export interface UpdateCheck {
+  current: string;
+  latest: string;
+  newer: boolean;
+  size: number;
+  notes: string;
 }
 
 export type HomeError = '' | 'wrong_password' | 'not_found' | 'failed';
@@ -127,6 +148,7 @@ export interface Health {
   rotate?: { since: number; pending: number[] };
 }
 
+/** A discoverable FIDO credential (passkey) stored on Keyra (docs/FIDO.md). */
 export interface Passkey {
   id: number;
   rpId: string;

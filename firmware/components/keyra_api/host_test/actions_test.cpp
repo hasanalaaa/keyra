@@ -359,7 +359,7 @@ void unboundActionsIgnoreUsbChanges() {
 
 void revealOpsEndWithTheSession() {
   auto m = make();
-  for (Op op : {Op::Reveal, Op::Backup, Op::Recovery, Op::Unprotect}) {
+  for (Op op : {Op::Reveal, Op::Backup, Op::Recovery, Op::Unprotect, Op::Update}) {
     m.awaitPresence(op, [] { return true; });
     m.dropSessionItems();
     CHECK(!m.presence().has_value());
@@ -368,6 +368,7 @@ void revealOpsEndWithTheSession() {
   }
   CHECK(std::string(opName(Op::Reveal)) == "reveal");
   CHECK(std::string(opName(Op::Unprotect)) == "unprotect");
+  CHECK(std::string(opName(Op::Update)) == "update");
 }
 
 // A4: lock when the computer goes away, never on charger-only power.
