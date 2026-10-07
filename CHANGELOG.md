@@ -8,6 +8,24 @@ All notable changes to Keyra are documented here. The format follows
 
 ### Added
 
+- Password generator on the device (SPEC §9.1): `POST /api/generate` uses the
+  hardware RNG, uniform per character, class minimums by rejecting whole
+  candidates, exact entropy. In the app: a **Generate** button in the vault's
+  top bar (length 8–128 with slider and number, a–z / A–Z / 0–9 / symbols,
+  minimum numbers and symbols, avoid look-alikes, strength in bits, settings
+  remembered per browser) with **Type it**, **Type twice**, **Copy** and
+  **Save** (new account, or update an account). The same generator is inline in
+  Add/Edit and replaces the browser-side generator.
+- Type any text (SPEC §9.2): `POST /api/type {text, repeat, separator}` arms
+  free text like an entry action (`what:"text"`, `title:null`), up to 256
+  printable ASCII characters, wiped from RAM after typing, cancel, expiry or
+  lock. In the app: **⋯ → Type text…**.
+- Password history (SPEC §9.3): up to 10 previous passwords with dates inside
+  each encrypted entry; `GET /api/entries/{id}` returns `history`; the account
+  sheet lists them (reveal, copy). Entry plaintext format 2 (format 1 still
+  read, migrated on next write); backup file version 2 (version 1 still
+  imports).
+
 - Web app: **Scan QR from a photo** next to the 2FA field. Reads a plain
   `otpauth://totp/` QR in the browser (jsQR, Apache-2.0; photos are downscaled on
   a scratch canvas, never uploaded) and fills the key, plus the name and user name

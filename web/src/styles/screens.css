@@ -218,7 +218,8 @@
 .gen-inline { align-self:stretch; margin-block-start:var(--s-2); padding:var(--s-4); border-radius:var(--r-lg); background:var(--surface-2); box-shadow:inset 0 0 0 1px var(--line); }
 .gen-inline .gen-preview { background:var(--surface); }
 .gen-options .slider-row .row-label { max-inline-size:30%; }
-.len-input { flex:none; inline-size:64px; block-size:40px; padding-inline:8px; text-align:center; font-size:var(--fs-callout); -moz-appearance:textfield; appearance:textfield; }
+.len-input { flex:none; inline-size:64px; block-size:40px; padding-inline:8px; border-radius:var(--r-xs); box-shadow:inset 0 0 0 1px var(--line-strong); text-align:center; font-size:var(--fs-callout); -moz-appearance:textfield; appearance:textfield; }
+.len-input:focus { box-shadow:inset 0 0 0 2px var(--accent), var(--sh-glow); }
 .len-input::-webkit-inner-spin-button, .len-input::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }
 .stepper-row { gap:var(--s-3); }
 .stepper { display:inline-flex; align-items:center; gap:2px; border-radius:var(--r-pill); background:var(--fill); }

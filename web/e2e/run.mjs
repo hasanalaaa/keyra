@@ -454,10 +454,14 @@ async function generatorFlow(base, opts) {
   await page.locator('.gen-toggle').click();
   await page.waitForFunction(() => (document.querySelector('.gen-inline .gen-preview')?.textContent ?? '').trim().length === 32);
   const pw3 = ((await page.locator('.gen-inline .gen-preview').textContent()) ?? '').trim();
+  await page.locator('.gen-inline').scrollIntoViewIfNeeded();
+  await shot(page, `edit-generator${tag}`);
   await page.locator('.gen-inline .btn-primary').click();
   check((await page.locator('.edit-form input[type=password]').inputValue()) === pw3, 'inline generator fills the field');
-  await page.evaluate(() => (location.hash = '#/'));
+  await page.locator('.layer .sheet-end .icon-btn').last().click(); // close: unsaved, so it asks first
   await page.locator('.alert .btn-danger-confirm').click(); // discard
+  await page.locator('.edit-form').waitFor({ state: 'detached' });
+  await page.evaluate(() => (location.hash = '#/'));
   await page.locator('.layer .sheet').waitFor({ state: 'detached' });
 
   // Type text… from the menu.

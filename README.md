@@ -64,7 +64,10 @@ A long press (1.5 seconds) cancels a pending action, or locks the vault if nothi
 |---|---|
 | **Types like a keyboard** | USB HID keyboard (US layout). Handles Caps Lock and always releases keys, even on errors. |
 | **Bluetooth keyboard** | Bluetooth LE (HID over GATT) for phones, tablets and computers, with the same typing engine. Pairing only opens for 2 minutes after a button press; up to 4 devices; forget any of them from the app. |
-| **Phone-first web app** | Installable to the home screen. Search, favorites, recents, password generator and strength meter. |
+| **Phone-first web app** | Installable to the home screen. Search, favorites, recents and a strength meter. |
+| **Password generator** | Keyra makes new passwords with its hardware random generator: 8 to 128 characters, choose a–z / A–Z / 0–9 / symbols, minimum numbers and symbols, avoid look-alikes. Shows the exact strength in bits. Type it, type it twice (for "confirm password" fields), copy it, or save it. |
+| **Password history** | Changing a password keeps the old one: the last 10, with dates, inside the encrypted account. Reveal or copy any of them. |
+| **Type any text** | Keyra as a remote keyboard: type up to 256 characters (a Wi-Fi key, a one-off code) after a button press. Keyra forgets the text right after. |
 | **Arabic and English** | Full RTL support, auto-detected, switchable at any time. |
 | **2FA codes** | Built-in TOTP (SHA-1/256/512, 6 or 8 digits, 30 or 60 seconds). Keyra can type the code too. Add the key by pasting a setup key or `otpauth://` link, or with **Scan QR from a photo**. |
 | **Encrypted vault** | PBKDF2-HMAC-SHA256 (about 1.2 s on the device) and per-entry AES-256-GCM. |
@@ -181,6 +184,14 @@ Keyra can also join your home network, so you can open it from any phone or lapt
 2. Enter the network's password, tap **Join**, then **press Keyra's button**. The sheet shows **Connected**, Keyra's address on your network and the signal strength.
 3. From any device on that network, open **http://keyra.local**. If a device cannot resolve `.local` names, use the address shown in the sheet.
 4. The first time each browser unlocks Keyra through the home network, Keyra asks you to **press its button to trust that browser**. Trusted browsers (up to 8) are listed in **Settings → Trusted browsers**, where you can remove them. Removing one signs it out.
+
+### New password for a website
+
+1. On the website's sign-up or change-password page, tap the **wand** at the top of Keyra's account list. Keyra makes a password (20 characters by default; the sheet remembers your settings in this browser).
+2. Click the website's first password field, tap **Type twice**, then **press Keyra's button**. Keyra types the password, presses Tab, and types it again into the confirm field.
+3. Tap **Save**: **New account** opens a filled-in form, or **Update an account** replaces that account's password. The old password stays in the account's **Password history**.
+
+To type something that isn't saved in Keyra, open **⋯ → Type text…**, enter up to 256 characters, tap **Type it** and press the button. **Type it twice** can put a Tab or an Enter between the two copies.
 
 **Keep Keyra's own Wi-Fi on** is on by default. Turn it off and Keyra's own Wi-Fi switches off about 15 seconds after Keyra joins your home network; it comes back if the home network has been unavailable for 60 seconds, or 30 seconds after power-up if Keyra has not joined by then, so Keyra stays reachable. Keyra has one radio: its own Wi-Fi moves to your home network's channel, and phones joined to it may reconnect once. While home Wi-Fi is connected, Keyra sets its clock from the internet (NTP), so 2FA codes work without a phone having set the time.
 
