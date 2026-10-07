@@ -4,6 +4,7 @@
 
 #include "esp_random.h"
 #include "generator.hpp"
+#include "handlers_kbd.hpp"
 #include "http.hpp"
 #include "runtime.hpp"
 #include "validate.hpp"
@@ -48,6 +49,10 @@ esp_err_t postGenerate(httpd_req_t* r, const cJSON* b) {
     return badRequest(r, "avoidAmbiguous must be a boolean");
   if ((f = json::getString(b, "symbolSet", p.symbolSet)) == Field::BadType || (f == Field::Ok && p.symbolSet.empty()))
     return badRequest(r, gen::message(gen::Error::SymbolSet));
+  {
+    esp_err_t err = ESP_OK;
+    if (!kbdapi::layoutSafeChars(r, b, p.restrict, p.allowed, err)) return err;
+  }
 
   gen::Plan plan;
   const gen::Error e = gen::plan(p, plan);
@@ -73,8 +78,8 @@ bool textRequest(httpd_req_t* r, const cJSON* b, const Target& target, actions::
   }
   auto text = std::make_shared<actions::FreeText>();  // wiped when the last holder drops it
   if (json::getString(b, "text", text->text) != Field::Ok) return fail("\"text\" (string) is required");
-  if (!validate::typeText(text->text))
-    return fail("text must be 1-256 characters Keyra can type (printable ASCII, no control characters)");
+  if (!validate::typeText(text->text, kbdapi::layoutFor(target, settings::get())))
+    return fail("text must be 1-256 characters the keyboard layout set for this output can type (no control characters)");
   int64_t repeat = 1;
   if (json::getInt(b, "repeat", 1, 2, repeat) == Field::BadType) return fail("repeat must be 1 or 2");
   std::string sep = "tab";
@@ -82,7 +87,7 @@ bool textRequest(httpd_req_t* r, const cJSON* b, const Target& target, actions::
     return fail("separator must be \"tab\" or \"enter\"");
   text->twice = repeat == 2;
   text->enterBetween = sep == "enter";
-  out = {0, std::string(), actions::What::Text, false, target, std::move(text)};
+  out = {0, std::string(), actions::What::Text, false, target, std::move(text), nullptr, 0};
   return true;
 }
 

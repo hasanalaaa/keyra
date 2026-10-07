@@ -10,7 +10,9 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <vector>
 
+#include "keyra/sequence.hpp"
 #include "target.hpp"
 
 namespace keyra::actions {
@@ -21,7 +23,9 @@ constexpr int64_t kExpiryMs = 60000;
 constexpr int64_t kFlashMs = 1500;  // Success/Error LED after a finished action
 constexpr int64_t kBlinkMs = 150;   // "nothing to do" acknowledgement
 
-enum class What { Username, Password, Both, Totp, Test, Text };
+// Sequence: an auto-type sequence (SPEC §10.4). Probe: the Layout Doctor's
+// keyboard check (SPEC §10.3).
+enum class What { Username, Password, Both, Totp, Test, Text, Sequence, Probe };
 // HomeWifi: join/change/leave the home network (session). TrustBrowser: approve a
 // browser that unlocks through the home network (no session yet, SPEC §8.2).
 // BlePair: open the Bluetooth pairing window (session, SPEC §8.1).
@@ -45,6 +49,18 @@ struct FreeText {
   ~FreeText();
 };
 
+// The parsed sequence of a What::Sequence action, fixed when it is armed. Its
+// literal text may be secret, so it is wiped with the last holder.
+struct SeqJob {
+  std::vector<seq::Step> steps;
+  uint8_t parts = 1;    // {PRESS} splits it: each part needs its own button press
+  std::string preview;  // masked, for the phone (seq::preview)
+  SeqJob() = default;
+  SeqJob(const SeqJob&) = delete;
+  SeqJob& operator=(const SeqJob&) = delete;
+  ~SeqJob() { seq::wipe(steps); }
+};
+
 struct TypeRequest {
   uint32_t id = 0;  // 0 for the test string and free text
   std::string title;
@@ -52,6 +68,8 @@ struct TypeRequest {
   bool submit = false;
   Target target;  // chosen when armed; a Bluetooth host must connect before the press counts
   std::shared_ptr<const FreeText> text;  // What::Text only
+  std::shared_ptr<const SeqJob> seq;      // What::Sequence only
+  uint8_t part = 0;                       // What::Sequence: the part the next press types
 };
 
 struct Pending {
@@ -117,6 +135,8 @@ class Machine {
   void setLinkReady(bool ready);
   // Effect::Run moves the request (with any free text) out to the caller.
   Decision onButton(Button b, bool unlocked);
+  // A sequence part typed fine with more to come: the action is armed again
+  // for its next part (fresh 60 s), unless something else was armed meanwhile.
   void typingFinished(const TypeRequest& req, Code code);
   void commitFinished(bool ok);
 

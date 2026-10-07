@@ -1,78 +1,167 @@
 #include "keymap.hpp"
 
+#include <algorithm>
+#include <cstring>
+
 #include "keyra/hid.hpp"
+#include "layout_data.hpp"
 
 namespace keyra::hid {
 namespace {
 
-// Indexed by (c - 0x20). Encoded as keycode | 0x80 when Shift is required;
-// every HID usage we need is < 0x80 so the high bit is free.
-constexpr uint8_t S = 0x80;
-constexpr uint8_t kTable[95] = {
-    0x2C,      // ' '
-    0x1E | S,  // !
-    0x34 | S,  // "
-    0x20 | S,  // #
-    0x21 | S,  // $
-    0x22 | S,  // %
-    0x24 | S,  // &
-    0x34,      // '
-    0x26 | S,  // (
-    0x27 | S,  // )
-    0x25 | S,  // *
-    0x2E | S,  // +
-    0x36,      // ,
-    0x2D,      // -
-    0x37,      // .
-    0x38,      // /
-    0x27,      // 0
-    0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26,  // 1-9
-    0x33 | S,  // :
-    0x33,      // ;
-    0x36 | S,  // <
-    0x2E,      // =
-    0x37 | S,  // >
-    0x38 | S,  // ?
-    0x1F | S,  // @
-    // A-Z: usages 0x04..0x1D with Shift
-    0x04 | S, 0x05 | S, 0x06 | S, 0x07 | S, 0x08 | S, 0x09 | S, 0x0A | S,
-    0x0B | S, 0x0C | S, 0x0D | S, 0x0E | S, 0x0F | S, 0x10 | S, 0x11 | S,
-    0x12 | S, 0x13 | S, 0x14 | S, 0x15 | S, 0x16 | S, 0x17 | S, 0x18 | S,
-    0x19 | S, 0x1A | S, 0x1B | S, 0x1C | S, 0x1D | S,
-    0x2F,      // [
-    0x31,      // backslash
-    0x30,      // ]
-    0x23 | S,  // ^
-    0x2D | S,  // _
-    0x35,      // `
-    // a-z
-    0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
-    0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D,
-    0x2F | S,  // {
-    0x31 | S,  // |
-    0x30 | S,  // }
-    0x35 | S,  // ~
-};
-static_assert(sizeof(kTable) == 0x7E - 0x20 + 1, "keymap must cover exactly 0x20..0x7E");
+using data::kLayouts;
+
+const data::LayoutDef* def(Layout l) { return l < data::kLayoutCount ? &kLayouts[l] : nullptr; }
+
+uint8_t altBit(const data::LayoutDef& d) {
+  return d.platform == data::Platform::Mac ? MOD_LEFT_ALT : MOD_RIGHT_ALT;
+}
+
+const data::Glyph* glyph(const data::LayoutDef& d, uint32_t cp) {
+  if (cp > 0xFFFF) return nullptr;
+  const data::Glyph* end = d.glyphs + d.glyphCount;
+  const data::Glyph* g =
+      std::lower_bound(d.glyphs, end, cp, [](const data::Glyph& a, uint32_t v) { return a.cp < v; });
+  return g != end && g->cp == cp ? g : nullptr;
+}
+
+const char* platformName(data::Platform p) {
+  switch (p) {
+    case data::Platform::Windows: return "windows";
+    case data::Platform::Mac: return "mac";
+    case data::Platform::Any: break;
+  }
+  return "any";
+}
+
+void appendUtf8(std::string& s, uint32_t cp) {
+  if (cp < 0x80) {
+    s += static_cast<char>(cp);
+  } else if (cp < 0x800) {
+    s += static_cast<char>(0xC0 | (cp >> 6));
+    s += static_cast<char>(0x80 | (cp & 0x3F));
+  } else {
+    s += static_cast<char>(0xE0 | (cp >> 12));
+    s += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+    s += static_cast<char>(0x80 | (cp & 0x3F));
+  }
+}
 
 }  // namespace
 
-bool keystrokeFor(char c, KeyStroke& out) {
-  const auto u = static_cast<unsigned char>(c);
-  if (u < 0x20 || u > 0x7E) return false;
-  const uint8_t v = kTable[u - 0x20];
-  out.keycode = static_cast<uint8_t>(v & 0x7F);
-  out.shift = (v & S) != 0;
+const ProbeKey kProbe[] = {{0x14, false}, {0x1A, false}, {0x1C, false}, {0x1D, false}, {0x2C, false},
+                           {0x33, false}, {0x1F, true},  {0x20, true},  {0x38, false}};
+const size_t kProbeLen = sizeof kProbe / sizeof kProbe[0];
+
+int strokesFor(Layout layout, uint32_t cp, KeyStroke out[kMaxStrokes]) {
+  const data::LayoutDef* d = def(layout);
+  if (d == nullptr || cp < 0x20 || (cp >= 0x7F && cp < 0xA0)) return 0;
+  const data::Glyph* g = glyph(*d, cp);
+  if (g == nullptr) return 0;
+  uint8_t mod = 0;
+  if (g->flags & data::kShift) mod |= MOD_LEFT_SHIFT;
+  if (g->flags & data::kAlt) mod |= altBit(*d);
+  out[0] = {g->usage, mod};
+  if (!(g->flags & data::kDead)) return 1;
+  out[1] = {KEY_SPACE, 0};
+  return 2;
+}
+
+bool nextCodePoint(const char*& p, const char* end, uint32_t& cp) {
+  if (p >= end) return false;
+  const auto c = static_cast<uint8_t>(*p);
+  size_t len;
+  if (c < 0x80) {
+    len = 1;
+    cp = c;
+  } else if ((c & 0xE0) == 0xC0) {
+    len = 2;
+    cp = c & 0x1F;
+  } else if ((c & 0xF0) == 0xE0) {
+    len = 3;
+    cp = c & 0x0F;
+  } else if ((c & 0xF8) == 0xF0) {
+    len = 4;
+    cp = c & 0x07;
+  } else {
+    return false;
+  }
+  if (static_cast<size_t>(end - p) < len) return false;
+  for (size_t k = 1; k < len; ++k) {
+    const auto cc = static_cast<uint8_t>(p[k]);
+    if ((cc & 0xC0) != 0x80) return false;
+    cp = (cp << 6) | (cc & 0x3F);
+  }
+  static constexpr uint32_t kMinForLen[] = {0, 0, 0x80, 0x800, 0x10000};
+  if (cp < kMinForLen[len] || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) return false;
+  p += len;
   return true;
 }
 
-bool typeable(const char* text) {
-  if (text == nullptr) return false;
-  KeyStroke ks{};
-  for (const char* p = text; *p != '\0'; ++p) {
-    if (!keystrokeFor(*p, ks)) return false;
+uint32_t charFor(Layout layout, KeyStroke s) {
+  const data::LayoutDef* d = def(layout);
+  if (d == nullptr) return 0;
+  const uint8_t alt = altBit(*d);
+  if (s.modifier & ~(MOD_LEFT_SHIFT | alt)) return 0;
+  const int layer = ((s.modifier & MOD_LEFT_SHIFT) ? 1 : 0) | ((s.modifier & alt) ? 2 : 0);
+  for (size_t i = 0; i < d->keyCount; ++i) {
+    const data::KeyCell& k = d->keys[i];
+    if (k.usage != s.keycode) continue;
+    return (k.deadMask & (1u << layer)) ? 0 : k.cp[layer];
+  }
+  return 0;
+}
+
+size_t layoutCount() { return data::kLayoutCount; }
+
+LayoutInfo layoutInfo(Layout l) {
+  const data::LayoutDef* d = def(l);
+  if (d == nullptr) return {"", "", "any"};
+  return {d->id, d->name, platformName(d->platform)};
+}
+
+bool findLayout(std::string_view id, Layout& out) {
+  for (size_t i = 0; i < data::kLayoutCount; ++i) {
+    if (id == kLayouts[i].id) {
+      out = static_cast<Layout>(i);
+      return true;
+    }
+  }
+  return false;
+}
+
+bool typeable(std::string_view text, Layout layout) {
+  KeyStroke ks[kMaxStrokes];
+  const char* end = text.data() + text.size();
+  for (const char* p = text.data(); p < end;) {
+    uint32_t cp = 0;
+    if (!nextCodePoint(p, end, cp) || strokesFor(layout, cp, ks) == 0) return false;
   }
   return true;
+}
+
+bool typeable(const char* text, Layout layout) { return text != nullptr && typeable(std::string_view(text), layout); }
+
+bool sameOnAll(uint32_t cp, const Layout* layouts, size_t n) {
+  if (n == 0) return false;
+  KeyStroke first[kMaxStrokes];
+  if (strokesFor(layouts[0], cp, first) != 1) return false;
+  for (size_t i = 1; i < n; ++i) {
+    KeyStroke ks[kMaxStrokes];
+    if (strokesFor(layouts[i], cp, ks) != 1 || ks[0].keycode != first[0].keycode ||
+        ks[0].modifier != first[0].modifier)
+      return false;
+  }
+  return true;
+}
+
+std::string probeText(Layout layout) {
+  std::string s;
+  for (size_t i = 0; i < kProbeLen; ++i) {
+    const uint32_t cp = charFor(layout, {kProbe[i].keycode, kProbe[i].shift ? MOD_LEFT_SHIFT : uint8_t{0}});
+    if (cp != 0) appendUtf8(s, cp);
+  }
+  return s;
 }
 
 }  // namespace keyra::hid

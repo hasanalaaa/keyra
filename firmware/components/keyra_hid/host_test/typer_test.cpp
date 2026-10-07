@@ -61,6 +61,63 @@ void testPlainTyping() {
   for (uint32_t d : h.delays) CHECK_EQ(d, 12u);
 }
 
+Options optLayout(const char* id) {
+  Options o = opt();
+  CHECK(findLayout(id, o.layout));
+  return o;
+}
+
+// AltGr on Windows (Right Alt), Option on a Mac (Left Alt), dead keys + Space.
+void testLayoutModifiersAndDeadKeys() {
+  {
+    FakeHost h;
+    Typer t;
+    CHECK(t.type(h, "@", optLayout("de")) == Result::Ok);  // AltGr+Q
+    CHECK(h.sent == (std::vector<Report>{{MOD_RIGHT_ALT, 0x14}, kRelease, kRelease}));
+  }
+  {
+    FakeHost h;
+    Typer t;
+    CHECK(t.type(h, "@", optLayout("de-mac")) == Result::Ok);  // Option+L
+    CHECK(h.sent == (std::vector<Report>{{MOD_LEFT_ALT, 0x0F}, kRelease, kRelease}));
+  }
+  {
+    FakeHost h;
+    Typer t;
+    CHECK(t.type(h, "^", optLayout("de")) == Result::Ok);  // dead ^, then Space
+    CHECK(h.sent == (std::vector<Report>{{0, 0x35}, kRelease, {0, 0x2C}, kRelease, kRelease}));
+  }
+  {
+    FakeHost h;
+    Typer t;
+    CHECK(t.type(h, "\xD8\xB4", optLayout("ar")) == Result::Ok);  // Arabic sheen: the A key
+    CHECK(h.sent == (std::vector<Report>{{0, 0x04}, kRelease, kRelease}));
+  }
+  {
+    FakeHost h;
+    Typer t;
+    CHECK(t.type(h, "abc", optLayout("ar")) == Result::Unsupported);  // no Latin letters on Arabic
+    CHECK(h.sent.empty());
+  }
+}
+
+void testProbe() {
+  FakeHost h;
+  h.caps = true;
+  Typer t;
+  CHECK(t.probe(h, opt(1)) == Result::Ok);
+  // Caps off, the probe keys (each released, only Shift), release, Caps back on.
+  size_t keys = 0;
+  for (const Report& r : h.sent) {
+    CHECK(r.key != 0x28);                               // never Enter
+    CHECK((r.mod & ~MOD_LEFT_SHIFT) == 0);              // no chords
+    if (r.key != 0 && r.key != KEY_CAPS_LOCK) ++keys;
+  }
+  CHECK_EQ(keys, kProbeLen);
+  CHECK(!h.anyKeyHeldAtEnd());
+  CHECK(h.caps);
+}
+
 void testRepeatedCharIsReleasedBetween() {
   FakeHost h;
   Typer t;
@@ -347,6 +404,8 @@ int main() {
   testRepeatedCharIsReleasedBetween();
   testEmptyText();
   testUnsupportedTouchesNothing();
+  testLayoutModifiersAndDeadKeys();
+  testProbe();
   testNotMounted();
   testAbortOnFirstFailureThenRelease();
   testReleaseRetriedThreeTimes();

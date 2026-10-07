@@ -34,6 +34,13 @@ struct Settings {
   std::string homeSsid;
   std::string homePassword;
   net::ApMode apMode = net::ApMode::Always;
+  // Keyboard layout of the computer on each output (SPEC §10.1): a layout id
+  // from keyra_hid's table ("us", "de-mac", "ar", …).
+  std::string layoutUsb = "us";
+  std::string layoutBle = "us";
+  // Auto-type sequence for "Both" on entries without their own (SPEC §10.4);
+  // empty = username, separator, password (+ Enter when submitAfterBoth).
+  std::string bothSequence;
 };
 
 constexpr uint8_t kMinAutoLockMin = 1, kMaxAutoLockMin = 120;

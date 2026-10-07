@@ -23,6 +23,7 @@ struct Entry {
   bool favorite = false;
   int64_t created = 0, updated = 0, lastUsed = 0;  // unix seconds (0 = unknown)
   std::vector<OldPassword> history;               // newest first, at most kMaxHistory
+  std::string sequence;  // custom auto-type sequence (keyra/sequence.hpp); empty = none
 };
 
 enum class Status {
@@ -52,7 +53,8 @@ Status get(uint32_t id, Entry& out);
 // id==0 → create (assigns e.id); else update an existing entry (NotFound otherwise).
 // The vault has no wall clock: timestamps are stored as the caller sets them,
 // except that on update a zero created/lastUsed keeps the stored value.
-// All string fields must be valid UTF-8 within the limits below (else Invalid).
+// All string fields must be valid UTF-8 within the limits below, and `sequence`
+// empty or valid per keyra/sequence.hpp (else Invalid).
 // History is owned by the vault, so a client can neither forge nor erase it:
 // e.history is ignored; a create starts empty, and an update that changes the
 // password moves the stored one to the front (changedAt = e.updated), keeping
@@ -76,7 +78,7 @@ void wipe(Entry& e);
 // Field limits in bytes (UTF-8); put()/importBackup() return Invalid beyond them.
 inline constexpr size_t kMaxEntries = 1000, kMaxHistory = 10;
 inline constexpr size_t kMaxTitle = 128, kMaxUrl = 512, kMaxUsername = 256, kMaxPassword = 256,
-                        kMaxTotp = 512, kMaxNotes = 2048;
+                        kMaxTotp = 512, kMaxNotes = 2048, kMaxSequence = 256;
 inline constexpr size_t kMinBackupPass = 12;
 
 }  // namespace keyra::vault

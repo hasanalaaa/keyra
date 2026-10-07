@@ -142,6 +142,18 @@ void validation() {
   p.symbolSet = "|`";
   CHECK(keyra::gen::plan(p, plan) == Error::EmptyClass);
 
+  // Layout-proof (SPEC §10.2): only the allowed characters survive, per class.
+  p = params(24, true, true, true, true);
+  p.restrict = true;
+  p.allowed = "abcxyzABC0123!#";
+  CHECK(keyra::gen::plan(p, plan) == Error::None);
+  CHECK(plan.classes[0].chars == "abcxyz" && plan.classes[1].chars == "ABC" && plan.classes[2].chars == "0123");
+  CHECK(plan.classes[3].chars == "!#");
+  p.allowed = "0123456789!@";  // e.g. US + Arabic: no letters in common
+  CHECK(keyra::gen::plan(p, plan) == Error::EmptyClass);
+  p.lower = p.upper = false;
+  CHECK(keyra::gen::plan(p, plan) == Error::None && plan.alphabet == "0123456789!@");
+
   p = params(128, true, true, true, true);
   p.minDigits = 60;  // ~17 digits expected in 128 draws: hopeless
   CHECK(keyra::gen::plan(p, plan) == Error::TooStrict);

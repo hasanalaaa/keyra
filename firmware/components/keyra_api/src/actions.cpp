@@ -129,6 +129,16 @@ void Machine::typingFinished(const TypeRequest& req, Code code) {
   std::lock_guard<std::mutex> lock(mu_);
   const int64_t now = now_();
   typing_ = false;
+  if (code == Code::Typed && req.what == What::Sequence && req.seq && req.part + 1 < req.seq->parts) {
+    if (kind_ == Kind::None) {  // waits for the {PRESS}: same request, next part
+      kind_ = Kind::Type;
+      req_ = req;
+      ++req_.part;
+      deadline_ = now + kExpiryMs;
+      return;
+    }
+    code = Code::Cancelled;  // another item replaced it while this part was typing
+  }
   hasLast_ = true;
   last_ = {code == Code::Typed, code, 0, req.title, req.what};
   lastAt_ = now;
@@ -232,6 +242,8 @@ const char* whatName(What w) {
     case What::Totp: return "totp";
     case What::Test: return "test";
     case What::Text: return "text";
+    case What::Sequence: return "sequence";
+    case What::Probe: return "probe";
   }
   return "username";
 }
@@ -241,7 +253,8 @@ std::optional<What> parseWhat(const std::string& s) {
   if (s == "password") return What::Password;
   if (s == "both") return What::Both;
   if (s == "totp") return What::Totp;
-  return std::nullopt;  // "test" and "text" are requested via {test:true} / {text}, never via `what`
+  if (s == "sequence") return What::Sequence;
+  return std::nullopt;  // "test", "text", "probe" are requested via {test|probe:true} / {text}, never via `what`
 }
 
 const char* opName(Op op) {

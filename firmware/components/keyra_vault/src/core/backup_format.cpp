@@ -119,7 +119,13 @@ void writeEntry(SecureString& out, const Entry& e) {
     json::writeInt(out, e.history[i].changedAt);
     out += '}';
   }
-  out += "]}";
+  out += ']';
+  if (!e.sequence.empty()) {
+    out += ',';
+    key(out, "sequence");
+    json::writeString(out, e.sequence);
+  }
+  out += '}';
 }
 
 bool readEntry(const json::Value& v, Entry& out) {
@@ -135,7 +141,7 @@ bool readEntry(const json::Value& v, Entry& out) {
   if (fav && fav->type != Type::Bool) return false;
   out.favorite = fav && fav->b;
   if (!readInt(v, "created", out.created) || !readInt(v, "updated", out.updated) ||
-      !readInt(v, "lastUsed", out.lastUsed))
+      !readInt(v, "lastUsed", out.lastUsed) || !readString(v, "sequence", out.sequence))
     return false;
 
   for (OldPassword& h : out.history) wipe(h.password);

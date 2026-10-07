@@ -6,6 +6,8 @@
 #include <cstring>
 
 #include "clock.hpp"
+#include "handlers_kbd.hpp"
+#include "sequence_run.hpp"
 #include "esp_log.h"
 #include "esp_random.h"
 #include "esp_system.h"
@@ -24,6 +26,9 @@ namespace {
 
 const char* TAG = "actions";
 constexpr const char* kTestString = "Keyra test 123 !@#";
+// For layouts without Latin letters (Arabic): "Keyra test" in Arabic.
+constexpr const char* kTestStringArabic =
+    "\xD8\xA7\xD8\xAE\xD8\xAA\xD8\xA8\xD8\xA7\xD8\xB1 \xD9\x83\xD9\x8A\xD8\xB1\xD8\xA7 123";
 constexpr int64_t kNetDelayMs = 3000;
 
 using actions::Code;
@@ -71,8 +76,40 @@ io::Led toLed(actions::Indicator i) {
 // password is never half-typed.
 Code typeOne(const std::string& text, const hid::Options& o) {
   if (text.empty()) return Code::Failed;
-  if (!hid::typeable(text.c_str())) return Code::UnsupportedChar;
+  if (!hid::typeable(text.c_str(), o.layout)) return Code::UnsupportedChar;
   return fromHid(hid::typeText(text.c_str(), o), o);
+}
+
+// Sequences type through the same engine: every call releases all keys.
+class HidKeys final : public seqrun::Keys {
+ public:
+  explicit HidKeys(const hid::Options& o) : o_(o) {}
+  bool typeable(const std::string& t) override { return hid::typeable(t.c_str(), o_.layout); }
+  Code text(const std::string& t) override { return typeOne(t, o_); }
+  Code key(uint8_t k) override { return fromHid(hid::tapKey(k, o_), o_); }
+  void delayMs(uint32_t ms) override { vTaskDelay(pdMS_TO_TICKS(ms)); }
+
+ private:
+  const hid::Options& o_;
+};
+
+Code runSequence(const actions::TypeRequest& job, const vault::Entry& e, const hid::Options& o) {
+  seqrun::Fields f;
+  f.username = e.username;
+  f.password = e.password;
+  char code[11] = {};
+  if (seqrun::needs(*job.seq).totp) {
+    if (!timeValid() || !totp::code(e.totp, unixMs() / 1000, code, nullptr, nullptr)) return Code::Failed;
+    f.totp = code;
+    std::memset(code, 0, sizeof code);
+  }
+  HidKeys keys(o);
+  Code c = job.part == 0 ? seqrun::checkAll(*job.seq, f, keys) : Code::Typed;
+  if (c == Code::Typed) c = seqrun::runPart(*job.seq, job.part, f, keys);
+  vault::wipe(f.username);
+  vault::wipe(f.password);
+  vault::wipe(f.totp);
+  return c;
 }
 
 bool bleReadyFor(const BtAddr& addr) { return hid::bleConnected() && ble::linked() == addr; }
@@ -101,8 +138,11 @@ Code runJob(const actions::TypeRequest& job) {
       break;
   }
   const settings::Settings s = settings::get();
-  const hid::Options o{s.keyDelayMs, job.target.kind == Kind::Ble ? hid::Host::Ble : hid::Host::Usb};
-  if (job.what == What::Test) return fromHid(hid::typeText(kTestString, o), o);
+  const hid::Options o{s.keyDelayMs, job.target.kind == Kind::Ble ? hid::Host::Ble : hid::Host::Usb,
+                      kbdapi::layoutFor(job.target, s)};
+  if (job.what == What::Test)
+    return typeOne(hid::typeable(kTestString, o.layout) ? kTestString : kTestStringArabic, o);
+  if (job.what == What::Probe) return fromHid(hid::typeProbe(o), o);
   if (job.what == What::Text) return job.text ? typeFree(*job.text, o) : Code::Failed;
 
   vault::Entry e;
@@ -112,7 +152,7 @@ Code runJob(const actions::TypeRequest& job) {
     case What::Username: c = typeOne(e.username, o); break;
     case What::Password: c = typeOne(e.password, o); break;
     case What::Both:
-      if (!hid::typeable(e.username.c_str()) || !hid::typeable(e.password.c_str())) {
+      if (!hid::typeable(e.username.c_str(), o.layout) || !hid::typeable(e.password.c_str(), o.layout)) {
         c = Code::UnsupportedChar;
         break;
       }
@@ -127,8 +167,10 @@ Code runJob(const actions::TypeRequest& job) {
       std::memset(code, 0, sizeof code);
       break;
     }
+    case What::Sequence: c = job.seq ? runSequence(job, e, o) : Code::Failed; break;
     case What::Test:
-    case What::Text: break;
+    case What::Text:
+    case What::Probe: break;
   }
   vault::wipe(e);
   if (c == Code::Typed && job.submit) c = fromHid(hid::tapKey(hid::KEY_ENTER, o), o);

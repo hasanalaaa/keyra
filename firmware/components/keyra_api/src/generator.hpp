@@ -31,6 +31,10 @@ struct Params {
   int minDigits = 0, minSymbols = 0;  // 0 and 1 mean the same: at least one
   bool avoidAmbiguous = false;
   std::string symbolSet;  // empty = kDefaultSymbols
+  // Layout-proof (SPEC §10.2): when set, only these characters may appear
+  // (the ones every chosen keyboard layout types with the same key press).
+  bool restrict = false;
+  std::string allowed;
 };
 
 enum class Error { None, Length, NoClass, Minimum, SymbolSet, EmptyClass, TooStrict };

@@ -88,6 +88,7 @@ TEST(entry_codec) {
   e.created = -5;
   e.lastUsed = INT64_MAX;
   e.totp = "otpauth://totp/x?secret=AAAA";
+  e.sequence = "{USERNAME}{TAB}{PRESS}{PASSWORD}{ENTER}";
   SecureBuf buf;
   CHECK(codec::encode(e, buf) && buf.size() == codec::encodedSize(e));
   Entry d;
@@ -97,10 +98,10 @@ TEST(entry_codec) {
   extra.push_back(0);
   CHECK(!codec::decode(extra.data(), extra.size(), d));
   extra.pop_back();
-  CHECK(extra[0] == 2);  // always written as the current format
-  extra[0] = 3;          // unknown format
+  CHECK(extra[0] == 3);  // always written as the current format
+  extra[0] = 4;          // unknown format
   CHECK(!codec::decode(extra.data(), extra.size(), d));
-  extra[0] = 2;
+  extra[0] = 3;
   extra[5] = 2;  // unknown flag bit
   CHECK(!codec::decode(extra.data(), extra.size(), d));
 }
@@ -132,6 +133,53 @@ TEST(entry_codec_reads_v1) {
   CHECK(!codec::decode(b.data(), b.size(), d));
 }
 
+// Format 2 (v1.2 firmware): format 1 plus the history block, no sequence.
+TEST(entry_codec_reads_v2) {
+  auto b = v1Bytes(0x0A0B0C0D, {"title", "url", "user", "pass", "", "notes"});
+  b[0] = 2;
+  b.push_back(1);  // one old password
+  for (int i = 0; i < 8; ++i) b.push_back(uint8_t(uint64_t(55) >> (8 * i)));
+  b.push_back(3);
+  b.push_back(0);
+  b.insert(b.end(), {'o', 'l', 'd'});
+  Entry d;
+  d.sequence = "{PASSWORD}";  // decode replaces whatever was there
+  CHECK(codec::decode(b.data(), b.size(), d));
+  CHECK(d.history.size() == 1 && d.history[0].password == "old" && d.history[0].changedAt == 55);
+  CHECK(d.sequence.empty());
+  b.push_back(0);  // v2 has no sequence block: trailing bytes are corruption
+  CHECK(!codec::decode(b.data(), b.size(), d));
+}
+
+// The sequence grammar guards every write, so a backup or import can never
+// store something Keyra would refuse to type.
+TEST(entry_codec_sequence) {
+  Entry e = test::sample("s");
+  e.id = 9;
+  for (const char* ok : {"", "{USERNAME}{TAB}{PASSWORD}{ENTER}", "{PASSWORD}{DELAY 3000}{ENTER}",
+                         "user@corp{TAB}{TOTP}", "{USERNAME}{ENTER}{PRESS}{PASSWORD}{ENTER}"}) {
+    e.sequence = ok;
+    CHECK(codec::valid(e));
+    SecureBuf buf;
+    Entry d;
+    CHECK(codec::encode(e, buf) && codec::decode(buf.data(), buf.size(), d) && d.sequence == e.sequence);
+  }
+  for (const char* bad : {"{CTRL}v", "{ALT+F4}", "{WIN}", "{TAB", "}", "{DELAY 50}", "{PRESS}{PASSWORD}"}) {
+    e.sequence = bad;
+    CHECK(!codec::valid(e));
+  }
+  e.sequence = std::string(kMaxSequence + 1, 'a');
+  CHECK(!codec::valid(e));
+  // A stored invalid sequence is corruption, not something to type.
+  e.sequence = "{TAB}";
+  SecureBuf buf;
+  CHECK(codec::encode(e, buf));
+  std::vector<uint8_t> raw(buf.data(), buf.data() + buf.size());
+  raw[raw.size() - 4] = 'W';  // {TAB} -> {WAB}
+  Entry d;
+  CHECK(!codec::decode(raw.data(), raw.size(), d));
+}
+
 TEST(entry_codec_history) {
   Entry e = test::sample("h");
   e.id = 7;
@@ -147,7 +195,7 @@ TEST(entry_codec_history) {
 
   // A count over the cap is corruption even if the bytes are all there.
   std::vector<uint8_t> raw(buf.data(), buf.data() + buf.size());
-  size_t countAt = raw.size();
+  size_t countAt = raw.size() - 2;  // before the (empty) sequence
   for (const auto& h : e.history) countAt -= 8 + 2 + h.password.size();
   CHECK(raw[countAt - 1] == kMaxHistory);
   raw[countAt - 1] = kMaxHistory + 1;
