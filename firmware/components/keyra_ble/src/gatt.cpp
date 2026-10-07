@@ -36,6 +36,9 @@ constexpr uint8_t kProtoReport = 0x01;
 std::atomic<uint8_t> s_protocol{kProtoReport};
 std::atomic<uint8_t> s_leds{0};
 std::atomic<bool> s_ledsKnown{false};  // the host wrote its LED report on this link
+// A host that was just handed off (ignoreWrites()): its last LED or protocol
+// writes must not land on the state of the host that took over.
+std::atomic<uint16_t> s_ignored{BLE_HS_CONN_HANDLE_NONE};
 
 uint16_t s_hInput = 0, s_hBootInput = 0;
 
@@ -66,9 +69,10 @@ int readByte(ble_gatt_access_ctxt* ctxt, uint8_t& out) {
   return ble_hs_mbuf_to_flat(ctxt->om, &out, 1, nullptr) == 0 ? 0 : BLE_ATT_ERR_UNLIKELY;
 }
 
-int access(uint16_t, uint16_t, ble_gatt_access_ctxt* ctxt, void* arg) {
+int access(uint16_t conn, uint16_t, ble_gatt_access_ctxt* ctxt, void* arg) {
   const auto what = static_cast<Attr>(reinterpret_cast<uintptr_t>(arg));
   const bool write = ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR || ctxt->op == BLE_GATT_ACCESS_OP_WRITE_DSC;
+  const bool keep = conn != s_ignored.load();
   static constexpr uint8_t kZeroReport[kInputReportLen] = {};
   uint8_t b = 0;
   int rc = 0;
@@ -80,7 +84,7 @@ int access(uint16_t, uint16_t, ble_gatt_access_ctxt* ctxt, void* arg) {
       }
       if ((rc = readByte(ctxt, b)) != 0) return rc;
       if (b != kProtoBoot && b != kProtoReport) return BLE_ATT_ERR_UNLIKELY;
-      s_protocol.store(b);
+      if (keep) s_protocol.store(b);
       return 0;
     case Attr::ReportMap: return append(ctxt, kReportMap.data(), kReportMap.size());
     case Attr::HidInfo: return append(ctxt, kHidInfo, sizeof kHidInfo);
@@ -96,6 +100,7 @@ int access(uint16_t, uint16_t, ble_gatt_access_ctxt* ctxt, void* arg) {
         return append(ctxt, &b, 1);
       }
       if ((rc = readByte(ctxt, b)) != 0) return rc;
+      if (!keep) return 0;
       s_leds.store(b);  // bit 1 = Caps Lock, same layout as USB
       s_ledsKnown.store(true);
       return 0;
@@ -187,6 +192,8 @@ uint16_t bootInputHandle() { return s_hBootInput; }
 bool bootProtocol() { return s_protocol.load() == kProtoBoot; }
 uint8_t leds() { return s_leds.load(); }
 bool ledsKnown() { return s_ledsKnown.load(); }
+
+void ignoreWrites(uint16_t conn) { s_ignored.store(conn); }
 
 void resetLink() {
   s_protocol.store(kProtoReport);

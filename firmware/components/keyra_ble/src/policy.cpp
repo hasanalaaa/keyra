@@ -4,9 +4,10 @@
 
 namespace keyra::ble {
 
-Adv advertising(bool enabled, bool pairing, size_t bonds, bool connected, Connect mode, bool wanted) {
-  if (!enabled || connected) return Adv::Off;
+Adv advertising(bool enabled, bool pairing, size_t bonds, bool linked, bool guest, Connect mode, bool wanted) {
+  if (!enabled || guest) return Adv::Off;
   if (pairing) return Adv::Open;
+  if (linked) return Adv::Off;
   if (wanted) return Adv::BondedOnly;
   return mode == Connect::Always && bonds > 0 ? Adv::BondedOnly : Adv::Off;
 }
@@ -15,6 +16,14 @@ bool keepLink(Connect mode, bool pairing, bool trusted, const std::optional<Addr
   if (!trusted) return pairing;
   if (wanted) return *wanted == peer;
   return mode == Connect::Always || pairing;
+}
+
+bool guestTakesOver(bool fresh, const std::optional<Addr>& wanted, const Addr& linked, const Addr& guest) {
+  // An armed action decides; otherwise only a host the user has just paired
+  // (they are holding it) displaces the linked one.
+  if (wanted && *wanted == guest) return true;
+  if (wanted && *wanted == linked) return false;
+  return fresh;
 }
 
 bool mayPair(bool windowOpen, bool known, size_t bonds) {

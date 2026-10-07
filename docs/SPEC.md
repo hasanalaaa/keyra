@@ -273,6 +273,14 @@ the same "prepare → press the button" flow. USB stays the default.
   - `always`: bonded hosts may reconnect whenever they are around (accept
     list = all bonds); an action armed for one host still drops another.
   The pairing window is unaffected.
+- **Pairing while a host is connected.** One host types at a time, but the
+  pairing window does not wait for the linked host to leave: Keyra keeps
+  advertising in a second link slot. The host that pairs there takes over —
+  the linked host is let go (no auto-lock: Keyra ended it) — unless an armed
+  action waits for the linked host, in which case the new bond is stored and
+  the new host is let go. A bonded host that merely reconnects through the
+  open window while another is linked is let go as well. The second slot
+  never outlives the window.
 - **Target.** Each type action picks its host when armed: `POST /api/type`
   takes optional `target: "usb" | "<bond addr>"`. Without it, from setting
   `output` `"auto"|"usb"|"ble"`: `usb` = USB (even unplugged → `no_usb`);

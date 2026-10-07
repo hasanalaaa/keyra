@@ -15,5 +15,8 @@ bool bootProtocol();         // host selected boot protocol (BIOS-style hosts)
 uint8_t leds();              // last LED output report from the connected host
 bool ledsKnown();            // ... and whether one arrived on this link at all
 void resetLink();            // new connection: report protocol, LEDs off
+// LED and protocol writes from this connection are accepted but not kept
+// (a host being let go after another took over); BLE_HS_CONN_HANDLE_NONE ends it.
+void ignoreWrites(uint16_t conn);
 
 }  // namespace keyra::ble::gatt

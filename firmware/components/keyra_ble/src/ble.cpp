@@ -32,7 +32,9 @@ namespace {
 
 constexpr const char* TAG = "keyra_ble";
 static_assert(CONFIG_BT_NIMBLE_MAX_BONDS == kMaxBonds, "sdkconfig must store exactly kMaxBonds bonds");
-static_assert(CONFIG_BT_NIMBLE_MAX_CONNECTIONS == 1, "Keyra serves one host at a time");
+// One host types at a time; the second slot only takes a host being paired
+// while another is linked (see g_guest).
+static_assert(CONFIG_BT_NIMBLE_MAX_CONNECTIONS == 2, "one linked host plus one being paired");
 
 constexpr uint16_t kAppearanceKeyboard = 0x03C1;
 constexpr int64_t kSendTimeoutUs = 100 * 1000;  // same budget as the USB transport
@@ -83,6 +85,10 @@ Demand g_demand;
 std::string g_name;
 Window g_window;
 Link g_link;
+// A host that connected through the open pairing window while g_link was up.
+// Once it has paired it takes g_link's place (the linked host is let go), so
+// a host connected in "always" mode never stops another from pairing.
+Link g_guest;
 EarlySubs g_early;  // guarded by g_mu
 std::optional<Addr> g_lost;  // a bonded host whose link ended without Keyra ending it
 std::vector<peers::Key> g_bondKeys;  // NimBLE's bond store, refreshed on the host task
@@ -99,6 +105,7 @@ std::string t_advName;
 std::vector<peers::Key> t_advKeys;
 std::string t_gapName;
 uint16_t t_repairing = BLE_HS_CONN_HANDLE_NONE;  // link whose old bond was dropped to re-pair
+uint16_t t_handedOff = BLE_HS_CONN_HANDLE_NONE;  // linked host being let go after a guest took over
 ble_npl_event t_kickEv;
 ble_npl_event t_forgetEv;
 ble_npl_callout t_windowEnd;
@@ -215,7 +222,7 @@ int startAdvertising(Adv mode, const std::string& name, const std::vector<peers:
 // every event that could change what Keyra should be doing.
 void reconcile() {
   bool enabled, pairing, trusted;
-  uint16_t conn;
+  uint16_t conn, guest;
   int64_t leftMs, lingerMs;
   std::string name;
   std::vector<peers::Key> keys;
@@ -235,6 +242,7 @@ void reconcile() {
     leftMs = g_window.leftMs(now);
     lingerMs = g_demand.lingerLeftMs(now);
     conn = g_link.conn;
+    guest = g_guest.conn;
     trusted = g_link.trusted();
     peer = g_link.peer.addr;
     name = g_name;
@@ -276,8 +284,14 @@ void reconcile() {
     ESP_LOGI(TAG, "letting the link go");
     ble_gap_terminate(conn, BLE_ERR_REM_USER_CONN_TERM);
   }
+  // The second slot exists only for the window.
+  const bool hasGuest = guest != BLE_HS_CONN_HANDLE_NONE;
+  if (hasGuest && (!enabled || !pairing)) {
+    ESP_LOGI(TAG, "pairing window over: letting the second host go");
+    ble_gap_terminate(guest, BLE_ERR_REM_USER_CONN_TERM);
+  }
 
-  const Adv want = advertising(enabled, pairing, keys.size(), connected, mode, wanted.has_value());
+  const Adv want = advertising(enabled, pairing, keys.size(), connected, hasGuest, mode, wanted.has_value());
   const bool same = want == t_adv && name == t_advName && accept == t_advKeys;
   if (same && (want == Adv::Off || ble_gap_adv_active())) return;
   if (ble_gap_adv_active()) ble_gap_adv_stop();
@@ -302,12 +316,13 @@ void onWindowEnd(ble_npl_event*) {
 void onForget(ble_npl_event*) {
   ForgetReq req;
   std::vector<peers::Key> keys;
-  uint16_t conn;
+  uint16_t conn, guest;
   {
     std::lock_guard<std::mutex> lock(g_mu);
     req = g_forgetReq;
     keys = g_bondKeys;
     conn = g_link.conn;
+    guest = g_guest.conn;
   }
   // The controller's resolving list cannot change while advertising.
   if (ble_gap_adv_active()) ble_gap_adv_stop();
@@ -316,6 +331,7 @@ void onForget(ble_npl_event*) {
   esp_err_t result = ESP_OK;
   if (req.all) {
     if (conn != BLE_HS_CONN_HANDLE_NONE) ble_gap_terminate(conn, BLE_ERR_REM_USER_CONN_TERM);
+    if (guest != BLE_HS_CONN_HANDLE_NONE) ble_gap_terminate(guest, BLE_ERR_REM_USER_CONN_TERM);
     if (ble_store_clear() != 0) result = ESP_FAIL;
     peers::clear();
   } else {
@@ -348,11 +364,13 @@ void onConnect(int status, uint16_t conn) {
     // BLE_HS_EAGAIN) with no DISCONNECT to follow, and its slot is freed only
     // after this callback: advertising now fails with ENOMEM (seen as
     // "advertising (bonded) failed: 6"). Retry from the event queue instead.
+    bool linked;
     {
       std::lock_guard<std::mutex> lock(g_mu);
       g_early = EarlySubs{};
+      linked = g_link.conn != BLE_HS_CONN_HANDLE_NONE;
     }
-    gatt::resetLink();
+    if (!linked) gatt::resetLink();  // a failed second connection leaves the linked host's state alone
     ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &t_kickEv);
     return;
   }
@@ -361,17 +379,24 @@ void onConnect(int status, uint16_t conn) {
   const peers::Key k = keyOf(d.peer_id_addr);
   ESP_LOGI(TAG, "connection from %s (encrypted=%d bonded=%d)", formatAddr(k.addr).c_str(),
            int(d.sec_state.encrypted), int(d.sec_state.bonded));
-  bool allow;
+  bool allow, window, asGuest = false;
   {
     std::lock_guard<std::mutex> lock(g_mu);
-    allow = mayConnect(g_enabled, g_window.active(monoMs()), knownLocked(k));
+    window = g_window.active(monoMs());
+    allow = mayConnect(g_enabled, window, knownLocked(k));
+    if (allow && g_link.conn != BLE_HS_CONN_HANDLE_NONE) {
+      // Only the pairing window advertises while a host is linked.
+      asGuest = window && g_guest.conn == BLE_HS_CONN_HANDLE_NONE;
+      allow = asGuest;
+    }
     if (allow) {
-      g_link = Link{};
-      g_link.conn = conn;
-      g_link.peer = k;
+      Link& l = asGuest ? g_guest : g_link;
+      l = Link{};
+      l.conn = conn;
+      l.peer = k;
       if (g_early.conn == conn) {
-        g_link.subInput = g_early.input;
-        g_link.subBoot = g_early.boot;
+        l.subInput = g_early.input;
+        l.subBoot = g_early.boot;
       }
     }
     g_early = EarlySubs{};
@@ -381,6 +406,7 @@ void onConnect(int status, uint16_t conn) {
     ble_gap_terminate(conn, BLE_ERR_REM_USER_CONN_TERM);
     return;
   }
+  if (asGuest) ESP_LOGI(TAG, "%s is pairing while another host is linked", formatAddr(k.addr).c_str());
   // No gatt::resetLink() here: a bonded host may already have written its LED
   // report before CONNECT; the link state is reset on disconnect instead.
   // A bonded host that re-encrypted on its own is reported encrypted already
@@ -388,26 +414,42 @@ void onConnect(int status, uint16_t conn) {
   // the 30 s SMP timeout then dropped the link every 30 s.
   if (d.sec_state.encrypted) {
     onEncrypted(conn, 0);
-    return;
+  } else {
+    // Bonded hosts re-encrypt with their stored keys; a new host starts pairing.
+    const int rc = ble_gap_security_initiate(conn);
+    if (rc != 0) ESP_LOGW(TAG, "security request failed: %d", rc);
   }
-  // Bonded hosts re-encrypt with their stored keys; a new host starts pairing.
-  const int rc = ble_gap_security_initiate(conn);
-  if (rc != 0) ESP_LOGW(TAG, "security request failed: %d", rc);
+  // A host linked inside the window leaves the second slot open to pairing.
+  // Not outside it: a bonded host not yet re-encrypted is untrusted, and
+  // reconcile() would drop it before its keys are checked.
+  if (window) reconcile();
 }
 
 void onDisconnect(uint16_t conn, int reason) {
+  bool resetGatt;
   {
     std::lock_guard<std::mutex> lock(g_mu);
     if (g_link.conn == conn) {
       // Keyra ending its own link (on-demand linger, cancel, lock) is routine;
       // anything else means the host went away (SPEC §12.4 auto-lock).
       if (g_link.trusted() && reason != BLE_HS_ERR_HCI_BASE + BLE_ERR_CONN_TERM_LOCAL) g_lost = g_link.peer.addr;
-      g_link = Link{};
+      // A host still pairing in the second slot moves up; it cannot have
+      // written any report yet (that needs encryption).
+      g_link = g_guest;
+      g_guest = Link{};
+    } else if (g_guest.conn == conn) {
+      g_guest = Link{};
     }
     if (g_early.conn == conn) g_early = EarlySubs{};  // handles are reused
+    // The linked host's report state survives the second slot coming and going.
+    resetGatt = !g_link.encrypted;
   }
   if (t_repairing == conn) t_repairing = BLE_HS_CONN_HANDLE_NONE;
-  gatt::resetLink();
+  if (t_handedOff == conn) {
+    t_handedOff = BLE_HS_CONN_HANDLE_NONE;
+    gatt::ignoreWrites(BLE_HS_CONN_HANDLE_NONE);
+  }
+  if (resetGatt) gatt::resetLink();
   ESP_LOGI(TAG, "disconnected (reason 0x%x)", reason);
   reconcile();
 }
@@ -429,11 +471,13 @@ int onPeerName(uint16_t conn, const ble_gatt_error* err, ble_gatt_attr* attr, vo
 }
 
 void onEncrypted(uint16_t conn, int status) {
+  bool guest;
   {
     // NimBLE can report a bonded host's restored encryption before the
     // connection itself; onConnect() replays it once the link is recorded.
     std::lock_guard<std::mutex> lock(g_mu);
-    if (g_link.conn != conn) return;
+    guest = g_guest.conn == conn && conn != BLE_HS_CONN_HANDLE_NONE;
+    if (g_link.conn != conn && !guest) return;
   }
   ble_gap_conn_desc d{};
   if (status != 0 || ble_gap_conn_find(conn, &d) != 0) {
@@ -459,21 +503,49 @@ void onEncrypted(uint16_t conn, int status) {
     ble_gap_unpair(&d.peer_id_addr);
     return;
   }
+  const bool fresh = d.sec_state.bonded && (!known || repaired);
+  bool takeOver = true;
+  uint16_t replaced = BLE_HS_CONN_HANDLE_NONE;
   {
     std::lock_guard<std::mutex> lock(g_mu);
-    g_link.peer = k;
-    g_link.encrypted = d.sec_state.encrypted;
-    g_link.bonded = d.sec_state.bonded;
+    Link& l = guest ? g_guest : g_link;
+    l.peer = k;
+    l.encrypted = d.sec_state.encrypted;
+    l.bonded = d.sec_state.bonded;
     // One approval, one pairing: close the window once a host has paired.
+    if (fresh) g_window.close();
+    if (guest && d.sec_state.bonded) {
+      takeOver = guestTakesOver(fresh, g_demand.target(monoMs()), g_link.peer.addr, k.addr);
+      if (takeOver) {
+        replaced = g_link.conn;
+        g_link = g_guest;
+      }
+      g_guest = Link{};
+    }
     // Keep the new link a little (its name is read next; a first action may
     // follow) before on-demand mode lets it go.
-    if (d.sec_state.bonded && (!known || repaired)) {
-      g_window.close();
-      if (!g_demand.target(monoMs())) {
-        g_demand.want(k.addr);
-        g_demand.done(monoMs());
-      }
+    if (fresh && takeOver && !g_demand.target(monoMs())) {
+      g_demand.want(k.addr);
+      g_demand.done(monoMs());
     }
+  }
+  if (!takeOver) {
+    // Its bond (if new) is kept; it can connect once the linked host is gone.
+    ESP_LOGI(TAG, "%s %s; another host keeps the keyboard", fresh ? "paired" : "reconnected", formatAddr(k.addr).c_str());
+    ble_gap_terminate(conn, BLE_ERR_REM_USER_CONN_TERM);
+    if (fresh) {
+      peers::seen(k, unixNow());
+      refreshBonds();
+    }
+    reconcile();
+    return;
+  }
+  if (replaced != BLE_HS_CONN_HANDLE_NONE) {
+    ESP_LOGI(TAG, "handing the keyboard to %s", formatAddr(k.addr).c_str());
+    t_handedOff = replaced;
+    gatt::ignoreWrites(replaced);
+    gatt::resetLink();
+    ble_gap_terminate(replaced, BLE_ERR_REM_USER_CONN_TERM);
   }
   if (!d.sec_state.bonded) return;
   ESP_LOGI(TAG, "%s %s", known && !repaired ? "reconnected" : "paired", formatAddr(k.addr).c_str());
@@ -506,6 +578,11 @@ int onRepeatPairing(uint16_t conn) {
 
 void onSubscribe(const ble_gap_event& ev) {
   std::lock_guard<std::mutex> lock(g_mu);
+  if (ev.subscribe.conn_handle == g_guest.conn && g_guest.conn != BLE_HS_CONN_HANDLE_NONE) {
+    if (ev.subscribe.attr_handle == gatt::inputHandle()) g_guest.subInput = ev.subscribe.cur_notify;
+    if (ev.subscribe.attr_handle == gatt::bootInputHandle()) g_guest.subBoot = ev.subscribe.cur_notify;
+    return;
+  }
   if (ev.subscribe.conn_handle != g_link.conn) {
     // Restored subscriptions can arrive before the connection is recorded
     // (see onEncrypted); onConnect() takes them over.
@@ -579,9 +656,12 @@ void onReset(int reason) {
   std::lock_guard<std::mutex> lock(g_mu);
   g_synced = false;
   g_link = Link{};
+  g_guest = Link{};
   g_early = EarlySubs{};
   t_adv = Adv::Off;
   gatt::resetLink();
+  t_handedOff = BLE_HS_CONN_HANDLE_NONE;
+  gatt::ignoreWrites(BLE_HS_CONN_HANDLE_NONE);
 }
 
 void hostTask(void*) {

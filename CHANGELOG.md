@@ -111,6 +111,11 @@ All notable changes to Keyra are documented here. The format follows
 
 ### Fixed
 
+- Bluetooth: a new device can pair while another host is connected (in "always"
+  mode it never could — Keyra stopped advertising whenever a host was linked).
+  A second link slot takes the host being paired; once it has paired it takes
+  over and the linked host is let go (SPEC §8.1).
+
 - Vault QA round: an open account with a 2FA code no longer keeps the vault
   from auto-locking (code refreshes are not activity); "Try again" / "Copy
   instead" after a failed type act on the field that was typed, not Both;

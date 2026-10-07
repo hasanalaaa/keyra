@@ -17,11 +17,19 @@ enum class Adv {
   BondedOnly,  // not discoverable; the controller's filter accept list admits bonded hosts only
 };
 
-// One host at a time: nothing is advertised while a link is up. `wanted`: an
+// One host types at a time: nothing is advertised while it is linked, except
+// inside the pairing window, where a second slot takes the host being paired
+// (`guest`; nothing is advertised while that slot is taken). `wanted`: an
 // armed action is waiting for one bonded host (then only that host is put on
 // the accept list). OnDemand advertises for nothing else; Always also lets
 // any bonded host reconnect while idle.
-Adv advertising(bool enabled, bool pairing, size_t bonds, bool connected, Connect mode, bool wanted);
+Adv advertising(bool enabled, bool pairing, size_t bonds, bool linked, bool guest, Connect mode, bool wanted);
+
+// A host that connected in the pairing window while another was linked, once
+// its link is encrypted and bonded: whether it takes over the keyboard (the
+// linked host is let go) or is let go itself. `fresh`: it has just paired (a
+// new or replaced bond) rather than reconnected with an old one.
+bool guestTakesOver(bool fresh, const std::optional<Addr>& wanted, const Addr& linked, const Addr& guest);
 
 // Whether an established link may stay up. Untrusted links (not yet bonded and
 // encrypted) only live inside the pairing window. A trusted link must be the

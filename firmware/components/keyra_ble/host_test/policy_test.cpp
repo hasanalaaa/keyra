@@ -20,17 +20,20 @@ const Addr kMac = {0xF0, 0x2B, 0x7C, 0x41, 0x9A, 0xD3};
 
 void advertisingModes() {
   for (Connect m : {kAlways, kOnDemand}) {
-    CHECK(advertising(false, true, 2, false, m, true) == Adv::Off);  // Bluetooth off wins
-    CHECK(advertising(true, true, 0, false, m, false) == Adv::Open);
-    CHECK(advertising(true, true, 3, false, m, true) == Adv::Open);  // the window is open to all
-    CHECK(advertising(true, true, 3, true, m, false) == Adv::Off);   // one host at a time
-    CHECK(advertising(true, false, 2, true, m, true) == Adv::Off);
-    CHECK(advertising(true, false, 1, false, m, true) == Adv::BondedOnly);  // an action waits for a host
-    CHECK(advertising(true, false, 0, false, m, false) == Adv::Off);
+    CHECK(advertising(false, true, 2, false, false, m, true) == Adv::Off);  // Bluetooth off wins
+    CHECK(advertising(true, true, 0, false, false, m, false) == Adv::Open);
+    CHECK(advertising(true, true, 3, false, false, m, true) == Adv::Open);  // the window is open to all
+    // A linked host does not shut the window: the second slot takes the new
+    // host, and while that slot is taken nothing more is advertised.
+    CHECK(advertising(true, true, 3, true, false, m, false) == Adv::Open);
+    CHECK(advertising(true, true, 3, true, true, m, false) == Adv::Off);
+    CHECK(advertising(true, false, 2, true, false, m, true) == Adv::Off);
+    CHECK(advertising(true, false, 1, false, false, m, true) == Adv::BondedOnly);  // an action waits for a host
+    CHECK(advertising(true, false, 0, false, false, m, false) == Adv::Off);
   }
   // Idle with bonds: Always lets them reconnect, OnDemand stays silent.
-  CHECK(advertising(true, false, 2, false, kAlways, false) == Adv::BondedOnly);
-  CHECK(advertising(true, false, 2, false, kOnDemand, false) == Adv::Off);
+  CHECK(advertising(true, false, 2, false, false, kAlways, false) == Adv::BondedOnly);
+  CHECK(advertising(true, false, 2, false, false, kOnDemand, false) == Adv::Off);
 }
 
 void linkKeeping() {
@@ -45,21 +48,31 @@ void linkKeeping() {
   CHECK(keepLink(kAlways, false, true, std::nullopt, kIpad));
 }
 
+void guestSlot() {
+  // The user is holding the host they just paired: it gets the keyboard.
+  CHECK(guestTakesOver(true, std::nullopt, kMac, kIpad));
+  // Another bonded host that merely reconnected through the open window does not.
+  CHECK(!guestTakesOver(false, std::nullopt, kMac, kIpad));
+  // An armed action keeps the host it waits for, whichever slot it is in.
+  CHECK(!guestTakesOver(true, kMac, kMac, kIpad));
+  CHECK(guestTakesOver(false, kIpad, kMac, kIpad));
+}
+
 // The on-demand life of one action: arm → advertise → connect → press → type
 // → linger → disconnect, and the cancel / expiry paths.
 void onDemandLifecycle() {
   Demand d;
   int64_t now = 1000;
   CHECK(!d.target(now));
-  CHECK(advertising(true, false, 2, false, kOnDemand, d.target(now).has_value()) == Adv::Off);
+  CHECK(advertising(true, false, 2, false, false, kOnDemand, d.target(now).has_value()) == Adv::Off);
 
   d.want(kIpad);  // armed for the iPad
   CHECK(d.target(now) == kIpad);
-  CHECK(advertising(true, false, 2, false, kOnDemand, true) == Adv::BondedOnly);
+  CHECK(advertising(true, false, 2, false, false, kOnDemand, true) == Adv::BondedOnly);
   // The Mac (also bonded) is not wanted: if it were connected it would be dropped.
   CHECK(!keepLink(kOnDemand, false, true, d.target(now), kMac));
   // The iPad connects: advertising stops, the link stays for the press.
-  CHECK(advertising(true, false, 2, true, kOnDemand, true) == Adv::Off);
+  CHECK(advertising(true, false, 2, true, false, kOnDemand, true) == Adv::Off);
   CHECK(keepLink(kOnDemand, false, true, d.target(now), kIpad));
 
   now += 4000;
@@ -161,6 +174,7 @@ void reportMapMatchesUsb() {
 int main() {
   advertisingModes();
   linkKeeping();
+  guestSlot();
   onDemandLifecycle();
   pairingGate();
   window();
