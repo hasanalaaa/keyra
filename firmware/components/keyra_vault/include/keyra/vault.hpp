@@ -68,6 +68,26 @@ Status importBackup(const std::string& backupPass, const std::string& json, bool
                     size_t* added, size_t* updated);
 Status factoryReset();  // erases everything vault-related
 
+// Passkeys (keyra_fido, docs/FIDO.md). The vault stores each discoverable FIDO
+// credential as an opaque record it encrypts like an entry ("f/<id>.bin",
+// AES-256-GCM(DEK), AAD "keyra/f/v1/<id>") and derives the credential wrapping
+// key from the DEK, so nothing FIDO-related is readable while locked. Records
+// are not part of backups. All of these need the vault unlocked.
+struct PasskeyRecord {
+  uint32_t id = 0;
+  std::vector<uint8_t> data;
+};
+inline constexpr size_t kMaxPasskeys = 50, kMaxPasskeyRecord = 1024;
+Status passkeyList(std::vector<PasskeyRecord>& out);
+// id == 0 → create (assigns id; Full beyond kMaxPasskeys); else replace (NotFound otherwise).
+Status passkeyPut(uint32_t& id, const std::vector<uint8_t>& data);
+Status passkeyRemove(uint32_t id);
+// HMAC-SHA256(DEK, "keyra/fido/v1/wrap" || salt); the 16-byte salt is created on first use.
+Status passkeyWrapKey(uint8_t out[32]);
+// authenticatorReset: deletes every record and replaces the salt (old wrapped
+// credentials stop decrypting).
+Status passkeyReset();
+
 const char* statusName(Status s);  // stable lowercase token, e.g. "wrong_passphrase"
 
 // Overwrites a string's whole buffer (size and spare capacity) with zeros and

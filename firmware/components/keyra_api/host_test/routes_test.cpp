@@ -48,6 +48,14 @@ void apiRoutes() {
   CHECK(matchApi(Method::Get, "/api/trusted/77").kind == K::MethodNotAllowed);
   CHECK(matchApi(Method::Delete, "/api/trusted/0").kind == K::NotFound);
   CHECK(matchApi(Method::Delete, "/api/trusted/x").kind == K::NotFound);
+  CHECK(is(matchApi(Method::Get, "/api/fido"), Route::ListPasskeys));
+  CHECK(is(matchApi(Method::Delete, "/api/fido/4294967295"), Route::DeletePasskey, 4294967295u));
+  CHECK(matchApi(Method::Post, "/api/fido").kind == K::MethodNotAllowed);
+  CHECK(matchApi(Method::Get, "/api/fido/5").kind == K::MethodNotAllowed);
+  CHECK(matchApi(Method::Delete, "/api/fido/0").kind == K::NotFound);
+  CHECK(matchApi(Method::Delete, "/api/fido/4294967296").kind == K::NotFound);
+  CHECK(needsSession(Route::ListPasskeys) && needsSession(Route::DeletePasskey));
+  CHECK(needsCsrf(Method::Delete, Route::DeletePasskey));
 
   CHECK(is(matchApi(Method::Get, "/api/ble"), Route::GetBle));
   CHECK(is(matchApi(Method::Post, "/api/ble/pair"), Route::BlePair));

@@ -29,8 +29,8 @@ constexpr const char* TAG = "keyra_usb";
 // ---- Descriptor cross-check against TinyUSB's own templates -------------
 // Our bytes are hand-built (so host tests can parse them); here the compiler
 // proves they equal what TinyUSB's macros would produce for the same layout.
-#if CFG_TUD_HID < 1
-#error "keyra_hid needs CONFIG_TINYUSB_HID_COUNT >= 1"
+#if CFG_TUD_HID < 2
+#error "keyra_hid needs CONFIG_TINYUSB_HID_COUNT >= 2 (keyboard + FIDO)"
 #endif
 
 template <size_t N, size_t M>
@@ -42,22 +42,33 @@ constexpr bool sameBytes(const std::array<uint8_t, N>& a, const uint8_t (&b)[M])
   return true;
 }
 
+#define KEYRA_FIDO_DESC                                                                                         \
+  TUD_HID_INOUT_DESCRIPTOR(desc::kItfFido, desc::kStrFidoItf, HID_ITF_PROTOCOL_NONE, sizeof(desc::kFidoReport), \
+                           desc::kEpFidoOut, desc::kEpFidoIn, desc::kFidoReportLen, desc::kFidoPollMs)
+
 constexpr uint8_t kRefHidOnly[] = {
-    TUD_CONFIG_DESCRIPTOR(1, 1, 0, TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN, 0, 100),
+    TUD_CONFIG_DESCRIPTOR(1, 2, 0, TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN + TUD_HID_INOUT_DESC_LEN, 0, 100),
     TUD_HID_DESCRIPTOR(desc::kItfHid, desc::kStrHidItf, HID_ITF_PROTOCOL_KEYBOARD, sizeof(desc::kHidReport),
                        desc::kEpHidIn, desc::kHidReportLen, desc::kHidPollMs),
+    KEYRA_FIDO_DESC,
 };
-static_assert(desc::kTotalHidOnly == TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN, "HID-only length");
+static_assert(desc::kTotalHidOnly == TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN + TUD_HID_INOUT_DESC_LEN,
+              "HID (keyboard + FIDO) length");
 static_assert(sameBytes(desc::kConfigHidOnly, kRefHidOnly), "HID-only config differs from TinyUSB template");
 
 constexpr uint8_t kRefHidCdc[] = {
-    TUD_CONFIG_DESCRIPTOR(1, 3, 0, TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN + TUD_CDC_DESC_LEN, 0, 100),
+    TUD_CONFIG_DESCRIPTOR(1, 4, 0,
+                          TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN + TUD_HID_INOUT_DESC_LEN + TUD_CDC_DESC_LEN, 0,
+                          100),
     TUD_HID_DESCRIPTOR(desc::kItfHid, desc::kStrHidItf, HID_ITF_PROTOCOL_KEYBOARD, sizeof(desc::kHidReport),
                        desc::kEpHidIn, desc::kHidReportLen, desc::kHidPollMs),
+    KEYRA_FIDO_DESC,
     TUD_CDC_DESCRIPTOR(desc::kItfCdcComm, desc::kStrCdcItf, desc::kEpCdcNotif, desc::kCdcNotifLen, desc::kEpCdcOut,
                        desc::kEpCdcIn, desc::kCdcDataLen),
 };
-static_assert(desc::kTotalHidCdc == TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN + TUD_CDC_DESC_LEN, "HID+CDC length");
+static_assert(desc::kTotalHidCdc == TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN + TUD_HID_INOUT_DESC_LEN + TUD_CDC_DESC_LEN,
+              "HID+CDC length");
+#undef KEYRA_FIDO_DESC
 static_assert(sameBytes(desc::kConfigHidCdc, kRefHidCdc), "HID+CDC config differs from TinyUSB template");
 static_assert(sizeof(tusb_desc_device_t) == desc::kDeviceHidOnly.size(), "device descriptor size");
 
@@ -168,6 +179,7 @@ bool usbStart(bool devCdc) {
   s_strings[desc::kStrSerial] = s_serial;
   s_strings[desc::kStrHidItf] = desc::kHidItfName;
   s_strings[desc::kStrCdcItf] = desc::kCdcItfName;
+  s_strings[desc::kStrFidoItf] = desc::kFidoItfName;
 
   tinyusb_config_t cfg = TINYUSB_DEFAULT_CONFIG(onUsbEvent);
   cfg.descriptor.device = &s_device;
@@ -179,7 +191,8 @@ bool usbStart(bool devCdc) {
 #if CFG_TUD_CDC > 0
   if (cdc) ESP_ERROR_CHECK(startCdc());
 #endif
-  ESP_LOGI(TAG, "USB up: %s, serial %s", cdc ? "HID keyboard + CDC console" : "HID keyboard", s_serial);
+  ESP_LOGI(TAG, "USB up: %s, serial %s", cdc ? "keyboard + security key + CDC console" : "keyboard + security key",
+           s_serial);
   return cdc;
 }
 

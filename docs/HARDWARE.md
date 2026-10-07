@@ -40,6 +40,7 @@ PSRAM, so they are not available for other uses.
 | Brief soft green blink every 4 s | Unlocked and idle |
 | Blue, pulsing | A typing action is ready and waiting for the button |
 | Violet, pulsing | Waiting for a button press to approve setup, a Wi-Fi change, Bluetooth pairing, a replacing restore or a factory reset |
+| White, two short blinks per second | A website asks for a passkey or security key: short press approves, long press refuses (also shown briefly when a computer asks "which key is this?") |
 | Cyan, pulsing | Bluetooth pairing window open (up to 2 minutes): pick Keyra in your device's Bluetooth settings |
 | White, steady | Typing |
 | Green flash | Typed successfully |
@@ -179,6 +180,7 @@ you have locked.
 |---|---|
 | Board not detected for flashing | Use the **UART** port, or enter ROM mode by holding BOOT while plugging in. Use a data cable, not a charge-only cable. |
 | Computer sees no keyboard | The **USB** port must be connected to the computer, not the UART port. |
+| Browser says "use your security key" but the light does not double-blink | Keyra must be plugged into the computer by USB (Bluetooth cannot carry passkeys). If Keyra is locked, unlock it on the phone within 30 s. |
 | macOS shows "Keyboard Setup Assistant" | Expected the first time any new keyboard connects; closing it is fine. Keyra types US layout regardless of the answer you choose. |
 | LED is the wrong colour or dark | Your board is probably v1.0: set `KEYRA_LED_GPIO` to 48 and rebuild. |
 | Board stuck in download mode after reset | BOOT (GPIO0) was held low at reset. Release it and reset again. |

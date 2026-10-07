@@ -569,8 +569,21 @@ function seed() {
   return entries;
 }
 
+// Passkeys (docs/FIDO.md): created by websites over USB on a real Keyra; the
+// mock only lists and deletes them.
+function seedPasskeys() {
+  const now = nowSec();
+  const day = 86400;
+  const list = [
+    { id: 3141592653, rpId: 'github.com', userName: 'hasan-dev', displayName: 'Hasan', created: now - 40 * day },
+    { id: 2718281828, rpId: 'accounts.google.com', userName: 'hasan@gmail.com', displayName: 'Hasan Ali', created: now - 12 * day },
+    { id: 1618033988, rpId: 'www.amazon.com', userName: 'hasan@example.com', displayName: '', created: now - 2 * day },
+  ];
+  return new Map(list.map((p) => [p.id, p]));
+}
+
 if (!FRESH) {
-  vault = { passphrase: DEMO_PASSPHRASE, entries: seed() };
+  vault = { passphrase: DEMO_PASSPHRASE, entries: seed(), passkeys: seedPasskeys() };
   settings.wifiPassword = 'Tigris-42-Kx9p';
   if (process.env.MOCK_BLE !== '0') ble.bonds.push({ addr: 'F0:2B:7C:41:9A:D3', name: 'MacBook Air', lastSeen: nowSec() - 86400 * 2, os: 'mac' });
 }
@@ -705,6 +718,7 @@ function match(method, path) {
     case 'wifi/scan': return one('GET', 'wifiScan');
     case 'wifi/home': return one('PUT', 'wifiHome');
     case 'trusted': return one('GET', 'trusted');
+    case 'fido': return one('GET', 'passkeys');
     case 'ble': return one('GET', 'ble');
     case 'ble/pair': return one('POST', 'blePair');
   }
@@ -714,6 +728,8 @@ function match(method, path) {
     if (method === 'PUT') return { route: 'bleSetOs', addr: bond[1].toUpperCase() };
     return method === 'DELETE' ? { route: 'bleForget', addr: bond[1].toUpperCase() } : { notAllowed: true };
   }
+  const fk = /^fido\/([0-9]{1,10})$/.exec(p);
+  if (fk) return Number(fk[1]) > 0 && Number(fk[1]) <= 0xffffffff ? (method === 'DELETE' ? { route: 'deletePasskey', id: Number(fk[1]) } : { notAllowed: true }) : null;
   const tr = /^trusted\/([0-9]{1,10})$/.exec(p);
   if (tr) return Number(tr[1]) > 0 && Number(tr[1]) <= 0xffffffff ? (method === 'DELETE' ? { route: 'untrust', id: Number(tr[1]) } : { notAllowed: true }) : null;
   const m = /^entries\/([0-9]{1,10})(\/totp)?$/.exec(p);
@@ -835,7 +851,7 @@ async function api(req, res, path) {
       const exp = awaitPresence(
         'setup',
         () => {
-          vault = { passphrase, entries: new Map() };
+          vault = { passphrase, entries: new Map(), passkeys: new Map() };
           unlocked = true; // left unlocked for the client's unlock call
           lastActivity = Date.now();
           settings.wifiPassword = wifiPassword;
@@ -1174,6 +1190,17 @@ async function api(req, res, path) {
     case 'trusted': {
       const mine = knownBrowser(req);
       return send(res, 200, { browsers: [...trusted.values()].map((t) => ({ ...t, current: t === mine })) });
+    }
+
+    case 'passkeys': {
+      const list = [...vault.passkeys.values()].sort((a, b) => b.created - a.created);
+      return send(res, 200, { passkeys: list, max: 50 });
+    }
+
+    case 'deletePasskey': {
+      if (!vault.passkeys.delete(m.id)) fail(404, 'not_found', 'No such passkey');
+      console.log(`[mock] passkey ${m.id} deleted`);
+      return send(res, 204);
     }
 
     case 'untrust': {

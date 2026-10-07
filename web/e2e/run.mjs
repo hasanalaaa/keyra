@@ -387,6 +387,32 @@ async function homeFlow(base, opts) {
   await ctx.close();
 }
 
+// ---------- flow 5: Settings → Passkeys (docs/FIDO.md): list and delete ----------
+
+async function passkeysFlow(base, opts) {
+  const { ctx, page, tag } = await open(base, opts);
+  console.log(`passkeys ${tag || '(phone, ar, light)'}`);
+  await page.locator('input[type=password]').waitFor();
+  await unlockUi(page);
+  await page.evaluate(() => (location.hash = '#/settings'));
+  await page.locator('.settings .seg').first().waitFor();
+  await page.locator('.nav-row', { hasText: opts.lang === 'en' ? 'Passkeys' : 'مفاتيح المرور' }).click();
+  await page.locator('.passkey-row').first().waitFor();
+  check((await page.locator('.passkey-row').count()) === 3, 'three seeded passkeys listed');
+  check((await page.locator('.passkey-row bdi').first().textContent()) === 'www.amazon.com', 'newest first');
+  await shot(page, `passkeys${tag}`);
+  const github = page.locator('.passkey-row', { hasText: 'github.com' });
+  await github.locator('.icon-btn').click();
+  await page.locator('.alert', { hasText: 'github.com' }).waitFor();
+  await page.locator('.alert-actions button').first().click();
+  await github.waitFor({ state: 'detached' });
+  check((await page.locator('.passkey-row').count()) === 2, 'passkey deleted');
+  const r = await fetch(`${base}/api/fido`);
+  check(r.status === 401, 'passkey list needs a session');
+  console.log('  ✓ passkeys flow passed');
+  await ctx.close();
+}
+
 // ---------- flow 4: generator → type twice → save → update → history; type text (SPEC §9) ----------
 
 async function generatorFlow(base, opts) {
@@ -521,6 +547,8 @@ try {
   await homeFlow(home, { lang: 'en' });
   await generatorFlow(await startMock(), { lang: 'en' });
   await generatorFlow(await startMock(), {});
+  await passkeysFlow(await startMock(), {});
+  await passkeysFlow(await startMock(), { lang: 'en', dark: true });
 
   quantizeShots();
   if (errors.length) {

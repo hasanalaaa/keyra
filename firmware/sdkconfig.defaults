@@ -26,8 +26,8 @@ CONFIG_LWIP_MAX_SOCKETS=16
 # SNTP (SPEC §8.2): pool.ntp.org and time.google.com.
 CONFIG_LWIP_SNTP_MAX_SERVERS=2
 
-# USB (keyra_hid): one HID keyboard; CDC compiled in for the dev log/ROM-reboot port.
-CONFIG_TINYUSB_HID_COUNT=1
+# USB (keyra_hid): HID keyboard + FIDO security key (keyra_fido); CDC compiled in for the dev log/ROM-reboot port.
+CONFIG_TINYUSB_HID_COUNT=2
 CONFIG_TINYUSB_CDC_ENABLED=y
 CONFIG_TINYUSB_CDC_COUNT=1
 

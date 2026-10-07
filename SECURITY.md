@@ -13,6 +13,7 @@ where it does not. If you find a problem, see [Reporting a vulnerability](#repor
 | Can other devices on my home network reach Keyra? | Only if you turn on home Wi-Fi. They can load the page, but unlocking from a new browser there also needs a press of Keyra's button. |
 | Can malware on the computer make Keyra type? | No. Every typing action needs a physical button press. |
 | Can malware on the computer read the vault? | Not through Keyra. It sees only what is typed into it, like any keyboard input. |
+| Can malware on the computer use my passkeys? | Only with your button press while Keyra is unlocked and its light double-blinks white. It can start a request and hope you press for it. See [Passkeys and security key](#passkeys-and-security-key-usb). |
 | Can a stranger pair with Keyra over Bluetooth? | Only during a 2-minute window you open with a button press, and only Just Works pairing (no code). See [Bluetooth](#bluetooth). |
 | Is there a secure element? | No. |
 | Is flash encryption or secure boot on by default? | No. They are optional and irreversible; see [docs/HARDWARE.md](docs/HARDWARE.md). |
@@ -32,9 +33,10 @@ Keyra has not had an independent security audit.
    rejected, and the page ships a strict Content Security Policy, `X-Frame-Options: DENY`
    and `Referrer-Policy: no-referrer`.
 3. **Malicious software on the computer Keyra is plugged into.** Keyra
-   presents only a USB keyboard. It has no storage or network interface toward
-   the computer, and nothing is typed until a human presses the button on the
-   device.
+   presents a USB keyboard and a FIDO security key. It has no storage or network
+   interface toward the computer, nothing is typed until a human presses the
+   button on the device, and the security key signs nothing without a press
+   either (and never while locked).
 4. **A stranger within Wi-Fi range.** The access point uses WPA2-PSK. Setup forces
    you to replace the factory Wi-Fi password, and the vault stays encrypted and
    locked behind your passphrase regardless of Wi-Fi access.
@@ -176,7 +178,8 @@ runs PBKDF2 elsewhere. Only passphrase strength does.
 Nothing is typed without a button press, and the press must happen within 60
 seconds of the request. Setup, Wi-Fi credential changes, joining, changing or
 leaving the home network, trusting a browser on the home network, opening the
-Bluetooth pairing window, a replacing restore and factory reset also need a button press. The button is GPIO0 (the BOOT button),
+Bluetooth pairing window, a replacing restore, factory reset and every passkey or
+security-key registration and sign-in also need a button press. The button is GPIO0 (the BOOT button),
 and the firmware never restarts while it is held low, to avoid latching ROM download mode.
 
 ## Bluetooth
@@ -226,6 +229,48 @@ same button rule applies: nothing is typed over Bluetooth without a press.
 - **The device name a host reports** (shown in the app) is chosen by that host
   and cannot be trusted as proof of identity.
 
+## Passkeys and security key (USB)
+
+Keyra is also a FIDO2 (CTAP 2.0) and U2F security key over USB. The design, the
+exact key formats and the list of what is implemented are in
+[docs/FIDO.md](docs/FIDO.md). In short:
+
+- **Keys at rest.** Each credential's P-256 private key exists only inside its
+  credential ID, encrypted with AES-256-GCM under a wrapping key derived from the
+  vault's data key (HMAC-SHA256 with a random salt) and bound to the website's
+  RP ID hash. Passkey records (site, user name, credential ID) are vault files
+  encrypted like entries. Without the passphrase a flash dump reveals no key;
+  with a weak passphrase it reveals all of them, exactly like your passwords.
+- **Locked means no signatures.** While locked, requests wait up to 30 s for you
+  to unlock from the phone, then fail.
+- **Presence.** A short press while the light double-blinks white approves one
+  request; a long press refuses it. While a request waits the button belongs to
+  it, so malware that starts a request just before you press for typing could
+  get that press: if the light shows the FIDO pattern when you did not ask for
+  a passkey, long-press.
+- **User verification is "unlocked".** Keyra reports built-in user verification
+  and sets the UV flag because it never signs while locked, but the check is the
+  master passphrase entered on the phone up to the auto-lock time earlier, not a
+  PIN or fingerprint for each sign-in. Anyone holding an unlocked Keyra can use
+  your passkeys. There is no ClientPIN yet.
+- **Not certified, self attestation.** CTAP2 registrations use self attestation.
+  U2F registration requires a certificate, so each Keyra generates its own
+  P-256 attestation key on first use and self-signs a certificate for it (both
+  in NVS, replaced by a factory reset). It is not vault-encrypted, because it
+  only signs registration statements and never signs you in; it vouches for
+  nothing beyond "this Keyra". Relying parties that require attested,
+  certified authenticators will refuse Keyra.
+- **Phishing.** The browser supplies the RP ID; a credential ID presented under
+  another RP ID does not decrypt. Deleted passkeys stop working even if a site
+  still holds their ID.
+- **Counter.** One global signature counter in NVS, written before each
+  signature, never reset.
+- **Reset.** `authenticatorReset` (within 10 s of power-up, with a press and the
+  vault unlocked) deletes passkeys and changes the wrapping key; factory reset
+  destroys everything.
+- **Backups.** Passkeys are not in encrypted backups (yet). Losing or resetting
+  Keyra loses them: keep a second sign-in method on every account.
+
 ## Optional hardening (not enabled by default)
 
 Flash encryption and secure boot raise the cost of physical attacks. They are
@@ -236,7 +281,8 @@ Read the warnings in [docs/HARDWARE.md](docs/HARDWARE.md#optional-hardening-irre
 
 Keyra is a convenience-and-isolation device for personal credentials. It is not:
 
-- a replacement for a FIDO2/WebAuthn security key (use one for accounts that support it),
+- a replacement for a certified hardware security key with a secure element: its FIDO support
+  (above) is a convenience for personal accounts, not a YubiKey substitute,
 - a multi-user or enterprise secret manager,
 - a defence against a nation-state with physical access and lab equipment,
 - a way to sync secrets over the internet (there is no cloud and no remote access).

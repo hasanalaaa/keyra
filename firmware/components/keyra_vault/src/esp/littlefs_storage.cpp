@@ -76,9 +76,11 @@ bool LittleFsStorage::mount() {
     return false;
   }
   mounted_ = true;
-  if (::mkdir(full("e").c_str(), 0755) != 0 && errno != EEXIST) {
-    ESP_LOGE(kTag, "mkdir e: errno %d", errno);
-    return false;
+  for (const char* dir : {"e", "f"}) {  // entries, passkey records
+    if (::mkdir(full(dir).c_str(), 0755) != 0 && errno != EEXIST) {
+      ESP_LOGE(kTag, "mkdir %s: errno %d", dir, errno);
+      return false;
+    }
   }
   return true;
 }

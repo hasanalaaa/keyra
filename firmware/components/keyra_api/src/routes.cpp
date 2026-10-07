@@ -71,6 +71,13 @@ Match matchApi(Method m, std::string_view path) {
     if (!ble::parseAddr(p.substr(kBonds.size()), r.addr)) return {};
     return m == Method::Delete || m == Method::Put ? r : notAllowed();
   }
+  if (p == "fido") return only(m, Method::Get, Route::ListPasskeys);
+  constexpr std::string_view kFido = "fido/";
+  if (p.substr(0, kFido.size()) == kFido) {
+    uint32_t id = 0;
+    if (!parseId(p.substr(kFido.size()), id)) return {};
+    return m == Method::Delete ? found(Route::DeletePasskey, id) : notAllowed();
+  }
   if (p == "wifi/scan") return only(m, Method::Get, Route::WifiScan);
   if (p == "wifi/home") return only(m, Method::Put, Route::WifiHome);
   if (p == "trusted") return only(m, Method::Get, Route::ListTrusted);

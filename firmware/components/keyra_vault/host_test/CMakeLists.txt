@@ -24,6 +24,7 @@ add_library(keyra_vault_host STATIC
   ${VAULT_DIR}/src/core/text.cpp
   ${VAULT_DIR}/src/core/totp_core.cpp
   ${VAULT_DIR}/src/core/vault_core.cpp
+  ${VAULT_DIR}/src/core/vault_passkeys.cpp
   host_fakes.cpp
   host_platform.cpp)
 target_include_directories(keyra_vault_host PUBLIC ${VAULT_DIR}/include ${VAULT_DIR}/src
@@ -31,7 +32,7 @@ target_include_directories(keyra_vault_host PUBLIC ${VAULT_DIR}/include ${VAULT_
 target_compile_options(keyra_vault_host PUBLIC -Wall -Wextra -Werror)
 target_link_libraries(keyra_vault_host PUBLIC OpenSSL::Crypto)
 
-foreach(t vault backup totp formats sequence)
+foreach(t vault backup totp formats sequence passkeys)
   add_executable(keyra_vault_test_${t} test_${t}.cpp)
   target_link_libraries(keyra_vault_test_${t} PRIVATE keyra_vault_host)
   add_test(NAME keyra_vault_${t} COMMAND keyra_vault_test_${t})

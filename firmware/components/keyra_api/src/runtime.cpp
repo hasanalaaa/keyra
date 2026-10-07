@@ -15,6 +15,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "keyra/ble.hpp"
+#include "keyra/fido.hpp"
 #include "keyra/hid.hpp"
 #include "keyra/io.hpp"
 #include "keyra/net.hpp"
@@ -219,6 +220,12 @@ void typeTask(void*) {
 
 void onButton(io::Button b) {
   sessions().activity(monoMs());
+  // A website waiting for the security-key touch owns the button (its LED
+  // pattern is showing); an armed type action stays armed for the next press.
+  if (fido::awaitingTouch()) {
+    fido::press(b == io::Button::Short);
+    return;
+  }
   const auto press = b == io::Button::Short ? actions::Button::Short : actions::Button::Long;
   actions::Decision d = machine().onButton(press, vault::unlocked());
   switch (d.effect) {
@@ -288,7 +295,9 @@ void actionsTask(void*) {
     }
     maybeAutoLock();
     maybeReconfigureNet();
-    const io::Led want = toLed(machine().indicator(vault::initialized(), vault::unlocked(), ble::pairing()));
+    const io::Led want = fido::ledActive()
+                             ? io::Led::Fido
+                             : toLed(machine().indicator(vault::initialized(), vault::unlocked(), ble::pairing()));
     if (first || want != shown) {
       io::led(want);
       shown = want;

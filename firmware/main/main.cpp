@@ -3,6 +3,7 @@
 #include "esp_log.h"
 #include "keyra/ble.hpp"
 #include "keyra/api.hpp"
+#include "keyra/fido.hpp"
 #include "keyra/hid.hpp"
 #include "keyra/io.hpp"
 #include "keyra/net.hpp"
@@ -43,6 +44,8 @@ extern "C" void app_main() {
   const keyra::vault::Status vs = keyra::vault::init();
   if (vs != keyra::vault::Status::Ok) ESP_LOGE(TAG, "vault init: %s", keyra::vault::statusName(vs));
   keyra::hid::init(kDevCdc);
+  // The security key is an extra: typing keeps working if its task cannot start.
+  if (!keyra::fido::start()) ESP_LOGE(TAG, "FIDO security key unavailable");
 
   ESP_ERROR_CHECK(keyra::settings::load());
   const keyra::settings::Settings s = keyra::settings::get();

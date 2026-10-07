@@ -18,12 +18,13 @@ enum class Route {
   GetBle, BlePair, BleForget, BleSetOs,
   Generate,
   Keyboard,
+  ListPasskeys, DeletePasskey,
 };
 
 struct Match {
   enum class Kind { Found, NotFound, MethodNotAllowed } kind = Kind::NotFound;
   Route route = Route::State;
-  uint32_t id = 0;  // entry and trusted-browser routes
+  uint32_t id = 0;  // entry, trusted-browser and passkey routes
   std::array<uint8_t, 6> addr{};  // BleForget/BleSetOs: the bond's address
 };
 

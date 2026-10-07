@@ -5,7 +5,7 @@
 
 namespace keyra::io {
 
-enum class Pattern { Off, Locked, Idle, Pending, Typing, Success, Error, AwaitPresence, Setup, Pairing };
+enum class Pattern { Off, Locked, Idle, Pending, Typing, Success, Error, AwaitPresence, Setup, Pairing, Fido };
 
 struct Rgb {
   uint8_t r, g, b;

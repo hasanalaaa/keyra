@@ -18,6 +18,7 @@ import { BluetoothSection } from './Bluetooth';
 import { OsSelect } from '../components/HostOs';
 import { minHint } from './common';
 import { HomeWifiSheet } from './HomeWifi';
+import { PasskeysSheet } from './Passkeys';
 import { TrustedSheet } from './Trusted';
 
 const SPEEDS = [
@@ -27,7 +28,7 @@ const SPEEDS = [
 ] as const;
 const AUTOLOCK = [1, 5, 15, 30, 60, 120];
 
-type Sub = 'wifi' | 'home' | 'trusted' | 'autolock' | 'passphrase' | 'test' | 'erase' | null;
+type Sub = 'wifi' | 'home' | 'trusted' | 'passkeys' | 'autolock' | 'passphrase' | 'test' | 'erase' | null;
 
 export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void }) {
   const app = useApp();
@@ -101,6 +102,7 @@ export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void 
           <Section title={t('groupSecurity')}>
             <NavRow label={t('autoLock')} value={t('autoLockAfter', { n: s.autoLockMin })} onClick={() => setSub('autolock')} />
             <NavRow label={t('changePassphrase')} onClick={() => setSub('passphrase')} />
+            <NavRow label={t('passkeysRow')} onClick={() => setSub('passkeys')} />
             {s.homeWifi && <NavRow label={t('trustedRow')} onClick={() => setSub('trusted')} />}
             <button type="button" class="row nav-row" onClick={() => void lockNow()}>
               <span class="row-label accent">{t('lockNow')}</span>
@@ -204,6 +206,7 @@ export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void 
       )}
       {sub === 'home' && s && <HomeWifiSheet settings={s} onChange={() => void load()} onClose={() => setSub(null)} />}
       {sub === 'trusted' && <TrustedSheet onClose={() => setSub(null)} />}
+      {sub === 'passkeys' && <PasskeysSheet onClose={() => setSub(null)} />}
       {sub === 'autolock' && s && (
         <AutoLockSheet
           value={s.autoLockMin}
