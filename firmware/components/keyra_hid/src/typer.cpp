@@ -5,15 +5,17 @@
 namespace keyra::hid {
 
 Result Typer::type(Transport& t, const char* text, const Options& opt) {
-  if (!typeable(text)) return Result::Unsupported;
-  return run(t, text, 0, opt);
+  if (!typeable(text, opt.layout)) return Result::Unsupported;
+  return run(t, Job::Text, text, 0, opt);
 }
 
 Result Typer::tap(Transport& t, uint8_t keycode, const Options& opt) {
   // 0 is "no event" and >= 0xE0 are modifiers; neither is a tappable key.
   if (keycode == 0 || keycode >= 0xE0) return Result::Unsupported;
-  return run(t, nullptr, keycode, opt);
+  return run(t, Job::Tap, nullptr, keycode, opt);
 }
+
+Result Typer::probe(Transport& t, const Options& opt) { return run(t, Job::Probe, nullptr, 0, opt); }
 
 bool Typer::stroke(Transport& t, uint8_t modifier, uint8_t keycode, uint32_t holdMs, uint32_t gapMs) {
   if (!t.send(modifier, keycode)) return false;
@@ -30,7 +32,7 @@ bool Typer::releaseAll(Transport& t) {
   return false;
 }
 
-Result Typer::run(Transport& t, const char* text, uint8_t tapKeycode, const Options& opt) {
+Result Typer::run(Transport& t, Job job, const char* text, uint8_t tapKeycode, const Options& opt) {
   bool expected = false;
   if (!busy_.compare_exchange_strong(expected, true)) return Result::Busy;
   struct Unbusy {
@@ -44,7 +46,8 @@ Result Typer::run(Transport& t, const char* text, uint8_t tapKeycode, const Opti
   bool ok = true;
   bool capsTurnedOff = false;
 
-  if (text != nullptr && *text != '\0' && t.capsLock()) {
+  const bool printing = job == Job::Probe || (job == Job::Text && *text != '\0');
+  if (printing && t.capsLock()) {
     if (t.send(0, KEY_CAPS_LOCK)) {
       capsTurnedOff = true;  // hosts toggle on key-down: restore from here on
       t.delayMs(kCapsHoldMs);
@@ -70,12 +73,17 @@ Result Typer::run(Transport& t, const char* text, uint8_t tapKeycode, const Opti
   }
 
   if (ok) {
-    if (text != nullptr) {
-      KeyStroke ks{};
-      for (const char* p = text; ok && *p != '\0'; ++p) {
-        keystrokeFor(*p, ks);  // cannot fail: typeable() was checked
-        ok = stroke(t, ks.shift ? MOD_LEFT_SHIFT : 0, ks.keycode, delay, delay);
+    if (job == Job::Text) {
+      for (const char* p = text; ok && *p != '\0';) {
+        uint32_t cp = 0;
+        KeyStroke ks[kMaxStrokes];
+        nextCodePoint(p, cp);  // cannot fail: typeable() was checked
+        const int n = strokesFor(opt.layout, cp, ks);
+        for (int i = 0; ok && i < n; ++i) ok = stroke(t, ks[i].modifier, ks[i].keycode, delay, delay);
       }
+    } else if (job == Job::Probe) {
+      for (size_t i = 0; ok && i < kProbeLen; ++i)
+        ok = stroke(t, kProbe[i].shift ? MOD_LEFT_SHIFT : 0, kProbe[i].keycode, delay, delay);
     } else {
       ok = stroke(t, 0, tapKeycode, delay, delay);
     }

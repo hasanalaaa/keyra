@@ -32,9 +32,11 @@ class Typer {
   // typing operation runs at a time whichever host it targets.
   Result type(Transport& t, const char* text, const Options& opt);
   Result tap(Transport& t, uint8_t keycode, const Options& opt);
+  Result probe(Transport& t, const Options& opt);
 
  private:
-  Result run(Transport& t, const char* text, uint8_t tapKeycode, const Options& opt);
+  enum class Job { Text, Tap, Probe };
+  Result run(Transport& t, Job job, const char* text, uint8_t tapKeycode, const Options& opt);
   static bool stroke(Transport& t, uint8_t modifier, uint8_t keycode, uint32_t holdMs, uint32_t gapMs);
   static bool releaseAll(Transport& t);
 

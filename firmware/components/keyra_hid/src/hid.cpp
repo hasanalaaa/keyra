@@ -88,6 +88,8 @@ Result typeText(const char* text, const Options& opt) { return s_typer.type(tran
 
 Result tapKey(uint8_t hidKeycode, const Options& opt) { return s_typer.tap(transportFor(opt), hidKeycode, opt); }
 
+Result typeProbe(const Options& opt) { return s_typer.probe(transportFor(opt), opt); }
+
 }  // namespace keyra::hid
 
 // ---- TinyUSB HID class callbacks (C linkage, called from the USB task) ----
