@@ -111,6 +111,11 @@ All notable changes to Keyra are documented here. The format follows
 
 ### Fixed
 
+- Bluetooth dropped every 30 s: when a bonded host re-encrypts by itself,
+  NimBLE reports the encryption (and the restored subscriptions) before the
+  connection. Keyra then asked an already encrypted link to encrypt again, got
+  no answer, and cut the link at the 30 s SMP timeout. Both events are now
+  taken over by the connection, and an encrypted link is not asked again.
 - Bluetooth on macOS: the Mac paired but never typed. The HID description and
   the input report's subscription are now readable/writable before encryption
   (macOS reads them during discovery and never retries), the report map

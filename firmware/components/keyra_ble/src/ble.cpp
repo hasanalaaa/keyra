@@ -61,6 +61,13 @@ struct Link {
   bool trusted() const { return conn != BLE_HS_CONN_HANDLE_NONE && encrypted && bonded; }
 };
 
+// Subscriptions NimBLE restored for a connection not reported yet.
+struct EarlySubs {
+  uint16_t conn = BLE_HS_CONN_HANDLE_NONE;
+  bool input = false;
+  bool boot = false;
+};
+
 struct ForgetReq {
   bool all = false;
   Addr addr{};
@@ -76,6 +83,7 @@ Demand g_demand;
 std::string g_name;
 Window g_window;
 Link g_link;
+EarlySubs g_early;  // guarded by g_mu
 std::optional<Addr> g_lost;  // a bonded host whose link ended without Keyra ending it
 std::vector<peers::Key> g_bondKeys;  // NimBLE's bond store, refreshed on the host task
 std::vector<Peer> g_bonds;           // same order, with names for status()
@@ -327,6 +335,8 @@ void onForget(ble_npl_event*) {
   reconcile();
 }
 
+void onEncrypted(uint16_t conn, int status);
+
 void onConnect(int status, uint16_t conn) {
   t_adv = Adv::Off;  // a connectable advertisement ends with the connection attempt
   ble_gap_conn_desc d{};
@@ -347,7 +357,12 @@ void onConnect(int status, uint16_t conn) {
       g_link = Link{};
       g_link.conn = conn;
       g_link.peer = k;
+      if (g_early.conn == conn) {
+        g_link.subInput = g_early.input;
+        g_link.subBoot = g_early.boot;
+      }
     }
+    g_early = EarlySubs{};
   }
   if (!allow) {
     ESP_LOGW(TAG, "refusing %s: not bonded and not pairing", formatAddr(k.addr).c_str());
@@ -355,6 +370,13 @@ void onConnect(int status, uint16_t conn) {
     return;
   }
   gatt::resetLink();
+  // A bonded host that re-encrypted on its own is reported encrypted already
+  // (onEncrypted() deferred that event): asking again would get no answer, and
+  // the 30 s SMP timeout then dropped the link every 30 s.
+  if (d.sec_state.encrypted) {
+    onEncrypted(conn, 0);
+    return;
+  }
   // Bonded hosts re-encrypt with their stored keys; a new host starts pairing.
   const int rc = ble_gap_security_initiate(conn);
   if (rc != 0) ESP_LOGW(TAG, "security request failed: %d", rc);
@@ -393,6 +415,12 @@ int onPeerName(uint16_t conn, const ble_gatt_error* err, ble_gatt_attr* attr, vo
 }
 
 void onEncrypted(uint16_t conn, int status) {
+  {
+    // NimBLE can report a bonded host's restored encryption before the
+    // connection itself; onConnect() replays it once the link is recorded.
+    std::lock_guard<std::mutex> lock(g_mu);
+    if (g_link.conn != conn) return;
+  }
   ble_gap_conn_desc d{};
   if (status != 0 || ble_gap_conn_find(conn, &d) != 0) {
     // Wrong or missing keys (the host forgot Keyra) or a refused pairing:
@@ -463,7 +491,14 @@ int onRepeatPairing(uint16_t conn) {
 
 void onSubscribe(const ble_gap_event& ev) {
   std::lock_guard<std::mutex> lock(g_mu);
-  if (ev.subscribe.conn_handle != g_link.conn) return;
+  if (ev.subscribe.conn_handle != g_link.conn) {
+    // Restored subscriptions can arrive before the connection is recorded
+    // (see onEncrypted); onConnect() takes them over.
+    if (g_early.conn != ev.subscribe.conn_handle) g_early = EarlySubs{ev.subscribe.conn_handle};
+    if (ev.subscribe.attr_handle == gatt::inputHandle()) g_early.input = ev.subscribe.cur_notify;
+    if (ev.subscribe.attr_handle == gatt::bootInputHandle()) g_early.boot = ev.subscribe.cur_notify;
+    return;
+  }
   if (ev.subscribe.attr_handle == gatt::inputHandle()) g_link.subInput = ev.subscribe.cur_notify;
   if (ev.subscribe.attr_handle == gatt::bootInputHandle()) g_link.subBoot = ev.subscribe.cur_notify;
   ESP_LOGI(TAG, "host %s notifications on handle %u (reason %d): input=%d boot=%d",
