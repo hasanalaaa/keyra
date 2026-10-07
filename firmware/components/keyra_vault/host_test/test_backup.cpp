@@ -292,6 +292,22 @@ TEST(sequence_round_trips_through_backup) {
   CHECK(dst->storage.files == snapshot);
 }
 
+TEST(burn_after_round_trips_through_backup) {
+  auto src = Rig::ready();
+  Entry e = sample("one-time");
+  e.burnAfter = 1;
+  CHECK((*src)->put(e) == Status::Ok);
+  std::string backup;
+  CHECK((*src)->exportBackup(kBackupPass, backup) == Status::Ok);
+  auto dst = Rig::ready();
+  CHECK((*dst)->importBackup(kBackupPass, backup, true, nullptr, nullptr) == Status::Ok);
+  Entry got;
+  CHECK((*dst)->get(e.id, got) == Status::Ok && got.burnAfter == 1);
+  for (const char* bad : {"[{\"title\":\"x\",\"burnAfter\":100}]", "[{\"title\":\"x\",\"burnAfter\":-1}]",
+                          "[{\"title\":\"x\",\"burnAfter\":\"1\"}]"})
+    CHECK((*dst)->importBackup(kBackupPass, seal(dst->crypto, bad, 2), false, nullptr, nullptr) == Status::Invalid);
+}
+
 TEST(older_and_newer_backup_versions) {
   auto r = Rig::ready();
   size_t a = 0, u = 0;

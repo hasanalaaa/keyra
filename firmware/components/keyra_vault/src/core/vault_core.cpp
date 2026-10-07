@@ -623,15 +623,24 @@ Status Vault::remove(uint32_t id) {
   return Status::Ok;
 }
 
-Status Vault::touch(uint32_t id, int64_t now) {
+Status Vault::touch(uint32_t id, int64_t now, bool password, bool* burned) {
   std::lock_guard<std::mutex> g(m_);
+  if (burned) *burned = false;
   if (Status s = requireUnlocked(); s != Status::Ok) return s;
   Slot* slot = find(id);
   if (!slot) return Status::NotFound;
   Entry rec;
   Status s = codec::decode(slot->plain.data(), slot->plain.size(), rec) ? Status::Ok : Status::Corrupt;
+  if (s == Status::Ok && password && rec.burnAfter > 0 && --rec.burnAfter == 0) {
+    // Its last allowed use: gone from flash and RAM.
+    wipe(rec);
+    if (!p_.storage.remove(entryPath(id))) return Status::StorageError;
+    slots_.erase(std::find_if(slots_.begin(), slots_.end(), [id](const Slot& x) { return x.id == id; }));
+    if (burned) *burned = true;
+    return Status::Ok;
+  }
   if (s == Status::Ok) {
-    rec.lastUsed = now;
+    if (now != 0) rec.lastUsed = now;
     s = store(rec);
   }
   wipe(rec);

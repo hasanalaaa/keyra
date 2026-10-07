@@ -11,7 +11,7 @@ import { usePressGate, useTypeAction, type ErrorCode } from '../lib/actions';
 import { errorText, isLockedError } from '../lib/errors';
 import { copyText } from '../lib/clipboard';
 import { t, type Key } from '../lib/i18n';
-import { go } from '../lib/router';
+import { go, replace } from '../lib/router';
 import { setState, toast, useApp } from '../lib/store';
 import { hostOf } from '../lib/csv';
 import { shortDate } from '../lib/wifi';
@@ -54,12 +54,27 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
   const secretCopy = (get: (x: Entry) => string | undefined) =>
     entry?.revealed ? { copy: () => get(entry) ?? '' } : { reveal: () => void reveal().then((x) => x && toast(t('revealedTapCopy'), 'ok')) };
 
+  // SPEC §16: an account set to delete itself is gone right after its last typing.
+  const burnRef = useRef(0);
+  burnRef.current = entry?.burnAfter ?? summary?.burnAfter ?? burnRef.current;
   useEffect(() => {
+    // Already gone from the refreshed list: no need to ask the device.
+    if (!summary && app.entries && burnRef.current > 0) {
+      toast(t('burnDone'), 'ok');
+      replace('/');
+      return;
+    }
     let live = true;
     api
       .entry(id)
       .then((e) => live && setEntry(e))
-      .catch((e) => live && e instanceof ApiError && e.status === 404 && setMissing(true));
+      .catch((e) => {
+        if (!live || !(e instanceof ApiError && e.status === 404)) return;
+        if (burnRef.current > 0) {
+          toast(t('burnDone'), 'ok');
+          replace('/');
+        } else setMissing(true);
+      });
     // Secrets live only in this component's state, so they are gone when the sheet closes.
     return () => {
       live = false;
@@ -316,6 +331,13 @@ function Details({ entry, reveal }: { entry: Entry | null; reveal: () => Promise
   }, [shown]);
   if (!entry) return null;
   return (
+    <>
+    {(entry.burnAfter ?? 0) > 0 && (
+      <p class="callout burn-note" role="note">
+        <Icon name="trash-2" size={16} />
+        {entry.burnAfter === 1 ? t('burnLast') : t('burnLeft', { n: entry.burnAfter ?? 0 })}
+      </p>
+    )}
     <div class="card details">
       {entry.username && (
         <div class="kv-row">
@@ -367,6 +389,7 @@ function Details({ entry, reveal }: { entry: Entry | null; reveal: () => Promise
         </div>
       )}
     </div>
+    </>
   );
 }
 

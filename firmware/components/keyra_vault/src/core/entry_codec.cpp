@@ -8,7 +8,7 @@
 namespace keyra::vault::codec {
 namespace {
 
-constexpr uint8_t kFormatV1 = 1, kFormatV2 = 2, kFormat = 3;
+constexpr uint8_t kFormatV1 = 1, kFormatV2 = 2, kFormatV3 = 3, kFormat = 4;
 constexpr size_t kFixed = 1 + 4 + 1 + 3 * 8;
 
 struct Field {
@@ -55,11 +55,11 @@ bool valid(const Entry& e) {
   if (e.history.size() > kMaxHistory) return false;
   for (const OldPassword& h : e.history)
     if (h.password.size() > kMaxPassword || !text::validUtf8(h.password)) return false;
-  return e.sequence.size() <= kMaxSequence && seq::valid(e.sequence);
+  return e.sequence.size() <= kMaxSequence && seq::valid(e.sequence) && e.burnAfter <= kMaxBurnAfter;
 }
 
 size_t encodedSize(const Entry& e) {
-  size_t n = kFixed + 1 + 2 + e.sequence.size();
+  size_t n = kFixed + 1 + 2 + e.sequence.size() + 1;
   for (const auto& f : kFields) n += 2 + (e.*f.member).size();
   for (const OldPassword& h : e.history) n += 8 + 2 + h.password.size();
   return n;
@@ -81,6 +81,7 @@ bool encode(const Entry& e, SecureBuf& out) {
     putString(p, h.password);
   }
   putString(p, e.sequence);
+  *p++ = e.burnAfter;
   return true;
 }
 
@@ -88,7 +89,7 @@ bool decode(const uint8_t* p, size_t n, Entry& out) {
   const uint8_t* end = p + n;
   if (n < kFixed) return false;
   const uint8_t format = *p++;
-  if (format != kFormatV1 && format != kFormatV2 && format != kFormat) return false;
+  if (format != kFormatV1 && format != kFormatV2 && format != kFormatV3 && format != kFormat) return false;
   out.id = uint32_t(getLe(p, 4));
   uint8_t flags = *p++;
   if (flags & ~1u) return false;
@@ -102,6 +103,7 @@ bool decode(const uint8_t* p, size_t n, Entry& out) {
   for (OldPassword& h : out.history) wipe(h.password);
   out.history.clear();
   wipe(out.sequence);
+  out.burnAfter = 0;
   if (format == kFormatV1) return p == end;
   if (p == end) return false;
   const size_t count = *p++;
@@ -117,7 +119,10 @@ bool decode(const uint8_t* p, size_t n, Entry& out) {
   }
   if (format == kFormatV2) return p == end;
   if (!getString(p, end, kMaxSequence, out.sequence) || !seq::valid(out.sequence)) return false;
-  return p == end;
+  if (format == kFormatV3) return p == end;
+  if (p == end) return false;
+  out.burnAfter = *p++;
+  return out.burnAfter <= kMaxBurnAfter && p == end;
 }
 
 }  // namespace keyra::vault::codec

@@ -23,7 +23,9 @@ Status list(std::vector<Entry>& out) { return detail::instance().list(out); }
 Status get(uint32_t id, Entry& out) { return detail::instance().get(id, out); }
 Status put(Entry& e) { return detail::instance().put(e); }
 Status remove(uint32_t id) { return detail::instance().remove(id); }
-Status touch(uint32_t id, int64_t now) { return detail::instance().touch(id, now); }
+Status touch(uint32_t id, int64_t now, bool password, bool* burned) {
+  return detail::instance().touch(id, now, password, burned);
+}
 Status changePassphrase(const std::string& cur, const std::string& next, uint32_t* retryAfterMs) {
   return detail::instance().changePassphrase(cur, next, retryAfterMs);
 }

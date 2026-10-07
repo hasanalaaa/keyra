@@ -667,3 +667,19 @@ removed, accounts deleted. Never a password, a code or typed text.
 - `POST /api/unlock` and `/api/unlock/recovery` answer
   `{csrf, failedAttempts}`; the app warns once when it is above 0.
 
+## 16. Delete after typing
+
+An entry can delete itself after its password has been typed a set number of
+times (one-time recovery codes, temporary passwords). `burnAfter` (0–99, 0 =
+keep) is part of the entry: entry format 4 adds it as one byte after the
+sequence (formats 1–3 still read, as 0), backups carry it when non-zero, and
+`GET/POST/PUT /api/entries…` read and write it.
+
+- Counted when Keyra types the password: `password`, `both`, or the last part
+  of a sequence. Username, 2FA code, test and free text do not count.
+- On the use that brings it to zero the entry file is removed and the
+  activity log records `entry_burned` (id, title). Nothing is asked first —
+  that was decided when the count was set; the account screen says how many
+  uses are left.
+- Typing still needs the press; a cancelled or failed action uses nothing.
+

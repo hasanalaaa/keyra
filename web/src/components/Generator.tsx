@@ -72,7 +72,7 @@ export function GenPreview({ password, busy }: { password: string; busy: boolean
   );
 }
 
-function Stepper({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (v: number) => void }) {
+export function Stepper({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (v: number) => void }) {
   return (
     <div class="row stepper-row">
       <span class="row-label">{label}</span>

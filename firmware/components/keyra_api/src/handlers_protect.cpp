@@ -56,6 +56,7 @@ void addEntry(cJSON* o, const vault::Entry& e, bool revealed) {
   cJSON_AddNumberToObject(o, "created", static_cast<double>(e.created));
   cJSON_AddNumberToObject(o, "updated", static_cast<double>(e.updated));
   cJSON_AddNumberToObject(o, "lastUsed", static_cast<double>(e.lastUsed));
+  cJSON_AddNumberToObject(o, "burnAfter", e.burnAfter);
   genapi::addHistory(o, e, revealed);
 }
 

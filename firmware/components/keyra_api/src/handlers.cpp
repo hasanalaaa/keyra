@@ -123,6 +123,7 @@ void addEntrySummary(cJSON* o, const vault::Entry& e) {
   cJSON_AddBoolToObject(o, "hasTotp", !e.totp.empty());
   cJSON_AddNumberToObject(o, "updated", static_cast<double>(e.updated));
   cJSON_AddNumberToObject(o, "lastUsed", static_cast<double>(e.lastUsed));
+  cJSON_AddNumberToObject(o, "burnAfter", e.burnAfter);
 }
 
 // Copies the entry fields present in `src` onto `e`. Timestamps are accepted only
@@ -143,6 +144,12 @@ bool readEntry(const cJSON* src, vault::Entry& e, bool withTimestamps, std::stri
     err = "\"favorite\" must be a boolean";
     return false;
   }
+  int64_t burn = e.burnAfter;
+  if (json::getInt(src, "burnAfter", 0, vault::kMaxBurnAfter, burn) == Field::BadType) {
+    err = "\"burnAfter\" must be 0-99";
+    return false;
+  }
+  e.burnAfter = static_cast<uint8_t>(burn);
   if (!e.sequence.empty()) {
     const seq::Error se = seq::parse(e.sequence, nullptr);
     if (se != seq::Error::None) {

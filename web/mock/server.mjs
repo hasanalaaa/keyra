@@ -264,6 +264,12 @@ function press(kind) {
         if (t.kind === 'ble') releaseBle(LINGER_MS);
         const e = vault?.entries.get(s.req.id);
         if (code === 'typed' && e) e.lastUsed = nowSec();
+        // SPEC §16: typing the password uses one of the entry's remaining uses.
+        if (code === 'typed' && e?.burnAfter && ['password', 'both', 'sequence'].includes(s.req.what) && --e.burnAfter === 0) {
+          vault.entries.delete(e.id);
+          logEvent('entry_burned', { id: e.id, title: e.title });
+          console.log(`[mock] "${e.title}" deleted after its last allowed use`);
+        }
         if (code === 'typed' && s.req.what !== 'test' && s.req.what !== 'probe') {
           const detail = t.kind === 'ble' ? 1 : 0;
           if (s.req.what === 'text') logEvent('text_typed', { detail });
@@ -520,6 +526,7 @@ const summary = (e) => ({
   favorite: e.favorite,
   hasPassword: e.password !== '',
   hasTotp: e.totp !== '',
+  burnAfter: e.burnAfter ?? 0,
   updated: e.updated,
   lastUsed: e.lastUsed,
 });
@@ -535,6 +542,10 @@ function readEntry(src, withTimestamps, base = { title: '', url: '', username: '
   if (src.favorite !== undefined) {
     if (typeof src.favorite !== 'boolean') return '"favorite" must be a boolean';
     e.favorite = src.favorite;
+  }
+  if (src.burnAfter !== undefined) {
+    if (!Number.isInteger(src.burnAfter) || src.burnAfter < 0 || src.burnAfter > 99) return '"burnAfter" must be 0-99';
+    e.burnAfter = src.burnAfter;
   }
   if (withTimestamps) {
     for (const k of ['created', 'updated', 'lastUsed']) {

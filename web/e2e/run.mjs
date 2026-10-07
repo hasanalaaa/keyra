@@ -460,6 +460,39 @@ async function activityFlow(base, opts) {
   await ctx.close();
 }
 
+// ---------- Delete after typing (SPEC §16): a one-time account goes after its password is typed ----------
+
+async function burnFlow(base, opts) {
+  const { ctx, page, tag } = await open(base, opts);
+  console.log(`burn ${tag || '(phone, ar, light)'}`);
+  await page.locator('input[type=password]').waitFor();
+  await unlockUi(page);
+  await page.evaluate(() => (location.hash = '#/new'));
+  const form = page.locator('.edit-form');
+  await form.waitFor();
+  const inputs = form.locator('input');
+  await inputs.nth(0).fill('Backup code');
+  await inputs.nth(2).fill('hasan');
+  await form.locator('input[type=password]').fill('7731-0942-5518');
+  await form.locator('.switch-row', { hasText: opts.lang === 'en' ? 'Delete after typing' : 'احذفه بعد' }).click();
+  await form.locator('.burn-foot').waitFor();
+  await shot(page, `edit-burn${tag}`);
+  await page.locator('.save-btn').click();
+  await page.locator('.layer .sheet').waitFor({ state: 'detached' });
+  await row(page, 'Backup code').click();
+  await page.locator('.burn-note').waitFor();
+  await page.locator('.act-both').click();
+  await page.locator('.ready-ready').waitFor();
+  check((await button(base)).startsWith('typing both'), 'button types the one-time account');
+  // Gone at once: the account sheet closes with a note instead of an error.
+  await page.locator('.toast-ok').waitFor({ timeout: 6000 });
+  await page.locator('.acc-row', { hasText: 'Backup code' }).waitFor({ state: 'detached', timeout: 5000 });
+  const list = await (await fetch(`${base}/api/entries`, { headers: { cookie: (await ctx.cookies()).map((c) => `${c.name}=${c.value}`).join('; ') } })).json();
+  check(!list.entries?.some((e) => e.title === 'Backup code'), 'the account is gone after its one use');
+  console.log('  ✓ burn flow passed');
+  await ctx.close();
+}
+
 async function passkeysFlow(base, opts) {
   const { ctx, page, tag } = await open(base, opts);
   console.log(`passkeys ${tag || '(phone, ar, light)'}`);
@@ -627,6 +660,8 @@ try {
   await healthFlow(await startMock(), { lang: 'en', dark: true });
   await activityFlow(await startMock(), {});
   await activityFlow(await startMock(), { lang: 'en', dark: true });
+  await burnFlow(await startMock(), {});
+  await burnFlow(await startMock(), { lang: 'en', dark: true });
 
   quantizeShots();
   if (errors.length) {

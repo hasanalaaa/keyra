@@ -89,6 +89,7 @@ TEST(entry_codec) {
   e.lastUsed = INT64_MAX;
   e.totp = "otpauth://totp/x?secret=AAAA";
   e.sequence = "{USERNAME}{TAB}{PRESS}{PASSWORD}{ENTER}";
+  e.burnAfter = 3;
   SecureBuf buf;
   CHECK(codec::encode(e, buf) && buf.size() == codec::encodedSize(e));
   Entry d;
@@ -98,12 +99,19 @@ TEST(entry_codec) {
   extra.push_back(0);
   CHECK(!codec::decode(extra.data(), extra.size(), d));
   extra.pop_back();
-  CHECK(extra[0] == 3);  // always written as the current format
-  extra[0] = 4;          // unknown format
+  CHECK(extra[0] == 4);  // always written as the current format
+  extra[0] = 5;          // unknown format
   CHECK(!codec::decode(extra.data(), extra.size(), d));
-  extra[0] = 3;
+  extra[0] = 4;
   extra[5] = 2;  // unknown flag bit
   CHECK(!codec::decode(extra.data(), extra.size(), d));
+  extra[5] = 1;
+  extra.back() = uint8_t(kMaxBurnAfter + 1);  // burnAfter beyond the limit
+  CHECK(!codec::decode(extra.data(), extra.size(), d));
+  // Format 3 (no burnAfter byte) still reads, as "keep".
+  std::vector<uint8_t> v3(buf.data(), buf.data() + buf.size() - 1);
+  v3[0] = 3;
+  CHECK(codec::decode(v3.data(), v3.size(), d) && d.burnAfter == 0 && d.sequence == e.sequence);
 }
 
 // Format 1 as written by v1.0/v1.1 firmware, built byte by byte.
@@ -175,7 +183,7 @@ TEST(entry_codec_sequence) {
   SecureBuf buf;
   CHECK(codec::encode(e, buf));
   std::vector<uint8_t> raw(buf.data(), buf.data() + buf.size());
-  raw[raw.size() - 4] = 'W';  // {TAB} -> {WAB}
+  raw[raw.size() - 5] = 'W';  // {TAB} -> {WAB} (the last byte is burnAfter)
   Entry d;
   CHECK(!codec::decode(raw.data(), raw.size(), d));
 }
@@ -195,7 +203,7 @@ TEST(entry_codec_history) {
 
   // A count over the cap is corruption even if the bytes are all there.
   std::vector<uint8_t> raw(buf.data(), buf.data() + buf.size());
-  size_t countAt = raw.size() - 2;  // before the (empty) sequence
+  size_t countAt = raw.size() - 1 - 2;  // before burnAfter and the (empty) sequence
   for (const auto& h : e.history) countAt -= 8 + 2 + h.password.size();
   CHECK(raw[countAt - 1] == kMaxHistory);
   raw[countAt - 1] = kMaxHistory + 1;

@@ -78,7 +78,7 @@ class Vault {
   Status get(uint32_t id, Entry& out);
   Status put(Entry& e);
   Status remove(uint32_t id);
-  Status touch(uint32_t id, int64_t now);
+  Status touch(uint32_t id, int64_t now, bool password, bool* burned);
   Status changePassphrase(const std::string& cur, const std::string& next, uint32_t* retryAfterMs = nullptr);
   Status createRecovery(int64_t now, RecoveryKey& out);
   Status removeRecovery();

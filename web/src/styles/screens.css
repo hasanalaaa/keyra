@@ -407,3 +407,7 @@
 .rotate-card .row-label { display:flex; flex-direction:column; gap:2px; margin:0; }
 .rotate-bar { block-size:8px; border-radius:4px; background:var(--fill); overflow:hidden; }
 .rotate-bar > span { display:block; block-size:100%; background:var(--accent); border-radius:inherit; transition:inline-size var(--d-fast); }
+
+/* Delete after typing (SPEC §16) */
+.burn-note { display:flex; align-items:center; gap:var(--s-2); color:var(--warn); margin-block-end:var(--s-2); }
+.burn-foot { margin-block-start:calc(-1 * var(--s-2)); }

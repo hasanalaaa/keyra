@@ -8,6 +8,10 @@ All notable changes to Keyra are documented here. The format follows
 
 ### Added
 
+- **Delete after typing** (SPEC §16): an account can delete itself after its
+  password is typed N times (1–99). Entry format 4 and backups carry
+  `burnAfter`; the deletion is logged in Activity.
+
 - **Change every password** (SPEC §13.1): Password health can start a
   "change every password" round after a possible leak; it lists every account
   whose password was not changed since, with progress, and nothing per entry is

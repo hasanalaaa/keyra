@@ -106,6 +106,7 @@ export interface ActivityEvent {
     | 'ble_pairing'
     | 'rotate_started'
     | 'rotate_ended'
+    | 'entry_burned'
     | 'unknown';
   at: number;
   id?: number;
@@ -150,6 +151,8 @@ export interface EntrySummary {
   favorite: boolean;
   hasPassword: boolean;
   hasTotp: boolean;
+  /** SPEC §16: deleted after the password is typed this many more times; 0 = kept. */
+  burnAfter?: number;
   updated: number;
   lastUsed: number;
 }
@@ -173,6 +176,7 @@ export interface Entry {
   created: number;
   updated: number;
   lastUsed: number;
+  burnAfter?: number; // SPEC §16; absent on older firmware
   history: OldPassword[]; // newest first, at most 10 (SPEC §9.3)
 }
 
@@ -189,6 +193,7 @@ export interface EntryInput {
   totp: string;
   notes: string;
   favorite: boolean;
+  burnAfter: number; // SPEC §16: 0 = keep
 }
 
 /** POST /api/type with free text (SPEC §9.2). */

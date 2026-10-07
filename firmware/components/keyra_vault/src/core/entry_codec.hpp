@@ -1,7 +1,7 @@
 // Plaintext encoding of one Entry (what is encrypted into e/<id>.bin and what is
 // kept in RAM while unlocked). Compact, length-prefixed, little-endian:
 //
-//   u8   format          = 3 (1 and 2 are still read)
+//   u8   format          = 4 (1, 2 and 3 are still read)
 //   u32  id
 //   u8   flags           bit0 = favorite, other bits must be 0
 //   i64  created, updated, lastUsed
@@ -9,12 +9,14 @@
 //   format 2 and 3:
 //   u8   historyCount    ≤ kMaxHistory, newest first
 //   historyCount × { i64 changedAt, u16 len, len bytes }   old passwords
-//   format 3 only:
+//   format 3 and 4:
 //   u16 len, len bytes   sequence (auto-type, keyra/sequence.hpp; empty = none)
+//   format 4 only:
+//   u8   burnAfter       ≤ kMaxBurnAfter; 0 = keep (SPEC §16)
 //
-// Format 1 lacks the history block and format 2 the sequence; such entries
-// decode with those empty and are rewritten as format 3 the next time they
-// are stored.
+// Format 1 lacks the history block, format 2 the sequence and format 3
+// burnAfter; such entries decode with those empty and are rewritten as
+// format 4 the next time they are stored.
 // Strings are raw UTF-8 bytes (no terminator), so Arabic and any other script
 // round-trip byte-exactly. Decoding rejects truncation, trailing bytes, unknown
 // format/flags and fields over the limits.

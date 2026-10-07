@@ -61,7 +61,7 @@ inline bool same(const Entry& a, const Entry& b) {
   return a.id == b.id && a.title == b.title && a.url == b.url && a.username == b.username &&
          a.password == b.password && a.totp == b.totp && a.notes == b.notes &&
          a.favorite == b.favorite && a.created == b.created && a.updated == b.updated &&
-         a.lastUsed == b.lastUsed && a.sequence == b.sequence && sameHistory(a, b);
+         a.lastUsed == b.lastUsed && a.sequence == b.sequence && a.burnAfter == b.burnAfter && sameHistory(a, b);
 }
 
 }  // namespace keyra::vault::test

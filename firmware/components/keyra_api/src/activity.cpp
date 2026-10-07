@@ -93,6 +93,7 @@ const char* kindName(Kind k) {
     case Kind::BlePairing: return "ble_pairing";
     case Kind::RotateStarted: return "rotate_started";
     case Kind::RotateEnded: return "rotate_ended";
+    case Kind::EntryBurned: return "entry_burned";
   }
   return "unknown";
 }

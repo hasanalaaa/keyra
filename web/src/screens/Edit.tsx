@@ -1,7 +1,7 @@
 // Add / Edit account (DESIGN §5.6) with the password generator inline (§4.8, SPEC §9.1).
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { Button, Notice, SecretField, StrengthMeter, SwitchRow, TextField } from '../components/ui';
-import { InlineGenerator } from '../components/Generator';
+import { InlineGenerator, Stepper } from '../components/Generator';
 import { QR_ERRORS, QrPhoto } from '../components/QrPhoto';
 import { Alert, Sheet, type SheetCtl } from '../components/Sheet';
 import { Ready } from '../components/Ready';
@@ -18,7 +18,7 @@ import { loadEntries, toast } from '../lib/store';
 import type { EntryInput } from '../lib/types';
 import { ENTRY_MAX, bytes } from '../lib/limits';
 
-const EMPTY: EntryInput = { title: '', url: '', username: '', password: '', totp: '', notes: '', favorite: false };
+const EMPTY: EntryInput = { title: '', url: '', username: '', password: '', totp: '', notes: '', favorite: false, burnAfter: 0 };
 
 export function EditAccount({ id }: { id?: number }) {
   const [initial, setInitial] = useState<EntryInput | null>(id ? null : EMPTY);
@@ -42,7 +42,7 @@ export function EditAccount({ id }: { id?: number }) {
       .then((e) => {
         if (!live) return;
         if (!e) return ctl.current?.close(); // cancelled or not pressed: nothing to edit
-        const v: EntryInput = { title: e.title, url: e.url, username: e.username, password: e.password ?? '', totp: e.totp ?? '', notes: e.notes, favorite: e.favorite };
+        const v: EntryInput = { title: e.title, url: e.url, username: e.username, password: e.password ?? '', totp: e.totp ?? '', notes: e.notes, favorite: e.favorite, burnAfter: e.burnAfter ?? 0 };
         setInitial(v);
         setForm(v);
       })
@@ -225,7 +225,12 @@ export function EditAccount({ id }: { id?: number }) {
         </div>
         <div class="card">
           <SwitchRow label={t('addToFavorites')} checked={form.favorite} onChange={set('favorite')} />
+          <SwitchRow label={t('burnToggle')} checked={form.burnAfter > 0} onChange={(on) => set('burnAfter')(on ? 1 : 0)} />
+          {form.burnAfter > 0 && (
+            <Stepper label={t('burnTimes')} value={form.burnAfter} min={1} max={99} onChange={set('burnAfter')} />
+          )}
         </div>
+        {form.burnAfter > 0 && <p class="group-foot burn-foot">{t('burnHelp', { n: form.burnAfter })}</p>}
         {id && (
           <Button variant="danger" full icon="trash-2" class="delete-btn" onClick={() => setConfirm('delete')}>
             {t('deleteAccount')}

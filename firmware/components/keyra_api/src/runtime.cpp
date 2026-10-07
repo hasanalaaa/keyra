@@ -163,11 +163,21 @@ Code typeJob(const actions::TypeRequest& job, const settings::Settings& s, const
     case What::Text:
     case What::Probe: break;
   }
+  const std::string title = e.title;
   vault::wipe(e);
   if (c == Code::Typed && job.submit) c = fromHid(hid::tapKey(hid::KEY_ENTER, o), o);
   if (c == Code::Typed) {
-    const int64_t now = unixSecondsOrZero();
-    if (now != 0 && vault::touch(job.id, now) != vault::Status::Ok) ESP_LOGW(TAG, "touch failed");
+    // Only typing the password uses up a "delete after typing" entry (SPEC §16);
+    // a sequence counts once, when its last part is typed.
+    const bool lastPart = job.seq && job.part + 1 >= job.seq->parts;
+    const bool password = job.what == What::Password || job.what == What::Both ||
+                          (job.what == What::Sequence && lastPart);
+    bool burned = false;
+    if (vault::touch(job.id, unixSecondsOrZero(), password, &burned) != vault::Status::Ok) ESP_LOGW(TAG, "touch failed");
+    if (burned) {
+      ESP_LOGI(TAG, "entry deleted after its last allowed use");
+      activity::log(activity::Kind::EntryBurned, job.id, title);
+    }
   }
   return c;
 }

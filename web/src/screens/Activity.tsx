@@ -35,6 +35,7 @@ export function eventText(e: ActivityEvent): string {
     case 'rotate_ended': return t('actRotateEnded');
     case 'trusted_removed': return t('actTrustedRemoved', { title });
     case 'entry_deleted': return t('actDeleted', { title });
+    case 'entry_burned': return t('actBurned', { title });
     default: return t('actOther');
   }
 }
@@ -56,7 +57,8 @@ function iconOf(e: ActivityEvent): IconName {
     case 'recovery_removed': return 'key-round';
     case 'ble_forgot':
     case 'ble_pairing': return 'bluetooth';
-    case 'entry_deleted': return 'trash-2';
+    case 'entry_deleted':
+    case 'entry_burned': return 'trash-2';
     default: return 'shield-check';
   }
 }

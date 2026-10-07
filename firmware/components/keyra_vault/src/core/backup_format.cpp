@@ -125,6 +125,11 @@ void writeEntry(SecureString& out, const Entry& e) {
     key(out, "sequence");
     json::writeString(out, e.sequence);
   }
+  if (e.burnAfter) {
+    out += ',';
+    key(out, "burnAfter");
+    json::writeInt(out, e.burnAfter);
+  }
   out += '}';
 }
 
@@ -143,6 +148,9 @@ bool readEntry(const json::Value& v, Entry& out) {
   if (!readInt(v, "created", out.created) || !readInt(v, "updated", out.updated) ||
       !readInt(v, "lastUsed", out.lastUsed) || !readString(v, "sequence", out.sequence))
     return false;
+  int64_t burn = 0;
+  if (!readInt(v, "burnAfter", burn) || burn < 0 || burn > int64_t(kMaxBurnAfter)) return false;
+  out.burnAfter = uint8_t(burn);
 
   for (OldPassword& h : out.history) wipe(h.password);
   out.history.clear();

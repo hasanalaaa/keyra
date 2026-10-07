@@ -137,7 +137,7 @@ TEST(crud) {
   CHECK(v.get(12345, got) == Status::NotFound);
 
   // Update: zero created/lastUsed keep the stored values.
-  CHECK(v.touch(a.id, 1800000000) == Status::Ok);
+  CHECK(v.touch(a.id, 1800000000, false, nullptr) == Status::Ok);
   Entry upd = a;
   upd.password = "new password";
   upd.created = 0;
@@ -154,7 +154,7 @@ TEST(crud) {
 
   CHECK(v.remove(b.id) == Status::Ok);
   CHECK(v.remove(b.id) == Status::NotFound);
-  CHECK(v.touch(b.id, 1) == Status::NotFound);
+  CHECK(v.touch(b.id, 1, false, nullptr) == Status::NotFound);
   CHECK(v.list(all) == Status::Ok && all.size() == 1);
   CHECK(r->storage.files.size() == 2);
 
@@ -163,7 +163,7 @@ TEST(crud) {
   CHECK(v.get(a.id, got) == Status::Locked);
   CHECK(v.put(ghost) == Status::Locked);
   CHECK(v.remove(a.id) == Status::Locked);
-  CHECK(v.touch(a.id, 1) == Status::Locked);
+  CHECK(v.touch(a.id, 1, false, nullptr) == Status::Locked);
 }
 
 TEST(arabic_utf8_round_trip) {
@@ -426,7 +426,7 @@ TEST(public_api_smoke) {
   size_t added = 9, updated = 9;
   CHECK(importBackup("backup passphrase", backup, false, &added, &updated) == Status::Ok);
   CHECK(added == 0 && updated == 1);
-  CHECK(touch(e.id, 5) == Status::Ok);
+  CHECK(touch(e.id, 5, false, nullptr) == Status::Ok);
   CHECK(changePassphrase(kPass, "new one") == Status::Ok);
   CHECK(remove(e.id) == Status::Ok);
   CHECK(factoryReset() == Status::Ok);
@@ -477,7 +477,7 @@ TEST(password_history) {
   CHECK(got.history[0].password == "pw-12");
 
   // touch() keeps history, and it survives a reboot (it is inside the ciphertext).
-  CHECK(v.touch(e.id, 1950000000) == Status::Ok);
+  CHECK(v.touch(e.id, 1950000000, false, nullptr) == Status::Ok);
   Entry before = got;
   before.lastUsed = 1950000000;
   r->reboot();
@@ -538,6 +538,34 @@ TEST(v1_entry_on_flash_migrates_on_write) {
         got.history[0].changedAt == 1800000000);
   // The file grew by the history block: it is format 2 now.
   CHECK(r->storage.files.at(std::string("e/") + hex + ".bin").size() > file.size());
+}
+
+TEST(burn_after_typing_the_password) {
+  auto r = Rig::ready();
+  Entry e = sample("Backup code");
+  e.burnAfter = 2;
+  CHECK((*r)->put(e) == Status::Ok);
+  bool burned = true;
+  // Typing only the username does not count.
+  CHECK((*r)->touch(e.id, 1800000000, false, &burned) == Status::Ok && !burned);
+  CHECK((*r)->touch(e.id, 1800000001, true, &burned) == Status::Ok && !burned);
+  Entry back;
+  CHECK((*r)->get(e.id, back) == Status::Ok && back.burnAfter == 1 && back.lastUsed == 1800000001);
+  // The count survives a reboot (it is inside the ciphertext).
+  r->reboot();
+  CHECK((*r)->init() == Status::Ok && (*r)->unlock(kPass, nullptr) == Status::Ok);
+  CHECK((*r)->touch(e.id, 0, true, &burned) == Status::Ok && burned);
+  CHECK((*r)->get(e.id, back) == Status::NotFound);
+  char name[16];
+  std::snprintf(name, sizeof name, "e/%08x.bin", e.id);
+  CHECK(r->storage.files.count(name) == 0);
+  // Entries without the flag are never deleted by typing.
+  Entry keep = sample("Keep");
+  CHECK((*r)->put(keep) == Status::Ok);
+  for (int i = 0; i < 5; ++i) CHECK((*r)->touch(keep.id, 0, true, &burned) == Status::Ok && !burned);
+  Entry bad = sample("Bad");
+  bad.burnAfter = kMaxBurnAfter + 1;
+  CHECK((*r)->put(bad) == Status::Invalid);
 }
 
 TEST_MAIN()

@@ -25,6 +25,9 @@ struct Entry {
   int64_t created = 0, updated = 0, lastUsed = 0;  // unix seconds (0 = unknown)
   std::vector<OldPassword> history;               // newest first, at most kMaxHistory
   std::string sequence;  // custom auto-type sequence (keyra/sequence.hpp); empty = none
+  // Delete the entry after its password has been typed this many more times
+  // (SPEC §16); 0 = keep. At most kMaxBurnAfter.
+  uint8_t burnAfter = 0;
 };
 
 enum class Status {
@@ -64,7 +67,9 @@ Status get(uint32_t id, Entry& out);
 // the newest kMaxHistory.
 Status put(Entry& e);
 Status remove(uint32_t id);
-Status touch(uint32_t id, int64_t now);  // lastUsed
+// After typing: lastUsed = now (unless now is 0) and, when `password` was
+// typed, one use off burnAfter; at zero the entry is deleted and *burned set.
+Status touch(uint32_t id, int64_t now, bool password, bool* burned);
 // A wrong `cur` is throttled like unlock; `retryAfterMs` as for unlock().
 Status changePassphrase(const std::string& cur, const std::string& next, uint32_t* retryAfterMs = nullptr);
 
@@ -130,7 +135,7 @@ void wipe(std::string& s);
 void wipe(Entry& e);
 
 // Field limits in bytes (UTF-8); put()/importBackup() return Invalid beyond them.
-inline constexpr size_t kMaxEntries = 1000, kMaxHistory = 10;
+inline constexpr size_t kMaxEntries = 1000, kMaxHistory = 10, kMaxBurnAfter = 99;
 inline constexpr size_t kMaxTitle = 128, kMaxUrl = 512, kMaxUsername = 256, kMaxPassword = 256,
                         kMaxTotp = 512, kMaxNotes = 2048, kMaxSequence = 256;
 inline constexpr size_t kMinBackupPass = 12;
