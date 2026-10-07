@@ -37,18 +37,38 @@ Sessions::Issued Sessions::create(int64_t nowMs, uint32_t trustId) {
   target->csrf = randomHex();
   target->lastUsed = nowMs;
   target->trustId = trustId;
+  target->graceUntil = 0;
   lastActivity_ = nowMs;
   return {target->token, target->csrf};
 }
 
-std::optional<std::string> Sessions::csrfFor(std::string_view token, int64_t nowMs) {
-  std::lock_guard<std::mutex> lock(mu_);
-  if (token.size() != kTokenBytes * 2) return std::nullopt;
+Sessions::Slot* Sessions::findLocked(std::string_view token) {
+  if (token.size() != kTokenBytes * 2) return nullptr;
   Slot* found = nullptr;
   // Compare against every slot so timing does not reveal which slot matched.
   for (Slot& s : slots_) {
     if (s.used && constantTimeEqual(s.token, token)) found = &s;
   }
+  return found;
+}
+
+bool Sessions::grantGrace(std::string_view token, int64_t nowMs) {
+  std::lock_guard<std::mutex> lock(mu_);
+  Slot* s = findLocked(token);
+  if (!s) return false;
+  s->graceUntil = nowMs + kGraceMs;
+  return true;
+}
+
+int64_t Sessions::graceLeft(std::string_view token, int64_t nowMs) {
+  std::lock_guard<std::mutex> lock(mu_);
+  Slot* s = findLocked(token);
+  return s && nowMs < s->graceUntil ? s->graceUntil - nowMs : 0;
+}
+
+std::optional<std::string> Sessions::csrfFor(std::string_view token, int64_t nowMs) {
+  std::lock_guard<std::mutex> lock(mu_);
+  Slot* found = findLocked(token);
   if (!found) return std::nullopt;
   found->lastUsed = nowMs;
   return found->csrf;

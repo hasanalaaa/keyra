@@ -14,6 +14,8 @@ namespace keyra::api {
 
 constexpr size_t kMaxSessions = 4;
 constexpr size_t kTokenBytes = 32;
+// After a press, the session that asked may see secrets for this long (SPEC §10.3).
+constexpr int64_t kGraceMs = 60000;
 
 // Length-revealing but content-constant-time comparison (tokens have fixed length).
 bool constantTimeEqual(std::string_view a, std::string_view b);
@@ -32,6 +34,10 @@ class Sessions {
   // The session's CSRF token when `token` is live; marks it used.
   std::optional<std::string> csrfFor(std::string_view token, int64_t nowMs);
   void clear();
+  // Starts the reveal grace for this live session; false when it is gone.
+  bool grantGrace(std::string_view token, int64_t nowMs);
+  // Milliseconds of grace left for this session (0 = none or unknown token).
+  int64_t graceLeft(std::string_view token, int64_t nowMs);
   // Revoking a trusted browser ends the sessions it opened.
   size_t endTrusted(uint32_t trustId);
   size_t size();
@@ -46,7 +52,9 @@ class Sessions {
     std::string token, csrf;
     int64_t lastUsed = 0;
     uint32_t trustId = 0;
+    int64_t graceUntil = 0;
   };
+  Slot* findLocked(std::string_view token);
   std::string randomHex();
 
   Random rng_;

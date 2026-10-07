@@ -14,6 +14,10 @@
 #include "target.hpp"
 
 namespace keyra::actions {
+using api::BtAddr;
+}
+
+namespace keyra::actions {
 
 using api::Target;
 
@@ -25,10 +29,15 @@ enum class What { Username, Password, Both, Totp, Test, Text };
 // HomeWifi: join/change/leave the home network (session). TrustBrowser: approve a
 // browser that unlocks through the home network (no session yet, SPEC §8.2).
 // BlePair: open the Bluetooth pairing window (session, SPEC §8.1).
-enum class Op { Setup, Wifi, RestoreReplace, FactoryReset, HomeWifi, TrustBrowser, BlePair };
+// Reveal/Backup/Recovery: a press that lets this session read secrets, download
+// a backup or create/remove the recovery key for a short grace (SPEC §10.3).
+// Unprotect: turn "Protect reveal with Keyra's button" off.
+enum class Op { Setup, Wifi, RestoreReplace, FactoryReset, HomeWifi, TrustBrowser, BlePair,
+                Reveal, Backup, Recovery, Unprotect };
 // NoUsb: output is USB-only and no computer is plugged in. NoHost: nothing
-// connected on the selected output (auto or Bluetooth).
-enum class Code { Typed, Cancelled, Expired, NoUsb, NoHost, UnsupportedChar, Failed };
+// connected on the selected output (auto or Bluetooth). HostChanged: the USB
+// computer the action was armed for went away before the press (SPEC §10.4).
+enum class Code { Typed, Cancelled, Expired, NoUsb, NoHost, UnsupportedChar, Failed, HostChanged };
 enum class Button { Short, Long };
 enum class Indicator { Setup, Locked, Idle, Pending, Typing, AwaitPresence, Success, Error, Off, Pairing };
 
@@ -52,6 +61,7 @@ struct TypeRequest {
   bool submit = false;
   Target target;  // chosen when armed; a Bluetooth host must connect before the press counts
   std::shared_ptr<const FreeText> text;  // What::Text only
+  uint32_t usbSession = 0;  // set by arm(): the USB connection a USB action is bound to (0 = none)
 };
 
 struct Pending {
@@ -115,6 +125,12 @@ class Machine {
   // is, a short press does nothing (the action stays armed) and expiry
   // reports no_host instead of expired.
   void setLinkReady(bool ready);
+  // USB host presence (enumerated and not suspended), polled by the runtime.
+  // Each connection gets a new number; a USB action armed while one was up is
+  // bound to it and ends with host_changed as soon as that connection ends,
+  // so it can never type into the next computer (or the same one after a
+  // re-plug). Armed with nothing plugged in, it stays unbound (no_usb at the press).
+  void setUsbMounted(bool mounted);
   // Effect::Run moves the request (with any free text) out to the caller.
   Decision onButton(Button b, bool unlocked);
   void typingFinished(const TypeRequest& req, Code code);
@@ -144,6 +160,8 @@ class Machine {
   int64_t deadline_ = 0;
   bool typing_ = false;
   bool linkReady_ = false;
+  bool usbMounted_ = false;
+  uint32_t usbSession_ = 0;
   std::optional<Op> running_;
   bool hasLast_ = false;
   Result last_;
@@ -152,6 +170,27 @@ class Machine {
   int64_t opResultAt_ = 0;
   Indicator flash_ = Indicator::Off;
   int64_t flashUntil_ = 0;
+};
+
+// Auto-lock when the computer the vault was used with goes away (SPEC §10.4).
+// Pure policy; the runtime polls it about every 100 ms.
+class HostWatch {
+ public:
+  static constexpr int64_t kUsbGoneMs = 1000;  // rides out a bus reset, still locks well within 2 s
+  // True when the vault should lock now: it is unlocked, a USB host was seen
+  // since it unlocked (so charger-only power never locks), and that host has
+  // been gone (unplugged or suspended) for kUsbGoneMs.
+  bool pollUsb(int64_t now, bool unlocked, bool usbMounted, bool enabled);
+  // Keyra typed into this Bluetooth host while unlocked.
+  void bleUsed(const BtAddr& addr) { bleUsed_ = addr; }
+  // A bonded host's link ended without Keyra ending it. True when that was the
+  // host Keyra typed into since the unlock and the setting is on.
+  bool bleLost(const BtAddr& addr, bool unlocked, bool enabled);
+
+ private:
+  bool usbSeen_ = false;
+  int64_t usbGoneAt_ = -1;
+  std::optional<BtAddr> bleUsed_;
 };
 
 const char* whatName(What w);
