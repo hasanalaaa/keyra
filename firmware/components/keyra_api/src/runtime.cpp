@@ -188,6 +188,7 @@ Code runJob(const actions::TypeRequest& job) {
   const hostos::Os os = kbdapi::osFor(job.target, s);
   o.altCodes = os == hostos::Os::Windows;
   const bool toggle = job.switchLang && hostos::switchesWithCtrlSpace(os);
+  ESP_LOGI(TAG, "host system '%s', switch language %d, alt codes %d", hostos::name(os), int(toggle), int(o.altCodes));
   if (toggle) {
     const Code c = fromHid(hid::tapChord(hid::MOD_LEFT_CTRL, hid::KEY_SPACE, o), o);
     if (c != Code::Typed) return c;

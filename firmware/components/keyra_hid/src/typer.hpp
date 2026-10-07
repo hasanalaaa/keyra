@@ -29,7 +29,7 @@ class Typer {
   static constexpr uint32_t kCapsHoldMs = 150;
   static constexpr int kReleaseAttempts = 3;
   // Lets the OS finish switching input language before the next key.
-  static constexpr uint32_t kChordSettleMs = 250;
+  static constexpr uint32_t kChordSettleMs = 400;
 
   // The transport is per call (USB or BLE); `busy` spans both, so only one
   // typing operation runs at a time whichever host it targets.
