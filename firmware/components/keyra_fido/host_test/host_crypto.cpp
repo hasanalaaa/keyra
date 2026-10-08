@@ -8,6 +8,7 @@
 #include <openssl/ec.h>
 #include <openssl/ecdsa.h>
 #include <openssl/evp.h>
+#include <openssl/hmac.h>
 #include <openssl/obj_mac.h>
 #include <openssl/param_build.h>
 #include <openssl/rand.h>
@@ -74,6 +75,38 @@ bool OpenSslCrypto::p256Sign(const uint8_t priv[32], const uint8_t* msg, size_t 
   ECDSA_SIG_free(s);
   BN_clear_free(d);
   EC_KEY_free(k);
+  return ok;
+}
+
+bool OpenSslCrypto::p256Ecdh(const uint8_t priv[32], const uint8_t peer[65], uint8_t z[32]) {
+  EC_KEY* k = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
+  BIGNUM* d = BN_bin2bn(priv, 32, nullptr);
+  EC_POINT* q = k ? EC_POINT_new(EC_KEY_get0_group(k)) : nullptr;
+  // oct2point rejects points that are not on the curve.
+  bool ok = k && d && q && EC_KEY_set_private_key(k, d) == 1 &&
+            EC_POINT_oct2point(EC_KEY_get0_group(k), q, peer, 65, nullptr) == 1 &&
+            ECDH_compute_key(z, 32, q, k, nullptr) == 32;
+  EC_POINT_free(q);
+  BN_clear_free(d);
+  EC_KEY_free(k);
+  return ok;
+}
+
+bool OpenSslCrypto::hmacSha256(const uint8_t* key, size_t keyLen, const uint8_t* msg, size_t n, uint8_t out[32]) {
+  unsigned len = 0;
+  static const uint8_t empty = 0;
+  return HMAC(EVP_sha256(), keyLen ? key : &empty, static_cast<int>(keyLen), msg, n, out, &len) && len == 32;
+}
+
+bool OpenSslCrypto::aesCbc(bool encrypt, const uint8_t key[32], const uint8_t iv[16], const uint8_t* in, size_t n,
+                           uint8_t* out) {
+  if (n % 16 != 0) return false;
+  EVP_CIPHER_CTX* c = EVP_CIPHER_CTX_new();
+  int len = 0, fin = 0;
+  bool ok = c && EVP_CipherInit_ex(c, EVP_aes_256_cbc(), nullptr, key, iv, encrypt ? 1 : 0) == 1 &&
+            EVP_CIPHER_CTX_set_padding(c, 0) == 1 && EVP_CipherUpdate(c, out, &len, in, static_cast<int>(n)) == 1 &&
+            EVP_CipherFinal_ex(c, out + len, &fin) == 1 && size_t(len + fin) == n;
+  EVP_CIPHER_CTX_free(c);
   return ok;
 }
 

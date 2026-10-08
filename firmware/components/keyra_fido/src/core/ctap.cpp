@@ -7,50 +7,22 @@
 #include <cstring>
 
 #include "cbor.hpp"
+#include "ctap_common.hpp"
 
 namespace keyra::fido {
 namespace {
 
-// Zeroes key material; volatile so a wipe just before the end of scope is not
-// optimised away as a dead store.
-void wipe(void* p, size_t n) {
-  for (volatile uint8_t* v = static_cast<volatile uint8_t*>(p); n > 0; --n) *v++ = 0;
-}
+void wipe(void* p, size_t n) { secureWipe(p, n); }
 
 using cbor::Value;
 using T = cbor::Value::Type;
 using namespace ctap;
 
-constexpr uint8_t kFlagUp = 0x01, kFlagUv = 0x04, kFlagAt = 0x40;
+constexpr uint8_t kFlagUp = 0x01, kFlagUv = 0x04, kFlagAt = 0x40, kFlagEd = 0x80;
 constexpr int64_t kEs256 = -7;
-
-uint8_t fromAnswer(User::Answer a) {
-  switch (a) {
-    case User::Answer::Approved: return kOk;
-    case User::Answer::Denied: return kOperationDenied;
-    case User::Answer::Timeout: return kUserActionTimeout;
-    case User::Answer::Cancelled: return kKeepaliveCancel;
-  }
-  return kOther;
-}
-
-// Unlock wait has its own meaning on timeout: Keyra stayed locked.
-uint8_t fromUnlock(User::Answer a) {
-  return a == User::Answer::Timeout ? uint8_t{kOperationDenied} : fromAnswer(a);
-}
 
 void put32(std::vector<uint8_t>& v, uint32_t x) {
   for (int s = 24; s >= 0; s -= 8) v.push_back(static_cast<uint8_t>(x >> s));
-}
-
-// Parses the request map. Keys must be unsigned integers (CTAP2 parameters).
-uint8_t parseParams(const uint8_t* p, size_t n, Value& out) {
-  if (n == 0) return kMissingParameter;  // every command below needs parameters
-  if (!cbor::decode(p, n, out)) return kInvalidCbor;
-  if (out.type != T::Map) return kCborUnexpectedType;
-  for (const auto& e : out.entries)
-    if (e.first.type != T::Uint) return kCborUnexpectedType;
-  return kOk;
 }
 
 // options map: known keys must be booleans; others are ignored.
@@ -104,9 +76,10 @@ std::vector<uint8_t> Authenticator::cbor(const uint8_t* req, size_t n, User& use
         break;
       case kGetNextAssertion: status = getNextAssertion(now, body); break;
       case kGetInfo: status = getInfo(body); break;
+      case kClientPin: status = clientPin(req + 1, n - 1, user, body); break;
       case kReset: status = reset(user); break;
       case kSelection: status = selection(user); break;
-      default: status = kInvalidCommand; break;  // ClientPIN and 2.1 management are not offered
+      default: status = kInvalidCommand; break;  // 2.1 management commands are not offered
     }
   }
   if (status != kOk) body.clear();
@@ -115,18 +88,31 @@ std::vector<uint8_t> Authenticator::cbor(const uint8_t* req, size_t n, User& use
 }
 
 uint8_t Authenticator::getInfo(std::vector<uint8_t>& out) {
+  // Read while locked too: whether a PIN exists is not secret (the file exists).
+  const bool pinSet = store_.pinSet();
   cbor::Writer w;
-  w.map(4);
+  w.map(8);
   w.uint(1);
+  // Still 2.0: FIDO_2_1 would make pinUvAuthToken permissions, credential
+  // management and more mandatory (docs/FIDO.md).
   w.array(2), w.text("U2F_V2"), w.text("FIDO_2_0");
+  w.uint(2);
+  w.array(2), w.text("credProtect"), w.text("hmac-secret");
   w.uint(3), w.bytes(kAaguid.data(), kAaguid.size());
   w.uint(4);
-  w.map(4);  // canonical order: shorter keys first, then bytewise
+  w.map(pinSet ? 4 : 5);  // canonical order: shorter keys first, then bytewise
   w.text("rk"), w.boolean(true);
   w.text("up"), w.boolean(true);
-  w.text("uv"), w.boolean(true);  // "verified" = the vault is unlocked (docs/FIDO.md)
+  // Without a PIN, "verified" = the vault is unlocked (docs/FIDO.md). With one,
+  // only the PIN verifies; a platform that saw uv would skip asking for it.
+  if (!pinSet) w.text("uv"), w.boolean(true);
   w.text("plat"), w.boolean(false);
+  w.text("clientPin"), w.boolean(pinSet);
   w.uint(5), w.uint(1200);  // maxMsgSize: bounds what we parse; hosts split long allow lists
+  w.uint(6);
+  w.array(2), w.uint(2), w.uint(1);  // PIN/UV auth protocols, preferred first
+  w.uint(7), w.uint(8);              // maxCredentialCountInList: 8 descriptors fit in maxMsgSize
+  w.uint(8), w.uint(64);             // maxCredentialIdLength (ours are 62 bytes)
   out = std::move(w.out);
   return kOk;
 }
@@ -148,10 +134,13 @@ bool Authenticator::lookup(const WrapKeys& keys, const uint8_t rpIdHash[32], con
                            const std::vector<cred::Resident>& res, Found& out) {
   uint8_t flags = 0;
   bool opened = false;
-  for (size_t i = 0; i < keys.count && !opened; ++i)
+  for (size_t i = 0; i < keys.count && !opened; ++i) {
     opened = cred::unwrap(crypto_, keys.key[i], rpIdHash, id.data(), id.size(), out.priv.data(), flags);
+    if (opened) out.keyIndex = i;
+  }
   if (!opened) return false;
   out.credId = id;
+  out.flags = flags;
   out.resident = (flags & cred::kFlagResident) != 0;
   if (!out.resident) return true;
   // A deleted passkey must stop working even though its ID still decrypts.
@@ -182,7 +171,8 @@ uint8_t Authenticator::makeCredential(const uint8_t* p, size_t n, User& user, st
   Value req;
   if (uint8_t s = parseParams(p, n, req); s != kOk) return s;
   const Value *cdh = req.find(1), *rp = req.find(2), *usr = req.find(3), *algs = req.find(4),
-              *exclude = req.find(5), *ext = req.find(6), *options = req.find(7), *pinAuth = req.find(8);
+              *exclude = req.find(5), *ext = req.find(6), *options = req.find(7), *pinAuth = req.find(8),
+              *pinProtocol = req.find(9);
   if (!cdh || !rp || !usr || !algs) return kMissingParameter;
   if (cdh->type != T::Bytes || rp->type != T::Map || usr->type != T::Map || algs->type != T::Array)
     return kCborUnexpectedType;
@@ -226,13 +216,23 @@ uint8_t Authenticator::makeCredential(const uint8_t* p, size_t n, User& user, st
   std::vector<std::vector<uint8_t>> excludes;
   if (uint8_t s = readCredList(exclude, excludes); s != kOk) return s;
 
-  // A zero-length pinAuth asks "touch to pick this key"; without ClientPIN the
-  // answer after the touch is PIN_NOT_SET. Any other pinAuth cannot be checked.
-  if (pinAuth) {
-    if (!pinAuth->str.empty()) return kPinNotSet;
-    const uint8_t s = fromAnswer(user.waitPresence());
-    return s == kOk ? uint8_t{kPinNotSet} : s;
+  // Extensions: what the credential will remember lives in its ID's flags byte.
+  bool hmacSecret = false;
+  int64_t protect = 0;  // credProtect level, 0 = not asked
+  if (ext) {
+    if (const Value* h = ext->find("hmac-secret")) {
+      if (h->type != T::Bool) return kCborUnexpectedType;
+      hmacSecret = h->b;
+    }
+    if (const Value* cp = ext->find("credProtect")) {
+      if (!cp->isInt()) return kCborUnexpectedType;
+      if (!cp->asInt(protect) || protect < 1 || protect > 3) return kInvalidOption;
+    }
   }
+
+  bool verified = false;
+  if (uint8_t s = userVerification(pinAuth, pinProtocol, cdh->str.data(), uv, true, user, verified); s != kOk)
+    return s;
 
   if (uint8_t s = fromUnlock(user.waitUnlocked()); s != kOk) return s;
   uint8_t rpIdHash[32];
@@ -264,9 +264,10 @@ uint8_t Authenticator::makeCredential(const uint8_t* p, size_t n, User& user, st
   if (uint8_t s = fromAnswer(user.waitPresence()); s != kOk) return s;
   if (!store_.unlocked() || store_.wrapKeys(keys) != Store::Result::Ok) return kOperationDenied;
 
+  uint8_t idFlags = (rk ? cred::kFlagResident : 0) | (hmacSecret ? cred::kFlagHmacSecret : 0);
+  if (protect) idFlags = cred::withProtect(idFlags, static_cast<uint8_t>(protect));
   uint8_t priv[32], pub[65], credId[cred::kIdLen];
-  bool ok = crypto_.p256Generate(priv, pub) &&
-            cred::wrap(crypto_, keys.key[0], rpIdHash, priv, rk ? cred::kFlagResident : 0, credId);
+  bool ok = crypto_.p256Generate(priv, pub) && cred::wrap(crypto_, keys.key[0], rpIdHash, priv, idFlags, credId);
   keys.clear();
   if (!ok) {
     wipe(priv, sizeof priv);
@@ -295,8 +296,9 @@ uint8_t Authenticator::makeCredential(const uint8_t* p, size_t n, User& user, st
     wipe(priv, sizeof priv);
     return kOther;
   }
+  const bool extOut = hmacSecret || protect;
   std::vector<uint8_t> authData(rpIdHash, rpIdHash + 32);
-  authData.push_back(kFlagUp | kFlagUv | kFlagAt);
+  authData.push_back(kFlagUp | (verified ? kFlagUv : 0) | kFlagAt | (extOut ? kFlagEd : 0));
   put32(authData, counter);
   authData.insert(authData.end(), kAaguid.begin(), kAaguid.end());
   authData.push_back(0);
@@ -304,6 +306,11 @@ uint8_t Authenticator::makeCredential(const uint8_t* p, size_t n, User& user, st
   authData.insert(authData.end(), credId, credId + cred::kIdLen);
   cbor::Writer cose;
   writeCose(cose, pub);
+  if (extOut) {
+    cose.map((protect ? 1 : 0) + (hmacSecret ? 1 : 0));  // same length: bytewise, so credProtect first
+    if (protect) cose.text("credProtect"), cose.uint(static_cast<uint64_t>(protect));
+    if (hmacSecret) cose.text("hmac-secret"), cose.boolean(true);
+  }
   authData.insert(authData.end(), cose.out.begin(), cose.out.end());
 
   // Self attestation: signed by the credential key itself (no certificate).
@@ -325,16 +332,28 @@ uint8_t Authenticator::makeCredential(const uint8_t* p, size_t n, User& user, st
 }
 
 uint8_t Authenticator::assertion(const Found& f, const uint8_t rpIdHash[32], const uint8_t clientDataHash[32],
-                                 uint8_t flags, bool includeUser, size_t count, std::vector<uint8_t>& out) {
+                                 uint8_t flags, bool includeUser, size_t count, const HmacSecret& hmac,
+                                 std::vector<uint8_t>& out) {
+  // hmac-secret answers only for credentials made with it (CTAP 2.1 §12.5).
+  std::vector<uint8_t> secret;
+  if (hmac.present && (f.flags & cred::kFlagHmacSecret) && !hmacSecretOutput(hmac, f, secret)) return kOther;
   uint32_t counter = 0;
   if (!counter_.next(counter)) return kOther;
   std::vector<uint8_t> authData(rpIdHash, rpIdHash + 32);
-  authData.push_back(flags);
+  authData.push_back(secret.empty() ? flags : flags | kFlagEd);
   put32(authData, counter);
+  if (!secret.empty()) {
+    cbor::Writer e;
+    e.map(1);
+    e.text("hmac-secret"), e.bytes(secret);
+    authData.insert(authData.end(), e.out.begin(), e.out.end());
+  }
   std::vector<uint8_t> der;
   if (!sign(f.priv.data(), authData, clientDataHash, der)) return kOther;
 
   const bool user = includeUser && f.resident;
+  // CTAP 2.0 §5.2: names only after user verification; the id is always given.
+  const bool names = (flags & kFlagUv) != 0;
   cbor::Writer w;
   w.map(3 + (user ? 1 : 0) + (count > 1 ? 1 : 0));
   w.uint(1);
@@ -345,11 +364,11 @@ uint8_t Authenticator::assertion(const Found& f, const uint8_t rpIdHash[32], con
   w.uint(3), w.bytes(der);
   if (user) {
     w.uint(4);
-    // Names may be returned because user verification (unlocked vault) always holds.
-    w.map(1 + (f.userName.empty() ? 0 : 1) + (f.displayName.empty() ? 0 : 1));
+    const bool name = names && !f.userName.empty(), display = names && !f.displayName.empty();
+    w.map(1 + (name ? 1 : 0) + (display ? 1 : 0));
     w.text("id"), w.bytes(f.userId);
-    if (!f.userName.empty()) w.text("name"), w.text(f.userName);
-    if (!f.displayName.empty()) w.text("displayName"), w.text(f.displayName);
+    if (name) w.text("name"), w.text(f.userName);
+    if (display) w.text("displayName"), w.text(f.displayName);
   }
   if (count > 1) w.uint(5), w.uint(count);
   out = std::move(w.out);
@@ -360,7 +379,7 @@ uint8_t Authenticator::getAssertion(const uint8_t* p, size_t n, User& user, int6
   Value req;
   if (uint8_t s = parseParams(p, n, req); s != kOk) return s;
   const Value *rpId = req.find(1), *cdh = req.find(2), *allow = req.find(3), *ext = req.find(4),
-              *options = req.find(5), *pinAuth = req.find(6);
+              *options = req.find(5), *pinAuth = req.find(6), *pinProtocol = req.find(7);
   if (!rpId || !cdh) return kMissingParameter;
   if (rpId->type != T::Text || cdh->type != T::Bytes) return kCborUnexpectedType;
   if (cdh->str.size() != 32) return kInvalidLength;
@@ -371,14 +390,16 @@ uint8_t Authenticator::getAssertion(const uint8_t* p, size_t n, User& user, int6
   if (uint8_t s = readCredList(allow, allowed); s != kOk) return s;
   bool up = true, uv = false;
   if (uint8_t s = readOption(options, "up", up); s != kOk) return s;
-  if (uint8_t s = readOption(options, "uv", uv); s != kOk) return s;  // always met: see kFlagUv below
+  if (uint8_t s = readOption(options, "uv", uv); s != kOk) return s;
   if (options && options->find("rk")) return kUnsupportedOption;  // not a GetAssertion option
 
-  if (pinAuth) {
-    if (!pinAuth->str.empty()) return kPinNotSet;
-    const uint8_t s = fromAnswer(user.waitPresence());
-    return s == kOk ? uint8_t{kPinNotSet} : s;
-  }
+  bool verified = false;
+  if (uint8_t s = userVerification(pinAuth, pinProtocol, cdh->str.data(), uv, false, user, verified); s != kOk)
+    return s;
+  // Checked and decrypted before the touch, so a bad request fails at once.
+  HmacSecret hmac;
+  if (ext)
+    if (uint8_t s = readHmacSecret(ext->find("hmac-secret"), hmac); s != kOk) return s;
 
   if (uint8_t s = fromUnlock(user.waitUnlocked()); s != kOk) return s;
   uint8_t rpIdHash[32];
@@ -390,10 +411,20 @@ uint8_t Authenticator::getAssertion(const uint8_t* p, size_t n, User& user, int6
 
   std::vector<Found> found;
   const bool discoverable = allow == nullptr || allowed.empty();
+  // credProtect (CTAP 2.1 §12.1): level 3 needs user verification always,
+  // level 2 unless the site named the credential. Others are as if absent.
+  auto protectedAway = [&](const Found& f) {
+    const uint8_t level = cred::protectLevel(f.flags);
+    return !verified && (level == 3 || (level == 2 && discoverable));
+  };
   if (!discoverable) {
     for (const auto& id : allowed) {
       Found f;
       if (lookup(keys, rpIdHash, id, res, f)) {
+        if (protectedAway(f)) {
+          wipe(f.priv.data(), 32);
+          continue;
+        }
         found.push_back(std::move(f));
         break;  // with an allow list the first match is used
       }
@@ -406,7 +437,12 @@ uint8_t Authenticator::getAssertion(const uint8_t* p, size_t n, User& user, int6
                      [](const cred::Resident* a, const cred::Resident* b) { return a->created > b->created; });
     for (const auto* r : mine) {
       Found f;
-      if (lookup(keys, rpIdHash, r->credId, res, f)) found.push_back(std::move(f));
+      if (!lookup(keys, rpIdHash, r->credId, res, f)) continue;
+      if (protectedAway(f)) {
+        wipe(f.priv.data(), 32);
+        continue;
+      }
+      found.push_back(std::move(f));
     }
   }
   keys.clear();
@@ -414,17 +450,18 @@ uint8_t Authenticator::getAssertion(const uint8_t* p, size_t n, User& user, int6
   for (auto& f : found) wipe(f.priv.data(), 32);
   if (found.empty()) return kNoCredentials;
 
-  uint8_t flags = kFlagUv;  // no signature is ever made while locked (docs/FIDO.md)
+  uint8_t flags = verified ? kFlagUv : 0;
   if (up) {
     if (uint8_t s = fromAnswer(user.waitPresence()); s != kOk) return s;
     flags |= kFlagUp;
   }
 
   const size_t count = found.size();
-  if (uint8_t s = rearm(rpIdHash, found[0]); s != kOk) return s;
+  if (uint8_t s = rearm(rpIdHash, found[0], hmac.present, verified); s != kOk) return s;
   const uint8_t s = assertion(found[0], rpIdHash, cdh->str.data(), flags, discoverable || found[0].resident,
-                              discoverable ? count : 1, out);
+                              discoverable ? count : 1, hmac, out);
   wipe(found[0].priv.data(), 32);
+  wipe(found[0].credRandom.data(), 32);
   if (s == kOk && discoverable && count > 1) {
     next_.rest.assign(std::make_move_iterator(found.begin() + 1), std::make_move_iterator(found.end()));
     std::reverse(next_.rest.begin(), next_.rest.end());  // pop_back order = newest first
@@ -432,6 +469,7 @@ uint8_t Authenticator::getAssertion(const uint8_t* p, size_t n, User& user, int6
     std::memcpy(next_.clientDataHash.data(), cdh->str.data(), 32);
     next_.flags = flags;
     next_.until = now + kNextAssertionMs;
+    next_.hmac = hmac;
   }
   return s;
 }
@@ -444,23 +482,35 @@ uint8_t Authenticator::getNextAssertion(int64_t now, std::vector<uint8_t>& out) 
   Found f = std::move(next_.rest.back());
   next_.rest.pop_back();
   // Locked (or the passkey deleted) since GetAssertion: stop the sequence.
-  if (uint8_t s = rearm(next_.rpIdHash.data(), f); s != kOk) {
+  if (uint8_t s = rearm(next_.rpIdHash.data(), f, next_.hmac.present, next_.flags & kFlagUv); s != kOk) {
     next_ = Next{};
     return s;
   }
-  const uint8_t s = assertion(f, next_.rpIdHash.data(), next_.clientDataHash.data(), next_.flags, true, 1, out);
+  const uint8_t s =
+      assertion(f, next_.rpIdHash.data(), next_.clientDataHash.data(), next_.flags, true, 1, next_.hmac, out);
   wipe(f.priv.data(), 32);
+  wipe(f.credRandom.data(), 32);
   if (next_.rest.empty()) next_ = Next{};
   return s;
 }
 
-uint8_t Authenticator::rearm(const uint8_t rpIdHash[32], Found& f) {
+uint8_t Authenticator::rearm(const uint8_t rpIdHash[32], Found& f, bool hmacSecret, bool uv) {
   if (!store_.unlocked()) return kOperationDenied;
   WrapKeys keys;
   if (store_.wrapKeys(keys) != Store::Result::Ok) return kOperationDenied;
   std::vector<cred::Resident> res;
   const std::vector<uint8_t> id = f.credId;
-  const bool ok = residents(res) && lookup(keys, rpIdHash, id, res, f);
+  bool ok = residents(res) && lookup(keys, rpIdHash, id, res, f);
+  if (ok && hmacSecret && (f.flags & cred::kFlagHmacSecret)) {
+    // CredRandom is derived, not stored: HMAC(wrap key, label || uv || credential ID).
+    // The same wrapping key comes back with a restored backup, so the secrets do too.
+    static constexpr char kLabel[] = "keyra/fido/v1/hmac-secret";
+    std::vector<uint8_t> msg(kLabel, kLabel + sizeof kLabel - 1);
+    msg.push_back(uv ? 1 : 0);
+    msg.insert(msg.end(), id.begin(), id.end());
+    ok = crypto_.hmacSha256(keys.key[f.keyIndex], 32, msg.data(), msg.size(), f.credRandom.data());
+    if (!ok) wipe(f.priv.data(), 32);
+  }
   keys.clear();
   return ok ? kOk : kNoCredentials;
 }
@@ -469,6 +519,10 @@ uint8_t Authenticator::reset(User& user) {
   if (user.uptimeMs() > kResetWindowMs) return kNotAllowed;
   if (uint8_t s = fromUnlock(user.waitUnlocked()); s != kOk) return s;
   if (uint8_t s = fromAnswer(user.waitPresence()); s != kOk) return s;
+  // The PIN goes with the credentials (CTAP 2.0 §5.6); so do the token and the counts.
+  token_ = Token{};
+  consecutiveWrong_ = 0;
+  ka_ = KeyAgreement{};
   return store_.reset() == Store::Result::Ok ? kOk : kOther;
 }
 
@@ -580,6 +634,11 @@ uint16_t Authenticator::u2fAuthenticate(uint8_t p1, const uint8_t* body, size_t 
   const bool mine = listed && lookup(keys, app, kh, res, f);
   keys.clear();
   if (!listed) return u2f::kSwOther;
+  // U2F never verifies the user: a credProtect level 3 credential is not offered there.
+  if (mine && cred::protectLevel(f.flags) == 3) {
+    wipe(f.priv.data(), 32);
+    return u2f::kSwWrongData;
+  }
   if (!mine) return u2f::kSwWrongData;
   if (p1 == 0x07) {
     wipe(f.priv.data(), 32);

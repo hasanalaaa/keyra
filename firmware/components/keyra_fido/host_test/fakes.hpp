@@ -46,7 +46,24 @@ class MemStore final : public Store {
   Result remove(uint32_t id) override { return recs.erase(id) ? Result::Ok : Result::NotFound; }
   Result reset() override {
     recs.clear();
+    pin.clear();
     key[0] ^= 0xFF;  // new wrapping key
+    return Result::Ok;
+  }
+  std::vector<uint8_t> pin;  // the ClientPIN record; empty = none
+  int pinWrites = 0;
+  bool pinSet() override { return !pin.empty(); }
+  Result pinRead(std::vector<uint8_t>& out) override {
+    out.clear();
+    if (!open) return Result::Locked;
+    if (pin.empty()) return Result::NotFound;
+    out = pin;
+    return Result::Ok;
+  }
+  Result pinWrite(const std::vector<uint8_t>& d) override {
+    if (!open) return Result::Locked;
+    pin = d;
+    ++pinWrites;
     return Result::Ok;
   }
 };

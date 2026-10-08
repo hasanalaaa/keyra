@@ -552,7 +552,8 @@ Design, key formats and honest limits: [FIDO.md](FIDO.md). Contract points:
   and output reports, EP OUT 0x04 / IN 0x84, 5 ms). The dev build adds the CDC
   console as interfaces 2-3. `bcdDevice` 0x0110 (release) / 0x0111 (dev).
 - **Component** `keyra_fido`: CTAPHID, CTAP 2.0 (`U2F_V2`, `FIDO_2_0`; ES256;
-  rk/up/uv), U2F, the `fido` task. Plain-C++ core under `src/core`, host-tested;
+  rk/up/uv/clientPin; ClientPIN with PIN/UV auth protocols 2 and 1;
+  extensions `credProtect`, `hmac-secret`), U2F, the `fido` task. Plain-C++ core under `src/core`, host-tested;
   `keyra_hid` only carries the reports (`hid::setFidoReceiver`, `hid::fidoSend`).
 - **Button.** While a FIDO request waits (`fido::awaitingTouch()`), the actions
   task routes presses there before the pending-action machine: short = approve,
@@ -561,7 +562,16 @@ Design, key formats and honest limits: [FIDO.md](FIDO.md). Contract points:
 - **Vault.** Passkey records `f/<id>.bin` (AES-256-GCM with the DEK, AAD
   `"keyra/f/v1/<id>"`, ≤ 50, ≤ 1 KiB each) and `fido.bin` (the wrapping keys:
   v1 a salt, v2 an encrypted list of ≤ 4 keys; `keyra_vault/src/core/vault_core.hpp`);
-  `vault::passkey*` in `keyra/vault.hpp`.
+  `vault::passkey*` in `keyra/vault.hpp`. The security key PIN record
+  `fidopin.bin` (AES-256-GCM with the DEK, AAD `"keyra/fidopin/v1"`: version,
+  retries, LEFT(SHA-256(PIN), 16); `vault::fidoPin*`), removed by
+  authenticatorReset and setup, kept by restores, not in backups.
+- **ClientPIN** ([FIDO.md](FIDO.md#clientpin)). A FIDO PIN separate from the
+  passphrase, set from the computer. 8 retries, decremented and stored before
+  the check; 3 wrong in a row → `PIN_AUTH_BLOCKED` until power-up; 0 →
+  `PIN_BLOCKED` until authenticatorReset. With a PIN set, getInfo drops `uv`
+  and UV comes only from a valid `pinAuth`; without one, UV = vault unlocked
+  as before. The PIN token is forgotten when the vault locks.
 - **Backups** ([PASSKEY-BACKUP.md](research/PASSKEY-BACKUP.md)). Backup format v3
   (`backup_format.hpp`) carries the wrap keys, the passkey records and the
   signature counter while the setting `passkeysInBackup` is on (default on;
@@ -573,8 +583,9 @@ Design, key formats and honest limits: [FIDO.md](FIDO.md). Contract points:
   would pass 4 keys or 50 passkeys. The restore raises the signature counter to
   at least the backup's + 1000. Credentials keep BE = BS = 0.
 - **API** (session):
-  - `GET /api/fido` → `{passkeys:[{id, rpId, userName, displayName, created}], max:50}`
-    (newest first; `created` unix seconds, 0 = unknown)
+  - `GET /api/fido` → `{passkeys:[{id, rpId, userName, displayName, created}], max:50,
+    pinSet, pinRetries}` (newest first; `created` unix seconds, 0 = unknown;
+    `pinRetries` 0-8, 8 when no PIN is set, null when the PIN record cannot be read)
   - `DELETE /api/fido/{id}` → 202 `{awaiting:"button", op:"delete_passkey", expiresIn, cancel}`
     / 404 `not_found`; the press removes it (only if still unlocked and still there) (§12.3)
 

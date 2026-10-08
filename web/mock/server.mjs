@@ -17,6 +17,7 @@
 //   a computer that was plugged in while unlocked auto-locks, SPEC §12.4)
 //   POST /__mock/ble {pair:"<device name>"} (a device pairs while the window is open) · {connected:bool}
 //     · {autoConnect:bool} (default true: the wanted device connects ~1.5 s after an action is armed)
+//   POST /__mock/fido {pinSet:bool, pinRetries?:0-8} (the computer set, changed or used the security key PIN)
 // Home Wi‑Fi: any network joins ~2 s after the press, except with the password "wrong-password".
 import { createServer } from 'node:http';
 import { createCipheriv, createDecipheriv, createHash, createHmac, pbkdf2Sync, randomBytes, timingSafeEqual } from 'node:crypto';
@@ -2016,7 +2017,8 @@ async function api(req, res, path) {
 
     case 'passkeys': {
       const list = [...vault.passkeys.values()].sort((a, b) => b.created - a.created).map(({ cred, ...p }) => p);
-      return send(res, 200, { passkeys: list, max: MAX_PASSKEYS });
+      const pin = vault.fidoPin ?? { set: false, retries: 8 }; // docs/FIDO.md "ClientPIN"; set from the computer
+      return send(res, 200, { passkeys: list, max: MAX_PASSKEYS, pinSet: pin.set, pinRetries: pin.retries });
     }
 
     case 'deletePasskey': {
@@ -2219,6 +2221,11 @@ async function mockControl(req, res, path) {
   if (path === '/__mock/ble' && typeof b.autoConnect === 'boolean') {
     ble.autoConnect = b.autoConnect;
     return send(res, 200, { autoConnect: ble.autoConnect });
+  }
+  if (path === '/__mock/fido' && typeof b.pinSet === 'boolean' && vault) {
+    const retries = Number.isInteger(b.pinRetries) && b.pinRetries >= 0 && b.pinRetries <= 8 ? b.pinRetries : 8;
+    vault.fidoPin = { set: b.pinSet, retries: b.pinSet ? retries : 8 };
+    return send(res, 200, vault.fidoPin);
   }
   if (path === '/__mock/usb' && typeof b.usb === 'boolean') {
     setUsb(b.usb);

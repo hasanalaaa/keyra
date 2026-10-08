@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include "core/cred.hpp"
+#include "core/pin.hpp"
 #include "keyra/fido.hpp"
 #include "keyra/vault.hpp"
 
@@ -51,6 +52,12 @@ Store::Result VaultStore::remove(uint32_t id) { return from(vault::passkeyRemove
 
 Store::Result VaultStore::reset() { return from(vault::passkeyReset()); }
 
+bool VaultStore::pinSet() { return vault::fidoPinSet(); }
+
+Store::Result VaultStore::pinRead(std::vector<uint8_t>& out) { return from(vault::fidoPinRead(out)); }
+
+Store::Result VaultStore::pinWrite(const std::vector<uint8_t>& data) { return from(vault::fidoPinWrite(data)); }
+
 // ---- keyra/fido.hpp: Settings → Passkeys -----------------------------------
 
 Result list(std::vector<Passkey>& out) {
@@ -75,6 +82,24 @@ Result list(std::vector<Passkey>& out) {
     out.push_back(std::move(p));
   }
   std::stable_sort(out.begin(), out.end(), [](const Passkey& a, const Passkey& b) { return a.created > b.created; });
+  return Result::Ok;
+}
+
+Result pinStatus(PinStatus& out) {
+  out = PinStatus{};
+  if (!vault::unlocked()) return Result::Locked;
+  std::vector<uint8_t> data;
+  switch (vault::fidoPinRead(data)) {
+    case vault::Status::Ok: break;
+    case vault::Status::NotFound: return Result::Ok;
+    case vault::Status::Locked:
+    case vault::Status::NotInitialized: return Result::Locked;
+    default: return Result::Error;
+  }
+  pin::State st;
+  if (!pin::decode(data, st)) return Result::Error;
+  out.set = true;
+  out.retries = st.retries;
   return Result::Ok;
 }
 

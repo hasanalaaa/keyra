@@ -32,15 +32,15 @@ ORIGIN = "https://example.com"
 
 
 # python-fido2's client follows CTAP 2.1 and asks for a pinUvAuthToken whenever
-# an authenticator reports `uv`; Keyra is CTAP 2.0 with built-in UV and no PIN
-# protocol, which 2.0 platforms (browsers, Windows) drive by sending options.uv
-# = true. Make the client do exactly that when no PIN/UV protocol is offered.
+# an authenticator reports `uv`; Keyra is CTAP 2.0 with built-in UV while no
+# PIN is set, which 2.0 platforms (browsers, Windows) drive by sending
+# options.uv = true. Make the client do exactly that while clientPin is false.
 _orig_auth_params = _Ctap2ClientBackend._get_auth_params
 
 
 def _ctap20_auth_params(self, pin_protocol, rp_id, user_verification, permissions, allow_uv, event, on_keepalive):
     info = self.ctap2.get_info()
-    if not info.pin_uv_protocols and info.options.get("uv"):
+    if not info.options.get("clientPin") and info.options.get("uv"):
         return None, self._should_use_uv(info, user_verification, permissions)
     return _orig_auth_params(self, pin_protocol, rp_id, user_verification, permissions, allow_uv, event, on_keepalive)
 
