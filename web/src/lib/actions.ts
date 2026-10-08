@@ -6,7 +6,7 @@ import { errorText, isLockedError } from './errors';
 import { getState, holdFastPolling, loadEntries, toast, useApp } from './store';
 import { osOf, resolveTarget, wantsSwitch } from './hostos';
 import { t } from './i18n';
-import type { DeviceState, PresenceOp, ResultCode, TypeTextRequest, TypeWhat } from './types';
+import type { DeviceState, Presence, PresenceOp, ResultCode, TypeTextRequest, TypeWhat } from './types';
 
 export type ErrorCode = Exclude<ResultCode, 'typed' | 'cancelled'>;
 
@@ -185,6 +185,17 @@ function forgetCancelToken(op: PresenceOp): void {
   }
 }
 
+/**
+ * True when the device (polled at `polledAt`) reports an outcome for `op` that came after
+ * `armedAt` and nothing for `op` is waiting: the one slot that held it is gone.
+ * `polledAt` is when the poll was sent, so the check errs towards "not settled".
+ */
+export function presenceSettled(p: Presence | undefined, polledAt: number, op: PresenceOp, armedAt: number): boolean {
+  if (!p || polledAt < armedAt) return false;
+  if (p.awaiting && p.op === op) return false;
+  return p.result?.op === op && polledAt - p.result.at > armedAt;
+}
+
 export function usePresence(op: PresenceOp, opts: { doneOnDisconnect?: boolean } = {}) {
   const app = useApp();
   const [st, setSt] = useState<{ startedAt: number; deadline: number; total: number; seen: boolean } | null>(null);
@@ -193,11 +204,16 @@ export function usePresence(op: PresenceOp, opts: { doneOnDisconnect?: boolean }
   // later press would still run it (a cancelled factory reset used to erase).
   const active = useRef(false);
   const token = useRef<string | null>(null); // also in memory: storage may be blocked
+  const armedAt = useRef(0); // when the request that armed it was sent
   const withdraw = () => {
     if (!active.current) return;
     active.current = false;
     const t = token.current ?? cancelToken(op);
     forgetCancelToken(op);
+    // Already pressed (e.g. a factory reset ends the session, and this sheet unmounts before
+    // seeing the result): nothing is left to withdraw.
+    const { device, deviceAt } = getState();
+    if (presenceSettled(device?.presence, deviceAt, op, armedAt.current)) return;
     if (t) void api.cancelPresence(op, t).catch(() => undefined); // expires on its own after 60 s anyway
   };
 
@@ -236,6 +252,7 @@ export function usePresence(op: PresenceOp, opts: { doneOnDisconnect?: boolean }
 
   const begin = (startedAt: number, r: Awaiting) => {
     active.current = true;
+    armedAt.current = startedAt;
     token.current = r.cancel ?? null;
     if (r.cancel) keepCancelToken(op, r.cancel);
     const deadline = Date.now() + r.expiresIn;

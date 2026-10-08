@@ -887,6 +887,297 @@ async function generatorFlow(base, opts) {
   await ctx.close();
 }
 
+// ---------- helpers for the account/safety flows below ----------
+
+const L = (opts, en, ar) => (opts.lang === 'en' ? en : ar);
+
+/** Drops the browser's log lines for responses a flow provoked on purpose (e.g. a wrong guess's 401). */
+function expectErrors(before, ...statuses) {
+  const re = new RegExp(`status of (${statuses.join('|')})`);
+  for (let i = errors.length - 1; i >= before; i--) if (re.test(errors[i])) errors.splice(i, 1);
+}
+
+/** The app's own API call from inside the page (session cookie + CSRF header), → { status, body, retryAfter }. */
+function pageApi(page, method, path, body) {
+  return page.evaluate(
+    async ([method, path, body]) => {
+      const headers = { 'Content-Type': 'application/json', 'X-Keyra-CSRF': sessionStorage.getItem('keyra.csrf') ?? '' };
+      const r = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+      const text = await r.text();
+      return { status: r.status, body: text ? JSON.parse(text) : null, retryAfter: r.headers.get('Retry-After') };
+    },
+    [method, path, body],
+  );
+}
+
+async function settingsRow(page, label) {
+  await page.evaluate(() => (location.hash = '#/settings'));
+  await page.locator('.settings .seg').first().waitFor();
+  await page.waitForTimeout(400); // let the page transition finish before opening a sheet
+  await page.locator('.nav-row', { hasText: label }).click();
+}
+
+/** Locks from the top bar and opens the unlock form again. */
+async function lockUi(page) {
+  await page.evaluate(() => (location.hash = '#/'));
+  await page.locator('.layer .sheet').waitFor({ state: 'detached' });
+  await page.locator('.top-bar .icon-btn').last().click();
+  await page.locator('.locked-glyph').waitFor();
+  await page.locator('button', { hasText: /^(Unlock|فتح)$/ }).click();
+  await page.locator('input[type=password]').first().waitFor();
+}
+
+/** A wrong passphrase on the unlock form is refused (its 401 is expected). */
+async function unlockWrong(page, pass) {
+  const before = errors.length;
+  await page.locator('input[type=password]').fill(pass);
+  await page.locator('button[type=submit]').click();
+  await page.locator('.field-error').first().waitFor({ timeout: 8000 });
+  expectErrors(before, 401);
+}
+
+// ---------- Recovery key (SPEC §12.2): created with a press, it sets a new passphrase on the unlock screen ----------
+
+async function recoveryFlow(base, opts) {
+  const { ctx, page, tag } = await open(base, opts);
+  console.log(`recovery ${tag || '(phone, ar, light)'}`);
+  await page.locator('input[type=password]').waitFor();
+  await unlockUi(page);
+  await settingsRow(page, L(opts, 'Recovery kit', 'عدّة الاسترداد'));
+  await page.locator('.recovery .btn', { hasText: L(opts, 'Create recovery kit', 'أنشئ عدّة الاسترداد') }).click();
+  await page.locator('.recovery .ready-ready').waitFor();
+  check((await button(base)) === 'approved recovery', 'button approves the recovery key');
+  const keyEl = page.locator('[data-testid=recovery-key]');
+  await keyEl.waitFor({ timeout: 8000 });
+  const keyText = ((await keyEl.textContent()) ?? '').trim();
+  check(keyText.length >= 40, `recovery key shown (${keyText.length} chars)`);
+  await page.locator('.recovery .btn', { hasText: L(opts, "I've saved it", 'حفظته') }).click();
+  await page.locator('.recovery').waitFor({ state: 'detached' });
+
+  await lockUi(page);
+  await page.locator('button', { hasText: L(opts, 'Use recovery key', 'استخدم مفتاح الاسترداد') }).click();
+  const form = page.locator('.recover-form');
+  await form.waitFor();
+  await form.locator('.mono-input').first().fill(keyText);
+  await form.locator('input[type=password]').nth(0).fill(NEW_PASS);
+  await form.locator('input[type=password]').nth(1).fill(NEW_PASS);
+  await form.locator('button[type=submit]').click();
+  await page.locator('.list-pane').waitFor({ timeout: 10000 });
+  await page.locator('.toast-ok').waitFor({ timeout: 5000 });
+
+  // The old passphrase is gone; the one set with the key opens the vault.
+  await lockUi(page);
+  await unlockWrong(page, PASS);
+  await unlockUi(page, NEW_PASS);
+  console.log('  ✓ recovery flow passed');
+  await ctx.close();
+}
+
+// ---------- Restore (SPEC §11): merge without a press, replace after one; a wrong passphrase stops before it ----------
+
+async function restoreFlow(base, opts) {
+  const { ctx, page, tag } = await open(base, opts);
+  console.log(`restore ${tag || '(phone, ar, light)'}`);
+  await page.locator('input[type=password]').waitFor();
+  await unlockUi(page);
+  const count = async () => (await pageApi(page, 'GET', '/api/entries')).body.entries.length;
+  const seeded = await count();
+
+  await page.evaluate(() => (location.hash = '#/backup'));
+  const backupPass = 'restore test passphrase';
+  await page.locator('.backup input[type=password]').first().fill(backupPass);
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    (async () => {
+      await page.locator('.backup .btn-primary').first().click();
+      await page.waitForTimeout(500);
+      check((await button(base)) === 'approved backup', 'button approves the backup');
+    })(),
+  ]);
+  const backup = readFileSync(await download.path());
+  check(JSON.parse(backup.toString()).format === 'keyra-backup', 'backup file downloaded');
+  // An account added after the backup: a merge keeps it, a replace drops it.
+  check((await pageApi(page, 'POST', '/api/entries', { title: 'After the backup', username: 'later', password: 'Later-Password-77' })).status === 201, 'entry added');
+
+  const file = page.locator('.backup input[type=file]');
+  const pass = page.locator('.backup input[type=password]').nth(1);
+  const restoreBtn = page.locator('.backup .btn', { hasText: L(opts, /^Restore$/, /^استعادة$/) });
+  const seg = (label) => page.locator('.backup .seg-item', { hasText: label });
+
+  // Merge: no press, every entry of the file matches one here.
+  await file.setInputFiles({ name: 'keyra-backup.json', mimeType: 'application/json', buffer: backup });
+  await pass.fill(backupPass);
+  await seg(L(opts, 'Merge', 'دمج')).click();
+  await restoreBtn.click();
+  const merged = page.locator('.toast-ok', { hasText: L(opts, 'Added 0, updated', 'أُضيف 0 وحُدِّث') });
+  await merged.waitFor({ timeout: 8000 });
+  check(new RegExp(`\\b${seeded}\\b`).test((await merged.textContent()) ?? ''), `merge updated all ${seeded}`);
+  check((await count()) === seeded + 1, 'merge keeps the newer account');
+  await merged.waitFor({ state: 'detached', timeout: 8000 });
+
+  // Replace with a wrong passphrase: refused at once, nothing waits for the button.
+  await file.setInputFiles({ name: 'keyra-backup.json', mimeType: 'application/json', buffer: backup });
+  await pass.fill('not the backup passphrase');
+  await seg(L(opts, 'Replace', 'استبدال')).click();
+  const before = errors.length;
+  await restoreBtn.click();
+  await page.locator('.alert .btn-danger-confirm').click();
+  await page.locator('.backup .field-error').waitFor({ timeout: 8000 });
+  expectErrors(before, 401);
+  const st = (await pageApi(page, 'GET', '/api/state')).body;
+  check(!st.presence.awaiting && (await page.locator('.ready-ready').count()) === 0, 'a wrong passphrase never asks for the button');
+
+  // Replace: after the press the vault is exactly the backup.
+  await pass.fill(backupPass);
+  await restoreBtn.click();
+  await page.locator('.alert .btn-danger-confirm').click();
+  await page.locator('.backup .ready-ready').waitFor();
+  check((await button(base)) === 'approved restore', 'button approves the replace');
+  await page.locator('.toast-ok', { hasText: new RegExp(`\\b${seeded}\\b`) }).waitFor({ timeout: 8000 });
+  check((await count()) === seeded, 'replace drops the newer account');
+  console.log('  ✓ restore flow passed');
+  await ctx.close();
+}
+
+// ---------- Factory reset from Settings (press) → Welcome ----------
+
+async function resetFlow(base, opts) {
+  const { ctx, page, tag } = await open(base, opts);
+  console.log(`factory reset ${tag || '(phone, ar, light)'}`);
+  await page.locator('input[type=password]').waitFor();
+  await unlockUi(page);
+  await page.evaluate(() => (location.hash = '#/settings'));
+  await page.locator('.settings .seg').first().waitFor();
+  await page.waitForTimeout(400);
+  await page.locator('.danger-group .nav-row').click();
+  await page.locator('.alert .btn-danger-confirm').click();
+  await page.locator('.ready-ready').waitFor();
+  check((await button(base)) === 'approved factory_reset', 'button approves the reset');
+  await page.locator('.welcome').waitFor({ timeout: 10000 });
+  const st = await (await fetch(`${base}/api/state`)).json();
+  check(st.initialized === false && st.unlocked === false, 'device is uninitialized after the reset');
+  console.log('  ✓ factory reset flow passed');
+  await ctx.close();
+}
+
+// ---------- Change passphrase: wrong current is refused and throttled like unlock; the new one unlocks ----------
+
+async function passphraseFlow(base, opts) {
+  const { ctx, page, tag } = await open(base, opts);
+  console.log(`passphrase ${tag || '(phone, ar, light)'}`);
+  await page.locator('input[type=password]').waitFor();
+  await unlockUi(page);
+  await settingsRow(page, L(opts, 'Change master passphrase', 'تغيير العبارة الرئيسية'));
+  const sheet = page.locator('.layer .sheet form');
+  await sheet.waitFor();
+  const fields = sheet.locator('input[type=password]');
+  await fields.nth(0).fill('not my passphrase');
+  await fields.nth(1).fill(NEW_PASS);
+  await fields.nth(2).fill(NEW_PASS);
+  let before = errors.length;
+  await sheet.locator('button[type=submit]').click();
+  await sheet.locator('.field-error', { hasText: L(opts, "That passphrase isn't right.", 'هذه العبارة غير صحيحة.') }).waitFor({ timeout: 8000 });
+
+  // Shared throttle with unlock (Vault::attempt): the 5th wrong guess waits 2 s, then both answer 429.
+  let r;
+  for (let i = 2; i <= 5; i++) r = await pageApi(page, 'POST', '/api/passphrase', { current: 'still wrong', next: NEW_PASS });
+  check(r.status === 401 && r.body.error === 'wrong' && r.body.retryAfterMs === 2000, `5th wrong guess says wait (${JSON.stringify(r.body)})`);
+  r = await pageApi(page, 'POST', '/api/passphrase', { current: PASS, next: NEW_PASS });
+  check(r.status === 429 && r.body.error === 'rate_limited' && r.body.retryAfterMs > 0 && r.retryAfter === '2', `then 429 (${JSON.stringify(r)})`);
+  r = await pageApi(page, 'POST', '/api/unlock', { passphrase: PASS });
+  check(r.status === 429, 'unlock shares the throttle');
+  expectErrors(before, 401, 429);
+  await page.waitForTimeout(2100);
+
+  await fields.nth(0).fill(PASS);
+  await sheet.locator('button[type=submit]').click();
+  await page.locator('.toast-ok', { hasText: L(opts, 'Passphrase changed.', 'تم تغيير العبارة.') }).waitFor({ timeout: 8000 });
+  await sheet.waitFor({ state: 'detached' });
+
+  await lockUi(page);
+  await unlockWrong(page, PASS);
+  await unlockUi(page, NEW_PASS);
+  console.log('  ✓ passphrase flow passed');
+  await ctx.close();
+}
+
+// ---------- Settings persist on the device; mock contract checks (state, typing text per layout) ----------
+
+async function settingsFlow(base, opts) {
+  const { ctx, page, tag } = await open(base, opts);
+  console.log(`settings ${tag || '(phone, ar, light)'}`);
+  await page.locator('input[type=password]').waitFor();
+  const anon = await (await fetch(`${base}/api/state`)).json();
+  check(!('usbOs' in anon.host), 'host.usbOs is not shown without a session');
+  await unlockUi(page);
+  check('usbOs' in (await pageApi(page, 'GET', '/api/state')).body.host, 'host.usbOs is shown to a session');
+
+  const autoLock = L(opts, 'Auto-lock', 'القفل التلقائي');
+  await settingsRow(page, autoLock);
+  const put = page.waitForRequest((q) => q.url().endsWith('/api/settings') && q.method() === 'PUT');
+  await page.locator('[role=radio]', { hasText: L(opts, '30 min', '30 دقيقة') }).click();
+  check(JSON.parse((await put).postData() ?? '{}').autoLockMin === 30, 'PUT /api/settings carries autoLockMin');
+  await page.locator('.nav-row', { hasText: autoLock }).locator('.row-value', { hasText: '30' }).waitFor();
+
+  await page.reload();
+  await settingsRow(page, autoLock).catch(async () => {
+    await unlockUi(page); // a reload may land on the unlock screen; the setting lives on the device either way
+    await settingsRow(page, autoLock);
+  });
+  await page.locator('[role=radio][aria-checked=true]', { hasText: '30' }).waitFor();
+  check((await pageApi(page, 'GET', '/api/settings')).body.autoLockMin === 30, 'autoLockMin persisted');
+  check((await pageApi(page, 'GET', '/api/state')).body.autoLockMin === 30, 'state reports the new auto-lock');
+  await page.keyboard.press('Escape');
+
+  // Free text is checked against the output's layout (validate::typeText), not as ASCII.
+  const before = errors.length;
+  let r = await pageApi(page, 'POST', '/api/type', { text: 'Grüße', target: 'usb' });
+  check(r.status === 400, `US layout cannot type ü/ß (${r.status})`);
+  check((await pageApi(page, 'PUT', '/api/settings', { layoutUsb: 'de' })).status === 200, 'German set for USB');
+  r = await pageApi(page, 'POST', '/api/type', { text: 'Grüße', target: 'usb' });
+  check(r.status === 202, `German layout types ü/ß (${r.status})`);
+  check((await button(base)) === 'typing text (5 chars)', 'the text is typed after a press');
+  expectErrors(before, 400);
+  await page.waitForTimeout(800);
+  check((await pageApi(page, 'GET', '/api/state')).body.last?.code === 'typed', 'typed without unsupported_char');
+  await pageApi(page, 'PUT', '/api/settings', { layoutUsb: 'us' });
+  console.log('  ✓ settings flow passed');
+  await ctx.close();
+}
+
+// ---------- Trusted browsers (SPEC §8.2): removing this browser signs it out; it must be trusted again ----------
+
+async function trustedFlow(base, opts) {
+  const { ctx, page, tag } = await open(base, opts);
+  console.log(`trusted ${tag || '(phone, ar, light)'}`);
+  const trustAndUnlock = async () => {
+    await page.locator('input[type=password]').fill(PASS);
+    await page.locator('button[type=submit]').click();
+    await page.locator('.ready-ready').waitFor();
+    check((await button(base)) === 'approved trust_browser', 'button approves trust');
+    await page.locator('.list-pane, .settings').first().waitFor({ timeout: 10000 }); // back where it was
+  };
+  await page.locator('input[type=password]').waitFor();
+  await trustAndUnlock();
+  await settingsRow(page, L(opts, 'Trusted browsers', 'المتصفحات الموثوقة'));
+  const mine = page.locator('.trusted-row', { has: page.locator('.chip-accent') });
+  await mine.waitFor();
+  check((await page.locator('.trusted-row').count()) === 1, 'one trusted browser');
+  const before = errors.length;
+  await mine.locator('.icon-btn').click();
+  await page.locator('.alert .btn-danger-confirm').click();
+  // Its session ended with the trust: the app is locked and the next unlock asks for the button again.
+  await page.locator('input[type=password], .locked-glyph').first().waitFor({ timeout: 8000 });
+  expectErrors(before, 401);
+  if (await page.locator('.locked-glyph').count()) await page.locator('button', { hasText: /^(Unlock|فتح)$/ }).click();
+  await trustAndUnlock();
+  await settingsRow(page, L(opts, 'Trusted browsers', 'المتصفحات الموثوقة'));
+  await mine.waitFor();
+  check((await page.locator('.trusted-row').count()) === 1, 'trusted again (the removed one is gone)');
+  console.log('  ✓ trusted flow passed');
+  await ctx.close();
+}
+
 /** Shrinks the PNGs for the README when pngquant is on PATH (they are committed). */
 function quantizeShots() {
   const files = readdirSync(SHOTS).filter((f) => f.endsWith('.png')).map((f) => SHOTS + f);
@@ -945,6 +1236,18 @@ try {
   await updateFlow(await startMock({ MOCK_HOME_ONLINE: '1' }), { lang: 'en', dark: true });
   await keyboardFlow(await startMock(), {});
   await keyboardFlow(await startMock(), { lang: 'en', dark: true });
+  await recoveryFlow(await startMock(), {});
+  await recoveryFlow(await startMock(), { lang: 'en', dark: true });
+  await restoreFlow(await startMock(), {});
+  await restoreFlow(await startMock(), { lang: 'en', dark: true });
+  await resetFlow(await startMock(), {});
+  await resetFlow(await startMock(), { lang: 'en', dark: true });
+  await passphraseFlow(await startMock(), {});
+  await passphraseFlow(await startMock(), { lang: 'en', dark: true });
+  await settingsFlow(await startMock(), {});
+  await settingsFlow(await startMock(), { lang: 'en', dark: true });
+  await trustedFlow(await startMock({ MOCK_VIA: 'home' }), {});
+  await trustedFlow(await startMock({ MOCK_VIA: 'home' }), { lang: 'en', dark: true });
 
   quantizeShots();
   if (errors.length) {
