@@ -6,6 +6,21 @@ All notable changes to Keyra are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- Firmware update: after the button press installs an update, a new upload or
+  download can no longer start before the restart and erase the image just
+  installed; `state.update.phase` reads `restarting` meanwhile.
+- Firmware update: the press installs only the image the phone showed; if a
+  different one was staged in between, nothing is installed.
+- Firmware update: redirects while fetching from GitHub must stay on `https://`.
+- Firmware update: GitHub's request limit is reported as `rate_limited` ("try
+  again in an hour"), and a cut-off answer as a network error instead of "no
+  release found".
+- Firmware update: a new image now stays on probation for ~15 s after boot
+  before it is kept, so a crash shortly after start-up also rolls back; a
+  flash storage error no longer rolls back (it cannot help), and an image with
+  nothing to roll back to keeps running instead of being left unconfirmed.
+
 ## [0.2.0] - 2026-10-08
 
 Highlights:

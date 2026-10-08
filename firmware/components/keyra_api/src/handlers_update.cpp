@@ -30,10 +30,15 @@ constexpr size_t kMaxReleaseJson = 96 * 1024;
 constexpr size_t kMaxNotes = 2000;
 constexpr int kMaxRedirects = 5;
 constexpr int64_t kDownloadBudgetUs = 5LL * 60 * 1000000;  // 3 MB on a slow link
+// Probation of a just-installed image: long enough for Wi-Fi, BLE and the
+// first requests to have run, short enough that a user unplugging it right
+// after the update rarely catches it unconfirmed.
+constexpr int64_t kConfirmAfterUs = 15LL * 1000000;
 
-enum class Phase { Idle, Receiving, Staged, Failed };
+enum class Phase { Idle, Receiving, Staged, Restarting, Failed };
 
-// One image at a time, from either source.
+// One image at a time, from either source. Once an image is installed it
+// stays taken until the restart: the idle partition is the boot one by then.
 std::atomic<bool> g_busy{false};
 std::mutex g_mu;  // guards everything below
 Phase g_phase = Phase::Idle;
@@ -41,6 +46,7 @@ bool g_fromGithub = false;
 size_t g_done = 0, g_total = 0;
 std::string g_version, g_error;
 const esp_partition_t* g_staged = nullptr;
+uint32_t g_stageGen = 0;  // bumped per staged image, so a press installs the one it was asked for
 
 void setReceiving(size_t total, bool github) {
   std::lock_guard<std::mutex> lock(g_mu);
@@ -110,6 +116,7 @@ class Stage {
     g_phase = Phase::Staged;
     g_version = version;
     g_staged = part_;
+    ++g_stageGen;
     return nullptr;
   }
   ~Stage() {
@@ -131,7 +138,7 @@ const char* statusFor(const char* code) {
   if (c == "downgrade" || c == "busy" || c == "offline") return http::k409;
   if (c == "too_large") return http::k413;
   if (c == "flash_failed" || c == "no_partition") return http::k500;
-  if (c == "network" || c == "no_release") return http::k503;
+  if (c == "network" || c == "no_release" || c == "rate_limited") return http::k503;
   return http::k400;
 }
 
@@ -144,6 +151,7 @@ const char* messageFor(const char* code) {
   if (c == "offline") return "Keyra is not on the internet; join your home Wi-Fi first";
   if (c == "network") return "Could not reach GitHub";
   if (c == "no_release") return "No published Keyra firmware was found";
+  if (c == "rate_limited") return "GitHub is limiting requests; try again in an hour";
   if (c == "busy") return "Another update is in progress";
   return "Could not write the update";
 }
@@ -186,6 +194,14 @@ int openFollowing(esp_http_client_handle_t c, int64_t& length) {
     esp_http_client_flush_response(c, nullptr);
     esp_http_client_close(c);
     if (esp_http_client_set_redirection(c) != ESP_OK) return 0;
+    // The certificate bundle only protects TLS hops: a Location sending us to
+    // plain http would let anyone on the path feed the download (the
+    // signature check still holds, but nothing else should ride in clear).
+    char next[128];
+    if (esp_http_client_get_url(c, next, sizeof next) != ESP_OK || std::string_view(next).rfind("https://", 0) != 0) {
+      ESP_LOGW(TAG, "refusing a redirect off https");
+      return 0;
+    }
   }
 }
 
@@ -202,13 +218,15 @@ const char* latestRelease(Release& out) {
   int64_t len = 0;
   const int status = openFollowing(c, len);
   std::string body;
+  bool readFailed = false;  // a cut or oversized answer is the network's fault, not the release's
   if (status == 200) {
     char buf[1024];
     for (;;) {
       const int n = esp_http_client_read(c, buf, sizeof buf);
+      if (n < 0) readFailed = true;
       if (n <= 0) break;
       if (body.size() + n > kMaxReleaseJson) {
-        body.clear();  // not a release answer we can use
+        readFailed = true;
         break;
       }
       body.append(buf, n);
@@ -216,8 +234,11 @@ const char* latestRelease(Release& out) {
   }
   esp_http_client_close(c);
   esp_http_client_cleanup(c);
-  if (status == 0) return "network";
+  if (status == 0 || readFailed) return "network";
   if (status == 404) return "no_release";
+  // Unauthenticated API calls are capped per hour per address; GitHub answers
+  // 403 or 429 once the cap is reached.
+  if (status == 403 || status == 429) return "rate_limited";
   if (status != 200) {
     ESP_LOGW(TAG, "GitHub answered %d", status);
     return "network";
@@ -287,6 +308,21 @@ void downloadTask(void*) {
   if (err) setFailed(err);
   g_busy = false;
   vTaskDelete(nullptr);
+}
+
+// Runs once, kConfirmAfterUs after the first boot of a new image; `arg` is
+// the boot-time health (non-null = healthy).
+void decideBoot(void* arg) {
+  if (arg != nullptr) {
+    ESP_LOGI(TAG, "update %s has run fine: keeping it", esp_app_get_description()->version);
+  } else {
+    ESP_LOGE(TAG, "update failed its self-test: going back to the previous firmware");
+    esp_ota_mark_app_invalid_rollback_and_reboot();
+    // Still here: there is no previous image to go back to. Rebooting again
+    // would only loop, and this image is the best there is.
+    ESP_LOGE(TAG, "no previous firmware to go back to: keeping this one");
+  }
+  esp_ota_mark_app_valid_cancel_rollback();
 }
 
 }  // namespace
@@ -371,27 +407,41 @@ esp_err_t download(httpd_req_t* r) {
 
 esp_err_t apply(httpd_req_t* r) {
   const esp_partition_t* part;
+  uint32_t gen;
   std::string ver;
   {
     std::lock_guard<std::mutex> lock(g_mu);
     part = g_phase == Phase::Staged ? g_staged : nullptr;
+    gen = g_stageGen;
     ver = g_version;
   }
+  // Restarting is not Staged either, so a second apply after the press is refused here.
   if (part == nullptr || g_busy) return http::sendError(r, http::k409, "not_staged", "No verified update is waiting");
-  const int64_t expires = machine().awaitPresence(actions::Op::Update, [part] {
-    // A new upload may have started since: only switch to a still-staged image.
+  const int64_t expires = machine().awaitPresence(actions::Op::Update, [part, gen] {
+    // Holding g_busy keeps uploads and downloads out while the boot partition
+    // changes, and for good once it has: they would erase the image just installed.
+    if (g_busy.exchange(true)) return false;
     {
+      // Only the image the phone showed: another one may have been staged since.
       std::lock_guard<std::mutex> lock(g_mu);
-      if (g_phase != Phase::Staged || g_staged != part || g_busy) return false;
+      if (g_phase != Phase::Staged || g_staged != part || g_stageGen != gen) {
+        g_busy = false;
+        return false;
+      }
     }
     const esp_err_t e = esp_ota_set_boot_partition(part);
     if (e != ESP_OK) {
       ESP_LOGE(TAG, "set boot partition: %s", esp_err_to_name(e));
+      g_busy = false;
       return false;
     }
     ESP_LOGI(TAG, "installed into %s; restarting", part->label);
+    {
+      std::lock_guard<std::mutex> lock(g_mu);
+      g_phase = Phase::Restarting;
+    }
     restartSoon();
-    return true;
+    return true;  // g_busy stays taken until the restart
   });
   json::Ptr o(cJSON_CreateObject());
   cJSON_AddStringToObject(o.get(), "awaiting", "button");
@@ -406,9 +456,10 @@ void addState(cJSON* state) {
   std::lock_guard<std::mutex> lock(g_mu);
   if (g_phase == Phase::Idle) return;
   cJSON* u = cJSON_AddObjectToObject(state, "update");
-  cJSON_AddStringToObject(u, "phase", g_phase == Phase::Receiving ? "receiving"
-                                      : g_phase == Phase::Staged  ? "staged"
-                                                                  : "failed");
+  cJSON_AddStringToObject(u, "phase", g_phase == Phase::Receiving    ? "receiving"
+                                      : g_phase == Phase::Staged     ? "staged"
+                                      : g_phase == Phase::Restarting ? "restarting"
+                                                                     : "failed");
   cJSON_AddStringToObject(u, "source", g_fromGithub ? "github" : "upload");
   cJSON_AddNumberToObject(u, "done", static_cast<double>(g_done));
   cJSON_AddNumberToObject(u, "total", static_cast<double>(g_total));
@@ -420,13 +471,23 @@ void confirmBoot(bool healthy) {
   const esp_partition_t* running = esp_ota_get_running_partition();
   esp_ota_img_states_t state;
   if (esp_ota_get_state_partition(running, &state) != ESP_OK || state != ESP_OTA_IMG_PENDING_VERIFY) return;
-  if (healthy) {
-    ESP_LOGI(TAG, "update %s started fine: keeping it", esp_app_get_description()->version);
-    esp_ota_mark_app_valid_cancel_rollback();
+  // Decide a little later, not at boot: a crash or watchdog reset while the
+  // image is still unconfirmed comes back up in PENDING_VERIFY and the
+  // bootloader rolls back on its own, so surviving the wait is part of the test.
+  static esp_timer_handle_t timer = nullptr;
+  const esp_timer_create_args_t args{
+      .callback = decideBoot,
+      .arg = healthy ? reinterpret_cast<void*>(1) : nullptr,
+      .dispatch_method = ESP_TIMER_TASK,
+      .name = "update_confirm",
+      .skip_unhandled_events = false,
+  };
+  if (esp_timer_create(&args, &timer) != ESP_OK || esp_timer_start_once(timer, kConfirmAfterUs) != ESP_OK) {
+    ESP_LOGW(TAG, "probation timer unavailable: deciding now");  // never leave the image unconfirmed
+    decideBoot(args.arg);
     return;
   }
-  ESP_LOGE(TAG, "update failed its self-test: going back to the previous firmware");
-  esp_ota_mark_app_invalid_rollback_and_reboot();
+  ESP_LOGI(TAG, "update %s on probation for %d s", esp_app_get_description()->version, int(kConfirmAfterUs / 1000000));
 }
 
 }  // namespace keyra::api::update

@@ -57,10 +57,12 @@ extern "C" void app_main() {
       s.bleConnect == keyra::settings::BleConnect::Always ? keyra::ble::Connect::Always : keyra::ble::Connect::OnDemand);
   if (be != ESP_OK) ESP_LOGE(TAG, "Bluetooth unavailable: %s", esp_err_to_name(be));
   ESP_ERROR_CHECK(keyra::api::start());
-  // A just-installed update proves itself here (SPEC §14): a crash before this
-  // line, or a vault the old firmware could read and this one cannot, sends
-  // the bootloader back to the previous firmware.
-  keyra::api::confirmBoot(vs == keyra::vault::Status::Ok || vs == keyra::vault::Status::NotInitialized);
+  // A just-installed update starts its probation here (SPEC §14): a crash
+  // before it ends, or a vault the old firmware could read and this one
+  // cannot, sends the bootloader back to the previous firmware. A storage
+  // (flash/mount) error counts as healthy: going back cannot fix the hardware.
+  keyra::api::confirmBoot(vs == keyra::vault::Status::Ok || vs == keyra::vault::Status::NotInitialized ||
+                          vs == keyra::vault::Status::StorageError);
   ESP_LOGI(TAG, "Keyra up: http://keyra.local (internal heap free %u, largest block %u)",
            static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
            static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)));
