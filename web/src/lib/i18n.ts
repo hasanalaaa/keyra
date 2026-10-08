@@ -323,7 +323,11 @@ const en = {
   backupHead: 'Backup',
   backupPassLabel: "Backup's passphrase",
   restoreReplaced: 'Restored: {c}',
-  backupBody: 'An encrypted file with its own passphrase. Keep it somewhere safe. It holds your accounts and their history; passkeys and the activity log stay on this Keyra.',
+  restoreReplacedPasskeys: 'Restored: {c}. Keyra now has {p}.',
+  backupBody: 'An encrypted file with its own passphrase. Keep it somewhere safe: it holds your accounts, their history and your passkeys. The activity log stays on this Keyra.',
+  backupBodyNoPasskeys:
+    'An encrypted file with its own passphrase. Keep it somewhere safe: it holds your accounts and their history. Passkeys are left out (Settings → Passkeys in backups), and the activity log stays on this Keyra.',
+  passkeysFull: "Not restored: Keyra holds up to 50 passkeys, from up to 4 Keyras. Delete passkeys you don't need, or restore with Replace.",
   backupLabel: 'Backup passphrase (12+ characters)',
   backupHelper: "Different from your master passphrase, and Keyra can't recover it.",
   backupButton: 'Download backup',
@@ -336,6 +340,7 @@ const en = {
   replaceHelper: "Your current vault is replaced entirely. Needs a press of Keyra's button.",
   restore: 'Restore',
   restoreResult: 'Added {a}, updated {u}',
+  restoreResultPasskeys: 'Added {a}, updated {u}, plus {p}',
   restoreWrong: 'Wrong passphrase, or the file is damaged.',
   replaceTitle: 'Replace everything?',
   pressToConfirm: 'Press the button to confirm',
@@ -616,7 +621,7 @@ const en = {
   passkeysFoot:
     "Keyra is also a security key. Plug it in by USB, and when a website asks for a passkey or security key, press Keyra's button while its light double-blinks white. Keyra must be unlocked.",
   passkeysLimits:
-    "Keyra isn't a certified security key and has no secure chip: passkeys are only as safe as your passphrase. Passkeys aren't in backups, so keep another way to sign in.",
+    "Keyra isn't a certified security key and has no secure chip: passkeys are only as safe as your passphrase. Backups hold your passkeys unless Passkeys in backups is off, so keep backup files safe.",
   passkeysNone: 'No passkeys yet. Passkeys you create on websites with Keyra appear here.',
   passkeysCount: '{n} of {max} passkeys',
   passkeysCreated: 'Added {date}',
@@ -658,6 +663,10 @@ const en = {
   unprotectBody: 'Anyone who gets into this browser session could then read every password without touching Keyra. Turning it off needs one press.',
   turnOff: 'Turn off',
   unprotectPress: "Press Keyra's button to turn protection off",
+  passkeysInBackup: 'Passkeys in backups',
+  passkeysInBackupFoot:
+    "Off: passkeys stay on this Keyra only, and a new Keyra restored from a backup can't use them. Turning it on needs a press of Keyra's button.",
+  passkeysInBackupPress: "Press Keyra's button to put passkeys in backups",
   lockOnUsb: 'Lock when the computer is unplugged or sleeps',
   lockOnBle: 'Lock when the Bluetooth device disconnects',
   lockFoot: "Only after Keyra was used with that computer or device while unlocked. Power from a charger never locks it.",
@@ -1023,7 +1032,11 @@ const ar: Record<Key, string> = {
   backupHead: 'نسخة احتياطية',
   backupPassLabel: 'عبارة النسخة الاحتياطية',
   restoreReplaced: 'استُعيد: {c}',
-  backupBody: 'ملف مشفّر بعبارة خاصة به. احتفظ به في مكان آمن. يحوي حساباتك وسجلّ كلمات سرها؛ أما مفاتيح المرور وسجل النشاط فتبقى في Keyra هذا فقط.',
+  restoreReplacedPasskeys: 'استُعيد: {c}. في Keyra الآن {p}.',
+  backupBody: 'ملف مشفّر بعبارة خاصة به. احتفظ به في مكان آمن: يحوي حساباتك وسجلّ كلمات سرها ومفاتيح المرور. أما سجل النشاط فيبقى في Keyra هذا فقط.',
+  backupBodyNoPasskeys:
+    'ملف مشفّر بعبارة خاصة به. احتفظ به في مكان آمن: يحوي حساباتك وسجلّ كلمات سرها، ولا يحوي مفاتيح المرور (الإعدادات ← مفاتيح المرور في النسخ الاحتياطية). أما سجل النشاط فيبقى في Keyra هذا فقط.',
+  passkeysFull: 'لم تتم الاستعادة: يتّسع Keyra لـ 50 مفتاح مرور، من 4 أجهزة Keyra على الأكثر. احذف ما لا تحتاجه من مفاتيح المرور، أو استعِد بالاستبدال.',
   backupLabel: 'عبارة النسخة (12 حرفاً على الأقل)',
   backupHelper: 'تختلف عن عبارتك الرئيسية، ولا تستطيع Keyra استرجاعها.',
   backupButton: 'تنزيل النسخة',
@@ -1036,6 +1049,7 @@ const ar: Record<Key, string> = {
   replaceHelper: 'تُستبدل خزنتك الحالية بالكامل. يلزم ضغط زرّ Keyra.',
   restore: 'استعادة',
   restoreResult: 'أُضيف {a} وحُدِّث {u}',
+  restoreResultPasskeys: 'أُضيف {a} وحُدِّث {u}، وأُضيف {p}',
   restoreWrong: 'العبارة غير صحيحة أو الملف تالف.',
   replaceTitle: 'استبدال كل شيء؟',
   pressToConfirm: 'اضغط الزر للتأكيد',
@@ -1311,7 +1325,7 @@ const ar: Record<Key, string> = {
   passkeysFoot:
     'Keyra مفتاح أمان أيضًا. صِله بمنفذ USB، وحين يطلب موقع مفتاح مرور أو مفتاح أمان اضغط زرّ Keyra بينما يومض ضوؤه بالأبيض ومضتين. يجب أن يكون Keyra مفتوحًا.',
   passkeysLimits:
-    'Keyra ليس مفتاح أمان معتمدًا ولا يحوي شريحة آمنة: مفاتيح المرور آمنة بقدر عبارة المرور فقط. ولا تُحفظ في النسخ الاحتياطية، فاحتفظ بطريقة أخرى لتسجيل الدخول.',
+    'Keyra ليس مفتاح أمان معتمدًا ولا يحوي شريحة آمنة: مفاتيح المرور آمنة بقدر عبارة المرور فقط. وتُحفظ في النسخ الاحتياطية ما لم تُوقف «مفاتيح المرور في النسخ الاحتياطية»، فاحفظ ملفات النسخ في مكان آمن.',
   passkeysNone: 'لا مفاتيح مرور بعد. تظهر هنا المفاتيح التي تُنشئها على المواقع بـ Keyra.',
   passkeysCount: 'المستخدم {n} من {max}',
   passkeysCreated: 'أُضيف {date}',
@@ -1352,6 +1366,10 @@ const ar: Record<Key, string> = {
   unprotectBody: 'سيتمكن أي شخص يدخل جلسة هذا المتصفح من قراءة كل كلمات المرور دون لمس Keyra. الإيقاف يحتاج ضغطة واحدة.',
   turnOff: 'إيقاف',
   unprotectPress: 'اضغط زرّ Keyra لإيقاف الحماية',
+  passkeysInBackup: 'مفاتيح المرور في النسخ الاحتياطية',
+  passkeysInBackupFoot:
+    'عند الإيقاف تبقى مفاتيح المرور في Keyra هذا فقط، ولا يستطيع Keyra جديد استخدامها بعد الاستعادة من نسخة احتياطية. التفعيل يحتاج ضغطة على زرّ Keyra.',
+  passkeysInBackupPress: 'اضغط زرّ Keyra لتضمين مفاتيح المرور في النسخ الاحتياطية',
   lockOnUsb: 'اقفل عند فصل الكمبيوتر أو نومه',
   lockOnBle: 'اقفل عند انقطاع جهاز البلوتوث',
   lockFoot: 'فقط بعد استخدام Keyra مع ذلك الكمبيوتر أو الجهاز وهو مفتوح. الطاقة من شاحن لا تقفله أبداً.',
@@ -1436,6 +1454,16 @@ export function accountCount(n: number): string {
   if (n === 2) return 'حسابان';
   if (n <= 10) return `${n} حسابات`;
   return `${n} حساباً`;
+}
+
+/** "3 passkeys", with the same Arabic plural forms. */
+export function passkeyCount(n: number): string {
+  if (current === 'en') return n === 1 ? '1 passkey' : `${n} passkeys`;
+  if (n === 0) return 'لا مفاتيح مرور';
+  if (n === 1) return 'مفتاح مرور واحد';
+  if (n === 2) return 'مفتاحا مرور';
+  if (n <= 10) return `${n} مفاتيح مرور`;
+  return `${n} مفتاح مرور`;
 }
 
 /** m:ss for countdowns. */

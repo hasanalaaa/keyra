@@ -1,4 +1,4 @@
-import type { BleInfo, DeviceState, Keyboard, Entry, HostOs, EntryInput, ActivityEvent, EntrySummary, Health, Network, Passkey, UpdateCheck, RecoveryInfo, Settings, Totp, TrustedBrowser, TypeTextRequest, TypeWhat, Pending, PresenceOp } from './types';
+import type { BleInfo, DeviceState, Keyboard, Entry, HostOs, EntryInput, ActivityEvent, EntrySummary, Health, Network, Passkey, RestoreResult, UpdateCheck, RecoveryInfo, Settings, Totp, TrustedBrowser, TypeTextRequest, TypeWhat, Pending, PresenceOp } from './types';
 import { generateRequest, type GenSettings } from './generator';
 
 export class ApiError extends Error {
@@ -211,8 +211,9 @@ export const api = {
     if (res.status === 202) return (await res.json()) as Awaiting;
     return res.blob();
   },
+  /** Merge → counts; replace → Awaiting (press Keyra's button). 409 passkeys_full: refused before anything changed. */
   restore: (passphrase: string, backup: unknown, mode: 'merge' | 'replace') =>
-    json<{ added: number; updated: number } | Awaiting>('POST', '/restore', { passphrase, backup, mode }, 60000),
+    json<RestoreResult | Awaiting>('POST', '/restore', { passphrase, backup, mode }, 60000),
   factoryReset: () => json<Awaiting>('POST', '/factory-reset'),
   ble: () => json<BleInfo>('GET', '/ble'),
   blePair: () => json<Awaiting>('POST', '/ble/pair'),

@@ -4,6 +4,7 @@
 // Screenshot names: <screen>[-desktop][-en][-dark].png — the bare name is phone (390×844), Arabic, light.
 import { chromium } from 'playwright';
 import { execFileSync, spawn } from 'node:child_process';
+import { createCipheriv, pbkdf2Sync, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { createServer as createNetServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
@@ -260,7 +261,7 @@ async function firstRunFlow(base, opts) {
   ]);
   check(/^keyra-backup-\d{8}\.json$/.test(download.suggestedFilename()), `backup filename ${download.suggestedFilename()}`);
   const file = JSON.parse(readFileSync(await download.path(), 'utf8'));
-  check(file.format === 'keyra-backup' && file.v === 2, 'backup envelope');
+  check(file.format === 'keyra-backup' && file.v === 3, 'backup envelope');
   console.log(`  ✓ flow passed (backup ${download.suggestedFilename()})`);
   await ctx.close();
 }
@@ -999,19 +1000,50 @@ async function restoreFlow(base, opts) {
   const count = async () => (await pageApi(page, 'GET', '/api/entries')).body.entries.length;
   const seeded = await count();
 
-  await page.evaluate(() => (location.hash = '#/backup'));
+  const passkeys = async () => (await pageApi(page, 'GET', '/api/fido')).body.passkeys.length;
+  check((await passkeys()) === 3, 'three seeded passkeys');
+
+  const setting = async () => (await pageApi(page, 'GET', '/api/settings')).body.passkeysInBackup;
+  check((await setting()) === true, 'passkeys are in backups by default');
+  const backupText = page.locator('.backup .callout').first();
+  const openBackup = async (withPasskeys) => {
+    await page.evaluate(() => (location.hash = '#/backup'));
+    const left = L(opts, 'Passkeys are left out', 'ولا يحوي مفاتيح المرور');
+    await backupText.waitFor();
+    check(((await backupText.textContent()) ?? '').includes(left) === !withPasskeys, `backup text says passkeys ${withPasskeys ? 'in' : 'out'}`);
+  };
+  const pkSwitch = page.locator('.switch-row', { hasText: L(opts, 'Passkeys in backups', 'مفاتيح المرور في النسخ الاحتياطية') });
+  const openSettings = async () => {
+    await page.evaluate(() => (location.hash = '#/settings'));
+    await pkSwitch.waitFor();
+  };
+
   const backupPass = 'restore test passphrase';
-  await page.locator('.backup input[type=password]').first().fill(backupPass);
-  const [download] = await Promise.all([
-    page.waitForEvent('download'),
-    (async () => {
-      await page.locator('.backup .btn-primary').first().click();
-      await page.waitForTimeout(500);
-      check((await button(base)) === 'approved backup', 'button approves the backup');
-    })(),
-  ]);
-  const backup = readFileSync(await download.path());
-  check(JSON.parse(backup.toString()).format === 'keyra-backup', 'backup file downloaded');
+  await openBackup(true);
+  await shot(page, `backup${tag}`);
+  const backup = await downloadBackup(page, base, backupPass);
+
+  // Off: at once, no press.
+  await openSettings();
+  await pkSwitch.click();
+  await waitFor(async () => (await pkSwitch.getAttribute('aria-checked')) === 'false', 'switch off');
+  check((await setting()) === false, 'passkeys left out of backups');
+  await openBackup(false);
+  const backupNoPasskeys = await downloadBackup(page, base, backupPass);
+  check(JSON.parse(backup.toString()).v === 3 && JSON.parse(backupNoPasskeys.toString()).v === 3, 'v3 backup files downloaded');
+
+  // On again: only after a press of Keyra's button.
+  await openSettings();
+  await pkSwitch.click();
+  await page.locator('.settings .ready-ready').waitFor();
+  await page.locator('.settings .ready-ready').scrollIntoViewIfNeeded();
+  await shot(page, `settings-passkeys-backup-press${tag}`);
+  check((await setting()) === false, 'not on before the press');
+  check((await button(base)) === 'approved passkeys_backup_on', 'button turns passkeys in backups on');
+  await pkSwitch.waitFor({ timeout: 8000 });
+  await waitFor(async () => (await pkSwitch.getAttribute('aria-checked')) === 'true', 'switch on after the press');
+  check((await setting()) === true, 'passkeys in backups again');
+  await openBackup(true);
   // An account added after the backup: a merge keeps it, a replace drops it.
   check((await pageApi(page, 'POST', '/api/entries', { title: 'After the backup', username: 'later', password: 'Later-Password-77' })).status === 201, 'entry added');
 
@@ -1028,7 +1060,9 @@ async function restoreFlow(base, opts) {
   const merged = page.locator('.toast-ok', { hasText: L(opts, 'Added 0, updated', 'أُضيف 0 وحُدِّث') });
   await merged.waitFor({ timeout: 8000 });
   check(new RegExp(`\\b${seeded}\\b`).test((await merged.textContent()) ?? ''), `merge updated all ${seeded}`);
+  check(!/passkey|مرور/.test((await merged.textContent()) ?? ''), 'no passkeys named when none were added');
   check((await count()) === seeded + 1, 'merge keeps the newer account');
+  check((await passkeys()) === 3, 'merge does not duplicate passkeys');
   await merged.waitFor({ state: 'detached', timeout: 8000 });
 
   // Replace with a wrong passphrase: refused at once, nothing waits for the button.
@@ -1051,7 +1085,99 @@ async function restoreFlow(base, opts) {
   check((await button(base)) === 'approved restore', 'button approves the replace');
   await page.locator('.toast-ok', { hasText: new RegExp(`\\b${seeded}\\b`) }).waitFor({ timeout: 8000 });
   check((await count()) === seeded, 'replace drops the newer account');
+  check((await passkeys()) === 3, 'replace keeps the passkeys of the backup');
   console.log('  ✓ restore flow passed');
+  await ctx.close();
+  return { backup, backupNoPasskeys, backupPass };
+}
+
+/** Backup screen → the downloaded file, after the press (SPEC §12.3). */
+async function downloadBackup(page, base, passphrase) {
+  await page.locator('.backup input[type=password]').first().fill(passphrase);
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    (async () => {
+      await page.locator('.backup .btn-primary').first().click();
+      await page.waitForTimeout(500);
+      check((await button(base)) === 'approved backup', 'button approves the backup');
+    })(),
+  ]);
+  return readFileSync(await download.path());
+}
+
+/** A v3 backup holding `n` passkeys no Keyra here has seen, in the mock's record format. */
+function craftBackup(passphrase, n) {
+  const salt = randomBytes(16);
+  const iv = randomBytes(12);
+  const c = createCipheriv('aes-256-gcm', pbkdf2Sync(passphrase, salt, 1000, 32, 'sha256'), iv);
+  const records = Array.from({ length: n }, (_, i) =>
+    Buffer.from(JSON.stringify({ id: 1000 + i, rpId: `site${i}.example`, userName: `user${i}`, displayName: '', created: 0, cred: randomBytes(16).toString('base64') })).toString('base64'),
+  );
+  const plain = JSON.stringify({ entries: [], passkeys: { keys: [randomBytes(32).toString('base64')], records, counter: 0 } });
+  const data = Buffer.concat([c.update(plain), c.final(), c.getAuthTag()]);
+  const kdf = { alg: 'pbkdf2-sha256', iter: 1000, salt: salt.toString('base64') };
+  return Buffer.from(JSON.stringify({ format: 'keyra-backup', v: 3, kdf, iv: iv.toString('base64'), data: data.toString('base64') }));
+}
+
+// ---------- Passkeys in backups (docs/research/PASSKEY-BACKUP.md): onto a new Keyra ----------
+
+async function restorePasskeysFlow(base, opts, { backup, backupNoPasskeys, backupPass }) {
+  // A new Keyra, set up over the API, as after losing the old one.
+  const setup = await fetch(`${base}/api/setup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ passphrase: PASS, wifiPassword: 'New-Keyra-2026' }) });
+  check(setup.status === 202, 'setup waits for the button');
+  check((await button(base)) === 'approved setup', 'button approves the setup');
+  const { ctx, page, tag } = await open(base, opts);
+  console.log(`restore passkeys ${tag || '(phone, ar, light)'}`);
+  await page.locator('input[type=password]').waitFor();
+  await unlockUi(page);
+  const passkeys = async () => (await pageApi(page, 'GET', '/api/fido')).body.passkeys.length;
+  check((await passkeys()) === 0, 'a new Keyra has no passkeys');
+
+  await page.evaluate(() => (location.hash = '#/backup'));
+  const restore = async (buffer, mode, toastText) => {
+    await page.locator('.backup input[type=file]').setInputFiles({ name: 'keyra-backup.json', mimeType: 'application/json', buffer });
+    await page.locator('.backup input[type=password]').nth(1).fill(backupPass);
+    await page.locator('.backup .seg-item', { hasText: mode === 'merge' ? L(opts, 'Merge', 'دمج') : L(opts, 'Replace', 'استبدال') }).click();
+    await page.locator('.backup .btn', { hasText: L(opts, /^Restore$/, /^استعادة$/) }).click();
+    if (mode === 'replace') {
+      await page.locator('.alert .btn-danger-confirm').click();
+      await page.locator('.backup .ready-ready').waitFor();
+      check((await button(base)) === 'approved restore', 'button approves the replace');
+    }
+    if (!toastText) return '';
+    const toast = page.locator('.toast-ok', { hasText: toastText });
+    await toast.waitFor({ timeout: 8000 });
+    const text = (await toast.textContent()) ?? '';
+    await toast.waitFor({ state: 'detached', timeout: 8000 });
+    return text;
+  };
+
+  // Passkeys left out of the file: none come back.
+  const noPk = await restore(backupNoPasskeys, 'replace', L(opts, 'Restored', 'استُعيد'));
+  check(!/passkey|مرور/.test(noPk), `no passkeys named: ${noPk}`);
+  check((await passkeys()) === 0, 'a backup without passkeys brings none');
+
+  // Passkeys in the file: replace brings every one back.
+  await restore(backup, 'replace', L(opts, 'Keyra now has 3 passkeys', 'في Keyra الآن 3 مفاتيح مرور'));
+  check((await passkeys()) === 3, 'replace brings the passkeys back');
+
+  // Merging the same file again adds nothing.
+  const again = await restore(backup, 'merge', L(opts, 'Added 0, updated', 'أُضيف 0 وحُدِّث'));
+  check(!/passkey|مرور/.test(again), `merge adds no passkey twice: ${again}`);
+  check((await passkeys()) === 3, 'merge does not duplicate passkeys');
+
+  // Passkeys this Keyra lacks are added and named.
+  await restore(craftBackup(backupPass, 2), 'merge', L(opts, 'plus 2 passkeys', 'وأُضيف مفتاحا مرور'));
+  check((await passkeys()) === 5, 'merge adds the new passkeys');
+
+  // Over 50: refused before anything changes, with a clear message.
+  const before = errors.length;
+  await restore(craftBackup(backupPass, 48), 'merge');
+  await page.locator('.backup .notice-err', { hasText: L(opts, 'Not restored', 'لم تتم الاستعادة') }).waitFor({ timeout: 8000 });
+  expectErrors(before, 409);
+  check((await passkeys()) === 5, 'a refused merge changes nothing');
+  await shot(page, `restore-passkeys-full${tag}`);
+  console.log('  ✓ restore passkeys flow passed');
   await ctx.close();
 }
 
@@ -1276,8 +1402,10 @@ try {
   await keyboardFlow(await startMock(), { lang: 'en', dark: true });
   await recoveryFlow(await startMock(), {});
   await recoveryFlow(await startMock(), { lang: 'en', dark: true });
-  await restoreFlow(await startMock(), {});
-  await restoreFlow(await startMock(), { lang: 'en', dark: true });
+  for (const opts of [{}, { lang: 'en', dark: true }]) {
+    const files = await restoreFlow(await startMock(), opts);
+    await restorePasskeysFlow(await startMock({ MOCK_FRESH: '1' }), opts, files);
+  }
   await resetFlow(await startMock(), {});
   await resetFlow(await startMock(), { lang: 'en', dark: true });
   await passphraseFlow(await startMock(), {});

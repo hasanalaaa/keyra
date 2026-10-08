@@ -65,6 +65,7 @@ const defaultSettings = () => ({
   homeWifi: process.env.MOCK_HOME_ONLINE === '1' ? { enabled: true, ssid: 'Al-Rashid Home', password: 'home-wifi-pass' } : { enabled: false, ssid: '', password: '' },
   apMode: 'always',
   protectReveal: true,
+  passkeysInBackup: true, // docs/research/PASSKEY-BACKUP.md
   lockOnUsb: true,
   rotateSince: 0, // SPEC §13.1
   lockOnBle: false,
@@ -412,26 +413,55 @@ function totpCode(secretOrUri, nowMs = Date.now()) {
 // ---------- backup file (same envelope as firmware keyra_vault/src/core/backup_format.hpp) ----------
 
 const BACKUP_ITER = 20000;
+const MAX_PASSKEYS = 50;
+const MAX_FIDO_KEYS = 4;
 
-function exportBackup(pass) {
+function exportBackup(pass, withPasskeys) {
   const salt = randomBytes(16);
   const iv = randomBytes(12);
   const key = pbkdf2Sync(pass, salt, BACKUP_ITER, 32, 'sha256');
   const c = createCipheriv('aes-256-gcm', key, iv);
-  const plain = Buffer.from(JSON.stringify([...vault.entries.values()]));
+  const body = { entries: [...vault.entries.values()] };
+  // A firmware record is opaque bytes; the mock's is the passkey as JSON (with its credential).
+  if (withPasskeys) {
+    const records = [...vault.passkeys.values()].map((p) => Buffer.from(JSON.stringify(p)).toString('base64'));
+    body.passkeys = { keys: vault.fidoKeys, records, counter: vault.fidoCounter };
+  }
+  const plain = Buffer.from(JSON.stringify(body));
   const data = Buffer.concat([c.update(plain), c.final(), c.getAuthTag()]);
   return JSON.stringify({
     format: 'keyra-backup',
-    v: 2,
+    v: 3,
     kdf: { alg: 'pbkdf2-sha256', iter: BACKUP_ITER, salt: salt.toString('base64') },
     iv: iv.toString('base64'),
     data: data.toString('base64'),
   });
 }
 
-/** → entries array, or 'invalid' / 'wrong'. */
+/** v3 "passkeys" section → { keys, records, counter }, or 'invalid'. */
+function readPasskeys(pk) {
+  if (!pk || typeof pk !== 'object' || Array.isArray(pk)) return 'invalid';
+  const { keys, records, counter } = pk;
+  if (!Array.isArray(keys) || keys.length > MAX_FIDO_KEYS || !Array.isArray(records) || records.length > MAX_PASSKEYS) return 'invalid';
+  if (!Number.isInteger(counter) || counter < 0 || counter > 0xffffffff) return 'invalid';
+  if (keys.some((k) => typeof k !== 'string' || Buffer.from(k, 'base64').length !== 32)) return 'invalid';
+  const out = [];
+  for (const r of records) {
+    let p;
+    try {
+      p = JSON.parse(Buffer.from(String(r), 'base64').toString('utf8'));
+    } catch {
+      return 'invalid';
+    }
+    if (!p || typeof p.cred !== 'string' || !p.cred || typeof p.rpId !== 'string' || !Number.isInteger(p.id) || p.id <= 0 || p.id > 0xffffffff) return 'invalid';
+    out.push({ id: p.id, rpId: p.rpId, userName: String(p.userName ?? ''), displayName: String(p.displayName ?? ''), created: Number.isInteger(p.created) ? p.created : 0, cred: p.cred });
+  }
+  return { keys: [...keys], records: out, counter };
+}
+
+/** → { entries, passkeys (null when the file has none) }, or 'invalid' / 'wrong'. */
 function openBackup(pass, b) {
-  if (b?.format !== 'keyra-backup' || ![1, 2].includes(b.v) || b.kdf?.alg !== 'pbkdf2-sha256' || !Number.isInteger(b.kdf.iter)) return 'invalid';
+  if (b?.format !== 'keyra-backup' || ![1, 2, 3].includes(b.v) || b.kdf?.alg !== 'pbkdf2-sha256' || !Number.isInteger(b.kdf.iter)) return 'invalid';
   const salt = Buffer.from(String(b.kdf.salt ?? ''), 'base64');
   const iv = Buffer.from(String(b.iv ?? ''), 'base64');
   const data = Buffer.from(String(b.data ?? ''), 'base64');
@@ -445,13 +475,22 @@ function openBackup(pass, b) {
   } catch {
     return 'wrong';
   }
-  let list;
+  let parsed;
   try {
-    list = JSON.parse(plain.toString('utf8'));
+    parsed = JSON.parse(plain.toString('utf8'));
   } catch {
     return 'invalid';
   }
+  // v1/v2: a bare array of entries; v3: { entries, passkeys? }.
+  const v3 = b.v === 3;
+  if (v3 ? !parsed || typeof parsed !== 'object' || Array.isArray(parsed) : !Array.isArray(parsed)) return 'invalid';
+  const list = v3 ? parsed.entries : parsed;
   if (!Array.isArray(list)) return 'invalid';
+  let passkeys = null;
+  if (v3 && parsed.passkeys !== undefined) {
+    passkeys = readPasskeys(parsed.passkeys);
+    if (passkeys === 'invalid') return 'invalid';
+  }
   const out = [];
   for (const item of list) {
     const e = readEntry(item, true);
@@ -467,7 +506,39 @@ function openBackup(pass, b) {
     e.id = Number.isInteger(item.id) && item.id > 0 && item.id <= 0xffffffff ? item.id : 0;
     out.push(e);
   }
-  return out;
+  return { entries: out, passkeys };
+}
+
+/**
+ * The passkeys a restore leaves (docs/research/PASSKEY-BACKUP.md): merge adds the
+ * backup's wrap keys and the records whose credential isn't here; replace takes the
+ * backup's section whole, and a backup without one leaves local passkeys alone.
+ * Changes nothing → { keys, records, counter, added } for commitPasskeys, or 'passkeys_full'.
+ */
+function restorePasskeys(pk, replace) {
+  if (!pk) return { keys: vault.fidoKeys, records: vault.passkeys, counter: vault.fidoCounter, added: 0 };
+  // Sites that check the signature counter must never see it go backwards.
+  const counter = Math.max(vault.fidoCounter, pk.counter + 1000);
+  if (replace) return { keys: pk.keys, records: new Map(pk.records.map((p) => [p.id, p])), counter, added: pk.records.length };
+  const keys = [...vault.fidoKeys, ...pk.keys.filter((k) => !vault.fidoKeys.includes(k))];
+  const records = new Map(vault.passkeys);
+  const creds = new Set([...records.values()].map((p) => p.cred));
+  let added = 0;
+  for (const p of pk.records) {
+    if (creds.has(p.cred)) continue;
+    creds.add(p.cred);
+    const id = records.has(p.id) ? freshId(records) : p.id;
+    records.set(id, { ...p, id });
+    added++;
+  }
+  if (keys.length > MAX_FIDO_KEYS || records.size > MAX_PASSKEYS) return 'passkeys_full';
+  return { keys, records, counter, added };
+}
+
+function commitPasskeys(r) {
+  vault.fidoKeys = r.keys;
+  vault.passkeys = r.records;
+  vault.fidoCounter = r.counter;
 }
 
 /** Merge (or replace) like Vault::importBackup: match by id, then by title+username+url. */
@@ -1013,7 +1084,7 @@ function seed() {
 }
 
 // Passkeys (docs/FIDO.md): created by websites over USB on a real Keyra; the
-// mock only lists and deletes them.
+// mock lists, deletes, backs up and restores them.
 // A few days of history so Settings → Activity is not empty (oldest first, like the firmware).
 function seedActivity() {
   const now = nowSec();
@@ -1038,11 +1109,12 @@ function seedPasskeys() {
     { id: 2718281828, rpId: 'accounts.google.com', userName: 'hasan@gmail.com', displayName: 'Hasan Ali', created: now - 12 * day },
     { id: 1618033988, rpId: 'www.amazon.com', userName: 'hasan@example.com', displayName: '', created: now - 2 * day },
   ];
-  return new Map(list.map((p) => [p.id, p]));
+  // `cred` stands in for the credential ID (restore matches on it); never listed.
+  return new Map(list.map((p) => [p.id, { ...p, cred: randomBytes(16).toString('base64') }]));
 }
 
 if (!FRESH) {
-  vault = { passphrase: DEMO_PASSPHRASE, entries: seed(), passkeys: seedPasskeys(), activity: seedActivity() };
+  vault = { passphrase: DEMO_PASSPHRASE, entries: seed(), passkeys: seedPasskeys(), fidoKeys: [randomBytes(32).toString('base64')], fidoCounter: 57, activity: seedActivity() };
   settings.wifiPassword = 'Tigris-42-Kx9p';
   settings.lastBackupAt = nowSec() - Number(process.env.MOCK_BACKUP_DAYS ?? 3) * 86400;
   if (process.env.MOCK_BLE !== '0') ble.bonds.push({ addr: 'F0:2B:7C:41:9A:D3', name: 'MacBook Air', lastSeen: nowSec() - 86400 * 2, os: 'mac' });
@@ -1419,7 +1491,7 @@ async function api(req, res, path) {
       const exp = awaitPresence(
         'setup',
         () => {
-          vault = { passphrase, entries: new Map(), passkeys: new Map() };
+          vault = { passphrase, entries: new Map(), passkeys: new Map(), fidoKeys: [], fidoCounter: 0 };
           unlocked = true; // left unlocked for the client's unlock call
           lastActivity = Date.now();
           settings.wifiPassword = wifiPassword;
@@ -1726,7 +1798,7 @@ async function api(req, res, path) {
         next.apMode = b.apMode;
       }
       if (b.homeWifi !== undefined) bad('home Wi-Fi changes go through PUT /api/wifi/home');
-      for (const k of ['lockOnUsb', 'lockOnBle', 'protectReveal']) {
+      for (const k of ['lockOnUsb', 'lockOnBle', 'protectReveal', 'passkeysInBackup']) {
         if (b[k] === undefined) continue;
         if (typeof b[k] !== 'boolean') bad(`${k} must be a boolean`);
         next[k] = b[k];
@@ -1734,6 +1806,9 @@ async function api(req, res, path) {
       // Turning protection off waits for the button (SPEC §12.3); turning it on applies at once.
       const unprotect = settings.protectReveal && next.protectReveal === false;
       if (unprotect) next.protectReveal = true;
+      // Putting passkeys (and their wrap keys) into backups waits for the button; leaving them out doesn't.
+      const passkeysOn = !settings.passkeysInBackup && next.passkeysInBackup === true;
+      if (passkeysOn) next.passkeysInBackup = false;
       let ssid = '';
       let pw = '';
       if (b.wifiSsid !== undefined) {
@@ -1750,6 +1825,14 @@ async function api(req, res, path) {
           res,
           awaitPresence('unprotect', () => {
             settings.protectReveal = false;
+          }),
+        );
+      }
+      if (passkeysOn && !(ssid || pw)) {
+        return awaiting(
+          res,
+          awaitPresence('passkeys_backup_on', () => {
+            settings.passkeysInBackup = true;
           }),
         );
       }
@@ -1790,7 +1873,7 @@ async function api(req, res, path) {
       settings.lastBackupAt = nowSec();
       const d = new Date();
       const ymd = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
-      const out = exportBackup(pass);
+      const out = exportBackup(pass, settings.passkeysInBackup);
       logEvent('backup');
       res.writeHead(200, {
         ...SECURITY,
@@ -1815,23 +1898,29 @@ async function api(req, res, path) {
         return awaiting(
           res,
           awaitPresence('restore', () => {
-            const list = openBackup(pass, b.backup);
-            if (typeof list === 'string') return false;
-            const r = importBackup(list, true);
+            const file = openBackup(pass, b.backup);
+            if (typeof file === 'string') return false;
+            const pk = restorePasskeys(file.passkeys, true);
+            const r = importBackup(file.entries, true);
             if (typeof r === 'string') return false;
+            commitPasskeys(pk);
             logEvent('restore', { detail: 1, n: r.added });
             return true;
           }),
         );
       }
       await sleep(KDF_MS);
-      const list = openBackup(pass, b.backup);
-      if (list === 'wrong') fail(401, 'wrong', 'Wrong passphrase');
-      if (list === 'invalid') bad('Invalid data');
-      const r = importBackup(list, false);
+      const file = openBackup(pass, b.backup);
+      if (file === 'wrong') fail(401, 'wrong', 'Wrong passphrase');
+      if (file === 'invalid') bad('Invalid data');
+      // Refused before anything changes.
+      const pk = restorePasskeys(file.passkeys, false);
+      if (pk === 'passkeys_full') fail(409, 'passkeys_full', 'Keyra holds at most 50 passkeys and 4 wrap keys');
+      const r = importBackup(file.entries, false);
       if (r === 'full') fail(507, 'full', 'Vault is full');
+      commitPasskeys(pk);
       logEvent('restore', { n: r.added + r.updated });
-      return send(res, 200, r);
+      return send(res, 200, { ...r, passkeys: pk.added });
     }
 
     case 'wifiScan':
@@ -1926,8 +2015,8 @@ async function api(req, res, path) {
       return send(res, 200, { events: [...(vault.activity ?? [])].reverse().map(({ id, n, title, ...e }) => ({ ...e, ...(id ? { id } : {}), ...(n ? { n } : {}), ...(title ? { title } : {}) })), max: ACTIVITY_MAX });
 
     case 'passkeys': {
-      const list = [...vault.passkeys.values()].sort((a, b) => b.created - a.created);
-      return send(res, 200, { passkeys: list, max: 50 });
+      const list = [...vault.passkeys.values()].sort((a, b) => b.created - a.created).map(({ cred, ...p }) => p);
+      return send(res, 200, { passkeys: list, max: MAX_PASSKEYS });
     }
 
     case 'deletePasskey': {
@@ -2033,6 +2122,7 @@ const publicSettings = () => ({
   homeWifi: { enabled: settings.homeWifi.enabled, ssid: settings.homeWifi.ssid },
   apMode: settings.apMode,
   protectReveal: settings.protectReveal,
+  passkeysInBackup: settings.passkeysInBackup,
   lockOnUsb: settings.lockOnUsb,
   lockOnBle: settings.lockOnBle,
   lastBackupAt: settings.lastBackupAt,
