@@ -425,7 +425,8 @@ TEST(public_api_smoke) {
   CHECK(unlock(kPass, &retry) == Status::Ok);
   size_t added = 9, updated = 9;
   CHECK(importBackup("backup passphrase", backup, false, &added, &updated) == Status::Ok);
-  CHECK(added == 0 && updated == 1);
+  CHECK(added == 0 && updated == 0);  // the vault's copy is no older: kept
+  CHECK(checkBackup("backup passphrase", backup) == Status::Ok);
   CHECK(touch(e.id, 5, false, nullptr) == Status::Ok);
   CHECK(changePassphrase(kPass, "new one") == Status::Ok);
   CHECK(remove(e.id) == Status::Ok);

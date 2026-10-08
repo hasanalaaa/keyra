@@ -23,6 +23,12 @@
 //   e/<id>.bin u8 version=1 | iv[12] | ciphertext | tag[16]
 //              <id> = 8 lowercase hex digits; AAD = "keyra/e/v1/" + <id>;
 //              plaintext = entry_codec.hpp encoding
+//   e/<id>.new a replace-restore's staged entry (same format as e/<id>.bin); never
+//              read as an entry. Without restore.commit it is discarded at init/unlock.
+//   restore.commit  u8 version=1 | n × u32 id (LE): a replace-restore has staged
+//              all of its entries. Finishing it (init/unlock, idempotent): remove
+//              every e/<id>.bin whose id is not listed, rename each e/<id>.new to
+//              e/<id>.bin, then remove the marker. Either all old or all new.
 //   f/<id>.bin passkey record, same format as e/<id>.bin with AAD "keyra/f/v1/" + <id>
 //   fido.bin   u8 version=1 | salt[16]   (FIDO wrapping-key salt, vault_passkeys.cpp)
 //   activity.bin  activity log (SPEC §15), same format as e/<id>.bin with AAD
@@ -88,6 +94,7 @@ class Vault {
   Status exportBackup(const std::string& backupPass, std::string& outJson);
   Status importBackup(const std::string& backupPass, const std::string& json, bool replace,
                       size_t* added, size_t* updated);
+  Status checkBackup(const std::string& backupPass, const std::string& json);
   Status factoryReset();
 
   // Passkey records (vault_passkeys.cpp); see keyra/vault.hpp.
@@ -136,6 +143,10 @@ class Vault {
   Status writeMeta(const Meta& m);
   Status writeAtomic(const std::string& path, const uint8_t* data, size_t n);
   Status removeAllEntryFiles();
+  Status removeStaged();     // e/*.new left by a restore that never committed
+  Status settleRestore();    // finish (marker present) or discard a replace-restore
+  // Decrypt, parse and validate a backup into `out`; touches nothing.
+  Status readBackup(const std::string& backupPass, const std::string& json, std::vector<Entry>& out);
   uint32_t calibrateIterations();
   Status deriveKey(const std::string& pass, const uint8_t salt[16], uint32_t iters, Key& out);
   Status wrapDek(const std::string& pass, uint32_t iters, const Key& dek, PassWrap& out);
@@ -148,7 +159,7 @@ class Vault {
   Status openWrap(const Key& kek, const uint8_t iv[12], const char* aad, const uint8_t wrapped[48], Key& dek);
   Status finishUnlock(Key& dek);  // dek → dek_, entries loaded, v1 meta migrated
   Status loadEntries();
-  Status persist(uint32_t id, const SecureBuf& plain);
+  Status persist(const std::string& path, uint32_t id, const SecureBuf& plain);
   Status store(Entry& rec);  // encode + persist + update RAM slot
   Slot* find(uint32_t id);
   bool newId(uint32_t& id);

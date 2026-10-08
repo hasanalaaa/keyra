@@ -93,8 +93,14 @@ Status recover(const RecoveryKey& key, const std::string& next, uint32_t* retryA
 Status checkRecovery(const RecoveryKey& key, uint32_t* retryAfterMs);
 
 Status exportBackup(const std::string& backupPass, std::string& outJson);
+// replace: all old entries or all new ones, even across a power cut.
+// merge: an entry matches by id (with the same title, username and url) or else
+// by title, username and url; the copy with the newer `updated` wins, and a
+// replaced local password goes into history.
 Status importBackup(const std::string& backupPass, const std::string& json, bool replace,
                     size_t* added, size_t* updated);
+// The checks importBackup makes before writing (passphrase, format, limits); writes nothing.
+Status checkBackup(const std::string& backupPass, const std::string& json);
 Status factoryReset();  // erases everything vault-related
 
 // Passkeys (keyra_fido, docs/FIDO.md). The vault stores each discoverable FIDO

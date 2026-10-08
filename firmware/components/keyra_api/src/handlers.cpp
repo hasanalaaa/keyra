@@ -1031,6 +1031,9 @@ esp_err_t postRestore(Ctx& c) {
   cJSON_free(text);
 
   if (mode == "replace") {
+    // A wrong passphrase or a bad file is reported now, not after the press.
+    if (const Status st = vault::checkBackup(job->passphrase.s, job->backup.s); st != Status::Ok)
+      return sendVaultError(c.r, st);
     const int64_t expires =
         machine().awaitPresence(actions::Op::RestoreReplace, [job] { return commitRestoreReplace(*job); });
     return sendAwaitingButton(c.r, expires);

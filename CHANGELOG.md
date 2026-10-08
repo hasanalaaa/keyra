@@ -6,6 +6,15 @@ All notable changes to Keyra are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Restore** (SPEC §5): "replace" is now atomic — a power cut or full storage
+  mid-restore leaves the old vault or the restored one, never a half-empty mix.
+  "Merge" no longer lets an older backup overwrite a newer local edit (newer
+  `updated` wins; a replaced local password goes into history), and an id
+  reused by a different account is kept as a separate entry. A wrong backup
+  passphrase or bad file is reported before the button press is requested.
+
 ## [0.2.0] - 2026-10-08
 
 Highlights:
