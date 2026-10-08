@@ -115,6 +115,10 @@ export function readyText(device: DeviceState | null, body: string): { title: st
   return { title: t('readyTitle'), body };
 }
 
+/** iPhone, iPad (which reports itself as a Mac with touch) or Android. */
+const onPhone = (): boolean =>
+  /iPhone|iPad|iPod|Android/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+
 /** Under the Ready ring: where the keystrokes will go (SPEC §8.1). USB, the default, needs no note. */
 export function HostNotice({ device }: { device: DeviceState }) {
   // A device that stays "connecting" usually still holds an old pairing Keyra no longer has
@@ -138,6 +142,8 @@ export function HostNotice({ device }: { device: DeviceState }) {
     return (
       <Notice tone="accent" icon="bluetooth">
         {t('readyViaBle', { name: deviceLabel(target, t('bleDevice')) })}
+        {/* Typing into the phone this page is open on: the keys land where its cursor is, and here there is none. */}
+        {onPhone() && <span class="notice-more">{t('readySamePhone')}</span>}
       </Notice>
     );
   // Until the device reports the armed action, say nothing rather than guess

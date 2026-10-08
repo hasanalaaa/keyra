@@ -400,6 +400,7 @@ const en = {
   // Bluetooth (SPEC §8.1)
   readyNoHost: "Keyra isn't connected yet — plug it in, or connect a paired Bluetooth device.",
   readyViaBle: 'Types via Bluetooth — {name}',
+  readySamePhone: 'Typing into this phone? Open the app, tap the field so the cursor blinks in it, then press Keyra’s button.',
   bleDevice: 'Bluetooth device',
   bleOn: 'Bluetooth',
   bleNone: 'No Bluetooth device',
@@ -1106,6 +1107,7 @@ const ar: Record<Key, string> = {
   // البلوتوث
   readyNoHost: 'Keyra غير متصل بعد — وصّله بمنفذ USB أو اربط جهازاً مقترناً عبر البلوتوث.',
   readyViaBle: 'سيكتب عبر البلوتوث في {name}',
+  readySamePhone: 'تكتب على هذا الهاتف نفسه؟ افتح التطبيق واضغط على الخانة حتى يومض المؤشر فيها، ثم اضغط زرّ Keyra.',
   bleDevice: 'جهاز بلوتوث',
   bleOn: 'بلوتوث',
   bleNone: 'لا جهاز بلوتوث',

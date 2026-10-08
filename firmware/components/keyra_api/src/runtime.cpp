@@ -225,7 +225,8 @@ void typeTask(void*) {
     // Moved, not copied: when `job` goes out of scope any free text is released (and wiped).
     const actions::TypeRequest job = std::move(g_job);
     const Code c = runJob(job);
-    ESP_LOGI(TAG, "type %s: %s", actions::whatName(job.what), actions::codeName(c));
+    ESP_LOGI(TAG, "type %s via %s: %s", actions::whatName(job.what),
+             job.target.kind == Kind::Ble ? ble::formatAddr(job.target.addr).c_str() : "usb", actions::codeName(c));
     if (c == Code::Typed && job.what != What::Test && job.what != What::Probe) {
       const uint8_t over = job.target.kind == Kind::Ble ? 1 : 0;
       if (job.what == What::Text) activity::log(activity::Kind::TextTyped, 0, {}, over);

@@ -496,7 +496,7 @@ void onEncrypted(uint16_t conn, int status) {
     known = knownLocked(k);
     window = g_window.active(monoMs());
   }
-  if (d.sec_state.bonded && !known && !window) {
+  if (d.sec_state.bonded && !known && !window && !repaired) {
     // Cannot happen through the accept list and the pairing checks; if it
     // ever does, the new bond is not honoured.
     ESP_LOGE(TAG, "new bond outside the pairing window: removing it");
@@ -565,8 +565,13 @@ int onRepeatPairing(uint16_t conn) {
     std::lock_guard<std::mutex> lock(g_mu);
     window = g_window.active(monoMs());
   }
-  // A bonded host asking for new keys is a new pairing: only inside the window.
-  if (!mayPair(window, true, 0)) {
+  // A bonded host asking for new keys is a new pairing: only inside the window, unless this
+  // link is already encrypted with the bond's own keys. iOS asks again about a second after
+  // every such reconnection; refused, it waited out the 30 s SMP timeout, froze its UI,
+  // ignored the keyboard, dropped the link and reconnected, forever. Holding the old keys
+  // proves it is the bonded host, so it may renew them without a button press.
+  const bool proven = d.sec_state.encrypted && d.sec_state.bonded;
+  if (!proven && !mayPair(window, true, 0)) {
     ESP_LOGW(TAG, "re-pairing refused outside the pairing window");
     return BLE_GAP_REPEAT_PAIRING_IGNORE;
   }
@@ -932,7 +937,16 @@ bool sendKey(uint8_t modifier, uint8_t keycode) {
     os_mbuf* om = ble_hs_mbuf_from_flat(report, sizeof report);
     if (om != nullptr) {
       const int rc = ble_gatts_notify_custom(conn, handle, om);  // consumes om either way
-      if (rc == 0) return true;
+      if (rc == 0) {
+        // Once per link: which connection and attribute the keys go to (field reports of
+        // "typed but nothing appeared" start here).
+        static uint16_t s_loggedConn = BLE_HS_CONN_HANDLE_NONE;
+        if (s_loggedConn != conn) {
+          s_loggedConn = conn;
+          ESP_LOGI(TAG, "keys go to conn %u, attribute %u", unsigned(conn), unsigned(handle));
+        }
+        return true;
+      }
       if (rc != BLE_HS_ENOMEM) {
         ESP_LOGW(TAG, "notify failed: %d", rc);
         return false;

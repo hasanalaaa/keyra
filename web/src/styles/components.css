@@ -218,6 +218,7 @@
 }
 .notice .i { margin-block-start:1px; }
 .notice-text { flex:1; text-wrap:pretty; }
+.notice-more { display:block; margin-top:4px; }
 .notice-warn { background:var(--warn-soft); color:var(--warn); }
 .notice-err { background:var(--err-soft); color:var(--err); }
 .notice-accent { background:var(--accent-soft); color:var(--accent); }
