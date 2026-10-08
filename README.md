@@ -262,6 +262,7 @@ CI runs the host tests, the web checks and both firmware profiles on every push 
 ## Roadmap
 
 Ideas, not promises. Priorities follow what real users on real boards report.
+The current work plan, with what is done and what comes next, is in [docs/research/ROADMAP.md](docs/research/ROADMAP.md).
 
 - [x] 0.1: encrypted vault, USB typing, phone app (EN/AR), TOTP, import, backup, CI
 - [x] Bluetooth LE keyboard (unreleased; on the main branch)
