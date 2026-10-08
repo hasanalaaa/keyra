@@ -135,7 +135,7 @@ let failedBefore = 0; // wrong guesses before the latest successful unlock (Vaul
 let lockedUntil = 0;
 let timeValid = false;
 let lastActivity = Date.now();
-const sessions = new Map(); // token → { csrf, lastUsed, trustId, graceUntil }
+const sessions = new Map(); // token → { csrf, lastUsed, trustId, grace: { reveal|backup|recovery: until } }
 const GRACE_MS = 60000; // SPEC §12.3: after a press, this session may see secrets this long
 let usbSeen = false; // a computer was plugged in since the unlock (charger-only never locks)
 let usbSession = 1; // bumps on every plug-in; a USB action is bound to the one it was armed on
@@ -171,20 +171,46 @@ function expire(now = Date.now()) {
   machine.slot = null;
 }
 
+// The session the current request came from (Machine::arm's `owner`); '' = none.
+let requester = '';
+
+/**
+ * Like Machine::takeSlotLocked: the slot is taken only when free or holding an item of the same
+ * session, so another browser can never swap what the user is about to approve. Replaced items
+ * of the same session end as cancelled.
+ */
+function takeSlot(owner, presence) {
+  expire();
+  if (presence && machine.running) return false;
+  const s = machine.slot;
+  if (!s) return true;
+  if (!owner || owner !== s.owner) return false;
+  if (s.kind === 'type') machine.last = { ok: false, code: 'cancelled', at: Date.now(), title: s.req.title, what: s.req.what };
+  else machine.opResult = { op: s.op, code: 'cancelled', at: Date.now() };
+  machine.slot = null;
+  return true;
+}
+
+const BUSY = "Keyra is waiting for another request; long-press its button to cancel it";
+
 function arm(req) {
+  if (!takeSlot(requester, false)) fail(409, 'busy', BUSY);
   req.usbSession = req.target.kind === 'usb' && host.usb ? usbSession : 0;
-  machine.slot = { kind: 'type', req, deadline: Date.now() + EXPIRY_MS };
+  machine.slot = { kind: 'type', req, deadline: Date.now() + EXPIRY_MS, owner: requester };
   syncDemand();
   autoPress(machine.slot);
   return { ...req, target: targetText(req.target), expiresIn: EXPIRY_MS };
 }
 
-/** awaitPresence replaces the slot; tryAwaitPresence (no session) never displaces anything. */
+/** Session ops are bound to their session (409 busy otherwise); tryOnly (no session) belongs to nobody. */
 function awaitPresence(op, commit, { tryOnly = false } = {}) {
-  expire();
-  if (tryOnly && (machine.slot || machine.running)) return null;
+  const owner = tryOnly ? '' : requester;
+  if (!takeSlot(owner, true)) {
+    if (tryOnly) return null;
+    fail(409, 'busy', BUSY);
+  }
   // Like Machine::cancelPresence: only the requester gets the token that withdraws it.
-  machine.slot = { kind: 'presence', op, commit, deadline: Date.now() + EXPIRY_MS, cancel: randomBytes(16).toString('hex') };
+  machine.slot = { kind: 'presence', op, commit, deadline: Date.now() + EXPIRY_MS, cancel: randomBytes(16).toString('hex'), owner };
   autoPress(machine.slot);
   return EXPIRY_MS;
 }
@@ -984,14 +1010,21 @@ function entryView(e, revealed) {
   return { ...rest, revealed, hasPassword: !!password, hasTotp: !!totp, history: history.map((h) => ({ changedAt: h.changedAt })) };
 }
 
-const graceLeft = (sess) => (sess ? Math.max(0, (sess.graceUntil ?? 0) - Date.now()) : 0);
+// SPEC §12.3: a press grants what it was asked for — reveal for 60 s, or one backup / one recovery-key change.
+const graceLeft = (sess, op = 'reveal') => (sess ? Math.max(0, (sess.grace?.[op] ?? 0) - Date.now()) : 0);
+function consumeGrace(sess, op) {
+  if (graceLeft(sess, op) <= 0) return false;
+  sess.grace[op] = 0;
+  return true;
+}
 const mayReveal = (sess) => !settings.protectReveal || graceLeft(sess) > 0;
-/** Arms `op`; the press opens this session's grace. */
+const mayBackup = (sess) => !settings.protectReveal || consumeGrace(sess, 'backup');
+/** Arms `op`; the press opens this session's grace for that op only. */
 function requestPress(res, op, token) {
   const exp = awaitPresence(op, () => {
     const s = sessions.get(token);
     if (!s) return false;
-    s.graceUntil = Date.now() + GRACE_MS;
+    s.grace = { ...s.grace, [op]: Date.now() + GRACE_MS };
   });
   return send(res, 202, { awaiting: 'button', op, expiresIn: exp, cancel: machine.slot?.cancel ?? '' });
 }
@@ -1010,7 +1043,7 @@ function issueSession(res, req, known, how = 0) {
   }
   const tok = randomBytes(32).toString('hex');
   const csrf = randomBytes(32).toString('hex');
-  sessions.set(tok, { csrf, lastUsed: Date.now(), trustId: known?.id ?? 0, graceUntil: 0 });
+  sessions.set(tok, { csrf, lastUsed: Date.now(), trustId: known?.id ?? 0, grace: {} });
   const cookies = [`ks=${tok}; HttpOnly; SameSite=Strict; Path=/`];
   if (known) cookies.push(`kt=${cookie(req, 'kt')}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000`);
   return send(res, 200, { csrf, failedAttempts }, { 'Set-Cookie': cookies });
@@ -1067,6 +1100,7 @@ async function api(req, res, path) {
   }
 
   const token = cookie(req, 'ks');
+  requester = token && sessions.has(token) ? token : '';
   const sess = token ? sessions.get(token) : undefined;
   if (sess) sess.lastUsed = Date.now();
   const session = !!sess && unlocked;
@@ -1199,7 +1233,7 @@ async function api(req, res, path) {
       return send(res, 200, { enabled: !!vault.recovery, created: vault.recovery?.created ?? 0 });
 
     case 'createRecovery': {
-      if (graceLeft(sess) <= 0) return requestPress(res, 'recovery', token);
+      if (!consumeGrace(sess, 'recovery')) return requestPress(res, 'recovery', token);
       const key = randomBytes(20).toString('hex');
       vault.recovery = { key, created: nowSec() };
       logEvent('recovery_created');
@@ -1207,7 +1241,7 @@ async function api(req, res, path) {
     }
 
     case 'deleteRecovery':
-      if (graceLeft(sess) <= 0) return requestPress(res, 'recovery', token);
+      if (!consumeGrace(sess, 'recovery')) return requestPress(res, 'recovery', token);
       if (!vault.recovery) fail(404, 'not_found', 'No recovery key');
       vault.recovery = null;
       logEvent('recovery_removed');
@@ -1466,7 +1500,7 @@ async function api(req, res, path) {
     case 'backup': {
       const pass = str(b, 'passphrase');
       if ([...pass].length < 12 || Buffer.byteLength(pass) > 1024) bad('backup passphrase must be at least 12 characters');
-      if (!mayReveal(sess)) return requestPress(res, 'backup', token);
+      if (!mayBackup(sess)) return requestPress(res, 'backup', token);
       settings.lastBackupAt = nowSec();
       const d = new Date();
       const ymd = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;

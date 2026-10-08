@@ -81,21 +81,21 @@ void revokingATrustedBrowserEndsOnlyItsSessions() {
 void graceIsPerSessionAndExpires() {
   Sessions s(fakeRandom);
   auto a = s.create(1), b = s.create(1);
-  CHECK_EQ(s.graceLeft(a.token, 10), int64_t{0});
-  CHECK(s.grantGrace(a.token, 100));
-  CHECK_EQ(s.graceLeft(a.token, 100), kGraceMs);
-  CHECK_EQ(s.graceLeft(a.token, 100 + kGraceMs - 1), int64_t{1});
-  CHECK_EQ(s.graceLeft(a.token, 100 + kGraceMs), int64_t{0});
-  CHECK_EQ(s.graceLeft(b.token, 200), int64_t{0});  // another browser
-  CHECK(!s.grantGrace("nope", 1));
-  CHECK_EQ(s.graceLeft(a.csrf, 200), int64_t{0});  // the CSRF token is not a session
-  CHECK(s.grantGrace(b.token, 300));
+  CHECK_EQ(s.graceLeft(a.token, 10, Sessions::Grace::Reveal), int64_t{0});
+  CHECK(s.grantGrace(a.token, 100, Sessions::Grace::Reveal));
+  CHECK_EQ(s.graceLeft(a.token, 100, Sessions::Grace::Reveal), kGraceMs);
+  CHECK_EQ(s.graceLeft(a.token, 100 + kGraceMs - 1, Sessions::Grace::Reveal), int64_t{1});
+  CHECK_EQ(s.graceLeft(a.token, 100 + kGraceMs, Sessions::Grace::Reveal), int64_t{0});
+  CHECK_EQ(s.graceLeft(b.token, 200, Sessions::Grace::Reveal), int64_t{0});  // another browser
+  CHECK(!s.grantGrace("nope", 1, Sessions::Grace::Reveal));
+  CHECK_EQ(s.graceLeft(a.csrf, 200, Sessions::Grace::Reveal), int64_t{0});  // the CSRF token is not a session
+  CHECK(s.grantGrace(b.token, 300, Sessions::Grace::Reveal));
   s.clear();  // lock ends every grace with its session
-  CHECK_EQ(s.graceLeft(b.token, 301), int64_t{0});
-  CHECK(!s.grantGrace(b.token, 302));
+  CHECK_EQ(s.graceLeft(b.token, 301, Sessions::Grace::Reveal), int64_t{0});
+  CHECK(!s.grantGrace(b.token, 302, Sessions::Grace::Reveal));
   // A new session in a reused slot starts without grace.
   auto c = s.create(400);
-  CHECK_EQ(s.graceLeft(c.token, 401), int64_t{0});
+  CHECK_EQ(s.graceLeft(c.token, 401, Sessions::Grace::Reveal), int64_t{0});
 }
 
 }  // namespace
@@ -109,7 +109,26 @@ void testGenerationTiesSessionToUnlock() {
   CHECK(!s.csrfFor(a.token, 2, 2).has_value());
 }
 
+// A press grants what it was for: reveal grace does not cover a backup or a
+// recovery-key change, and those are used up by one request.
+void graceIsPerOperation() {
+  using G = Sessions::Grace;
+  Sessions s(fakeRandom);
+  auto a = s.create(1);
+  CHECK(s.grantGrace(a.token, 100, G::Reveal));
+  CHECK_EQ(s.graceLeft(a.token, 101, G::Backup), int64_t{0});
+  CHECK(!s.consumeGrace(a.token, 101, G::Recovery));
+  CHECK(s.grantGrace(a.token, 200, G::Backup));
+  CHECK(s.consumeGrace(a.token, 201, G::Backup));
+  CHECK(!s.consumeGrace(a.token, 202, G::Backup));  // single use
+  CHECK(s.graceLeft(a.token, 203, G::Reveal) > 0);  // the reveal grace is untouched
+  CHECK(s.grantGrace(a.token, 300, G::Recovery));
+  CHECK(!s.consumeGrace(a.token, 300 + kGraceMs, G::Recovery));  // expired
+  CHECK(!s.consumeGrace("nope", 301, G::Recovery));
+}
+
 int main() {
+  graceIsPerOperation();
   testGenerationTiesSessionToUnlock();
   graceIsPerSessionAndExpires();
   issuesDistinctHexTokens();

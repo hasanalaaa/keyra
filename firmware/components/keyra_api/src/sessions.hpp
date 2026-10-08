@@ -37,10 +37,16 @@ class Sessions {
   // if the vault was locked without clear() (an internal lock).
   std::optional<std::string> csrfFor(std::string_view token, int64_t nowMs, uint32_t generation = 0);
   void clear();
-  // Starts the reveal grace for this live session; false when it is gone.
-  bool grantGrace(std::string_view token, int64_t nowMs);
-  // Milliseconds of grace left for this session (0 = none or unknown token).
-  int64_t graceLeft(std::string_view token, int64_t nowMs);
+  // What a press let this session do (SPEC §12.3). A press grants the one it
+  // was asked for: revealing secrets for 60 s, or one backup / one recovery-key
+  // change, which use their press up (consumeGrace).
+  enum class Grace { Reveal, Backup, Recovery };
+  // Starts that grace for this live session; false when it is gone.
+  bool grantGrace(std::string_view token, int64_t nowMs, Grace g);
+  // Milliseconds of that grace left for this session (0 = none or unknown token).
+  int64_t graceLeft(std::string_view token, int64_t nowMs, Grace g);
+  // True (and the grace ends) when this session has that grace now.
+  bool consumeGrace(std::string_view token, int64_t nowMs, Grace g);
   // Revoking a trusted browser ends the sessions it opened.
   size_t endTrusted(uint32_t trustId);
   size_t size();
@@ -56,7 +62,7 @@ class Sessions {
     int64_t lastUsed = 0;
     uint32_t trustId = 0;
     uint32_t generation = 0;
-    int64_t graceUntil = 0;
+    std::array<int64_t, 3> graceUntil{};  // by Grace
   };
   Slot* findLocked(std::string_view token);
   std::string randomHex();

@@ -134,21 +134,29 @@ class Machine {
   using TokenGen = std::function<std::string()>;
   explicit Machine(Clock now, TokenGen token = {}) : now_(std::move(now)), token_(std::move(token)) {}
 
-  Pending arm(TypeRequest req);
+  // A presence op that now waits for the press, with the secret that lets its
+  // requester (only) withdraw it (SPEC §12.6).
+  struct Armed {
+    int64_t expiresIn = 0;
+    std::string cancel;
+  };
+
+  // Each item belongs to whoever armed it (`owner`: the session token; empty =
+  // no session). The slot is taken only when it is free or holds an item of
+  // the same owner — never someone else's: otherwise a second browser could
+  // swap the action the user is about to approve with the button. nullopt =
+  // busy. A replaced item of the same owner ends as cancelled.
+  std::optional<Pending> arm(TypeRequest req, const std::string& owner);
   bool cancel();  // pending type action → last = cancelled
   // The waiting presence op, when it is `op` and `token` is the cancel token
   // handed to whoever armed it (the screen that asked gave up): dropped
   // without running, result = cancelled. Anyone else gets false — otherwise a
   // stranger could cancel a user's setup and arm their own in its place.
   bool cancelPresence(Op op, const std::string& token);
-  // The cancel token of the presence op armed last (the handler that armed it
-  // reads it at once; httpd serves one request at a time).
-  std::string presenceCancelToken();
-  int64_t awaitPresence(Op op, Commit commit);  // replaces whatever is pending
-  // For ops requested without a session (setup, factory reset): never displaces
-  // another item, so a stranger on the Wi-Fi cannot swap the action a user is
-  // about to approve. nullopt when the slot or the committer is busy.
-  std::optional<int64_t> tryAwaitPresence(Op op, Commit commit);
+  std::optional<Armed> awaitPresence(Op op, Commit commit, const std::string& owner);
+  // For ops requested without a session (setup, factory reset, trust): owned
+  // by nobody, so they never displace anything and nothing displaces them.
+  std::optional<Armed> tryAwaitPresence(Op op, Commit commit) { return awaitPresence(op, std::move(commit), {}); }
   // Lock ends every session, so items armed through a session must not outlive it.
   void dropSessionItems();
 
@@ -183,6 +191,9 @@ class Machine {
   void clearSlotLocked();
   void flashLocked(Indicator ind, int64_t now, int64_t ms);
   void recordOpLocked(Op op, OpCode code, int64_t at);
+  // Whether `owner` may put an item in the slot now (see arm()); a replaced
+  // item of the same owner is recorded as cancelled.
+  bool takeSlotLocked(const std::string& owner, int64_t now, bool presence);
 
   Clock now_;
   std::mutex mu_;
@@ -192,6 +203,7 @@ class Machine {
   Commit commit_;
   TokenGen token_;
   std::string cancelToken_;  // of the waiting presence op
+  std::string owner_;        // session that armed the waiting item; empty = none
   int64_t deadline_ = 0;
   bool typing_ = false;
   bool linkReady_ = false;

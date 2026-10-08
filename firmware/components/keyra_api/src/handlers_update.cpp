@@ -369,7 +369,7 @@ esp_err_t download(httpd_req_t* r) {
   return http::sendJson(r, http::k202, o.get());
 }
 
-esp_err_t apply(httpd_req_t* r) {
+esp_err_t apply(httpd_req_t* r, const std::string& owner) {
   const esp_partition_t* part;
   std::string ver;
   {
@@ -378,7 +378,7 @@ esp_err_t apply(httpd_req_t* r) {
     ver = g_version;
   }
   if (part == nullptr || g_busy) return http::sendError(r, http::k409, "not_staged", "No verified update is waiting");
-  const int64_t expires = machine().awaitPresence(actions::Op::Update, [part] {
+  const auto armed = machine().awaitPresence(actions::Op::Update, [part] {
     // A new upload may have started since: only switch to a still-staged image.
     {
       std::lock_guard<std::mutex> lock(g_mu);
@@ -392,12 +392,16 @@ esp_err_t apply(httpd_req_t* r) {
     ESP_LOGI(TAG, "installed into %s; restarting", part->label);
     restartSoon();
     return true;
-  });
+  }, owner);
+  if (!armed) {
+    return http::sendError(r, http::k409, "busy",
+                           "Keyra is waiting for another request; long-press its button to cancel it");
+  }
   json::Ptr o(cJSON_CreateObject());
   cJSON_AddStringToObject(o.get(), "awaiting", "button");
   cJSON_AddStringToObject(o.get(), "op", actions::opName(actions::Op::Update));
-  cJSON_AddStringToObject(o.get(), "cancel", machine().presenceCancelToken().c_str());
-  cJSON_AddNumberToObject(o.get(), "expiresIn", static_cast<double>(expires));
+  cJSON_AddStringToObject(o.get(), "cancel", armed->cancel.c_str());
+  cJSON_AddNumberToObject(o.get(), "expiresIn", static_cast<double>(armed->expiresIn));
   cJSON_AddStringToObject(o.get(), "version", ver.c_str());
   return http::sendJson(r, http::k202, o.get());
 }

@@ -38,7 +38,7 @@ Sessions::Issued Sessions::create(int64_t nowMs, uint32_t trustId, uint32_t gene
   target->lastUsed = nowMs;
   target->trustId = trustId;
   target->generation = generation;
-  target->graceUntil = 0;
+  target->graceUntil = {};
   lastActivity_ = nowMs;
   return {target->token, target->csrf};
 }
@@ -53,18 +53,27 @@ Sessions::Slot* Sessions::findLocked(std::string_view token) {
   return found;
 }
 
-bool Sessions::grantGrace(std::string_view token, int64_t nowMs) {
+bool Sessions::grantGrace(std::string_view token, int64_t nowMs, Grace g) {
   std::lock_guard<std::mutex> lock(mu_);
   Slot* s = findLocked(token);
   if (!s) return false;
-  s->graceUntil = nowMs + kGraceMs;
+  s->graceUntil[static_cast<size_t>(g)] = nowMs + kGraceMs;
   return true;
 }
 
-int64_t Sessions::graceLeft(std::string_view token, int64_t nowMs) {
+int64_t Sessions::graceLeft(std::string_view token, int64_t nowMs, Grace g) {
   std::lock_guard<std::mutex> lock(mu_);
   Slot* s = findLocked(token);
-  return s && nowMs < s->graceUntil ? s->graceUntil - nowMs : 0;
+  const int64_t until = s ? s->graceUntil[static_cast<size_t>(g)] : 0;
+  return nowMs < until ? until - nowMs : 0;
+}
+
+bool Sessions::consumeGrace(std::string_view token, int64_t nowMs, Grace g) {
+  std::lock_guard<std::mutex> lock(mu_);
+  Slot* s = findLocked(token);
+  if (!s || nowMs >= s->graceUntil[static_cast<size_t>(g)]) return false;
+  s->graceUntil[static_cast<size_t>(g)] = 0;
+  return true;
 }
 
 std::optional<std::string> Sessions::csrfFor(std::string_view token, int64_t nowMs, uint32_t generation) {

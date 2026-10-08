@@ -102,7 +102,7 @@ esp_err_t getScan(httpd_req_t* r) {
   return http::sendJson(r, http::k200, o.get());
 }
 
-esp_err_t putHome(httpd_req_t* r, const cJSON* body) {
+esp_err_t putHome(httpd_req_t* r, const cJSON* body, const std::string& owner) {
   const settings::Settings cur = settings::get();
   auto job = std::make_shared<HomeJob>();
   if (json::getBool(body, "enabled", job->enabled) != Field::Ok) return badRequest(r, "\"enabled\" (boolean) is required");
@@ -123,12 +123,16 @@ esp_err_t putHome(httpd_req_t* r, const cJSON* body) {
     if (job->password.s.empty() && (job->ssid != cur.homeSsid || cur.homePassword.empty()))
       return badRequest(r, "password is required for a new network");
   }
-  const int64_t expires = machine().awaitPresence(actions::Op::HomeWifi, [job] { return commitHome(*job); });
+  const auto armed = machine().awaitPresence(actions::Op::HomeWifi, [job] { return commitHome(*job); }, owner);
+  if (!armed) {
+    return http::sendError(r, http::k409, "busy",
+                           "Keyra is waiting for another request; long-press its button to cancel it");
+  }
   json::Ptr o(cJSON_CreateObject());
   cJSON_AddStringToObject(o.get(), "awaiting", "button");
   cJSON_AddStringToObject(o.get(), "op", "home_wifi");
-  cJSON_AddStringToObject(o.get(), "cancel", machine().presenceCancelToken().c_str());
-  cJSON_AddNumberToObject(o.get(), "expiresIn", static_cast<double>(expires));
+  cJSON_AddStringToObject(o.get(), "cancel", armed->cancel.c_str());
+  cJSON_AddNumberToObject(o.get(), "expiresIn", static_cast<double>(armed->expiresIn));
   return http::sendJson(r, http::k202, o.get());
 }
 

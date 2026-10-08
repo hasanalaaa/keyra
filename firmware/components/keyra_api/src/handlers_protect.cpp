@@ -12,7 +12,11 @@ namespace {
 
 const char* TAG = "protect";
 
-int64_t graceLeft(const std::string& token) { return sessions().graceLeft(token, monoMs()); }
+using Grace = Sessions::Grace;
+
+Grace graceFor(actions::Op op) {
+  return op == actions::Op::Backup ? Grace::Backup : op == actions::Op::Recovery ? Grace::Recovery : Grace::Reveal;
+}
 
 std::string toHex(const uint8_t* p, size_t n) {
   static constexpr char kHex[] = "0123456789abcdef";
@@ -26,16 +30,27 @@ std::string toHex(const uint8_t* p, size_t n) {
 
 }  // namespace
 
-bool mayReveal(const std::string& token) { return !settings::get().protectReveal || graceLeft(token) > 0; }
+bool mayReveal(const std::string& token) {
+  return !settings::get().protectReveal || sessions().graceLeft(token, monoMs(), Grace::Reveal) > 0;
+}
+
+bool mayBackup(const std::string& token) {
+  return !settings::get().protectReveal || sessions().consumeGrace(token, monoMs(), Grace::Backup);
+}
 
 esp_err_t requestPress(httpd_req_t* r, actions::Op op, const std::string& token) {
   // The token is copied into the commit; it is a session id, not a secret of the vault.
-  const int64_t expires = machine().awaitPresence(op, [token] { return sessions().grantGrace(token, monoMs()); });
+  const Grace g = graceFor(op);
+  const auto armed = machine().awaitPresence(op, [token, g] { return sessions().grantGrace(token, monoMs(), g); }, token);
+  if (!armed) {
+    return http::sendError(r, http::k409, "busy",
+                           "Keyra is waiting for another request; long-press its button to cancel it");
+  }
   json::Ptr o(cJSON_CreateObject());
   cJSON_AddStringToObject(o.get(), "awaiting", "button");
   cJSON_AddStringToObject(o.get(), "op", actions::opName(op));
-  cJSON_AddStringToObject(o.get(), "cancel", machine().presenceCancelToken().c_str());
-  cJSON_AddNumberToObject(o.get(), "expiresIn", static_cast<double>(expires));
+  cJSON_AddStringToObject(o.get(), "cancel", armed->cancel.c_str());
+  cJSON_AddNumberToObject(o.get(), "expiresIn", static_cast<double>(armed->expiresIn));
   return http::sendJson(r, http::k202, o.get());
 }
 
@@ -79,9 +94,10 @@ esp_err_t getRecovery(httpd_req_t* r) {
   return http::sendJson(r, http::k200, o.get());
 }
 
-// Always needs a press (whatever the reveal setting): the key opens the vault.
+// Always needs its own press (whatever the reveal setting), used up by one
+// change: the key opens the vault.
 esp_err_t createRecovery(httpd_req_t* r, const std::string& token) {
-  if (graceLeft(token) <= 0) return requestPress(r, actions::Op::Recovery, token);
+  if (!sessions().consumeGrace(token, monoMs(), Grace::Recovery)) return requestPress(r, actions::Op::Recovery, token);
   vault::RecoveryKey key{};
   const int64_t now = unixSecondsOrZero();
   const vault::Status st = vault::createRecovery(now, key);
@@ -100,7 +116,7 @@ esp_err_t createRecovery(httpd_req_t* r, const std::string& token) {
 }
 
 esp_err_t deleteRecovery(httpd_req_t* r, const std::string& token) {
-  if (graceLeft(token) <= 0) return requestPress(r, actions::Op::Recovery, token);
+  if (!sessions().consumeGrace(token, monoMs(), Grace::Recovery)) return requestPress(r, actions::Op::Recovery, token);
   const vault::Status st = vault::removeRecovery();
   if (st == vault::Status::NotFound) return http::sendError(r, http::k404, "not_found", "No recovery key");
   if (st != vault::Status::Ok) return http::sendError(r, http::k500, "storage", "Could not remove the recovery key");

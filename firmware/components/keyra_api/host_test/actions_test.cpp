@@ -14,7 +14,7 @@ TypeRequest req(uint32_t id, What w = What::Password) { return {id, "Mail", w, f
 
 void shortPressRunsPendingOnce() {
   auto m = make();
-  m.arm(req(7));
+  m.arm(req(7), "s");
   CHECK(m.pending().has_value());
   CHECK(m.indicator(true, true, false) == Indicator::Pending);
   Decision d = m.onButton(Button::Short, true);
@@ -36,15 +36,15 @@ void shortPressRunsPendingOnce() {
 
 void armReplacesPending() {
   auto m = make();
-  m.arm(req(1));
-  m.arm(req(2, What::Both));
+  m.arm(req(1), "s");
+  m.arm(req(2, What::Both), "s");
   auto p = m.pending();
   CHECK(p && p->req.id == 2 && p->req.what == What::Both);
 }
 
 void pendingExpiresAfter60s() {
   auto m = make();
-  m.arm(req(3));
+  m.arm(req(3), "s");
   g_now += kExpiryMs - 1;
   CHECK(m.pending().has_value());
   CHECK_EQ(m.pending()->expiresInMs, 1);
@@ -57,7 +57,7 @@ void pendingExpiresAfter60s() {
 
 void longPressCancelsThenLocks() {
   auto m = make();
-  m.arm(req(4));
+  m.arm(req(4), "s");
   CHECK(m.onButton(Button::Long, true).effect == Effect::Cancelled);
   CHECK(m.last()->code == Code::Cancelled);
   CHECK(m.onButton(Button::Long, true).effect == Effect::Lock);
@@ -67,7 +67,7 @@ void longPressCancelsThenLocks() {
 void cancelEndpoint() {
   auto m = make();
   CHECK(!m.cancel());
-  m.arm(req(5));
+  m.arm(req(5), "s");
   CHECK(m.cancel());
   CHECK(m.last()->code == Code::Cancelled);
   CHECK(!m.pending().has_value());
@@ -76,7 +76,7 @@ void cancelEndpoint() {
 void presenceApproveRunsCommitOnce() {
   auto m = make();
   int runs = 0;
-  m.awaitPresence(Op::Setup, [&runs] { ++runs; return true; });
+  m.awaitPresence(Op::Setup, [&runs] { ++runs; return true; }, "s");
   auto pr = m.presence();
   CHECK(pr && pr->awaiting && pr->op == Op::Setup && pr->expiresInMs == kExpiryMs);
   CHECK(m.indicator(false, false, false) == Indicator::AwaitPresence);
@@ -97,7 +97,7 @@ void droppedPresenceReleasesCapturedState() {
   auto m = make();
   auto secret = std::make_shared<int>(42);
   std::weak_ptr<int> watch = secret;
-  m.awaitPresence(Op::FactoryReset, [secret] { return *secret == 42; });
+  m.awaitPresence(Op::FactoryReset, [secret] { return *secret == 42; }, "s");
   secret.reset();
   CHECK(!watch.expired());
   CHECK(m.onButton(Button::Long, true).effect == Effect::Cancelled);
@@ -106,7 +106,7 @@ void droppedPresenceReleasesCapturedState() {
 
   auto again = std::make_shared<int>(1);
   watch = again;
-  m.awaitPresence(Op::Wifi, [again] { return true; });
+  m.awaitPresence(Op::Wifi, [again] { return true; }, "s");
   again.reset();
   g_now += kExpiryMs;
   CHECK(!m.presence().has_value());
@@ -115,22 +115,22 @@ void droppedPresenceReleasesCapturedState() {
 
 void presenceReplacesTypeAndViceVersa() {
   auto m = make();
-  m.arm(req(9));
-  m.awaitPresence(Op::Wifi, [] { return true; });
+  m.arm(req(9), "s");
+  m.awaitPresence(Op::Wifi, [] { return true; }, "s");
   CHECK(!m.pending().has_value());
   CHECK(m.presence().has_value());
-  m.arm(req(9));
+  m.arm(req(9), "s");
   CHECK(!m.presence().has_value());
   CHECK(m.pending().has_value());
 }
 
 void unauthenticatedOpsNeverDisplace() {
   auto m = make();
-  m.arm(req(12));
+  m.arm(req(12), "s");
   CHECK(!m.tryAwaitPresence(Op::FactoryReset, [] { return true; }).has_value());
   CHECK(m.pending().has_value());
   m.cancel();
-  CHECK(m.tryAwaitPresence(Op::Setup, [] { return true; }) == kExpiryMs);
+  CHECK(m.tryAwaitPresence(Op::Setup, [] { return true; })->expiresIn == kExpiryMs);
   CHECK(!m.tryAwaitPresence(Op::Setup, [] { return true; }).has_value());
   Decision d = m.onButton(Button::Short, false);
   CHECK(!m.tryAwaitPresence(Op::FactoryReset, [] { return true; }).has_value());  // still committing
@@ -141,23 +141,23 @@ void unauthenticatedOpsNeverDisplace() {
 
 void lockDropsSessionItemsOnly() {
   auto m = make();
-  m.arm(req(10));
+  m.arm(req(10), "s");
   m.dropSessionItems();
   CHECK(!m.pending().has_value());
   CHECK(m.last()->code == Code::Cancelled);
 
-  m.awaitPresence(Op::RestoreReplace, [] { return true; });
+  m.awaitPresence(Op::RestoreReplace, [] { return true; }, "s");
   m.dropSessionItems();
   CHECK(!m.presence().has_value());
 
-  m.awaitPresence(Op::FactoryReset, [] { return true; });
+  m.awaitPresence(Op::FactoryReset, [] { return true; }, "s");
   m.dropSessionItems();
   CHECK(m.presence().has_value());  // works without a session by design
 }
 
 void failureFlashesError() {
   auto m = make();
-  m.arm(req(11));
+  m.arm(req(11), "s");
   Decision d = m.onButton(Button::Short, true);
   m.typingFinished(d.run, Code::NoUsb);
   CHECK(m.indicator(true, true, false) == Indicator::Error);
@@ -181,29 +181,29 @@ void presenceOutcomesAreReported() {
   auto m = make();
   CHECK(!m.opResult().has_value());
 
-  m.awaitPresence(Op::Wifi, [] { return false; });
+  m.awaitPresence(Op::Wifi, [] { return false; }, "s");
   Decision d = m.onButton(Button::Short, true);
   m.commitFinished(d.commit());
   auto r = m.opResult();
   CHECK(r && r->op == Op::Wifi && r->code == OpCode::Failed);
 
-  m.awaitPresence(Op::Setup, [] { return true; });
+  m.awaitPresence(Op::Setup, [] { return true; }, "s");
   d = m.onButton(Button::Short, false);
   m.commitFinished(d.commit());
   CHECK(m.opResult()->code == OpCode::Done);
   g_now += 250;
   CHECK_EQ(m.opResult()->agoMs, 250);
 
-  m.awaitPresence(Op::RestoreReplace, [] { return true; });
+  m.awaitPresence(Op::RestoreReplace, [] { return true; }, "s");
   g_now += kExpiryMs;
   r = m.opResult();
   CHECK(r && r->op == Op::RestoreReplace && r->code == OpCode::Expired && r->agoMs == 0);
 
-  m.awaitPresence(Op::FactoryReset, [] { return true; });
+  m.awaitPresence(Op::FactoryReset, [] { return true; }, "s");
   m.onButton(Button::Long, true);
   CHECK(m.opResult()->code == OpCode::Cancelled);
 
-  m.awaitPresence(Op::Wifi, [] { return true; });
+  m.awaitPresence(Op::Wifi, [] { return true; }, "s");
   m.dropSessionItems();
   CHECK(m.opResult()->op == Op::Wifi && m.opResult()->code == OpCode::Cancelled);
   CHECK(std::string(opCodeName(OpCode::Done)) == "done");
@@ -212,7 +212,7 @@ void presenceOutcomesAreReported() {
 void blePairOp() {
   auto m = make();
   int opened = 0;
-  m.awaitPresence(Op::BlePair, [&opened] { ++opened; return true; });
+  m.awaitPresence(Op::BlePair, [&opened] { ++opened; return true; }, "s");
   CHECK(m.presence()->op == Op::BlePair);
   CHECK(m.indicator(true, true, false) == Indicator::AwaitPresence);
   Decision d = m.onButton(Button::Short, true);
@@ -221,7 +221,7 @@ void blePairOp() {
   CHECK_EQ(opened, 1);
   CHECK(m.opResult()->op == Op::BlePair && m.opResult()->code == OpCode::Done);
   // Armed through a session: locking drops it like a Wi-Fi change.
-  m.awaitPresence(Op::BlePair, [] { return true; });
+  m.awaitPresence(Op::BlePair, [] { return true; }, "s");
   m.dropSessionItems();
   CHECK(!m.presence().has_value());
   CHECK(m.opResult()->code == OpCode::Cancelled);
@@ -233,7 +233,7 @@ void pairingIndicatorYields() {
   CHECK(m.indicator(true, true, true) == Indicator::Pairing);
   CHECK(m.indicator(true, false, true) == Indicator::Pairing);
   CHECK(m.indicator(false, false, true) == Indicator::Pairing);
-  m.arm(req(3));
+  m.arm(req(3), "s");
   CHECK(m.indicator(true, true, true) == Indicator::Pending);  // a ready action wins
   Decision d = m.onButton(Button::Short, true);
   CHECK(m.indicator(true, true, true) == Indicator::Typing);
@@ -241,20 +241,20 @@ void pairingIndicatorYields() {
   CHECK(m.indicator(true, true, true) == Indicator::Error);    // the result flash wins
   g_now += kFlashMs;
   CHECK(m.indicator(true, true, true) == Indicator::Pairing);
-  m.awaitPresence(Op::Wifi, [] { return true; });
+  m.awaitPresence(Op::Wifi, [] { return true; }, "s");
   CHECK(m.indicator(true, true, true) == Indicator::AwaitPresence);
 }
 
 void netOps() {
   auto m = make();
   // Changing the home network is armed through a session, so lock drops it.
-  m.awaitPresence(Op::HomeWifi, [] { return true; });
+  m.awaitPresence(Op::HomeWifi, [] { return true; }, "s");
   m.dropSessionItems();
   CHECK(!m.presence().has_value());
   CHECK(m.opResult()->op == Op::HomeWifi && m.opResult()->code == OpCode::Cancelled);
   // Trusting a browser is requested before any session exists: it never
   // displaces a pending action and survives a lock.
-  m.arm(req(13));
+  m.arm(req(13), "s");
   CHECK(!m.tryAwaitPresence(Op::TrustBrowser, [] { return true; }).has_value());
   m.cancel();
   CHECK(m.tryAwaitPresence(Op::TrustBrowser, [] { return true; }).has_value());
@@ -269,7 +269,7 @@ void bluetoothTargetWaitsForLink() {
   auto m = make();
   TypeRequest r = req(21);
   r.target = {Target::Kind::Ble, {0xA4, 0xC1, 0x38, 0x0B, 0x7F, 0x3A}};
-  m.arm(r);
+  m.arm(r, "s");
   CHECK(m.onButton(Button::Short, true).effect == Effect::Blink);  // connecting: press ignored
   CHECK(m.pending().has_value());                                  // ... and still armed
   m.setLinkReady(true);
@@ -279,13 +279,13 @@ void bluetoothTargetWaitsForLink() {
 
   // Never connected within 60 s: no_host, not a generic expiry.
   m.setLinkReady(false);
-  m.arm(r);
+  m.arm(r, "s");
   g_now += kExpiryMs;
   CHECK(!m.pending().has_value());
   CHECK(m.last()->code == Code::NoHost);
 
   // Connected but nobody pressed: an ordinary expiry.
-  m.arm(r);
+  m.arm(r, "s");
   m.setLinkReady(true);
   g_now += kExpiryMs;
   m.pending();
@@ -295,7 +295,7 @@ void bluetoothTargetWaitsForLink() {
   m.setLinkReady(false);
   TypeRequest u = req(22);
   u.target = {Target::Kind::Usb, {}};
-  m.arm(u);
+  m.arm(u, "s");
   CHECK(m.onButton(Button::Short, true).effect == Effect::Run);
 }
 
@@ -321,7 +321,7 @@ TypeRequest usbReq(uint32_t id) {
 void usbActionIsBoundToItsHost() {
   auto m = make();
   m.setUsbMounted(true);
-  m.arm(usbReq(1));
+  m.arm(usbReq(1), "s");
   m.setUsbMounted(true);  // same connection: nothing changes
   CHECK(m.pending().has_value());
   m.setUsbMounted(false);  // unplugged, suspended or re-enumerating
@@ -334,25 +334,25 @@ void usbActionIsBoundToItsHost() {
   CHECK(std::string(codeName(Code::HostChanged)) == "host_changed");
 
   // Armed on the new connection, it types there.
-  m.arm(usbReq(2));
+  m.arm(usbReq(2), "s");
   CHECK(m.onButton(Button::Short, true).effect == Effect::Run);
 }
 
 void unboundActionsIgnoreUsbChanges() {
   auto m = make();
-  m.arm(usbReq(1));  // nothing plugged in: no host to bind (no_usb at the press)
+  m.arm(usbReq(1), "s");  // nothing plugged in: no host to bind (no_usb at the press)
   m.setUsbMounted(true);
   m.setUsbMounted(false);
   CHECK(m.pending().has_value());
   TypeRequest ble = req(2);
   ble.target.kind = Target::Kind::Ble;
   m.setUsbMounted(true);
-  m.arm(ble);  // a Bluetooth action is bound by address, not by USB
+  m.arm(ble, "s");  // a Bluetooth action is bound by address, not by USB
   m.setUsbMounted(false);
   CHECK(m.pending().has_value());
   // A presence op is not a typing action.
   m.setUsbMounted(true);
-  m.awaitPresence(Op::Reveal, [] { return true; });
+  m.awaitPresence(Op::Reveal, [] { return true; }, "s");
   m.setUsbMounted(false);
   CHECK(m.presence().has_value());
 }
@@ -360,7 +360,7 @@ void unboundActionsIgnoreUsbChanges() {
 void revealOpsEndWithTheSession() {
   auto m = make();
   for (Op op : {Op::Reveal, Op::Backup, Op::Recovery, Op::Unprotect, Op::Update}) {
-    m.awaitPresence(op, [] { return true; });
+    m.awaitPresence(op, [] { return true; }, "s");
     m.dropSessionItems();
     CHECK(!m.presence().has_value());
     auto r = m.opResult();
@@ -426,8 +426,7 @@ void testCancelPresence() {
   int n = 0;
   Machine m([] { return g_now; }, [&n] { return "tok" + std::to_string(++n); });
   bool ran = false;
-  m.awaitPresence(Op::FactoryReset, [&] { ran = true; return true; });
-  const std::string tok = m.presenceCancelToken();
+  const std::string tok = m.awaitPresence(Op::FactoryReset, [&] { ran = true; return true; }, "s")->cancel;
   CHECK(tok == "tok1");
   CHECK(!m.cancelPresence(Op::Setup, tok));           // another op: untouched
   CHECK(!m.cancelPresence(Op::FactoryReset, ""));     // a stranger without the token
@@ -435,19 +434,53 @@ void testCancelPresence() {
   CHECK(m.presence().has_value());
   CHECK(m.cancelPresence(Op::FactoryReset, tok));
   CHECK(!m.presence().has_value());
-  CHECK(m.presenceCancelToken().empty());
   const Decision d = m.onButton(Button::Short, true);
   CHECK(d.effect != Effect::Approve);
   CHECK(!ran);
   // A new op gets a new token; the old one cancels nothing.
-  m.awaitPresence(Op::FactoryReset, [] { return true; });
+  m.awaitPresence(Op::FactoryReset, [] { return true; }, "s");
   CHECK(!m.cancelPresence(Op::FactoryReset, tok));
   CHECK(parseOp("factory_reset") == Op::FactoryReset);
   CHECK(!parseOp("nope"));
 }
 
 
+// The press approves only what the session that armed it asked for: another
+// session cannot swap the waiting item (a second browser, a stolen session).
+void pressIsBoundToItsRequester() {
+  int n = 0;
+  Machine m([] { return g_now; }, [&n] { return "tok" + std::to_string(++n); });
+  int mine = 0, theirs = 0;
+  const auto armed = m.awaitPresence(Op::Reveal, [&] { ++mine; return true; }, "alice");
+  CHECK(armed && armed->cancel == "tok1" && armed->expiresIn == kExpiryMs);
+  CHECK(!m.awaitPresence(Op::RestoreReplace, [&] { ++theirs; return true; }, "mallory"));
+  CHECK(!m.arm(req(1), "mallory"));  // nor with a type action
+  CHECK(!m.tryAwaitPresence(Op::FactoryReset, [&] { ++theirs; return true; }));
+  CHECK(m.presence() && m.presence()->op == Op::Reveal);
+  Decision d = m.onButton(Button::Short, true);
+  CHECK(d.effect == Effect::Approve && d.op == Op::Reveal);
+  CHECK(d.commit());
+  m.commitFinished(true);
+  CHECK(mine == 1 && theirs == 0);
+
+  // The same session may change its mind: the old item ends as cancelled.
+  m.awaitPresence(Op::Backup, [] { return true; }, "alice");
+  CHECK(m.awaitPresence(Op::Recovery, [] { return true; }, "alice"));
+  CHECK(m.opResult() && m.opResult()->op == Op::Backup && m.opResult()->code == OpCode::Cancelled);
+  CHECK(m.arm(req(2), "alice"));  // a type action of hers replaces her op too
+  CHECK(m.opResult()->op == Op::Recovery && m.opResult()->code == OpCode::Cancelled);
+  CHECK(!m.awaitPresence(Op::Backup, [] { return true; }, "mallory"));  // and is hers alone
+  CHECK(m.cancel());
+
+  // Items armed without a session (setup, factory reset, trust) belong to nobody.
+  CHECK(m.tryAwaitPresence(Op::Setup, [] { return true; }));
+  CHECK(!m.awaitPresence(Op::Reveal, [] { return true; }, "alice"));
+  CHECK(!m.tryAwaitPresence(Op::FactoryReset, [] { return true; }));
+  CHECK(m.presence()->op == Op::Setup);
+}
+
 int main() {
+  pressIsBoundToItsRequester();
   testCancelPresence();
   usbActionIsBoundToItsHost();
   unboundActionsIgnoreUsbChanges();

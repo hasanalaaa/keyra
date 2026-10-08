@@ -130,8 +130,8 @@ esp_err_t requestApproval(httpd_req_t* r) {
   if (!sha256(token, pending->hash)) return http::sendError(r, http::k500, "crypto", "Could not hash the token");
   pending->name = browserName(http::header(r, "User-Agent", kMaxUa));
   pending->created = pending->lastSeen = unixSecondsOrZero();
-  const auto expires = machine().tryAwaitPresence(actions::Op::TrustBrowser, [pending] { return commitTrust(*pending); });
-  if (!expires) {
+  const auto armed = machine().tryAwaitPresence(actions::Op::TrustBrowser, [pending] { return commitTrust(*pending); });
+  if (!armed) {
     return http::sendError(r, http::k409, "busy",
                            "Keyra is waiting for another request; long-press its button to cancel it");
   }
@@ -141,8 +141,8 @@ esp_err_t requestApproval(httpd_req_t* r) {
   json::Ptr o(cJSON_CreateObject());
   cJSON_AddStringToObject(o.get(), "awaiting", "button");
   cJSON_AddStringToObject(o.get(), "op", "trust_browser");
-  cJSON_AddStringToObject(o.get(), "cancel", machine().presenceCancelToken().c_str());
-  cJSON_AddNumberToObject(o.get(), "expiresIn", static_cast<double>(*expires));
+  cJSON_AddStringToObject(o.get(), "cancel", armed->cancel.c_str());
+  cJSON_AddNumberToObject(o.get(), "expiresIn", static_cast<double>(armed->expiresIn));
   return http::sendJson(r, http::k202, o.get());
 }
 

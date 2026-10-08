@@ -159,7 +159,7 @@ int64_t g_now = 1000;
 void machineWaitsForEachPress() {
   actions::Machine m([] { return g_now; });
   actions::TypeRequest r{9, "Bank", actions::What::Sequence, false, {}, nullptr, job("a{PRESS}b{PRESS}c"), 0};
-  m.arm(r);
+  m.arm(r, "s");
   auto p = m.pending();
   CHECK(p && p->req.part == 0 && p->req.seq->parts == 3);
   for (uint8_t part = 0; part < 3; ++part) {
@@ -183,38 +183,38 @@ void machineWaitsForEachPress() {
 void waitingPartExpiresOrCancels() {
   actions::Machine m([] { return g_now; });
   actions::TypeRequest r{9, "Bank", actions::What::Sequence, false, {}, nullptr, job("a{PRESS}b"), 0};
-  m.arm(r);
+  m.arm(r, "s");
   actions::Decision d = m.onButton(actions::Button::Short, true);
   m.typingFinished(d.run, Code::Typed);
   g_now += actions::kExpiryMs;
   CHECK(!m.pending().has_value());
   CHECK(m.last()->code == Code::Expired);
 
-  m.arm(r);
+  m.arm(r, "s");
   d = m.onButton(actions::Button::Short, true);
   m.typingFinished(d.run, Code::Typed);
   CHECK(m.onButton(actions::Button::Long, true).effect == actions::Effect::Cancelled);
   CHECK(m.last()->code == Code::Cancelled);
 
   // A failed part ends the sequence.
-  m.arm(r);
+  m.arm(r, "s");
   d = m.onButton(actions::Button::Short, true);
   m.typingFinished(d.run, Code::UnsupportedChar);
   CHECK(!m.pending().has_value());
   CHECK(m.last()->code == Code::UnsupportedChar);
 
   // Something else armed while a part typed: the sequence does not come back.
-  m.arm(r);
+  m.arm(r, "s");
   d = m.onButton(actions::Button::Short, true);
   actions::TypeRequest other{1, "Mail", actions::What::Password, false, {}, nullptr, nullptr, 0};
-  m.arm(other);
+  m.arm(other, "s");
   m.typingFinished(d.run, Code::Typed);
   CHECK(m.pending() && m.pending()->req.id == 1);
   CHECK(m.last()->code == Code::Cancelled);
 
   // Lock drops a waiting sequence like any armed action.
   m.cancel();
-  m.arm(r);
+  m.arm(r, "s");
   d = m.onButton(actions::Button::Short, true);
   m.typingFinished(d.run, Code::Typed);
   m.dropSessionItems();

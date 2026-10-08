@@ -8,6 +8,13 @@ All notable changes to Keyra are documented here. The format follows
 
 ### Fixed
 
+- **Button presses are bound to who asked (security):** any session could
+  replace the item waiting for the press (so the user's press approved
+  something else), and one reveal press also allowed a backup download and a
+  recovery-key change for 60 s. Now the waiting item belongs to its session
+  (others get `busy`), and a press grants only the op it was for — backup and
+  recovery-key changes are single use (SPEC §12.5a).
+
 - **Passkeys (security):** a signature could still be made after the vault
   locked — from keys unwrapped before the lock, while waiting for the touch,
   or by GetNextAssertion (which also worked from another USB channel and kept

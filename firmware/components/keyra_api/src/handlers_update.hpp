@@ -7,6 +7,8 @@
 // button and switches to it.
 #include "cJSON.h"
 #include "esp_err.h"
+#include <string>
+
 #include "esp_http_server.h"
 
 namespace keyra::api::update {
@@ -14,7 +16,7 @@ namespace keyra::api::update {
 esp_err_t upload(httpd_req_t* r);    // slow worker: streams the request body
 esp_err_t check(httpd_req_t* r);     // slow worker: asks GitHub for the latest release
 esp_err_t download(httpd_req_t* r);  // starts the background download, 202
-esp_err_t apply(httpd_req_t* r);     // staged image → presence op `update`, 202
+esp_err_t apply(httpd_req_t* r, const std::string& owner);  // staged image → presence op `update`, 202
 
 // Biggest image accepted (one app partition).
 size_t maxImage();

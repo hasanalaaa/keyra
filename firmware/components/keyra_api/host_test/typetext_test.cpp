@@ -79,7 +79,7 @@ void wipedAfter(const char* what, F drop) {
     {
       auto t = makeText();
       watch = t;
-      const Pending p = m.arm(textRequest(std::move(t)));
+      const Pending p = *m.arm(textRequest(std::move(t)), "s");
       CHECK(!p.req.text);  // views never carry it
       CHECK(p.req.what == What::Text && p.req.id == 0 && p.req.title.empty());
     }
@@ -139,8 +139,8 @@ void wipedOnEveryPath() {
   });
   wipedAfter("long press", [](Machine& m) { CHECK(m.onButton(Button::Long, true).effect == Effect::Cancelled); });
   wipedAfter("lock", [](Machine& m) { m.dropSessionItems(); });
-  wipedAfter("another action", [](Machine& m) { m.arm({7, "Mail", What::Password, false, {}, nullptr, nullptr, 0}); });
-  wipedAfter("a presence op", [](Machine& m) { m.awaitPresence(Op::Wifi, [] { return true; }); });
+  wipedAfter("another action", [](Machine& m) { m.arm({7, "Mail", What::Password, false, {}, nullptr, nullptr, 0}, "s"); });
+  wipedAfter("a presence op", [](Machine& m) { m.awaitPresence(Op::Wifi, [] { return true; }, "s"); });
   wipedAfter("typing", [](Machine& m) {
     {
       Decision d = m.onButton(Button::Short, true);

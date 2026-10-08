@@ -77,21 +77,20 @@ esp_err_t sendVaultError(httpd_req_t* r, Status s) {
   return http::sendError(r, http::k500, "storage", "Storage error");
 }
 
-// The secret that lets this requester, and only it, withdraw the op it just
-// armed (POST /api/presence/cancel).
-void addCancelToken(cJSON* o) { cJSON_AddStringToObject(o, "cancel", machine().presenceCancelToken().c_str()); }
-
-esp_err_t sendAwaitingButton(httpd_req_t* r, int64_t expiresIn) {
-  json::Ptr o(cJSON_CreateObject());
-  cJSON_AddStringToObject(o.get(), "awaiting", "button");
-  cJSON_AddNumberToObject(o.get(), "expiresIn", static_cast<double>(expiresIn));
-  addCancelToken(o.get());
-  return http::sendJson(r, http::k202, o.get());
-}
-
 esp_err_t sendBusy(httpd_req_t* r) {
   return http::sendError(r, http::k409, "busy",
                          "Keyra is waiting for another request; long-press its button to cancel it");
+}
+
+// 202 with the secret that lets this requester, and only it, withdraw the op
+// (POST /api/presence/cancel); 409 busy when someone else's item is waiting.
+esp_err_t sendAwaitingButton(httpd_req_t* r, const std::optional<actions::Machine::Armed>& armed) {
+  if (!armed) return sendBusy(r);
+  json::Ptr o(cJSON_CreateObject());
+  cJSON_AddStringToObject(o.get(), "awaiting", "button");
+  cJSON_AddNumberToObject(o.get(), "expiresIn", static_cast<double>(armed->expiresIn));
+  cJSON_AddStringToObject(o.get(), "cancel", armed->cancel.c_str());
+  return http::sendJson(r, http::k202, o.get());
 }
 
 esp_err_t sendId(httpd_req_t* r, const char* status, uint32_t id) {
@@ -408,7 +407,7 @@ esp_err_t getState(Ctx& c) {
   cJSON_AddBoolToObject(o.get(), "timeValid", timeValid());
   // Reveal grace left for this session (SPEC §12.3); 0 without a session.
   cJSON_AddNumberToObject(o.get(), "graceMs",
-                          c.session ? static_cast<double>(sessions().graceLeft(c.token, monoMs())) : 0);
+                          c.session ? static_cast<double>(sessions().graceLeft(c.token, monoMs(), Sessions::Grace::Reveal)) : 0);
   return http::sendJson(c.r, http::k200, o.get());
 }
 
@@ -425,9 +424,7 @@ esp_err_t postSetup(Ctx& c) {
   if (!validate::passphrase(job->passphrase.s)) return badRequest(c.r, "passphrase must be 10-128 characters");
   if (!validate::wifiPassword(job->wifiPassword.s))
     return badRequest(c.r, "wifiPassword must be 8-63 printable ASCII characters and not the default");
-  const auto expires = machine().tryAwaitPresence(actions::Op::Setup, [job] { return commitSetup(*job); });
-  if (!expires) return sendBusy(c.r);
-  return sendAwaitingButton(c.r, *expires);
+  return sendAwaitingButton(c.r, machine().tryAwaitPresence(actions::Op::Setup, [job] { return commitSetup(*job); }));
 }
 
 // A new session for this browser: `ks` cookie (+ renewed `kt` when trusted) and the CSRF token.
@@ -774,7 +771,9 @@ esp_err_t entryTotp(Ctx& c) {
   return http::sendJson(c.r, http::k200, o.get());
 }
 
-esp_err_t sendPending(httpd_req_t* r, const actions::Pending& p) {
+esp_err_t sendPending(httpd_req_t* r, const std::optional<actions::Pending>& pending) {
+  if (!pending) return sendBusy(r);
+  const actions::Pending& p = *pending;
   json::Ptr o(cJSON_CreateObject());
   cJSON* po = cJSON_AddObjectToObject(o.get(), "pending");
   cJSON_AddStringToObject(po, "kind", "type");
@@ -840,7 +839,7 @@ esp_err_t postType(Ctx& c) {
       const bool ok = kbdapi::sequenceRequest(c.r, e, target, req, err);
       vault::wipe(e);
       if (!ok) return err;
-      return sendPending(c.r, machine().arm(std::move(req)));
+      return sendPending(c.r, machine().arm(std::move(req), c.token));
     }
     const bool missing = (*what == actions::What::Username && e.username.empty()) ||
                          (*what == actions::What::Password && e.password.empty()) ||
@@ -856,7 +855,7 @@ esp_err_t postType(Ctx& c) {
   if (json::getBool(c.body.get(), "switchLang", switchLang) == Field::BadType)
     return badRequest(c.r, "\"switchLang\" must be a boolean");
   req.switchLang = switchLang;
-  return sendPending(c.r, machine().arm(std::move(req)));
+  return sendPending(c.r, machine().arm(std::move(req), c.token));
 }
 
 // A "press Keyra's button" screen was cancelled (SPEC §5): the device must not
@@ -956,14 +955,12 @@ esp_err_t putSettings(Ctx& c) {
   if (next.apMode != cur.apMode) netapi::apply();
 
   if (!wifi->ssid.empty() || !wifi->password.s.empty()) {
-    const int64_t expires = machine().awaitPresence(actions::Op::Wifi, [wifi] { return commitWifi(*wifi); });
-    return sendAwaitingButton(c.r, expires);
+    return sendAwaitingButton(c.r, machine().awaitPresence(actions::Op::Wifi, [wifi] { return commitWifi(*wifi); }, c.token));
   }
   if (unprotect) {
-    const int64_t expires = machine().awaitPresence(actions::Op::Unprotect, [] {
+    return sendAwaitingButton(c.r, machine().awaitPresence(actions::Op::Unprotect, [] {
       return settings::update([](settings::Settings& s) { s.protectReveal = false; }) == ESP_OK;
-    });
-    return sendAwaitingButton(c.r, expires);
+    }, c.token));
   }
   json::Ptr o(settingsJson(next));
   return http::sendJson(c.r, http::k200, o.get());
@@ -994,7 +991,7 @@ esp_err_t postBackup(Ctx& c) {
     return badRequest(c.r, "backup passphrase must be at least 12 characters");
   if (!vault::unlocked()) return sendVaultError(c.r, Status::Locked);
   // The whole vault leaves the device: a press first (SPEC §12.3); the client retries.
-  if (!protect::mayReveal(c.token)) return protect::requestPress(c.r, actions::Op::Backup, c.token);
+  if (!protect::mayBackup(c.token)) return protect::requestPress(c.r, actions::Op::Backup, c.token);
   const Status st = vault::exportBackup(pass.s, out.s);
   if (st != Status::Ok) return sendVaultError(c.r, st);
   activity::log(activity::Kind::Backup);
@@ -1031,9 +1028,8 @@ esp_err_t postRestore(Ctx& c) {
   cJSON_free(text);
 
   if (mode == "replace") {
-    const int64_t expires =
-        machine().awaitPresence(actions::Op::RestoreReplace, [job] { return commitRestoreReplace(*job); });
-    return sendAwaitingButton(c.r, expires);
+    return sendAwaitingButton(
+        c.r, machine().awaitPresence(actions::Op::RestoreReplace, [job] { return commitRestoreReplace(*job); }, c.token));
   }
   size_t added = 0, updated = 0;
   const Status st = vault::importBackup(job->passphrase.s, job->backup.s, false, &added, &updated);
@@ -1046,12 +1042,10 @@ esp_err_t postRestore(Ctx& c) {
 }
 
 esp_err_t postFactoryReset(Ctx& c) {
-  const auto expires = machine().tryAwaitPresence(actions::Op::FactoryReset, [] {
+  return sendAwaitingButton(c.r, machine().tryAwaitPresence(actions::Op::FactoryReset, [] {
     commitFactoryReset();
     return true;
-  });
-  if (!expires) return sendBusy(c.r);
-  return sendAwaitingButton(c.r, *expires);
+  }));
 }
 
 void addPeer(cJSON* o, const ble::Peer& p) {
@@ -1099,13 +1093,11 @@ esp_err_t sendPairRefusal(httpd_req_t* r, ble::PairResult res) {
 esp_err_t postBlePair(Ctx& c) {
   const ble::PairResult now = ble::canPair();
   if (now != ble::PairResult::Ok) return sendPairRefusal(c.r, now);
-  const int64_t expires =
-      machine().awaitPresence(actions::Op::BlePair, [] {
-        const bool ok = ble::openPairing() == ble::PairResult::Ok;
-        if (ok) activity::log(activity::Kind::BlePairing);
-        return ok;
-      });
-  return sendAwaitingButton(c.r, expires);
+  return sendAwaitingButton(c.r, machine().awaitPresence(actions::Op::BlePair, [] {
+    const bool ok = ble::openPairing() == ble::PairResult::Ok;
+    if (ok) activity::log(activity::Kind::BlePairing);
+    return ok;
+  }, c.token));
 }
 
 // Saves (or, with Unknown, drops) a bond's operating system.
@@ -1229,7 +1221,7 @@ esp_err_t dispatch(Ctx& c) {
     case Route::BleSetOs: return putBleOs(c);
     case Route::PresenceCancel: return postPresenceCancel(c);
     case Route::WifiScan: return netapi::getScan(c.r);
-    case Route::WifiHome: return netapi::putHome(c.r, c.body.get());
+    case Route::WifiHome: return netapi::putHome(c.r, c.body.get(), c.token);
     case Route::ListTrusted: return trust::sendList(c.r);
     case Route::DeleteTrusted: return trust::revoke(c.r, c.match.id);
     case Route::ListPasskeys: return fidoapi::list(c.r);
@@ -1239,7 +1231,7 @@ esp_err_t dispatch(Ctx& c) {
     case Route::Update: return update::upload(c.r);
     case Route::UpdateCheck: return update::check(c.r);
     case Route::UpdateDownload: return update::download(c.r);
-    case Route::UpdateApply: return update::apply(c.r);
+    case Route::UpdateApply: return update::apply(c.r, c.token);
   }
   return http::sendError(c.r, http::k404, "not_found", "No such endpoint");
 }

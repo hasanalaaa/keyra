@@ -1,6 +1,8 @@
 #pragma once
 // Home Wi-Fi endpoints and the `net` part of /api/state (SPEC §8.2). Kept out
 // of handlers.cpp so the network feature reads as one unit.
+#include <string>
+
 #include "esp_http_server.h"
 #include "json.hpp"
 #include "keyra/net.hpp"
@@ -13,6 +15,7 @@ void addSettings(cJSON* o, const settings::Settings& s);    // homeWifi{enabled,
 // Pushes the saved home Wi-Fi settings to keyra_net (after apMode or home changes).
 void apply();
 esp_err_t getScan(httpd_req_t* r);                          // GET /api/wifi/scan
-esp_err_t putHome(httpd_req_t* r, const cJSON* body);       // PUT /api/wifi/home → 202 home_wifi
+// PUT /api/wifi/home → 202 home_wifi; `owner`: the session asking (see Machine::arm).
+esp_err_t putHome(httpd_req_t* r, const cJSON* body, const std::string& owner);
 
 }  // namespace keyra::api::netapi

@@ -586,6 +586,21 @@ armed on; if that computer goes away before the press, the action fails.
 `settings.lastBackupAt` (unix seconds, 0 = never) is set on every backup
 download; the vault screen nudges when it is older than 30 days.
 
+### 12.5a Whose press it is
+
+Everything waiting for the button belongs to the session that armed it (type
+actions and presence ops alike). Another session's request gets 409 `busy`
+instead of replacing it, so a second browser or a stolen session cannot swap
+what the user is about to approve; the same session may replace its own item
+(which then ends as `cancelled`). Ops armed without a session (setup, factory
+reset, trusting a browser) belong to nobody: they never replace anything and
+nothing replaces them. The cancel token comes back with the arming answer.
+
+A press grants what it was asked for, to that session only: `reveal` opens
+60 s of reading secrets; `backup` allows one backup download and `recovery`
+one recovery-key change — each used up by that request, never by a reveal
+grace.
+
 ### 12.6 Withdrawing a press request
 
 Every 202 `{awaiting:"button"}` answer carries `cancel`, a 128-bit random
