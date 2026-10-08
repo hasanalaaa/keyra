@@ -468,6 +468,10 @@ const en = {
   footAlways: 'Always: paired devices stay connected, so typing starts instantly, but an iPhone or iPad keeps its on-screen keyboard hidden.',
   connectingTitle: 'Connecting to {name}…',
   connectingBody: 'Make sure its Bluetooth is on and it’s nearby. Then click the login field and press the button.',
+  powerDip:
+    'Keyra restarted because its power dropped. A phone’s USB port or a thin cable often can’t supply enough: use a charger or power bank, and Bluetooth to type into the phone.',
+  connectingSlow:
+    'Still not connected? On that device open Settings → Bluetooth. If Keyra is listed, tap it and choose “Forget This Device”, then pair it again from Keyra: Settings → Bluetooth → Pair a new device.',
   footBondsFull: 'Keyra remembers up to 4 devices. Forget one to pair another.',
   footBleOff: 'Turn it on to type into phones, tablets and computers over Bluetooth.',
   pairPressBody: "Press the button on Keyra to let a new device pair. Its light is pulsing violet.",
@@ -1161,6 +1165,10 @@ const ar: Record<Key, string> = {
   footAlways: '«دائماً»: تبقى الأجهزة المقترنة متصلة فتبدأ الكتابة فوراً، لكن الآيفون أو الآيباد يُبقي لوحة المفاتيح التي على الشاشة مخفية.',
   connectingTitle: 'جارٍ الاتصال بـ {name}…',
   connectingBody: 'تأكّد أن البلوتوث فيه يعمل وأنه قريب. ثم انقر على خانة الدخول واضغط الزر.',
+  powerDip:
+    'أُعيد تشغيل Keyra لأن الطاقة الواصلة إليه انخفضت. منفذ USB في الهاتف أو الكيبل الرفيع لا يكفي غالباً: استخدم شاحناً أو باور بانك، والبلوتوث للكتابة على الهاتف.',
+  connectingSlow:
+    'ما زال غير متصل؟ افتح على ذلك الجهاز الإعدادات ← بلوتوث. إن ظهر Keyra في القائمة فاضغط عليه واختر «نسيان هذا الجهاز»، ثم اقرنه من جديد من Keyra: الإعدادات ← بلوتوث ← إقران جهاز جديد.',
   footBondsFull: 'يحفظ Keyra أربعة أجهزة كحدّ أقصى. ألغِ إقران أحدها لتضيف جهازاً جديداً.',
   footBleOff: 'شغّله لتكتب في الهواتف والأجهزة اللوحية والحواسيب عبر البلوتوث.',
   pairPressBody: 'اضغط زرّ Keyra لتسمح بإقران جهاز جديد. الضوء البنفسجي يومض الآن.',

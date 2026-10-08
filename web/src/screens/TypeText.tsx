@@ -5,7 +5,7 @@ import { api } from '../lib/api';
 import { FreeTextStatus } from '../components/Generator';
 import { Button, Notice, Segmented, SwitchRow } from '../components/ui';
 import { Sheet } from '../components/Sheet';
-import { HostLangRow } from '../components/HostOs';
+import { HostLangRow, TargetPicker } from '../components/HostOs';
 import { osOf, resolveTarget } from '../lib/hostos';
 import { useTypeAction } from '../lib/actions';
 import { storedTarget, validTarget } from '../lib/ble';
@@ -33,6 +33,7 @@ export function TypeTextSheet() {
   const [twice, setTwice] = useState(false);
   const [sep, setSep] = useState<'tab' | 'enter'>('tab');
   const [kbd, setKbd] = useState<Keyboard | null>(null);
+  const [, setPicked] = useState(0); // re-render after the picker stores a choice
   useEffect(() => {
     api.keyboard().then(setKbd, () => undefined); // not loaded: the US-ASCII check below still holds
   }, []);
@@ -119,6 +120,7 @@ export function TypeTextSheet() {
               </div>
             )}
           </div>
+          <TargetPicker onPick={() => setPicked((n) => n + 1)} />
           <HostLangRow key={hostTarget ?? ''} target={hostTarget} os={osOf(hostTarget, app.device?.host.usbOs, app.ble)} />
           <Button type="submit" full icon="keyboard" disabled={!ok}>
             {t('typeIt')}

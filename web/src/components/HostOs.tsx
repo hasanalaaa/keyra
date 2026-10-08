@@ -1,10 +1,12 @@
-// How Keyra gets text past the host's input language (SPEC §10.5): the system
-// picker for a computer, and the "its language now" switch next to "Type into".
+// Where Keyra types and how it gets text past the host's input language (SPEC §8.1, §10.5):
+// the "Type into" picker, the system picker for a computer, and the "its language now" switch.
 import { useState } from 'preact/hooks';
 import { Segmented } from './ui';
+import { defaultTarget, deviceLabel, storeTarget, storedTarget, validTarget } from '../lib/ble';
 import { OS_LIST, otherLang, setOtherLang, switchesLang } from '../lib/hostos';
 import { go } from '../lib/router';
 import { t, type Key } from '../lib/i18n';
+import { useApp } from '../lib/store';
 import type { HostOs } from '../lib/types';
 
 const OS_KEY: Record<Exclude<HostOs, ''>, Key> = { mac: 'osMac', ios: 'osIos', windows: 'osWindows', android: 'osAndroid', linux: 'osLinux' };
@@ -21,6 +23,29 @@ export function OsSelect({ value, onChange, label }: { value: HostOs; onChange: 
         </option>
       ))}
     </select>
+  );
+}
+
+/**
+ * "Type into": USB or one paired Bluetooth device, remembered per browser (shown once a device
+ * is paired). `onPick` lets the screen re-read storedTarget() for what depends on it.
+ */
+export function TargetPicker({ onPick }: { onPick: () => void }) {
+  const app = useApp();
+  if (!app.ble?.enabled || app.ble.bonds.length === 0) return null;
+  return (
+    <div class="target-picker">
+      <span class="caption">{t('typeInto')}</span>
+      <Segmented<string>
+        label={t('typeInto')}
+        options={[{ value: 'usb', label: 'USB' }, ...app.ble.bonds.map((b) => ({ value: b.addr, label: deviceLabel(b, t('bleDevice')) }))]}
+        value={validTarget(storedTarget(), app.ble) ?? defaultTarget(app.device?.host.output ?? null, app.ble)}
+        onChange={(v) => {
+          storeTarget(v);
+          onPick();
+        }}
+      />
+    </div>
   );
 }
 

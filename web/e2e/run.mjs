@@ -363,6 +363,19 @@ async function bleFlow(base, opts) {
   await page.keyboard.press('Escape');
   await page.locator('.layer .sheet').waitFor({ state: 'detached' });
 
+  // The generator and Type text offer the same "Type into" choice, sharing the remembered pick.
+  for (const hash of ['#/generate', '#/type']) {
+    await page.evaluate((h) => (location.hash = h), hash);
+    const picker = page.locator('.layer .target-picker');
+    await picker.waitFor({ timeout: 5000 });
+    check((await picker.locator('button[aria-checked=true]').first().textContent())?.includes("Hasan's iPad") ?? false, `${hash}: the iPad is preselected`);
+    await picker.locator('button', { hasText: 'USB' }).click();
+    check((await page.evaluate(() => localStorage.getItem('keyra.target'))) === 'usb', `${hash}: picking USB is remembered`);
+    await picker.locator('button', { hasText: "Hasan's iPad" }).click();
+    await page.keyboard.press('Escape');
+    await page.locator('.layer .sheet').waitFor({ state: 'detached' });
+  }
+
   // Forget it again.
   await page.evaluate(() => (location.hash = '#/settings'));
   const ipad = section.locator('.bond-row', { hasText: "Hasan's iPad" });

@@ -117,7 +117,22 @@ export function readyText(device: DeviceState | null, body: string): { title: st
 
 /** Under the Ready ring: where the keystrokes will go (SPEC §8.1). USB, the default, needs no note. */
 export function HostNotice({ device }: { device: DeviceState }) {
-  if (device.host.connecting) return null; // the title already says it
+  // A device that stays "connecting" usually still holds an old pairing Keyra no longer has
+  // (after an erase or "Forget"): it then refuses to reconnect until it is paired again.
+  const [slow, setSlow] = useState(false);
+  const connecting = device.host.connecting;
+  useEffect(() => {
+    setSlow(false);
+    if (!connecting) return;
+    const id = setTimeout(() => setSlow(true), 12000);
+    return () => clearTimeout(id);
+  }, [connecting]);
+  if (connecting)
+    return slow ? (
+      <Notice tone="warn" icon="bluetooth">
+        {t('connectingSlow')}
+      </Notice>
+    ) : null; // the title already says it
   const target = device.host.bleTarget;
   if (target)
     return (

@@ -57,7 +57,7 @@ export interface Presence {
 }
 
 export interface DeviceState {
-  device: { name: string; version: string; model: string; mac: string };
+  device: { name: string; version: string; model: string; mac: string; powerDip: boolean }; // powerDip: this boot followed a brownout reset
   initialized: boolean;
   unlocked: boolean;
   session: boolean;

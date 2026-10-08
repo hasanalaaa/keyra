@@ -220,6 +220,16 @@ void setApOn(bool on) {
   ESP_LOGI(TAG, "Keyra's own Wi-Fi %s", on ? "on" : "off (home network connected)");
 }
 
+// The phone or computer Keyra sits next to needs no range, and full power (20 dBm) draws
+// current peaks a phone's USB port cannot always supply: the voltage dips, the brownout
+// detector resets Keyra, and the host sees the keyboard come and go. 13 dBm halves the peak.
+constexpr int8_t kMaxTxPowerQdbm = 52;  // units of 0.25 dBm
+
+void limitTxPower() {
+  const esp_err_t err = esp_wifi_set_max_tx_power(kMaxTxPowerQdbm);
+  if (err != ESP_OK) ESP_LOGW(TAG, "set_max_tx_power: %s", esp_err_to_name(err));
+}
+
 // Restarts the driver with new AP credentials: the path proven on hardware for
 // getting them in place before the AP beacons again. A live home link drops
 // for a moment and is rejoined at once with the backoff reset.
@@ -236,6 +246,7 @@ void applyAp(const Config& c, int64_t now) {
     ESP_LOGE(TAG, "AP reconfigure failed: %s / start %s", esp_err_to_name(err), esp_err_to_name(started));
     return;
   }
+  limitTxPower();
   g_ap = c;
   if (live) {
     g_link.configure(g_home.enabled, g_home.apMode, true, now);
@@ -457,6 +468,7 @@ esp_err_t start(const Config& c, const Home& home) {
   // mDNS before Wi-Fi starts so it sees AP_START and binds to the AP netif.
   ESP_RETURN_ON_ERROR(startMdns(), TAG, "mdns");
   ESP_RETURN_ON_ERROR(esp_wifi_start(), TAG, "wifi start");
+  limitTxPower();
   const esp_err_t ps = esp_wifi_set_ps(WIFI_PS_NONE);
   if (ps != ESP_OK) ESP_LOGW(TAG, "set_ps(NONE): %s", esp_err_to_name(ps));
   ESP_RETURN_ON_ERROR(startDns(), TAG, "dns");

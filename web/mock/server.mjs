@@ -1364,7 +1364,7 @@ async function api(req, res, path) {
     case 'state': {
       const s = machine.slot;
       return send(res, 200, {
-        device: { ...device, name: settings.deviceName },
+        device: { ...device, name: settings.deviceName, powerDip: process.env.MOCK_POWER_DIP === '1' },
         initialized: vault !== null,
         unlocked,
         session,

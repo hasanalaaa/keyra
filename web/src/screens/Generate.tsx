@@ -5,10 +5,12 @@ import { useMemo, useRef, useState } from 'preact/hooks';
 import { Icon } from '../components/Icon';
 import { FreeTextStatus, GenOptions, GenPreview, GenStrength, useGenerator } from '../components/Generator';
 import { Button, Monogram } from '../components/ui';
+import { HostLangRow, TargetPicker } from '../components/HostOs';
 import { Alert, Sheet, type SheetCtl } from '../components/Sheet';
 import { ApiError, api } from '../lib/api';
 import { useTypeAction } from '../lib/actions';
 import { storedTarget, validTarget } from '../lib/ble';
+import { osOf, resolveTarget } from '../lib/hostos';
 import { copyText } from '../lib/clipboard';
 import { hostOf } from '../lib/csv';
 import { setDraftPassword } from '../lib/draft';
@@ -30,6 +32,8 @@ export function GenerateSheet() {
   const [q, setQ] = useState('');
   const [target, setTarget] = useState<EntrySummary | null>(null);
   const [saving, setSaving] = useState(false);
+  const [, setPicked] = useState(0); // re-render after the picker stores a choice
+  const hostTarget = resolveTarget(validTarget(storedTarget(), app.ble), app.device?.host.output ?? null, app.ble);
   const ctl = useRef<SheetCtl | null>(null);
   const after = useRef<() => void>(() => back('/'));
 
@@ -163,6 +167,8 @@ export function GenerateSheet() {
           </Button>
         </div>
         <div class="gen-actions">
+          <TargetPicker onPick={() => setPicked((n) => n + 1)} />
+          <HostLangRow key={hostTarget ?? ''} target={hostTarget} os={osOf(hostTarget, app.device?.host.usbOs, app.ble)} />
           <Button full icon="keyboard" class="gen-type" disabled={!gen.password} onClick={() => typeIt(1)}>
             {t('typeIt')}
           </Button>

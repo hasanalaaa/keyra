@@ -182,6 +182,7 @@ function nextDelay(): number {
 }
 
 let stateFailures = 0;
+let powerDipTold = false;
 
 export async function pollNow(): Promise<void> {
   if (inFlight) {
@@ -201,6 +202,11 @@ export async function pollNow(): Promise<void> {
     const erased = !!state.device?.initialized && !d.initialized;
     setState({ device: d, deviceAt: sent, online: true });
     if (erased) toast(t('eraseDone'), 'ok');
+    // Once per page: Keyra restarted after its supply dipped (often a phone's USB port).
+    if (d.device.powerDip && !powerDipTold) {
+      powerDipTold = true;
+      toast(t('powerDip'), 'error');
+    }
     if (state.authed && (linkChanged || (d.host.ble && !state.ble))) void loadBle();
     stateFailures = 0;
   } catch {

@@ -1,13 +1,13 @@
 // Account detail (DESIGN §5.5): type actions → Ready, copy, reveal, TOTP, favorite, edit.
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Icon } from '../components/Icon';
-import { Button, ColoredSecret, CopyButton, IconButton, MiniRing, Monogram, Segmented } from '../components/ui';
+import { Button, ColoredSecret, CopyButton, IconButton, MiniRing, Monogram } from '../components/ui';
 import { ErrorCard, HostNotice, Ready, readyText } from '../components/Ready';
-import { HostLangRow } from '../components/HostOs';
+import { HostLangRow, TargetPicker } from '../components/HostOs';
 import { SequencePreview } from '../components/SequenceEditor';
 import { parseSequence } from '../lib/sequence';
 import { osOf, resolveTarget } from '../lib/hostos';
-import { defaultTarget, deviceLabel, storeTarget, storedTarget, validTarget } from '../lib/ble';
+import { storedTarget, validTarget } from '../lib/ble';
 import { ApiError, api } from '../lib/api';
 import { usePressGate, useTypeAction, type ErrorCode } from '../lib/actions';
 import { errorText, isLockedError } from '../lib/errors';
@@ -172,20 +172,7 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
   } else {
     area = (
       <div class="actions">
-        {app.ble?.enabled && app.ble.bonds.length > 0 && (
-          <div class="target-picker">
-            <span class="caption">{t('typeInto')}</span>
-            <Segmented<string>
-              label={t('typeInto')}
-              options={[{ value: 'usb', label: 'USB' }, ...app.ble.bonds.map((b) => ({ value: b.addr, label: deviceLabel(b, t('bleDevice')) }))]}
-              value={chosen ?? defaultTarget(app.device?.host.output ?? null, app.ble)}
-              onChange={(v) => {
-                storeTarget(v);
-                setPicked((n) => n + 1);
-              }}
-            />
-          </div>
-        )}
+        <TargetPicker onPick={() => setPicked((n) => n + 1)} />
         <HostLangRow key={hostTarget ?? ''} target={hostTarget} os={osOf(hostTarget, app.device?.host.usbOs, app.ble)} />
         <button type="button" class="act-both" disabled={!e.hasPassword || !e.username} onClick={() => startAction(bothWhat)}>
           <span class="both-icons" aria-hidden="true">

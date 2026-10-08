@@ -11,6 +11,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_mac.h"
+#include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
@@ -332,6 +333,9 @@ esp_err_t getState(Ctx& c) {
   cJSON_AddStringToObject(dev, "version", esp_app_get_description()->version);
   cJSON_AddStringToObject(dev, "model", "ESP32-S3");
   cJSON_AddStringToObject(dev, "mac", macString().c_str());
+  // The supply dipped below what the chip needs and it restarted: usually a phone's USB port
+  // or a thin cable. The app says so; it explains a keyboard that keeps coming and going.
+  cJSON_AddBoolToObject(dev, "powerDip", esp_reset_reason() == ESP_RST_BROWNOUT);
   cJSON_AddBoolToObject(o.get(), "initialized", vault::initialized());
   cJSON_AddBoolToObject(o.get(), "unlocked", vault::unlocked());
   cJSON_AddBoolToObject(o.get(), "session", c.session);

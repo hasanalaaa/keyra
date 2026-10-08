@@ -39,6 +39,16 @@ All notable changes to Keyra are documented here. The format follows
 
 ### Fixed
 
+- **iPhone / phones over USB:** Keyra caps its Wi‑Fi transmit power at 13 dBm.
+  At 20 dBm its current peaks were more than a phone's USB port supplies; the
+  supply dipped, the brownout detector restarted Keyra, and the phone saw the
+  keyboard come and go. `/api/state` reports `device.powerDip` after such a
+  restart and the app says why.
+- **"Type into" on every typing screen:** the generator and Type text now offer
+  the USB / Bluetooth device choice the account screen had.
+- **Bluetooth stuck on "Connecting…":** after 12 s the app explains the usual
+  cause (the device still holds an old pairing) and how to pair again.
+
 - **Type text checks the keyboard layout, not US-ASCII.** `GET /api/keyboard`
   now lists each layout's `chars`; the Type text screen accepts exactly those
   (e.g. ü and ß on German) and names what the set layout lacks (Latin letters
