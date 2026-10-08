@@ -26,6 +26,17 @@ All notable changes to Keyra are documented here. The format follows
   the firmware's `layouts.txt` for `GET /api/keyboard`, the probe and the
   layout-safe characters.
 
+### Changed
+
+- **Deleting needs Keyra's button** (SPEC §5, §12.3): `DELETE /api/entries/{id}`
+  and `DELETE /api/fido/{id}` now answer 202 `{awaiting:"button", op:
+  "delete_entry"|"delete_passkey", expiresIn, cancel}` instead of 204; the
+  account or passkey is removed only on the press, and only if the vault is
+  still unlocked and the item still there (else the op ends `failed`). The web
+  app shows the press screen after the confirm alert ("Press Keyra's button to
+  delete this account/passkey"); cancelling or letting it expire keeps the item.
+  The mock does the same.
+
 ### Fixed
 
 - **Button presses are bound to who asked (security):** any session could

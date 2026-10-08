@@ -36,8 +36,9 @@ enum class What { Username, Password, Both, Totp, Test, Text, Sequence, Probe };
 // Reveal/Backup/Recovery: a press that lets this session read secrets, download
 // a backup or create/remove the recovery key for a short grace (SPEC §12.3).
 // Unprotect: turn "Protect reveal with Keyra's button" off.
+// DeleteEntry/DeletePasskey: remove one account or passkey (session, SPEC §5).
 enum class Op { Setup, Wifi, RestoreReplace, FactoryReset, HomeWifi, TrustBrowser, BlePair,
-                Reveal, Backup, Recovery, Unprotect, Update };
+                Reveal, Backup, Recovery, Unprotect, Update, DeleteEntry, DeletePasskey };
 // NoUsb: output is USB-only and no computer is plugged in. NoHost: nothing
 // connected on the selected output (auto or Bluetooth). HostChanged: the USB
 // computer the action was armed for went away before the press (SPEC §12.4).

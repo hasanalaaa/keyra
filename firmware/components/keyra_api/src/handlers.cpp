@@ -84,10 +84,13 @@ esp_err_t sendBusy(httpd_req_t* r) {
 
 // 202 with the secret that lets this requester, and only it, withdraw the op
 // (POST /api/presence/cancel); 409 busy when someone else's item is waiting.
-esp_err_t sendAwaitingButton(httpd_req_t* r, const std::optional<actions::Machine::Armed>& armed) {
+// `op` (when given) tells the client which press it is waiting for.
+esp_err_t sendAwaitingButton(httpd_req_t* r, const std::optional<actions::Machine::Armed>& armed,
+                             const char* op = nullptr) {
   if (!armed) return sendBusy(r);
   json::Ptr o(cJSON_CreateObject());
   cJSON_AddStringToObject(o.get(), "awaiting", "button");
+  if (op) cJSON_AddStringToObject(o.get(), "op", op);
   cJSON_AddNumberToObject(o.get(), "expiresIn", static_cast<double>(armed->expiresIn));
   cJSON_AddStringToObject(o.get(), "cancel", armed->cancel.c_str());
   return http::sendJson(r, http::k202, o.get());
@@ -694,16 +697,34 @@ esp_err_t updateEntry(Ctx& c) {
   return sendId(c.r, http::k200, c.match.id);
 }
 
-esp_err_t deleteEntry(Ctx& c) {
+// Removes the account on the press. The vault may have locked, or the entry
+// gone, while the press was awaited: then nothing happens and the op fails.
+bool commitDeleteEntry(uint32_t id) {
+  if (!vault::unlocked()) return false;
   std::string title;
-  if (vault::Entry e; vault::get(c.match.id, e) == Status::Ok) {
+  if (vault::Entry e; vault::get(id, e) == Status::Ok) {
     title = e.title;
     vault::wipe(e);
+  } else {
+    return false;
   }
-  const Status st = vault::remove(c.match.id);
-  if (st != Status::Ok) return sendVaultError(c.r, st);
-  activity::log(activity::Kind::EntryDeleted, c.match.id, title);
-  return http::sendEmpty(c.r, http::k204);
+  if (vault::remove(id) != Status::Ok) return false;
+  activity::log(activity::Kind::EntryDeleted, id, title);
+  return true;
+}
+
+// 202: the account is removed only when Keyra's button is pressed (SPEC §5).
+esp_err_t deleteEntry(Ctx& c) {
+  {
+    vault::Entry e;
+    const Status st = vault::get(c.match.id, e);
+    vault::wipe(e);
+    if (st != Status::Ok) return sendVaultError(c.r, st);
+  }
+  const uint32_t id = c.match.id;
+  return sendAwaitingButton(c.r, machine().awaitPresence(actions::Op::DeleteEntry, [id] { return commitDeleteEntry(id); },
+                                                         c.token),
+                            actions::opName(actions::Op::DeleteEntry));
 }
 
 esp_err_t importEntries(Ctx& c) {
@@ -1229,7 +1250,7 @@ esp_err_t dispatch(Ctx& c) {
     case Route::ListTrusted: return trust::sendList(c.r);
     case Route::DeleteTrusted: return trust::revoke(c.r, c.match.id);
     case Route::ListPasskeys: return fidoapi::list(c.r);
-    case Route::DeletePasskey: return fidoapi::remove(c.r, c.match.id);
+    case Route::DeletePasskey: return fidoapi::remove(c.r, c.match.id, c.token);
     case Route::Generate: return genapi::postGenerate(c.r, c.body.get());
     case Route::Keyboard: return kbdapi::getKeyboard(c.r);
     case Route::Update: return update::upload(c.r);

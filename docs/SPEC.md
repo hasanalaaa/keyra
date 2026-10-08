@@ -185,7 +185,7 @@ Conventions
 | POST `/api/entries/{id}/reveal` | session | → 200 the revealed entry, or 202 press first (§12.3) |
 | POST `/api/entries` | session | entry (no id) → 201 `{id}` |
 | PUT `/api/entries/{id}` | session | partial entry → 200 `{id}` |
-| DELETE `/api/entries/{id}` | session | → 204 |
+| DELETE `/api/entries/{id}` | session | → 202 `{awaiting:"button", op:"delete_entry", expiresIn, cancel}` (404 if unknown, 409 `busy` §12.5a); the press removes it (only if still unlocked and still there, else `failed`) |
 | POST `/api/entries/import` | session | `{entries:[…≤50]}` → `{added, skipped}` (duplicate = same title+username+url) |
 | GET `/api/entries/{id}/totp` | session | → `{code, period, remaining}` / 409 `no_time` / 404 |
 | POST `/api/type` | session | `{id, what:"username"\|"password"\|"both"\|"totp"\|"sequence", submit?, target?, switchLang?}`, `{text, repeat?, separator?}` (§9.2), `{test:true}` or `{probe:true}` (§10.3) → 202 `{pending}`; replaces this session's own pending item, 409 `busy` while another session's waits (§12.5a) |
@@ -561,7 +561,8 @@ Design, key formats and honest limits: [FIDO.md](FIDO.md). Contract points:
 - **API** (session):
   - `GET /api/fido` → `{passkeys:[{id, rpId, userName, displayName, created}], max:50}`
     (newest first; `created` unix seconds, 0 = unknown)
-  - `DELETE /api/fido/{id}` → 204 / 404 `not_found`
+  - `DELETE /api/fido/{id}` → 202 `{awaiting:"button", op:"delete_passkey", expiresIn, cancel}`
+    / 404 `not_found`; the press removes it (only if still unlocked and still there) (§12.3)
 
 ## 12. v1.5 — Stronger protection and recovery
 
@@ -592,7 +593,9 @@ With `protectReveal` on (default), `GET /api/entries/{id}` returns no password,
 history dates). `POST /api/entries/{id}/reveal` → 202 press → the session that
 asked may read secrets for 60 s (`state.graceMs`). Downloading a backup and
 changing the recovery key need the same press. Turning `protectReveal` off
-needs a press; turning it on applies at once. Typing never needs it: the
+needs a press; turning it on applies at once. Deleting an account
+(`delete_entry`) or a passkey (`delete_passkey`) always needs a press,
+whatever `protectReveal` says; the press runs the deletion itself. Typing never needs it: the
 button press that types is already presence.
 
 ### 12.4 Auto-lock when the computer goes away

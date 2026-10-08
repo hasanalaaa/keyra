@@ -1510,10 +1510,16 @@ async function api(req, res, path) {
     }
 
     case 'delete': {
-      const gone = getEntry(m.id);
-      vault.entries.delete(m.id);
-      logEvent('entry_deleted', { id: m.id, title: gone.title });
-      return send(res, 204);
+      getEntry(m.id);
+      const id = m.id;
+      // Like commitDeleteEntry: on the press, only if still unlocked and still there.
+      const exp = awaitPresence('delete_entry', () => {
+        const gone = unlocked && vault?.entries.get(id);
+        if (!gone) return false;
+        vault.entries.delete(id);
+        logEvent('entry_deleted', { id, title: gone.title });
+      });
+      return send(res, 202, { awaiting: 'button', op: 'delete_entry', expiresIn: exp, cancel: machine.slot?.cancel ?? '' });
     }
 
     case 'import': {
@@ -1893,9 +1899,13 @@ async function api(req, res, path) {
     }
 
     case 'deletePasskey': {
-      if (!vault.passkeys.delete(m.id)) fail(404, 'not_found', 'No such passkey');
-      console.log(`[mock] passkey ${m.id} deleted`);
-      return send(res, 204);
+      if (!vault.passkeys.has(m.id)) fail(404, 'not_found', 'No such passkey');
+      const id = m.id;
+      const exp = awaitPresence('delete_passkey', () => {
+        if (!unlocked || !vault?.passkeys.delete(id)) return false;
+        console.log(`[mock] passkey ${id} deleted`);
+      });
+      return send(res, 202, { awaiting: 'button', op: 'delete_passkey', expiresIn: exp, cancel: machine.slot?.cancel ?? '' });
     }
 
     case 'untrust': {

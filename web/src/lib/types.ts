@@ -38,7 +38,9 @@ export type PresenceOp =
   | 'backup'
   | 'recovery'
   | 'unprotect'
-  | 'update';
+  | 'update'
+  | 'delete_entry'
+  | 'delete_passkey';
 
 export interface PresenceResult {
   op: PresenceOp;
