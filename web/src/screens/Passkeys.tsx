@@ -1,8 +1,10 @@
 // Settings → Passkeys (docs/FIDO.md): the discoverable FIDO credentials stored on
 // Keyra. Websites create them over USB; here they can only be reviewed and deleted.
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { IconButton, Spinner } from '../components/ui';
 import { Alert, Sheet } from '../components/Sheet';
+import { Ready } from '../components/Ready';
+import { usePresence } from '../lib/actions';
 import { api } from '../lib/api';
 import { errorText, isLockedError } from '../lib/errors';
 import { t } from '../lib/i18n';
@@ -29,19 +31,32 @@ export function PasskeysSheet({ onClose }: { onClose: () => void }) {
       });
   useEffect(() => void load(), []);
 
-  const remove = async (p: Passkey) => {
+  // Deleting a passkey is a press of Keyra's button (SPEC §5); cancelled or
+  // expired leaves it in place.
+  const del = usePresence('delete_passkey');
+  const deleting = useRef(0);
+  useEffect(() => {
+    const k = del.phase.kind;
+    if (k === 'idle' || k === 'ready') return;
+    del.abandon();
+    if (k === 'failed') toast(t('genericError'), 'error');
+    if (k !== 'done') return;
+    toast(t('passkeyDeleted'), 'ok');
+    setList((l) => l && l.filter((x) => x.id !== deleting.current)); // not shown again while the list reloads
+    void load();
+  }, [del.phase.kind]);
+
+  const remove = (p: Passkey) => {
     setConfirm(null);
-    try {
-      await api.deletePasskey(p.id);
-      toast(t('passkeyDeleted'), 'ok');
-      void load();
-    } catch (e) {
-      if (!isLockedError(e)) toast(errorText(e), 'error');
-    }
+    deleting.current = p.id;
+    void del.start(() => api.deletePasskey(p.id));
   };
 
   return (
     <Sheet title={t('passkeysRow')} size="md" onClose={onClose}>
+      {del.phase.kind === 'ready' ? (
+        <Ready state="ready" deadline={del.phase.deadline} total={del.phase.total} title={t('passkeyDeletePress')} body={t('deletePressBody')} onCancel={del.abandon} />
+      ) : (
       <div class="form passkeys">
         <p class="callout">{t('passkeysFoot')}</p>
         {list === null ? (
@@ -73,11 +88,12 @@ export function PasskeysSheet({ onClose }: { onClose: () => void }) {
         )}
         <p class="caption">{t('passkeysLimits')}</p>
       </div>
+      )}
       {confirm && (
         <Alert
           title={t('passkeyDeleteTitle')}
           body={t('passkeyDeleteBody', { site: confirm.rpId })}
-          actions={[{ label: t('passkeyDelete'), variant: 'danger-confirm', run: () => void remove(confirm) }]}
+          actions={[{ label: t('passkeyDelete'), variant: 'danger-confirm', run: () => remove(confirm) }]}
           onCancel={() => setConfirm(null)}
         />
       )}

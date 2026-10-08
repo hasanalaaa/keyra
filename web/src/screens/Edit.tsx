@@ -8,7 +8,7 @@ import { Ready } from '../components/Ready';
 import { Icon } from '../components/Icon';
 import { SequenceEditor, sequenceError } from '../components/SequenceEditor';
 import { ApiError, api } from '../lib/api';
-import { usePressGate } from '../lib/actions';
+import { usePresence, usePressGate } from '../lib/actions';
 import { errorText, isLockedError } from '../lib/errors';
 import { takeDraftPassword } from '../lib/draft';
 import { toTypeable, untypeable } from '../lib/generator';
@@ -122,19 +122,26 @@ export function EditAccount({ id }: { id?: number }) {
     }
   };
 
-  const remove = async () => {
+  // Deleting the account is a press of Keyra's button (SPEC §5); cancelled or
+  // expired leaves everything as it was.
+  const del = usePresence('delete_entry');
+  useEffect(() => {
+    const k = del.phase.kind;
+    if (k === 'idle' || k === 'ready') return;
+    del.abandon();
+    if (k === 'failed') toast(t('genericError'), 'error');
+    if (k !== 'done') return;
+    toast(t('deleted'), 'ok');
+    void loadEntries();
+    after.current = () => replace('/');
+    setInitial(form);
+    ctl.current?.close();
+  }, [del.phase.kind]);
+
+  const remove = () => {
     if (!id) return;
-    try {
-      await api.remove(id);
-      toast(t('deleted'), 'ok');
-      await loadEntries();
-      after.current = () => replace('/');
-      setInitial(form);
-      setConfirm(null);
-      ctl.current?.close();
-    } catch {
-      toast(t('genericError'), 'error');
-    }
+    setConfirm(null);
+    void del.start(() => api.remove(id));
   };
 
   return (
@@ -155,7 +162,9 @@ export function EditAccount({ id }: { id?: number }) {
         </Button>
       }
     >
-      {gate.phase.kind === 'ready' ? (
+      {del.phase.kind === 'ready' ? (
+        <Ready state="ready" deadline={del.phase.deadline} total={del.phase.total} title={t('deleteAccountPress')} body={t('deletePressBody')} onCancel={del.abandon} />
+      ) : gate.phase.kind === 'ready' ? (
         <Ready
           state="ready"
           deadline={gate.phase.deadline}
@@ -296,7 +305,7 @@ export function EditAccount({ id }: { id?: number }) {
         <Alert
           title={t('deleteTitle', { title: initial?.title ?? '' })}
           body={t('deleteBody')}
-          actions={[{ label: t('delete'), variant: 'danger-confirm', run: () => void remove() }]}
+          actions={[{ label: t('delete'), variant: 'danger-confirm', run: remove }]}
           onCancel={() => setConfirm(null)}
         />
       )}

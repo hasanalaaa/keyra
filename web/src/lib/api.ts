@@ -179,7 +179,7 @@ export const api = {
   removeRecovery: () => json<void | Awaiting>('DELETE', '/recovery'),
   create: (e: EntryInput) => json<{ id: number }>('POST', '/entries', e),
   update: (id: number, e: Partial<EntryInput>) => json<{ id: number }>('PUT', `/entries/${id}`, e),
-  remove: (id: number) => json<void>('DELETE', `/entries/${id}`),
+  remove: (id: number) => json<Awaiting>('DELETE', `/entries/${id}`),
   importBatch: (entries: Partial<EntryInput>[]) =>
     json<{ added: number; skipped: number }>('POST', '/entries/import', { entries }, 30000),
   totp: (id: number) => json<Totp>('GET', `/entries/${id}/totp`),
@@ -232,7 +232,7 @@ export const api = {
   healthRotate: (on: boolean) => json<Health>('POST', '/health/rotate', { on }),
   activity: () => json<{ events: ActivityEvent[]; max: number }>('GET', '/activity'),
   passkeys: async () => await json<{ passkeys: Passkey[]; max: number }>('GET', '/fido'),
-  deletePasskey: (id: number) => json<void>('DELETE', `/fido/${id}`),
+  deletePasskey: (id: number) => json<Awaiting>('DELETE', `/fido/${id}`),
 };
 
 export const isAwaiting = (r: unknown): r is Awaiting =>

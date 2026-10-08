@@ -371,6 +371,22 @@ void revealOpsEndWithTheSession() {
   CHECK(std::string(opName(Op::Update)) == "update");
 }
 
+// Deleting an account or a passkey waits for the press like the other
+// destructive ops; their API names are stable.
+void deleteOpsAreNamed() {
+  CHECK(std::string(opName(Op::DeleteEntry)) == "delete_entry");
+  CHECK(std::string(opName(Op::DeletePasskey)) == "delete_passkey");
+  CHECK(parseOp("delete_entry") == Op::DeleteEntry);
+  CHECK(parseOp("delete_passkey") == Op::DeletePasskey);
+  auto m = make();
+  for (Op op : {Op::DeleteEntry, Op::DeletePasskey}) {
+    m.awaitPresence(op, [] { return true; }, "s");
+    m.dropSessionItems();  // locking drops them unrun
+    auto r = m.opResult();
+    CHECK(r && r->op == op && r->code == OpCode::Cancelled);
+  }
+}
+
 // A4: lock when the computer goes away, never on charger-only power.
 void hostWatchUsb() {
   HostWatch w;
@@ -485,6 +501,7 @@ int main() {
   usbActionIsBoundToItsHost();
   unboundActionsIgnoreUsbChanges();
   revealOpsEndWithTheSession();
+  deleteOpsAreNamed();
   hostWatchUsb();
   hostWatchBle();
   shortPressRunsPendingOnce();

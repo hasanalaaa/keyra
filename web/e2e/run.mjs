@@ -94,6 +94,20 @@ async function unlockUi(page, pass = PASS) {
 
 const row = (page, title) => page.locator('.acc-row', { hasText: title }).first();
 
+/** GET with the browser's session cookie. */
+async function authed(ctx, url) {
+  return fetch(url, { headers: { cookie: (await ctx.cookies()).map((c) => `${c.name}=${c.value}`).join('; ') } });
+}
+
+async function presence(ctx, base) {
+  return (await (await authed(ctx, `${base}/api/state`)).json()).presence;
+}
+
+async function waitFor(cond, msg, ms = 5000) {
+  for (const end = Date.now() + ms; Date.now() < end; await new Promise((r) => setTimeout(r, 100))) if (await cond()) return;
+  throw new Error(`timed out: ${msg}`);
+}
+
 function check(cond, msg) {
   if (!cond) throw new Error(`check failed: ${msg}`);
 }
@@ -638,14 +652,66 @@ async function passkeysFlow(base, opts) {
   check((await page.locator('.passkey-row bdi').first().textContent()) === 'www.amazon.com', 'newest first');
   await shot(page, `passkeys${tag}`);
   const github = page.locator('.passkey-row', { hasText: 'github.com' });
-  await github.locator('.icon-btn').click();
-  await page.locator('.alert', { hasText: 'github.com' }).waitFor();
-  await page.locator('.alert-actions button').first().click();
-  await github.waitFor({ state: 'detached' });
+  const keys = async () => (await (await authed(ctx, `${base}/api/fido`)).json()).passkeys.length;
+  // Deleting waits for Keyra's button (SPEC §5): cancelled, the passkey stays.
+  const askDelete = async () => {
+    await github.locator('.icon-btn').click();
+    await page.locator('.alert', { hasText: 'github.com' }).waitFor();
+    await page.locator('.alert-actions button').first().click();
+    await page.locator('.ready-ready').waitFor();
+  };
+  await askDelete();
+  check((await keys()) === 3, 'passkey still there before the press');
+  await page.locator('.ready-ready button').click();
+  await github.waitFor();
+  await waitFor(async () => (await presence(ctx, base)).result?.code === 'cancelled', 'delete_passkey withdrawn');
+  check((await keys()) === 3, 'passkey stays after a cancel');
+  await askDelete();
+  check((await button(base)) === 'approved delete_passkey', 'button approves the passkey deletion');
+  await page.locator('.ready-ready').waitFor({ state: 'detached', timeout: 5000 });
+  await page.locator('.passkey-row').first().waitFor();
+  check(!(await github.count()), 'deleted passkey not listed');
   check((await page.locator('.passkey-row').count()) === 2, 'passkey deleted');
+  check((await keys()) === 2, 'passkey gone after the press');
   const r = await fetch(`${base}/api/fido`);
   check(r.status === 401, 'passkey list needs a session');
   console.log('  ✓ passkeys flow passed');
+  await ctx.close();
+}
+
+// ---------- Delete an account (SPEC §5): only a press of Keyra's button removes it ----------
+
+async function deleteFlow(base, opts) {
+  const { ctx, page, tag } = await open(base, opts);
+  console.log(`delete account ${tag || '(phone, ar, light)'}`);
+  await page.locator('input[type=password]').waitFor();
+  await unlockUi(page);
+  const entries = async () => (await (await authed(ctx, `${base}/api/entries`)).json()).entries;
+  const victim = (await entries())[0];
+  const there = async () => (await entries()).some((e) => e.id === victim.id);
+  await page.evaluate((id) => (location.hash = `#/a/${id}/edit`), victim.id);
+  await page.locator('.ready-ready').waitFor(); // editing reveals the password: one press
+  check((await button(base)) === 'approved reveal', 'button approves the reveal');
+  const form = page.locator('.edit-form');
+  await form.waitFor();
+  const askDelete = async () => {
+    await form.locator('.delete-btn').click();
+    await page.locator('.alert-actions button').first().click();
+    await page.locator('.ready-ready').waitFor();
+  };
+  await askDelete();
+  check(await there(), 'account still there before the press');
+  await page.locator('.ready-ready button').click();
+  await form.waitFor();
+  await waitFor(async () => (await presence(ctx, base)).result?.code === 'cancelled', 'delete_entry withdrawn');
+  check(await there(), 'account stays after a cancel');
+  await askDelete();
+  check((await button(base)) === 'approved delete_entry', 'button approves the deletion');
+  await page.locator('.toast-ok').waitFor({ timeout: 6000 });
+  await page.locator('.layer .sheet').waitFor({ state: 'detached', timeout: 6000 });
+  await page.locator('.acc-row', { hasText: victim.title }).waitFor({ state: 'detached', timeout: 5000 });
+  check(!(await there()), 'account gone after the press');
+  console.log('  ✓ delete flow passed');
   await ctx.close();
 }
 
@@ -865,6 +931,8 @@ try {
   await generatorFlow(await startMock(), {});
   await passkeysFlow(await startMock(), {});
   await passkeysFlow(await startMock(), { lang: 'en', dark: true });
+  await deleteFlow(await startMock(), {});
+  await deleteFlow(await startMock(), { lang: 'en', dark: true });
   await healthFlow(await startMock(), {});
   await healthFlow(await startMock(), { lang: 'en', dark: true });
   await activityFlow(await startMock(), {});
