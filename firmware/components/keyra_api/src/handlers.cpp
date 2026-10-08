@@ -71,6 +71,9 @@ esp_err_t sendVaultError(httpd_req_t* r, Status s) {
     case Status::Invalid: return badRequest(r, "Invalid data");
     case Status::Full: return http::sendError(r, http::k507, "full", "Vault is full");
     case Status::Corrupt: return http::sendError(r, http::k500, "corrupt", "Stored data is corrupt");
+    case Status::PasskeysFull:
+      return http::sendError(r, http::k409, "passkeys_full",
+                             "The backup's passkeys do not fit: Keyra holds at most 50 passkeys and 4 passkey keys");
     case Status::StorageError:
     case Status::Ok: break;
   }
@@ -236,6 +239,7 @@ cJSON* settingsJson(const settings::Settings& s) {
   cJSON_AddStringToObject(o, "output", outputName(s.output));
   cJSON_AddStringToObject(o, "bleConnect", s.bleConnect == settings::BleConnect::Always ? "always" : "on_demand");
   cJSON_AddBoolToObject(o, "protectReveal", s.protectReveal);
+  cJSON_AddBoolToObject(o, "passkeysInBackup", s.passkeysInBackup);
   cJSON_AddBoolToObject(o, "lockOnUsb", s.lockOnUsb);
   cJSON_AddBoolToObject(o, "lockOnBle", s.lockOnBle);
   cJSON_AddNumberToObject(o, "lastBackupAt", static_cast<double>(s.lastBackupAt));
@@ -297,14 +301,25 @@ struct RestoreJob {
   json::Secret passphrase, backup;
 };
 
+// Restored passkeys must never sign with a counter below what the sites saw
+// from the Keyra the backup came from. Raised whatever the restore's outcome
+// once the backup was read: a failed one may still have added passkeys (merge)
+// or finish at the next unlock (replace), and a higher counter is always safe.
+void raiseCounter(const vault::PasskeyRestore& pk) {
+  if (pk.present && !fido::raiseCounterAfterRestore(pk.counter))
+    ESP_LOGE(TAG, "could not raise the FIDO signature counter past the backup's (%u)", unsigned(pk.counter));
+}
+
 bool commitRestoreReplace(RestoreJob& j) {
   size_t added = 0, updated = 0;
-  const Status st = vault::importBackup(j.passphrase.s, j.backup.s, true, &added, &updated);
+  vault::PasskeyRestore pk;
+  const Status st = vault::importBackup(j.passphrase.s, j.backup.s, true, &added, &updated, &pk);
+  raiseCounter(pk);
   if (st != Status::Ok) {
     ESP_LOGE(TAG, "restore(replace): %s", vault::statusName(st));
     return false;
   }
-  ESP_LOGI(TAG, "restore(replace): %u added", unsigned(added));
+  ESP_LOGI(TAG, "restore(replace): %u added, %u passkeys", unsigned(added), unsigned(pk.added));
   activity::log(activity::Kind::Restore, 0, {}, 1, static_cast<uint32_t>(added));
   return true;
 }
@@ -957,6 +972,11 @@ esp_err_t putSettings(Ctx& c) {
   // one change waits for the button (turning it on applies at once).
   const bool unprotect = cur.protectReveal && !next.protectReveal;
   next.protectReveal = cur.protectReveal || next.protectReveal;
+  // Likewise letting the passkeys leave in backups again (turning it off applies at once).
+  if (json::getBool(b, "passkeysInBackup", next.passkeysInBackup) == Field::BadType)
+    return badRequest(c.r, "passkeysInBackup must be a boolean");
+  const bool passkeysOn = !cur.passkeysInBackup && next.passkeysInBackup;
+  next.passkeysInBackup = cur.passkeysInBackup && next.passkeysInBackup;
   // Joining a network changes who can reach Keyra, so it is button-gated there.
   if (cJSON_HasObjectItem(b, "homeWifi")) return badRequest(c.r, "home Wi-Fi changes go through PUT /api/wifi/home");
 
@@ -982,6 +1002,11 @@ esp_err_t putSettings(Ctx& c) {
   if (unprotect) {
     return sendAwaitingButton(c.r, machine().awaitPresence(actions::Op::Unprotect, [] {
       return settings::update([](settings::Settings& s) { s.protectReveal = false; }) == ESP_OK;
+    }, c.token));
+  }
+  if (passkeysOn) {
+    return sendAwaitingButton(c.r, machine().awaitPresence(actions::Op::PasskeysBackupOn, [] {
+      return settings::update([](settings::Settings& s) { s.passkeysInBackup = true; }) == ESP_OK;
     }, c.token));
   }
   json::Ptr o(settingsJson(next));
@@ -1014,7 +1039,12 @@ esp_err_t postBackup(Ctx& c) {
   if (!vault::unlocked()) return sendVaultError(c.r, Status::Locked);
   // The whole vault leaves the device: a press first (SPEC §12.3); the client retries.
   if (!protect::mayBackup(c.token)) return protect::requestPress(c.r, actions::Op::Backup, c.token);
-  const Status st = vault::exportBackup(pass.s, out.s);
+  // The setting, not the request, decides (docs/research/PASSKEY-BACKUP.md).
+  const bool passkeys = settings::get().passkeysInBackup;
+  uint32_t counter = 0;
+  if (passkeys && !fido::signatureCounter(counter))
+    return http::sendError(c.r, http::k500, "storage", "Could not read the passkey signature counter");
+  const Status st = vault::exportBackup(pass.s, out.s, passkeys, counter);
   if (st != Status::Ok) return sendVaultError(c.r, st);
   activity::log(activity::Kind::Backup);
   if (const int64_t now = unixSecondsOrZero(); now != 0) {
@@ -1051,18 +1081,21 @@ esp_err_t postRestore(Ctx& c) {
 
   if (mode == "replace") {
     // A wrong passphrase or a bad file is reported now, not after the press.
-    if (const Status st = vault::checkBackup(job->passphrase.s, job->backup.s); st != Status::Ok)
+    if (const Status st = vault::checkBackup(job->passphrase.s, job->backup.s, true); st != Status::Ok)
       return sendVaultError(c.r, st);
     return sendAwaitingButton(
         c.r, machine().awaitPresence(actions::Op::RestoreReplace, [job] { return commitRestoreReplace(*job); }, c.token));
   }
   size_t added = 0, updated = 0;
-  const Status st = vault::importBackup(job->passphrase.s, job->backup.s, false, &added, &updated);
+  vault::PasskeyRestore pk;
+  const Status st = vault::importBackup(job->passphrase.s, job->backup.s, false, &added, &updated, &pk);
+  raiseCounter(pk);
   if (st != Status::Ok) return sendVaultError(c.r, st);
   activity::log(activity::Kind::Restore, 0, {}, 0, static_cast<uint32_t>(added + updated));
   json::Ptr o(cJSON_CreateObject());
   cJSON_AddNumberToObject(o.get(), "added", static_cast<double>(added));
   cJSON_AddNumberToObject(o.get(), "updated", static_cast<double>(updated));
+  cJSON_AddNumberToObject(o.get(), "passkeys", static_cast<double>(pk.added));
   return http::sendJson(c.r, http::k200, o.get());
 }
 

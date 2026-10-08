@@ -24,13 +24,24 @@
 //              <id> = 8 lowercase hex digits; AAD = "keyra/e/v1/" + <id>;
 //              plaintext = entry_codec.hpp encoding
 //   e/<id>.new a replace-restore's staged entry (same format as e/<id>.bin); never
-//              read as an entry. Without restore.commit it is discarded at init/unlock.
-//   restore.commit  u8 version=1 | n × u32 id (LE): a replace-restore has staged
-//              all of its entries. Finishing it (init/unlock, idempotent): remove
-//              every e/<id>.bin whose id is not listed, rename each e/<id>.new to
-//              e/<id>.bin, then remove the marker. Either all old or all new.
+//              read as an entry. Without restore.commit it is discarded at init/unlock,
+//              as are f/<id>.new and fido.new.
+//   restore.commit  a replace-restore has staged all of its entries (and passkeys):
+//              v1  u8 1 | n × u32 id (LE)
+//              v2  u8 2 | u32 n | n × u32 entry id | u32 m | m × u32 passkey id | u8 keys
+//              (LE; written when the backup has a passkeys section). Finishing it
+//              (init/unlock, idempotent): remove every e/<id>.bin whose id is not
+//              listed, rename each e/<id>.new to e/<id>.bin; v2 does the same in f/,
+//              then renames fido.new to fido.bin (keys > 0) or removes fido.bin
+//              (keys = 0); then the marker goes. Either all old or all new.
 //   f/<id>.bin passkey record, same format as e/<id>.bin with AAD "keyra/f/v1/" + <id>
-//   fido.bin   u8 version=1 | salt[16]   (FIDO wrapping-key salt, vault_passkeys.cpp)
+//   f/<id>.new a replace-restore's staged passkey record (see e/<id>.new)
+//   fido.bin   FIDO credential wrapping keys (vault_passkeys.cpp):
+//              v1  u8 1 | salt[16]: one key, HMAC-SHA256(DEK, "keyra/fido/v1/wrap" || salt)
+//              v2  u8 2 | iv[12] | AES-256-GCM(DEK, AAD "keyra/fido/v2/keys",
+//                  u8 n | n × key[32]) | tag[16], 1 ≤ n ≤ 4, key[0] wraps new credentials.
+//              v1 is kept until a restore adds a key, which writes v2.
+//   fido.new   a replace-restore's staged fido.bin (v2)
 //   activity.bin  activity log (SPEC §15), same format as e/<id>.bin with AAD
 //              "keyra/activity/v1"; the plaintext is keyra_api's encoding (vault_activity.cpp)
 //   *.tmp      in-flight atomic writes (write tmp → close → rename); any found at
@@ -49,6 +60,7 @@
 #include <mutex>
 #include <vector>
 
+#include "backup_format.hpp"
 #include "keyra/vault.hpp"
 #include "platform.hpp"
 #include "secure_buf.hpp"
@@ -91,17 +103,18 @@ class Vault {
   RecoveryInfo recoveryInfo();
   Status recover(const RecoveryKey& key, const std::string& next, uint32_t* retryAfterMs);
   Status checkRecovery(const RecoveryKey& key, uint32_t* retryAfterMs);
-  Status exportBackup(const std::string& backupPass, std::string& outJson);
+  Status exportBackup(const std::string& backupPass, std::string& outJson, bool passkeys = false,
+                      uint32_t counter = 0);
   Status importBackup(const std::string& backupPass, const std::string& json, bool replace,
-                      size_t* added, size_t* updated);
-  Status checkBackup(const std::string& backupPass, const std::string& json);
+                      size_t* added, size_t* updated, PasskeyRestore* passkeys = nullptr);
+  Status checkBackup(const std::string& backupPass, const std::string& json, bool replace);
   Status factoryReset();
 
   // Passkey records (vault_passkeys.cpp); see keyra/vault.hpp.
   Status passkeyList(std::vector<PasskeyRecord>& out);
   Status passkeyPut(uint32_t& id, const std::vector<uint8_t>& data);
   Status passkeyRemove(uint32_t id);
-  Status passkeyWrapKey(uint8_t out[32]);
+  Status passkeyWrapKeys(uint8_t out[kMaxPasskeyWrapKeys][32], size_t& count);
   Status passkeyReset();
 
   // Activity log (vault_activity.cpp): one opaque record, encrypted like an entry.
@@ -136,6 +149,13 @@ class Vault {
     SecureBuf plain;  // entry_codec encoding
   };
   using Key = std::array<uint8_t, 32>;
+  using KeyList = std::vector<Key, ZeroingAllocator<Key>>;  // reserved to kMaxPasskeyWrapKeys: no regrowth
+  // What a restore will change in the passkeys, settled before anything is written.
+  struct PasskeyPlan {
+    KeyList keys;      // merge: the wrap key list to write when writeKeys
+    bool writeKeys = false;
+    std::vector<const std::vector<uint8_t>*> records;  // merge: backup records to add
+  };
 
   Status ready() const;  // init succeeded and storage is usable
   Status requireUnlocked() const;
@@ -146,7 +166,8 @@ class Vault {
   Status removeStaged();     // e/*.new left by a restore that never committed
   Status settleRestore();    // finish (marker present) or discard a replace-restore
   // Decrypt, parse and validate a backup into `out`; touches nothing.
-  Status readBackup(const std::string& backupPass, const std::string& json, std::vector<Entry>& out);
+  Status readBackup(const std::string& backupPass, const std::string& json, std::vector<Entry>& out,
+                    backup::Passkeys& passkeys);
   uint32_t calibrateIterations();
   Status deriveKey(const std::string& pass, const uint8_t salt[16], uint32_t iters, Key& out);
   Status wrapDek(const std::string& pass, uint32_t iters, const Key& dek, PassWrap& out);
@@ -166,6 +187,17 @@ class Vault {
   void wipeKeys();
   Status loadPasskeysLocked();  // lazily, on first passkey call after unlock
   Status removePasskeyFilesLocked();
+  // fido.bin as a key list; empty when there is none and !create (else a v1 salt is made).
+  Status readWrapKeysLocked(KeyList& out, bool create);
+  Status writeWrapKeys(const char* path, const KeyList& keys);  // as fido.bin v2
+  Status persistPasskey(const std::string& path, uint32_t id, const uint8_t* data, size_t n);
+  // Restores (vault_passkeys.cpp). Plan: limits and dedup, writes nothing.
+  Status planPasskeys(const backup::Passkeys& in, bool replace, PasskeyPlan& out);
+  Status mergePasskeys(const PasskeyPlan& plan);
+  // Replace: writes f/<id>.new and fido.new; ids gets the staged record ids.
+  Status stagePasskeys(const backup::Passkeys& in, std::vector<uint32_t>& ids);
+  Status removeStagedPasskeys();
+  Status settlePasskeys(const std::vector<uint32_t>& keep, bool keys);  // part of settleRestore
 
   Platform p_;
   Options opt_;

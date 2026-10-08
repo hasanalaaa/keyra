@@ -38,21 +38,23 @@ Status recover(const RecoveryKey& key, const std::string& next, uint32_t* retryA
 Status checkRecovery(const RecoveryKey& key, uint32_t* retryAfterMs) {
   return detail::instance().checkRecovery(key, retryAfterMs);
 }
-Status exportBackup(const std::string& backupPass, std::string& outJson) {
-  return detail::instance().exportBackup(backupPass, outJson);
+Status exportBackup(const std::string& backupPass, std::string& outJson, bool passkeys, uint32_t counter) {
+  return detail::instance().exportBackup(backupPass, outJson, passkeys, counter);
 }
 Status importBackup(const std::string& backupPass, const std::string& json, bool replace,
-                    size_t* added, size_t* updated) {
-  return detail::instance().importBackup(backupPass, json, replace, added, updated);
+                    size_t* added, size_t* updated, PasskeyRestore* passkeys) {
+  return detail::instance().importBackup(backupPass, json, replace, added, updated, passkeys);
 }
-Status checkBackup(const std::string& backupPass, const std::string& json) {
-  return detail::instance().checkBackup(backupPass, json);
+Status checkBackup(const std::string& backupPass, const std::string& json, bool replace) {
+  return detail::instance().checkBackup(backupPass, json, replace);
 }
 Status factoryReset() { return detail::instance().factoryReset(); }
 Status passkeyList(std::vector<PasskeyRecord>& out) { return detail::instance().passkeyList(out); }
 Status passkeyPut(uint32_t& id, const std::vector<uint8_t>& data) { return detail::instance().passkeyPut(id, data); }
 Status passkeyRemove(uint32_t id) { return detail::instance().passkeyRemove(id); }
-Status passkeyWrapKey(uint8_t out[32]) { return detail::instance().passkeyWrapKey(out); }
+Status passkeyWrapKeys(uint8_t out[kMaxPasskeyWrapKeys][32], size_t& count) {
+  return detail::instance().passkeyWrapKeys(out, count);
+}
 Status passkeyReset() { return detail::instance().passkeyReset(); }
 Status activityRead(std::vector<uint8_t>& out) { return detail::instance().activityRead(out); }
 Status activityWrite(const std::vector<uint8_t>& data) { return detail::instance().activityWrite(data); }
@@ -71,6 +73,7 @@ const char* statusName(Status s) {
     case Status::Full: return "full";
     case Status::StorageError: return "storage_error";
     case Status::Corrupt: return "corrupt";
+    case Status::PasskeysFull: return "passkeys_full";
   }
   return "unknown";
 }

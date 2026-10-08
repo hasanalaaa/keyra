@@ -67,7 +67,10 @@ unlocked. A flash dump without the passphrase reveals no credential key.
 
 - **Wrapping key** `Kwrap = HMAC-SHA256(DEK, "keyra/fido/v1/wrap" || salt)`,
   where `salt` is 16 random bytes kept in the vault (encrypted) and replaced by
-  `authenticatorReset`.
+  `authenticatorReset`. After a backup from another Keyra is restored, the vault
+  holds a list of up to 4 wrapping keys (`fido.bin` v2, encrypted with the DEK):
+  this Keyra's own key first, used for every new credential, then the restored
+  ones. A credential ID is tried against each (AES-GCM fails cleanly on a wrong key).
 - **Credential ID** (also the U2F key handle), 62 bytes:
   `0x01 | nonce[12] | AES-256-GCM(Kwrap, nonce, AAD = rpIdHash, privateKey[32] | flags[1]) | tag[16]`.
   The private key is random (hardware RNG). The AAD binds the credential to its
@@ -83,9 +86,17 @@ unlocked. A flash dump without the passphrase reveals no credential key.
   the RP ID, user handle, user name, display name, creation time and the
   credential ID (no separate private key). Deleting the record also revokes the
   credential: a resident credential ID is only accepted while its record exists.
-- Passkeys are **not** in encrypted backups in v1. Restoring a backup on a new
-  Keyra does not bring passkeys along; register a second key or keep another
-  sign-in method on each account.
+- **Backups carry the passkeys** (design: [PASSKEY-BACKUP.md](research/PASSKEY-BACKUP.md)):
+  the wrapping keys, the discoverable-credential records and the signature
+  counter go into the encrypted backup while Settings → "Passkeys in backups"
+  (`passkeysInBackup`, default on) is on; turning it back on needs a button
+  press. Restoring on a new Keyra makes both discoverable and non-discoverable
+  (U2F, `rk:false`) credentials work there: `merge` adds them next to the ones
+  it has, `replace` makes them the backup's (a backup without passkeys leaves
+  them alone). A restore that would pass 4 wrapping keys or 50 passkeys is
+  refused before anything changes. The signature counter is raised to at least
+  the backup's + 1000. Anyone with the backup file and its passphrase can use
+  these passkeys, just as they can read every password in it.
 
 ## Honest limits
 
@@ -101,8 +112,17 @@ unlocked. A flash dump without the passphrase reveals no credential key.
   connection to the phone.
 - **One credential type** (ES256). Sites that only accept EdDSA or RS256 will
   not work (rare).
-- **If the vault is reset, every FIDO credential is gone.** Always keep a
-  second way into important accounts.
+- **If the vault is reset, every FIDO credential is gone** unless it is in a
+  backup. Always keep a second way into important accounts.
+- **A restored passkey is a copy.** Restoring while the old Keyra still exists
+  leaves two working copies; sites that track the counter may flag the old one
+  once the new one is used. Erase or lock away the old Keyra.
+- **Backups are snapshots.** Passkeys created after the backup are not in it,
+  as for passwords.
+- **The U2F attestation key is per device** and not backed up. It only signs
+  registrations, so existing sign-ins are unaffected.
+- **Flags stay BE = 0 / BS = 0.** WebAuthn forbids changing them after
+  registration; a restored passkey behaves like the same security key, moved.
 
 ## Threat model (FIDO part)
 

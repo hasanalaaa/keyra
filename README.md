@@ -310,7 +310,7 @@ Keyra presents a keyboard and a security key to the computer. It has no storage 
 No. Keyra can create and use passkeys and act as a security key over USB, and for many personal accounts that works well. But a YubiKey keeps its keys in a secure chip that cannot be read out, is FIDO certified, has a PIN for every sign-in, and works over NFC. Keyra has no secure chip (its keys are as safe as your passphrase and the flash encryption setting), is not certified, treats "unlocked" as user verification, and works only by USB (phones need a USB connection). Some sites, mostly corporate ones, refuse uncertified keys. Register a second key or keep another sign-in method on every account. Details in [docs/FIDO.md](docs/FIDO.md).
 
 **Which passkey sites work?**
-Any site that accepts a USB security key or "passkey on a security key", in Chrome, Edge, Safari or Firefox on macOS, Windows and Linux. Passkeys need Keyra plugged in and unlocked; keep the phone app handy to unlock it. Passkeys are not in Keyra's backups yet.
+Any site that accepts a USB security key or "passkey on a security key", in Chrome, Edge, Safari or Firefox on macOS, Windows and Linux. Passkeys need Keyra plugged in and unlocked; keep the phone app handy to unlock it. Encrypted backups carry the passkeys too (Settings → "Passkeys in backups", on by default), so a restored Keyra signs in where the old one did.
 
 **What does it cost?**
 A compatible ESP32-S3 board is usually a few dollars to about ten.

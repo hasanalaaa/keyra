@@ -359,7 +359,7 @@ void unboundActionsIgnoreUsbChanges() {
 
 void revealOpsEndWithTheSession() {
   auto m = make();
-  for (Op op : {Op::Reveal, Op::Backup, Op::Recovery, Op::Unprotect, Op::Update}) {
+  for (Op op : {Op::Reveal, Op::Backup, Op::Recovery, Op::Unprotect, Op::Update, Op::PasskeysBackupOn}) {
     m.awaitPresence(op, [] { return true; }, "s");
     m.dropSessionItems();
     CHECK(!m.presence().has_value());
@@ -378,6 +378,8 @@ void deleteOpsAreNamed() {
   CHECK(std::string(opName(Op::DeletePasskey)) == "delete_passkey");
   CHECK(parseOp("delete_entry") == Op::DeleteEntry);
   CHECK(parseOp("delete_passkey") == Op::DeletePasskey);
+  CHECK(std::string(opName(Op::PasskeysBackupOn)) == "passkeys_backup_on");
+  CHECK(parseOp("passkeys_backup_on") == Op::PasskeysBackupOn);
   auto m = make();
   for (Op op : {Op::DeleteEntry, Op::DeletePasskey}) {
     m.awaitPresence(op, [] { return true; }, "s");

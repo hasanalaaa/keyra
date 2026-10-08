@@ -8,6 +8,19 @@ All notable changes to Keyra are documented here. The format follows
 
 ### Added
 
+- **Passkeys in backups** (firmware, [PASSKEY-BACKUP.md](docs/research/PASSKEY-BACKUP.md)):
+  backups (format v3) carry the passkey wrapping keys, the passkey records and
+  the signature counter while the new setting `passkeysInBackup` is on
+  (default on; turning it on needs a button press, op `passkeys_backup_on`).
+  Restoring on another Keyra makes discoverable and non-discoverable
+  credentials work there; `merge` adds them, `replace` swaps them in the same
+  power-cut-safe commit as the entries (a backup without passkeys leaves local
+  ones alone). The vault keeps up to 4 wrapping keys (`fido.bin` v2); a restore
+  that would pass 4 keys or 50 passkeys is refused with 409 `passkeys_full`
+  before anything changes. `POST /api/restore` reports `passkeys` (records
+  added); the signature counter is raised past the backup's. v1/v2 backups
+  and v1 `fido.bin` still work.
+
 - **Auto-type sequences in the web app** (SPEC §10.4): an optional "Typing
   sequence" on each account (advanced, collapsed) with token buttons, live
   checking against the firmware grammar and a masked preview per part; "Type

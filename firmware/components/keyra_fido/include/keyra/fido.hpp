@@ -21,6 +21,12 @@ bool ledActive();  // awaitingTouch(), or a host WINK in the last 1.5 s
 // pair is made on the next U2F registration. The signature counter stays.
 bool forgetAttestation();
 
+// Passkeys in backups (docs/research/PASSKEY-BACKUP.md): a backup stores the
+// signature counter, and after restoring one the counter is raised to at least
+// the backup's + 1000 (never lowered).
+bool signatureCounter(uint32_t& out);
+bool raiseCounterAfterRestore(uint32_t backupCounter);
+
 // Discoverable credentials for Settings → Passkeys (vault must be unlocked).
 struct Passkey {
   uint32_t id = 0;  // vault record id

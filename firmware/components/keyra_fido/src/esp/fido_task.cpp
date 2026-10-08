@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <cstring>
+#include <mutex>
 #include <vector>
 
 #include "core/device.hpp"
@@ -74,10 +75,21 @@ class UsbLink final : public Link {
   static inline std::atomic<int64_t> s_winkUntil{0};
 };
 
+// Serialises the counter's read-modify-write between the FIDO task (next) and
+// keyra_api's backup/restore: a raise racing a next() could otherwise be undone.
+std::mutex s_counterMutex;
+
+bool readCounter(nvs_handle_t h, uint32_t& v) {
+  v = 0;
+  const esp_err_t err = nvs_get_u32(h, kNvsCounter, &v);
+  return err == ESP_OK || err == ESP_ERR_NVS_NOT_FOUND;
+}
+
 // Monotonic signature counter in NVS, persisted before it is used.
 class NvsCounter final : public Counter {
  public:
   bool next(uint32_t& value) override {
+    std::lock_guard<std::mutex> g(s_counterMutex);
     nvs_handle_t h;
     if (nvs_open(kNvsNamespace, NVS_READWRITE, &h) != ESP_OK) return false;
     uint32_t v = 0;
@@ -155,6 +167,32 @@ bool awaitingTouch() { return s_gate.awaiting(); }
 bool ledActive() { return s_gate.awaiting() || monoMs() < UsbLink::s_winkUntil.load(); }
 
 void press(bool shortPress) { s_gate.press(shortPress, monoMs()); }
+
+bool signatureCounter(uint32_t& out) {
+  std::lock_guard<std::mutex> g(s_counterMutex);
+  nvs_handle_t h;
+  out = 0;
+  const esp_err_t err = nvs_open(kNvsNamespace, NVS_READONLY, &h);
+  if (err == ESP_ERR_NVS_NOT_FOUND) return true;  // nothing signed yet: no namespace
+  if (err != ESP_OK) return false;
+  const bool ok = readCounter(h, out);
+  nvs_close(h);
+  return ok;
+}
+
+bool raiseCounterAfterRestore(uint32_t backupCounter) {
+  std::lock_guard<std::mutex> g(s_counterMutex);
+  nvs_handle_t h;
+  if (nvs_open(kNvsNamespace, NVS_READWRITE, &h) != ESP_OK) return false;
+  uint32_t v = 0;
+  esp_err_t err = readCounter(h, v) ? ESP_OK : ESP_FAIL;
+  const uint32_t next = restoredCounter(v, backupCounter);
+  if (err == ESP_OK && next != v) err = nvs_set_u32(h, kNvsCounter, next);
+  if (err == ESP_OK) err = nvs_commit(h);
+  nvs_close(h);
+  if (err != ESP_OK) ESP_LOGE(TAG, "counter raise: %s", esp_err_to_name(err));
+  return err == ESP_OK;
+}
 
 bool forgetAttestation() {
   nvs_handle_t h;

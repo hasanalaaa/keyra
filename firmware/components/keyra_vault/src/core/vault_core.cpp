@@ -15,7 +15,7 @@ namespace {
 constexpr char kMetaPath[] = "meta.bin";
 constexpr char kEntryDir[] = "e";
 constexpr char kRestoreMarker[] = "restore.commit";
-constexpr uint8_t kMarkerVersion = 1;
+constexpr uint8_t kMarkerVersion = 1, kMarkerVersionPasskeys = 2;
 constexpr char kMetaAad[] = "keyra/meta/v1";  // the passphrase wrap keeps its v1 AAD
 constexpr char kRecoveryAad[] = "keyra/wrap/recovery/v1";
 constexpr char kRecoveryInfo[] = "keyra/recovery/v1";
@@ -246,7 +246,7 @@ Status Vault::removeStaged() {
   if (!p_.storage.list(kEntryDir, names)) return Status::StorageError;
   for (const auto& n : names)
     if (isStaged(n) && !p_.storage.remove(std::string(kEntryDir) + "/" + n)) return Status::StorageError;
-  return Status::Ok;
+  return removeStagedPasskeys();
 }
 
 // Idempotent, so a power cut anywhere in here is finished by the next call. The
@@ -259,9 +259,27 @@ Status Vault::settleRestore() {
     case Storage::Read::Error: return Status::StorageError;
     case Storage::Read::Ok: break;
   }
-  if (marker.empty() || marker[0] != kMarkerVersion || (marker.size() - 1) % 4 != 0) return Status::Corrupt;
-  std::vector<uint32_t> keep;
-  for (size_t at = 1; at < marker.size(); at += 4) keep.push_back(uint32_t(getLe(&marker[at], 4)));
+  std::vector<uint32_t> keep, keepPasskeys;
+  bool passkeys = false, keys = false;
+  if (!marker.empty() && marker[0] == kMarkerVersion) {
+    if ((marker.size() - 1) % 4 != 0) return Status::Corrupt;
+    for (size_t at = 1; at < marker.size(); at += 4) keep.push_back(uint32_t(getLe(&marker[at], 4)));
+  } else if (!marker.empty() && marker[0] == kMarkerVersionPasskeys) {
+    size_t at = 1;
+    auto ids = [&](std::vector<uint32_t>& out) {
+      if (at + 4 > marker.size()) return false;
+      const uint64_t n = getLe(&marker[at], 4);
+      at += 4;
+      if (n > (marker.size() - at) / 4) return false;
+      for (uint64_t i = 0; i < n; ++i, at += 4) out.push_back(uint32_t(getLe(&marker[at], 4)));
+      return true;
+    };
+    if (!ids(keep) || !ids(keepPasskeys) || at + 1 != marker.size()) return Status::Corrupt;
+    passkeys = true;
+    keys = marker[at] != 0;
+  } else {
+    return Status::Corrupt;
+  }
   std::vector<std::string> names;
   if (!p_.storage.list(kEntryDir, names)) return Status::StorageError;
   const std::string dir = std::string(kEntryDir) + "/";
@@ -276,6 +294,8 @@ Status Vault::settleRestore() {
     if (endsWith(n, ".new") && !p_.storage.rename(dir + n, dir + n.substr(0, n.size() - 4) + ".bin"))
       return Status::StorageError;
   }
+  if (passkeys)
+    if (Status s = settlePasskeys(keepPasskeys, keys); s != Status::Ok) return s;
   return p_.storage.remove(kRestoreMarker) ? Status::Ok : Status::StorageError;
 }
 
@@ -706,14 +726,25 @@ Status Vault::changePassphrase(const std::string& cur, const std::string& next, 
   return s;
 }
 
-Status Vault::exportBackup(const std::string& backupPass, std::string& outJson) {
+Status Vault::exportBackup(const std::string& backupPass, std::string& outJson, bool passkeys,
+                           uint32_t counter) {
   std::lock_guard<std::mutex> g(m_);
   if (Status s = requireUnlocked(); s != Status::Ok) return s;
   if (!text::validUtf8(backupPass) || text::codePoints(backupPass) < kMinBackupPass)
     return Status::Invalid;
 
+  backup::Passkeys pk;
+  if (passkeys) {
+    pk.present = true;
+    pk.counter = counter;
+    if (Status s = loadPasskeysLocked(); s != Status::Ok) return s;
+    if (Status s = readWrapKeysLocked(pk.keys, false); s != Status::Ok) return s;
+    pk.records.reserve(passkeys_.size());
+    for (const auto& p : passkeys_) pk.records.emplace_back(p.plain.data(), p.plain.data() + p.plain.size());
+  }
+
   SecureString plain;
-  plain += '[';
+  plain += "{\"entries\":[";
   for (size_t i = 0; i < slots_.size(); ++i) {
     Entry e;
     bool ok = codec::decode(slots_[i].plain.data(), slots_[i].plain.size(), e);
@@ -728,6 +759,8 @@ Status Vault::exportBackup(const std::string& backupPass, std::string& outJson) 
     }
   }
   plain += ']';
+  if (pk.present) backup::writePasskeys(plain, pk);
+  plain += '}';
 
   backup::Envelope env;
   env.iterations = meta_.pass.iterations;
@@ -748,8 +781,9 @@ Status Vault::exportBackup(const std::string& backupPass, std::string& outJson) 
 }
 
 Status Vault::readBackup(const std::string& backupPass, const std::string& jsonText,
-                         std::vector<Entry>& out) {
+                         std::vector<Entry>& out, backup::Passkeys& passkeys) {
   out.clear();
+  passkeys = backup::Passkeys{};
   backup::Envelope env;
   if (!backup::readEnvelope(jsonText, env)) return Status::Invalid;
 
@@ -769,15 +803,22 @@ Status Vault::readBackup(const std::string& backupPass, const std::string& jsonT
     }
     mem::zeroize(key.data(), key.size());
     if (s != Status::Ok) return s;
-    if (!json::parse(reinterpret_cast<const char*>(plain.data()), plain.size(), root) ||
-        root.type != json::Value::Type::Array)
-      return Status::Invalid;
+    if (!json::parse(reinterpret_cast<const char*>(plain.data()), plain.size(), root)) return Status::Invalid;
   }
-  if (root.items.size() > kMaxEntries) return Status::Full;
+  // v3 wraps the entry array in an object beside the passkeys; v1/v2 are the bare array.
+  const json::Value* entries = &root;
+  if (env.version >= 3) {
+    if (root.type != json::Value::Type::Object) return Status::Invalid;
+    entries = root.find("entries");
+    const json::Value* pk = root.find("passkeys");
+    if (pk && !backup::readPasskeys(*pk, passkeys)) return Status::Invalid;
+  }
+  if (!entries || entries->type != json::Value::Type::Array) return Status::Invalid;
+  if (entries->items.size() > kMaxEntries) return Status::Full;
 
-  out.resize(root.items.size());
+  out.resize(entries->items.size());
   for (size_t i = 0; i < out.size(); ++i) {
-    if (!backup::readEntry(root.items[i], out[i]) || !codec::valid(out[i])) {
+    if (!backup::readEntry(entries->items[i], out[i]) || !codec::valid(out[i])) {
       for (auto& e : out) wipe(e);
       out.clear();
       return Status::Invalid;
@@ -786,25 +827,37 @@ Status Vault::readBackup(const std::string& backupPass, const std::string& jsonT
   return Status::Ok;
 }
 
-Status Vault::checkBackup(const std::string& backupPass, const std::string& jsonText) {
+Status Vault::checkBackup(const std::string& backupPass, const std::string& jsonText, bool replace) {
   std::lock_guard<std::mutex> g(m_);
   if (Status s = requireUnlocked(); s != Status::Ok) return s;
   std::vector<Entry> incoming;
-  Status s = readBackup(backupPass, jsonText, incoming);
+  backup::Passkeys pk;
+  PasskeyPlan plan;
+  Status s = readBackup(backupPass, jsonText, incoming, pk);
+  if (s == Status::Ok) s = planPasskeys(pk, replace, plan);
   for (auto& e : incoming) wipe(e);
   return s;
 }
 
 Status Vault::importBackup(const std::string& backupPass, const std::string& jsonText,
-                           bool replace, size_t* added, size_t* updated) {
+                           bool replace, size_t* added, size_t* updated, PasskeyRestore* passkeys) {
   std::lock_guard<std::mutex> g(m_);
   if (added) *added = 0;
   if (updated) *updated = 0;
+  if (passkeys) *passkeys = PasskeyRestore{};
   if (Status s = requireUnlocked(); s != Status::Ok) return s;
 
   // 1. Decrypt and validate everything before touching the vault.
   std::vector<Entry> incoming;
-  if (Status s = readBackup(backupPass, jsonText, incoming); s != Status::Ok) return s;
+  backup::Passkeys pk;
+  if (Status s = readBackup(backupPass, jsonText, incoming, pk); s != Status::Ok) return s;
+  // Known from here on whatever happens next: the caller raises its counter on any outcome.
+  if (passkeys) passkeys->present = pk.present, passkeys->counter = pk.counter;
+  PasskeyPlan plan;
+  if (Status s = planPasskeys(pk, replace, plan); s != Status::Ok) {
+    for (auto& e : incoming) wipe(e);
+    return s;
+  }
   std::vector<Identity> index;  // merge view: existing entries + those this import adds
   auto cleanup = [&] {
     for (auto& e : incoming) wipe(e);
@@ -874,16 +927,28 @@ Status Vault::importBackup(const std::string& backupPass, const std::string& jso
   // 3a. Replace: stage the new set beside the old one, then commit with one
   // atomic marker write (see settleRestore). A failure or power cut before the
   // marker leaves the old vault; from the marker on, the new one.
+  // With a passkeys section the records and wrap keys are staged too and the
+  // marker (v2) lists them, so they switch in the same commit.
   if (replace) {
     Status s = removeStaged();
-    std::vector<uint8_t> marker{kMarkerVersion};
-    marker.reserve(1 + 4 * incoming.size());
+    std::vector<uint8_t> marker{pk.present ? kMarkerVersionPasskeys : kMarkerVersion};
+    auto putId = [&marker](uint32_t v) {
+      marker.resize(marker.size() + 4);
+      putLe(&marker[marker.size() - 4], v, 4);
+    };
+    if (pk.present) putId(uint32_t(incoming.size()));
     for (const auto& e : incoming) {
       if (s != Status::Ok) break;
       SecureBuf plain;
       s = codec::encode(e, plain) ? persist(stagedPath(e.id), e.id, plain) : Status::Full;
-      marker.resize(marker.size() + 4);
-      putLe(&marker[marker.size() - 4], e.id, 4);
+      putId(e.id);
+    }
+    if (s == Status::Ok && pk.present) {
+      std::vector<uint32_t> ids;
+      s = stagePasskeys(pk, ids);
+      putId(uint32_t(ids.size()));
+      for (uint32_t id : ids) putId(id);
+      marker.push_back(pk.keys.empty() ? 0 : 1);
     }
     if (s == Status::Ok) s = writeAtomic(kRestoreMarker, marker.data(), marker.size());
     cleanup();
@@ -896,6 +961,7 @@ Status Vault::importBackup(const std::string& backupPass, const std::string& jso
     }
     if (s != Status::Ok) return s;
     if (added) *added = nAdded;
+    if (passkeys) passkeys->added = pk.records.size();
     return Status::Ok;
   }
 
@@ -931,6 +997,7 @@ Status Vault::importBackup(const std::string& backupPass, const std::string& jso
     if (s == Status::Ok) ++nUpdated;
   }
   cleanup();
+  if (s == Status::Ok) s = mergePasskeys(plan);
   if (s != Status::Ok) {
     // RAM must reflect what actually reached flash.
     if (loadEntries() != Status::Ok) {
@@ -942,6 +1009,7 @@ Status Vault::importBackup(const std::string& backupPass, const std::string& jso
   }
   if (added) *added = nAdded;
   if (updated) *updated = nUpdated;
+  if (passkeys) passkeys->added = plan.records.size();
   return Status::Ok;
 }
 

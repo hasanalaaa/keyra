@@ -41,7 +41,8 @@ enum class Status {
   Invalid,
   Full,
   StorageError,
-  Corrupt
+  Corrupt,
+  PasskeysFull  // a restore would pass kMaxPasskeyWrapKeys or kMaxPasskeys
 };
 
 Status init();  // mount storage, load meta
@@ -92,35 +93,52 @@ RecoveryInfo recoveryInfo();
 Status recover(const RecoveryKey& key, const std::string& next, uint32_t* retryAfterMs);
 Status checkRecovery(const RecoveryKey& key, uint32_t* retryAfterMs);
 
-Status exportBackup(const std::string& backupPass, std::string& outJson);
-// replace: all old entries or all new ones, even across a power cut.
+// passkeys: the backup also carries the passkey wrap keys, the passkey records
+// and `counter`, keyra_fido's signature counter (docs/research/PASSKEY-BACKUP.md).
+Status exportBackup(const std::string& backupPass, std::string& outJson, bool passkeys = false,
+                    uint32_t counter = 0);
+// What a restore did with a backup's passkeys section.
+struct PasskeyRestore {
+  size_t added = 0;       // records added
+  bool present = false;   // the backup had a passkeys section
+  uint32_t counter = 0;   // its signature counter (when present); the caller raises its own past it
+};
+// `passkeys` gets present/counter as soon as the backup is read, even when the
+// restore then fails (it may have added passkeys, or finish at the next unlock).
+// replace: all old entries or all new ones, even across a power cut. With a
+// passkeys section the records and wrap keys become the backup's in the same
+// commit; without one the local passkeys stay as they are.
 // merge: an entry matches by id (with the same title, username and url) or else
 // by title, username and url; the copy with the newer `updated` wins, and a
-// replaced local password goes into history.
+// replaced local password goes into history. The backup's wrap keys and records
+// not already here are added; nothing local is removed. PasskeysFull (before
+// any change) when the result would pass kMaxPasskeyWrapKeys or kMaxPasskeys.
 Status importBackup(const std::string& backupPass, const std::string& json, bool replace,
-                    size_t* added, size_t* updated);
+                    size_t* added, size_t* updated, PasskeyRestore* passkeys = nullptr);
 // The checks importBackup makes before writing (passphrase, format, limits); writes nothing.
-Status checkBackup(const std::string& backupPass, const std::string& json);
+Status checkBackup(const std::string& backupPass, const std::string& json, bool replace);
 Status factoryReset();  // erases everything vault-related
 
 // Passkeys (keyra_fido, docs/FIDO.md). The vault stores each discoverable FIDO
 // credential as an opaque record it encrypts like an entry ("f/<id>.bin",
 // AES-256-GCM(DEK), AAD "keyra/f/v1/<id>") and derives the credential wrapping
-// key from the DEK, so nothing FIDO-related is readable while locked. Records
-// are not part of backups. All of these need the vault unlocked.
+// keys under the DEK, so nothing FIDO-related is readable while locked. Records
+// and wrap keys go into backups unless left out. All of these need the vault unlocked.
 struct PasskeyRecord {
   uint32_t id = 0;
   std::vector<uint8_t> data;
 };
-inline constexpr size_t kMaxPasskeys = 50, kMaxPasskeyRecord = 1024;
+inline constexpr size_t kMaxPasskeys = 50, kMaxPasskeyRecord = 1024, kMaxPasskeyWrapKeys = 4;
 Status passkeyList(std::vector<PasskeyRecord>& out);
 // id == 0 → create (assigns id; Full beyond kMaxPasskeys); else replace (NotFound otherwise).
 Status passkeyPut(uint32_t& id, const std::vector<uint8_t>& data);
 Status passkeyRemove(uint32_t id);
-// HMAC-SHA256(DEK, "keyra/fido/v1/wrap" || salt); the 16-byte salt is created on first use.
-Status passkeyWrapKey(uint8_t out[32]);
-// authenticatorReset: deletes every record and replaces the salt (old wrapped
-// credentials stop decrypting).
+// The credential wrapping keys, at most kMaxPasskeyWrapKeys; out[0] wraps new
+// credentials, the others came with restored backups. A fresh vault has one,
+// HMAC-SHA256(DEK, "keyra/fido/v1/wrap" || salt), its 16-byte salt created on first use.
+Status passkeyWrapKeys(uint8_t out[kMaxPasskeyWrapKeys][32], size_t& count);
+// authenticatorReset: deletes every record and every wrap key (old wrapped
+// credentials stop decrypting; the next call makes a fresh salt).
 Status passkeyReset();
 
 // Activity log (SPEC §15). One opaque record of at most kMaxActivityBytes,

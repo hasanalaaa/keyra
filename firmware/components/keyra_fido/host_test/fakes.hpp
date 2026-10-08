@@ -1,5 +1,6 @@
 #pragma once
 // In-memory Store / Counter and a scripted User for the CTAP tests.
+#include <array>
 #include <deque>
 #include <functional>
 #include <map>
@@ -13,13 +14,16 @@ class MemStore final : public Store {
  public:
   bool open = true;
   uint8_t key[32] = {1, 2, 3};
+  std::vector<std::array<uint8_t, 32>> restored;  // more keys, as after restoring a backup
   std::map<uint32_t, std::vector<uint8_t>> recs;
   uint32_t nextId = 1;
 
   bool unlocked() override { return open; }
-  Result wrapKey(uint8_t out[32]) override {
+  Result wrapKeys(WrapKeys& out) override {
+    out.clear();
     if (!open) return Result::Locked;
-    std::copy(key, key + 32, out);
+    std::copy(key, key + 32, out.key[out.count++]);
+    for (const auto& k : restored) std::copy(k.begin(), k.end(), out.key[out.count++]);
     return Result::Ok;
   }
   Result list(std::vector<Record>& out) override {

@@ -28,3 +28,10 @@ add_executable(fido_harness harness.cpp ${FIDO}/src/vault_store.cpp ${VAULT}/src
   ${VAULT}/host_test/host_fakes.cpp ${VAULT}/host_test/host_platform.cpp)
 target_include_directories(fido_harness PRIVATE ${VAULT}/include ${VAULT}/src ${VAULT}/host_test)
 target_link_libraries(fido_harness PRIVATE keyra_fido_core)
+
+# Passkeys in backups, end to end over the same real vault core.
+add_executable(keyra_fido_backup_test backup_test.cpp ${FIDO}/src/vault_store.cpp ${VAULT}/src/api.cpp ${VAULT_CORE}
+  ${VAULT}/host_test/host_fakes.cpp ${VAULT}/host_test/host_platform.cpp)
+target_include_directories(keyra_fido_backup_test PRIVATE ${VAULT}/include ${VAULT}/src ${VAULT}/host_test)
+target_link_libraries(keyra_fido_backup_test PRIVATE keyra_fido_core)
+add_test(NAME keyra_fido_backup COMMAND keyra_fido_backup_test)

@@ -12,9 +12,13 @@ namespace keyra::vault {
 namespace {
 
 constexpr char kDir[] = "f";
-constexpr char kSaltPath[] = "fido.bin";
+constexpr char kKeysPath[] = "fido.bin";
+constexpr char kStagedKeysPath[] = "fido.new";
 constexpr char kWrapLabel[] = "keyra/fido/v1/wrap";
+constexpr char kKeysAad[] = "keyra/fido/v2/keys";
 constexpr uint8_t kVersion = 1;
+constexpr uint8_t kSaltVersion = 1, kKeysVersion = 2;  // fido.bin
+constexpr size_t kSaltSize = 1 + 16;
 constexpr size_t kOverhead = 1 + 12 + 16;
 
 std::string hexId(uint32_t id) {
@@ -23,10 +27,16 @@ std::string hexId(uint32_t id) {
   return b;
 }
 std::string recordPath(uint32_t id) { return std::string(kDir) + "/" + hexId(id) + ".bin"; }
+std::string stagedRecordPath(uint32_t id) { return std::string(kDir) + "/" + hexId(id) + ".new"; }
 std::string recordAad(uint32_t id) { return "keyra/f/v1/" + hexId(id); }
 
-bool parseName(const std::string& name, uint32_t& id) {
-  if (name.size() != 12 || name.compare(8, 4, ".bin") != 0) return false;
+bool endsWith(const std::string& s, const char* suffix) {
+  const size_t n = std::strlen(suffix);
+  return s.size() >= n && s.compare(s.size() - n, n, suffix) == 0;
+}
+
+bool parseName(const std::string& name, uint32_t& id, const char* ext = ".bin") {
+  if (name.size() != 12 || name.compare(8, 4, ext) != 0) return false;
   id = 0;
   for (int i = 0; i < 8; ++i) {
     const char c = name[i];
@@ -46,7 +56,17 @@ Status Vault::removePasskeyFilesLocked() {
   if (!p_.storage.list(kDir, names)) return Status::StorageError;
   for (const auto& n : names)
     if (!p_.storage.remove(std::string(kDir) + "/" + n)) return Status::StorageError;
-  return p_.storage.remove(kSaltPath) ? Status::Ok : Status::StorageError;
+  return p_.storage.remove(kKeysPath) ? Status::Ok : Status::StorageError;
+}
+
+Status Vault::persistPasskey(const std::string& path, uint32_t id, const uint8_t* data, size_t n) {
+  std::vector<uint8_t> file(kOverhead + n);
+  file[0] = kVersion;
+  if (!p_.crypto.random(file.data() + 1, 12)) return Status::StorageError;
+  const std::string aad = recordAad(id);
+  if (!p_.crypto.gcmSeal(dek_.data(), file.data() + 1, bytes(aad.c_str()), aad.size(), data, n, file.data() + 13))
+    return Status::StorageError;
+  return writeAtomic(path, file.data(), file.size());
 }
 
 Status Vault::loadPasskeysLocked() {
@@ -108,14 +128,7 @@ Status Vault::passkeyPut(uint32_t& id, const std::vector<uint8_t>& data) {
   SecureBuf plain;
   if (!plain.alloc(data.size())) return Status::Full;
   std::memcpy(plain.data(), data.data(), data.size());
-  std::vector<uint8_t> file(kOverhead + data.size());
-  file[0] = kVersion;
-  if (!p_.crypto.random(file.data() + 1, 12)) return Status::StorageError;
-  const std::string aad = recordAad(target);
-  if (!p_.crypto.gcmSeal(dek_.data(), file.data() + 1, bytes(aad.c_str()), aad.size(), plain.data(),
-                         plain.size(), file.data() + 13))
-    return Status::StorageError;
-  if (Status s = writeAtomic(recordPath(target), file.data(), file.size()); s != Status::Ok) return s;
+  if (Status s = persistPasskey(recordPath(target), target, plain.data(), plain.size()); s != Status::Ok) return s;
   auto it = find(target);
   if (it != passkeys_.end()) {
     it->plain = std::move(plain);
@@ -137,33 +150,184 @@ Status Vault::passkeyRemove(uint32_t id) {
   return Status::Ok;
 }
 
-Status Vault::passkeyWrapKey(uint8_t out[32]) {
-  std::lock_guard<std::mutex> g(m_);
-  if (Status s = requireUnlocked(); s != Status::Ok) return s;
+Status Vault::readWrapKeysLocked(KeyList& out, bool create) {
+  out.clear();
+  out.reserve(kMaxPasskeyWrapKeys);
   std::vector<uint8_t> file;
-  switch (p_.storage.read(kSaltPath, file)) {
+  switch (p_.storage.read(kKeysPath, file)) {
     case Storage::Read::Error: return Status::StorageError;
     case Storage::Read::NotFound: {
-      file.assign(17, 0);
-      file[0] = kVersion;
+      if (!create) return Status::Ok;
+      file.assign(kSaltSize, 0);
+      file[0] = kSaltVersion;
       if (!p_.crypto.random(file.data() + 1, 16)) return Status::StorageError;
-      if (Status s = writeAtomic(kSaltPath, file.data(), file.size()); s != Status::Ok) return s;
+      if (Status s = writeAtomic(kKeysPath, file.data(), file.size()); s != Status::Ok) return s;
       break;
     }
-    case Storage::Read::Ok:
-      if (file.size() != 17 || file[0] != kVersion) return Status::Corrupt;
-      break;
+    case Storage::Read::Ok: break;
   }
-  uint8_t msg[sizeof kWrapLabel - 1 + 16];
-  std::memcpy(msg, kWrapLabel, sizeof kWrapLabel - 1);
-  std::memcpy(msg + sizeof kWrapLabel - 1, file.data() + 1, 16);
-  uint8_t mac[64];
-  size_t macLen = 0;
-  const bool ok = p_.crypto.hmac(Hash::Sha256, dek_.data(), dek_.size(), msg, sizeof msg, mac, &macLen) &&
-                  macLen == 32;
-  if (ok) std::memcpy(out, mac, 32);
-  mem::zeroize(mac, sizeof mac);
-  return ok ? Status::Ok : Status::StorageError;
+  if (file.size() == kSaltSize && file[0] == kSaltVersion) {
+    uint8_t msg[sizeof kWrapLabel - 1 + 16];
+    std::memcpy(msg, kWrapLabel, sizeof kWrapLabel - 1);
+    std::memcpy(msg + sizeof kWrapLabel - 1, file.data() + 1, 16);
+    uint8_t mac[64];
+    size_t macLen = 0;
+    const bool ok = p_.crypto.hmac(Hash::Sha256, dek_.data(), dek_.size(), msg, sizeof msg, mac, &macLen) &&
+                    macLen == 32;
+    if (ok) {
+      out.emplace_back();
+      std::memcpy(out.back().data(), mac, 32);
+    }
+    mem::zeroize(mac, sizeof mac);
+    return ok ? Status::Ok : Status::StorageError;
+  }
+  if (file.size() < kOverhead + 1 + 32 || file[0] != kKeysVersion) return Status::Corrupt;
+  SecureBuf plain;
+  if (!plain.alloc(file.size() - kOverhead)) return Status::StorageError;
+  switch (p_.crypto.gcmOpen(dek_.data(), file.data() + 1, bytes(kKeysAad), sizeof kKeysAad - 1, file.data() + 13,
+                            file.size() - 13, plain.data())) {
+    case Crypto::Open::Ok: break;
+    case Crypto::Open::AuthFailed: return Status::Corrupt;
+    case Crypto::Open::Error: return Status::StorageError;
+  }
+  const size_t n = plain.data()[0];
+  if (n < 1 || n > kMaxPasskeyWrapKeys || plain.size() != 1 + 32 * n) return Status::Corrupt;
+  for (size_t i = 0; i < n; ++i) {
+    out.emplace_back();
+    std::memcpy(out.back().data(), plain.data() + 1 + 32 * i, 32);
+  }
+  return Status::Ok;
+}
+
+Status Vault::writeWrapKeys(const char* path, const KeyList& keys) {
+  if (keys.empty() || keys.size() > kMaxPasskeyWrapKeys) return Status::Invalid;
+  SecureBuf plain;
+  if (!plain.alloc(1 + 32 * keys.size())) return Status::StorageError;
+  plain.data()[0] = uint8_t(keys.size());
+  for (size_t i = 0; i < keys.size(); ++i) std::memcpy(plain.data() + 1 + 32 * i, keys[i].data(), 32);
+  std::vector<uint8_t> file(kOverhead + plain.size());
+  file[0] = kKeysVersion;
+  if (!p_.crypto.random(file.data() + 1, 12) ||
+      !p_.crypto.gcmSeal(dek_.data(), file.data() + 1, bytes(kKeysAad), sizeof kKeysAad - 1, plain.data(),
+                         plain.size(), file.data() + 13))
+    return Status::StorageError;
+  return writeAtomic(path, file.data(), file.size());
+}
+
+Status Vault::passkeyWrapKeys(uint8_t out[kMaxPasskeyWrapKeys][32], size_t& count) {
+  std::lock_guard<std::mutex> g(m_);
+  count = 0;
+  if (Status s = requireUnlocked(); s != Status::Ok) return s;
+  KeyList keys;
+  if (Status s = readWrapKeysLocked(keys, true); s != Status::Ok) return s;
+  for (const Key& k : keys) std::memcpy(out[count++], k.data(), 32);
+  return Status::Ok;
+}
+
+Status Vault::planPasskeys(const backup::Passkeys& in, bool replace, PasskeyPlan& out) {
+  out.keys.clear();
+  out.writeKeys = false;
+  out.records.clear();
+  // Replace takes the backup's as they are; their limits were checked when it was read.
+  if (!in.present || replace) return Status::Ok;
+  if (Status s = loadPasskeysLocked(); s != Status::Ok) return s;
+  if (Status s = readWrapKeysLocked(out.keys, false); s != Status::Ok) return s;
+  for (const Key& k : in.keys) {
+    if (std::find(out.keys.begin(), out.keys.end(), k) != out.keys.end()) continue;
+    if (out.keys.size() == kMaxPasskeyWrapKeys) return Status::PasskeysFull;
+    out.keys.push_back(k);  // after the local ones: new credentials keep using this Keyra's key
+    out.writeKeys = true;
+  }
+  // Records are opaque here. keyra_fido never edits one (registering again writes
+  // a new credential ID), so an identical record is the same credential.
+  auto same = [](const uint8_t* a, size_t n, const std::vector<uint8_t>& b) {
+    return n == b.size() && std::memcmp(a, b.data(), n) == 0;
+  };
+  for (const auto& r : in.records) {
+    const bool known =
+        std::any_of(passkeys_.begin(), passkeys_.end(),
+                    [&](const Slot& p) { return same(p.plain.data(), p.plain.size(), r); }) ||
+        std::any_of(out.records.begin(), out.records.end(),
+                    [&](const std::vector<uint8_t>* q) { return same(q->data(), q->size(), r); });
+    if (!known) out.records.push_back(&r);
+  }
+  return passkeys_.size() + out.records.size() > kMaxPasskeys ? Status::PasskeysFull : Status::Ok;
+}
+
+Status Vault::mergePasskeys(const PasskeyPlan& plan) {
+  // Keys first: a record without its key would be dead; a key without records is harmless.
+  if (plan.writeKeys)
+    if (Status s = writeWrapKeys(kKeysPath, plan.keys); s != Status::Ok) return s;
+  for (const auto* r : plan.records) {
+    uint32_t id = 0;
+    for (int tries = 0;
+         id == 0 || std::any_of(passkeys_.begin(), passkeys_.end(), [id](const Slot& p) { return p.id == id; });
+         ++tries) {
+      if (tries == 32 || !p_.crypto.random(reinterpret_cast<uint8_t*>(&id), sizeof id)) return Status::StorageError;
+    }
+    SecureBuf plain;
+    if (!plain.alloc(r->size())) return Status::Full;
+    std::memcpy(plain.data(), r->data(), r->size());
+    if (Status s = persistPasskey(recordPath(id), id, plain.data(), plain.size()); s != Status::Ok) return s;
+    passkeys_.push_back(Slot{id, std::move(plain)});
+  }
+  return Status::Ok;
+}
+
+Status Vault::stagePasskeys(const backup::Passkeys& in, std::vector<uint32_t>& ids) {
+  ids.clear();
+  for (const auto& r : in.records) {
+    uint32_t id = 0;
+    for (int tries = 0; id == 0 || std::find(ids.begin(), ids.end(), id) != ids.end(); ++tries) {
+      if (tries == 32 || !p_.crypto.random(reinterpret_cast<uint8_t*>(&id), sizeof id)) return Status::StorageError;
+    }
+    if (Status s = persistPasskey(stagedRecordPath(id), id, r.data(), r.size()); s != Status::Ok) return s;
+    ids.push_back(id);
+  }
+  if (in.keys.empty()) return Status::Ok;  // the commit removes fido.bin
+  KeyList keys;
+  keys.reserve(kMaxPasskeyWrapKeys);
+  keys.assign(in.keys.begin(), in.keys.end());
+  return writeWrapKeys(kStagedKeysPath, keys);
+}
+
+Status Vault::removeStagedPasskeys() {
+  std::vector<std::string> names;
+  if (!p_.storage.list(kDir, names)) return Status::StorageError;
+  for (const auto& n : names)
+    if ((endsWith(n, ".new") || endsWith(n, ".new.tmp")) && !p_.storage.remove(std::string(kDir) + "/" + n))
+      return Status::StorageError;
+  // Checked first: this runs at every init and unlock, which should not write.
+  if (!p_.storage.list("", names)) return Status::StorageError;
+  if (std::find(names.begin(), names.end(), kStagedKeysPath) == names.end()) return Status::Ok;
+  return p_.storage.remove(kStagedKeysPath) ? Status::Ok : Status::StorageError;
+}
+
+// The passkey half of settleRestore; idempotent in the same way.
+Status Vault::settlePasskeys(const std::vector<uint32_t>& keep, bool keys) {
+  passkeys_.clear();
+  passkeysLoaded_ = false;
+  std::vector<std::string> names;
+  if (!p_.storage.list(kDir, names)) return Status::StorageError;
+  for (const auto& n : names) {
+    uint32_t id;
+    if (parseName(n, id) && std::find(keep.begin(), keep.end(), id) == keep.end() &&
+        !p_.storage.remove(std::string(kDir) + "/" + n))
+      return Status::StorageError;
+  }
+  for (const auto& n : names) {
+    uint32_t id;
+    if (parseName(n, id, ".new") && !p_.storage.rename(stagedRecordPath(id), recordPath(id)))
+      return Status::StorageError;
+  }
+  if (!keys) return p_.storage.remove(kKeysPath) ? Status::Ok : Status::StorageError;
+  std::vector<uint8_t> staged;
+  switch (p_.storage.read(kStagedKeysPath, staged)) {
+    case Storage::Read::NotFound: return Status::Ok;  // renamed by an earlier, interrupted settle
+    case Storage::Read::Error: return Status::StorageError;
+    case Storage::Read::Ok: break;
+  }
+  return p_.storage.rename(kStagedKeysPath, kKeysPath) ? Status::Ok : Status::StorageError;
 }
 
 Status Vault::passkeyReset() {
@@ -171,7 +335,7 @@ Status Vault::passkeyReset() {
   if (Status s = requireUnlocked(); s != Status::Ok) return s;
   passkeys_.clear();
   passkeysLoaded_ = false;
-  // The next passkeyWrapKey() creates a fresh salt.
+  // The next passkeyWrapKeys() creates a fresh salt.
   return removePasskeyFilesLocked();
 }
 

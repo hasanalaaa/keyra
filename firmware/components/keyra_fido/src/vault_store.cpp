@@ -26,7 +26,14 @@ static_assert(cred::kMaxResident == vault::kMaxPasskeys && kMaxPasskeys == vault
 
 bool VaultStore::unlocked() { return vault::unlocked(); }
 
-Store::Result VaultStore::wrapKey(uint8_t out[32]) { return from(vault::passkeyWrapKey(out)); }
+static_assert(WrapKeys::kMax == vault::kMaxPasskeyWrapKeys, "one limit");
+
+Store::Result VaultStore::wrapKeys(WrapKeys& out) {
+  out.clear();
+  const auto s = from(vault::passkeyWrapKeys(out.key, out.count));
+  if (s == Result::Ok && out.count == 0) return Result::Error;
+  return s;
+}
 
 Store::Result VaultStore::list(std::vector<Record>& out) {
   out.clear();

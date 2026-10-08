@@ -8,7 +8,7 @@ namespace keyra::fido {
 class VaultStore final : public Store {
  public:
   bool unlocked() override;
-  Result wrapKey(uint8_t out[32]) override;
+  Result wrapKeys(WrapKeys& out) override;
   Result list(std::vector<Record>& out) override;
   Result put(uint32_t& id, const std::vector<uint8_t>& data) override;
   Result remove(uint32_t id) override;
