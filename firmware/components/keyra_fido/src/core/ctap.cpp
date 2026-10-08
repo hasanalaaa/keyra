@@ -599,6 +599,11 @@ uint16_t Authenticator::u2fAuthenticate(uint8_t p1, const uint8_t* body, size_t 
     }
     flags = kFlagUp;
   }
+  // As in CTAP2: nothing is signed once the vault has locked (docs/FIDO.md).
+  if (!store_.unlocked()) {
+    wipe(f.priv.data(), 32);
+    return u2f::kSwConditions;
+  }
   uint32_t counter = 0;
   if (!counter_.next(counter)) {
     wipe(f.priv.data(), 32);
