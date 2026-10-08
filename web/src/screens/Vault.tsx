@@ -246,7 +246,7 @@ function ListPane({ selected, desktop }: { selected: number | null; desktop: boo
         )}
       </div>
       {showPill && pending && (
-        <button type="button" class="ready-pill glass" onClick={() => go(pending.what === 'text' ? '/type' : pending.what === 'probe' ? '/settings' : `/a/${pending.id}`)}>
+        <button type="button" class="ready-pill glass" onClick={() => go(pending.what === 'text' ? '/type' : pending.what === 'probe' || pending.what === 'test' ? '/settings' : `/a/${pending.id}`)}>
           <span class="pill-dot" aria-hidden="true" />
           <span>{t('readyPill', { title: '' })}<bdi>{pending.title ?? t('chipText')}</bdi></span>
         </button>
