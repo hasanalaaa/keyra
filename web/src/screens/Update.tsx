@@ -22,6 +22,7 @@ const ERRORS: Record<string, Key> = {
   offline: 'updErrOffline',
   network: 'updErrNetwork',
   no_release: 'updErrNoRelease',
+  rate_limited: 'updErrRateLimited',
   too_large: 'updErrImage',
   busy: 'updErrBusy',
 };

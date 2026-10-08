@@ -676,19 +676,34 @@ press of its button; a new image that fails its first boot is rolled back.
   GitHub release of `CONFIG_KEYRA_UPDATE_REPO` (default `hasanalaaa/keyra`,
   asset `keyra-firmware.bin`; needs home Wi‑Fi, else 409 `offline`); `POST
   /api/update/download` → 202 and Keyra fetches that asset itself over HTTPS
-  (certificate bundle, redirects followed). The client never names a URL.
+  (certificate bundle, redirects followed only to `https://`). The client
+  never names a URL. GitHub's hourly limit on unauthenticated calls (HTTP 403
+  or 429) is reported as `rate_limited`; a cut or oversized answer as
+  `network`.
 - **Staging.** Either way the image is checked (`esp_ota_end`: image and
   signature; then name and version) and becomes *staged*: written to the idle
   partition but not bootable. `state.update` (sessions only) =
-  `{phase: receiving|staged|failed, source: upload|github, done, total,
-  version, error}`. Errors: `bad_signature`, `bad_image`, `downgrade`,
-  `too_large`, `offline`, `network`, `no_release`, `busy`, `flash_failed`.
-- **Install.** `POST /api/update/apply` → 202, presence op `update`; the press
-  sets the boot partition and Keyra restarts ~2 s later (the vault is locked
-  by the restart). The new image runs on probation
-  (`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`) and confirms itself once the API is
-  up and the vault mounts; a crash or a vault it cannot read before that
-  returns the bootloader to the previous image.
+  `{phase: receiving|staged|restarting|failed, source: upload|github, done,
+  total, version, error}`. Errors: `bad_signature`, `bad_image`, `downgrade`,
+  `too_large`, `offline`, `network`, `no_release`, `rate_limited`, `busy`,
+  `flash_failed`.
+- **Install.** `POST /api/update/apply` → 202 (with the staged `version`),
+  presence op `update`; the press installs only that exact image (a staging
+  generation is captured at apply; if another image was staged since, the
+  press does nothing), sets the boot partition, and Keyra restarts ~2 s later,
+  or once the button is released (the vault is locked by the restart). From
+  the press until the restart the phase is `restarting`: uploads and
+  downloads answer `busy` and apply `not_staged`, since the idle partition is
+  now the boot one.
+- **Probation.** The new image runs on probation
+  (`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`). After the API is up, a one-shot
+  timer decides ~15 s later: if the vault mounted (`Ok`/`NotInitialized`) the
+  image is kept; a vault it cannot read (`Corrupt` or any other vault error)
+  sends it back to the previous image. A storage (flash/mount) error counts as
+  healthy, since going back cannot fix the hardware. A crash or reset before
+  the timer fires reboots still unconfirmed and the bootloader rolls back. If
+  there is no previous image to roll back to, the image is kept rather than
+  reboot-looping.
 - **Releases.** `tools/release.sh` builds the release profile, signs it and
   publishes `v<version>` with `keyra-firmware.bin` plus the files for a first
   USB install; the notes are the version's CHANGELOG section.

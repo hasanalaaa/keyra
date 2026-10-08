@@ -73,7 +73,7 @@ export interface DeviceState {
 }
 
 export interface UpdateState {
-  phase: 'receiving' | 'staged' | 'failed';
+  phase: 'receiving' | 'staged' | 'restarting' | 'failed';
   source: 'upload' | 'github';
   done: number; // bytes
   total: number; // bytes, 0 = not known yet
