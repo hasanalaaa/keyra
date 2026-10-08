@@ -176,28 +176,36 @@ Conventions
 
 | Method & path | Auth | Body → Response |
 |---|---|---|
-| GET `/api/state` | none | `{device:{name,version,model,mac}, initialized, unlocked, session:bool, autoLockMin, host:{usb:bool, capsLock:bool}, pending:Pending\|null, last:Result\|null, presence:{awaiting:bool, op:string\|null, expiresIn:ms, result:{op, ok:bool, code:"done"\|"failed"\|"expired"\|"cancelled", at:ms_ago}\|null}, timeValid:bool}` — polled ~1 s while something is pending, else ~5 s |
+| GET `/api/state` | none | `{device:{name,version,model,mac}, initialized, unlocked, session:bool, autoLockMin, host:{usb, ble, capsLock, output, bleTarget, connecting, usbOs?}` (§8.1, §10.5; `usbOs` with a session only)`, pending:Pending\|null, last:Result\|null, presence:{awaiting:bool, op:string\|null, expiresIn:ms, result:{op, ok:bool, code:"done"\|"failed"\|"expired"\|"cancelled", at:ms_ago}\|null}, net?` (§8.2)`, timeValid:bool, graceMs` (§12.3)`, update?` (§14, session only)`}` — polled ~1 s while something is pending, else ~5 s |
 | POST `/api/setup` | none, only if !initialized | `{passphrase, wifiPassword, deviceName?}` → 202 `{awaiting:"button", expiresIn}`; completes when the button is pressed (watch `state.presence` / `state.initialized`). passphrase 10–128 chars; wifiPassword 8–63 printable ASCII and ≠ `keyra1234`. The client then calls unlock. AP restarts with the new password ~3 s after commit. |
-| POST `/api/unlock` | none | `{passphrase}` → 200 `{csrf}` / 401 `{error:"wrong", retryAfterMs}` / 429 `{error:"rate_limited", retryAfterMs}` |
+| POST `/api/unlock` | none | `{passphrase}` → 200 `{csrf, failedAttempts}` (§15) / 401 `{error:"wrong", retryAfterMs}` / 429 `{error:"rate_limited", retryAfterMs}` / 202 trust the browser first (§8.2) |
 | POST `/api/lock` | session | → 204 |
-| GET `/api/entries` | session | → `{entries:[{id,title,url,username,favorite,hasPassword,hasTotp,updated,lastUsed}]}` (no secrets) |
-| GET `/api/entries/{id}` | session | → full entry incl. `password`, `totp`, `notes` |
+| GET `/api/entries` | session | → `{entries:[{id,title,url,username,favorite,hasPassword,hasTotp,updated,lastUsed,burnAfter}]}` (no secrets) |
+| GET `/api/entries/{id}` | session | → the entry; `password`, `totp`, old passwords and `sequence` only when `revealed` (§12.3) |
+| POST `/api/entries/{id}/reveal` | session | → 200 the revealed entry, or 202 press first (§12.3) |
 | POST `/api/entries` | session | entry (no id) → 201 `{id}` |
 | PUT `/api/entries/{id}` | session | partial entry → 200 `{id}` |
 | DELETE `/api/entries/{id}` | session | → 204 |
 | POST `/api/entries/import` | session | `{entries:[…≤50]}` → `{added, skipped}` (duplicate = same title+username+url) |
 | GET `/api/entries/{id}/totp` | session | → `{code, period, remaining}` / 409 `no_time` / 404 |
-| POST `/api/type` | session | `{id, what:"username"\|"password"\|"both"\|"totp", submit?:bool}` or `{test:true}` → 202 `{pending}`; replaces any existing pending action |
+| POST `/api/type` | session | `{id, what:"username"\|"password"\|"both"\|"totp"\|"sequence", submit?, target?, switchLang?}`, `{text, repeat?, separator?}` (§9.2), `{test:true}` or `{probe:true}` (§10.3) → 202 `{pending}`; replaces this session's own pending item, 409 `busy` while another session's waits (§12.5a) |
 | POST `/api/type/cancel` | session | → 204 |
-| GET `/api/settings` | session | → `{deviceName, wifiSsid, autoLockMin, keyDelayMs, bothSeparator:"tab"\|"enter", submitAfterBoth:bool, ledBrightness}` |
-| PUT `/api/settings` | session | partial of the above (+ optional `wifiPassword`) → 200 settings. Changing `wifiSsid` or `wifiPassword` requires presence → 202 `{awaiting:"button"}` |
-| POST `/api/passphrase` | session | `{current, next}` → 204 / 401 wrong |
+| GET `/api/settings` | session | → `{deviceName, wifiSsid, autoLockMin, keyDelayMs, bothSeparator:"tab"\|"enter", submitAfterBoth:bool, ledBrightness, bleEnabled, output, bleConnect, protectReveal, lockOnUsb, lockOnBle, lastBackupAt, homeWifi:{enabled, ssid}, apMode, osUsb, layoutUsb, layoutBle, bothSequence}` |
+| PUT `/api/settings` | session | partial of the above (+ optional `wifiPassword`; `homeWifi` goes through `/api/wifi/home`, `lastBackupAt` is set by backups) → 200 settings. Changing `wifiSsid`/`wifiPassword`, or turning `protectReveal` off, requires presence → 202 `{awaiting:"button"}` |
+| POST `/api/passphrase` | session | `{current, next}` → 204 / 401 `{error:"wrong", retryAfterMs}` / 429 `rate_limited` |
 | POST `/api/backup` | session | `{passphrase}` (≥12 chars) → 200 `application/json` attachment `keyra-backup-YYYYMMDD.json` |
 | POST `/api/restore` | session | `{passphrase, backup:<object>, mode:"merge"\|"replace"}` → `{added, updated}`; `replace` requires presence (202) |
 | POST `/api/factory-reset` | none (must work when passphrase is forgotten) | → 202 `{awaiting:"button"}`; on button press: wipe vault + settings, restart into setup |
 
-`Pending` = `{kind:"type", id, title, what, submit, expiresIn}` (expires after
-**60 s**). `Result` = `{ok:bool, code:"typed"|"cancelled"|"expired"|"no_usb"|"unsupported_char"|"failed", at:ms_ago, title?, what?}`.
+`Pending` = `{kind:"type", id, title, what, submit, expiresIn, target, preview?, part?, parts?}` (expires after
+**60 s**; `preview`/`part`/`parts` for sequences, §10.4). `Result` = `{ok:bool, code:"typed"|"cancelled"|"expired"|"no_usb"|"no_host"|"host_changed"|"unsupported_char"|"failed", at:ms_ago, title?, what?}`.
+
+Routes added after v1.0, described in their sections: `/api/ble`, `/api/ble/pair`,
+`/api/ble/bonds/{addr}` (§8.1); `/api/wifi/scan`, `/api/wifi/home`,
+`/api/trusted[/{id}]` (§8.2); `/api/generate` (§9.1); `/api/keyboard` (§10.1);
+`/api/fido[/{id}]` (§11); `/api/recovery`, `/api/unlock/recovery`,
+`/api/presence/cancel` (§12); `/api/health`, `/api/health/rotate` (§13);
+`/api/update`, `/api/update/check|download|apply` (§14); `/api/activity` (§15).
 
 Restore (`/api/restore`):
 - The backup passphrase and the file are checked before anything changes, and
