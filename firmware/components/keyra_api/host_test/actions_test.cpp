@@ -209,6 +209,85 @@ void presenceOutcomesAreReported() {
   CHECK(std::string(opCodeName(OpCode::Done)) == "done");
 }
 
+// SPEC §17: a token follows its own request by serial, whatever came after it.
+void tokenTracksItsOwnRequest() {
+  using Stage = Machine::Track::Stage;
+  auto m = make();
+  CHECK(m.track(0).stage == Stage::Unknown && m.track(12345).stage == Stage::Unknown);
+  const auto p = m.arm(req(7), "token:1");
+  CHECK(p && p->req.serial != 0);
+  const uint32_t s1 = p->req.serial;
+  auto t = m.track(s1);
+  CHECK(t.stage == Stage::Armed && !t.presence && t.expiresInMs == kExpiryMs);
+  // Another owner cannot replace or cancel it.
+  CHECK(!m.arm(req(8), "sessionA").has_value());
+  CHECK(!m.cancelOwned("token:2") && !m.cancelOwned("sessionA") && !m.cancelOwned(""));
+  Decision d = m.onButton(Button::Short, true);
+  CHECK(d.run.serial == s1);
+  CHECK(m.track(s1).stage == Stage::Running);
+  m.typingFinished(d.run, Code::NoUsb);
+  t = m.track(s1);
+  CHECK(t.stage == Stage::Finished && t.code == Code::NoUsb);
+  // Later results by others leave this one readable.
+  for (int i = 0; i < 3; ++i) {
+    m.arm(req(9), "sessionA");
+    m.cancel();
+  }
+  CHECK(m.track(s1).stage == Stage::Finished && m.track(s1).code == Code::NoUsb);
+
+  // Replaced by the same token: the old one ends cancelled, the new one has its own serial.
+  const uint32_t s2 = m.arm(req(7), "token:1")->req.serial;
+  const uint32_t s3 = m.arm(req(7, What::Both), "token:1")->req.serial;
+  CHECK(s2 != s3 && m.track(s2).code == Code::Cancelled && m.track(s3).stage == Stage::Armed);
+  CHECK(m.cancelOwned("token:1"));
+  CHECK(m.track(s3).stage == Stage::Finished && m.track(s3).code == Code::Cancelled);
+  CHECK(!m.cancelOwned("token:1"));
+
+  // Expiry, and a Bluetooth target still connecting.
+  TypeRequest ble = req(7);
+  ble.target.kind = Target::Kind::Ble;
+  const uint32_t s4 = m.arm(ble, "token:1")->req.serial;
+  CHECK(m.track(s4).stage == Stage::Connecting);
+  g_now += kExpiryMs;
+  CHECK(m.track(s4).stage == Stage::Finished && m.track(s4).code == Code::NoHost);
+
+  // Presence ops (an app token's save): armed, done, or cancelled by its owner.
+  auto a = m.awaitPresence(Op::AgentSave, [] { return true; }, "token:3");
+  CHECK(a && a->serial != 0 && m.track(a->serial).presence && m.track(a->serial).stage == Stage::Armed);
+  d = m.onButton(Button::Short, true);
+  CHECK(m.track(a->serial).stage == Stage::Running);
+  m.commitFinished(d.commit());
+  t = m.track(a->serial);
+  CHECK(t.stage == Stage::Finished && t.presence && t.opCode == OpCode::Done);
+  a = m.awaitPresence(Op::AgentSave, [] { return true; }, "token:3");
+  CHECK(m.cancelOwned("token:3"));
+  CHECK(m.track(a->serial).opCode == OpCode::Cancelled);
+  a = m.awaitPresence(Op::AgentSave, [] { return true; }, "token:3");
+  m.dropSessionItems();  // lock: a token's items go too
+  CHECK(m.track(a->serial).opCode == OpCode::Cancelled);
+  a = m.awaitPresence(Op::AgentSave, [] { return true; }, "token:3");
+  g_now += kExpiryMs;
+  CHECK(m.track(a->serial).opCode == OpCode::Expired);
+  CHECK(std::string(opName(Op::TokenCreate)) == "token_create" && parseOp("token_create") == Op::TokenCreate);
+  CHECK(std::string(opName(Op::AgentSave)) == "agent_save" && parseOp("agent_save") == Op::AgentSave);
+}
+
+void sequencePartStaysTracked() {
+  using Stage = Machine::Track::Stage;
+  auto m = make();
+  auto job = std::make_shared<SeqJob>();
+  job->parts = 2;
+  TypeRequest r = req(5, What::Sequence);
+  r.seq = job;
+  const uint32_t s = m.arm(r, "token:1")->req.serial;
+  Decision d = m.onButton(Button::Short, true);
+  m.typingFinished(d.run, Code::Typed);
+  CHECK(m.track(s).stage == Stage::Armed);  // waits for the next {PRESS}
+  d = m.onButton(Button::Short, true);
+  m.typingFinished(d.run, Code::Typed);
+  CHECK(m.track(s).stage == Stage::Finished && m.track(s).code == Code::Typed);
+}
+
 void blePairOp() {
   auto m = make();
   int opened = 0;
@@ -498,6 +577,8 @@ void pressIsBoundToItsRequester() {
 }
 
 int main() {
+  tokenTracksItsOwnRequest();
+  sequencePartStaysTracked();
   pressIsBoundToItsRequester();
   testCancelPresence();
   usbActionIsBoundToItsHost();

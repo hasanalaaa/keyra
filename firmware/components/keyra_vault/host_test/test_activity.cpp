@@ -70,4 +70,35 @@ TEST(failed_unlocks_before_success_are_counted) {
   CHECK((*r)->failedBeforeUnlock() == 1);
 }
 
+// Access tokens (SPEC §17) use the same sealed record under their own name and AAD.
+TEST(tokens_record_sealed_separately_and_survives_passphrase_change) {
+  auto r = Rig::ready();
+  std::vector<uint8_t> out;
+  CHECK((*r)->tokensRead(out) == Status::Ok && out.empty());
+  CHECK((*r)->tokensWrite(blob("token Claude agent")) == Status::Ok);
+  CHECK((*r)->activityWrite(blob("log")) == Status::Ok);
+  const auto& file = r->storage.files["tokens.bin"];
+  CHECK(std::search(file.begin(), file.end(), std::begin("Claude"), std::end("Claude") - 1) == file.end());
+  // The AAD binds each record to its name: a log copied over the tokens does not open.
+  r->storage.files["tokens.bin"] = r->storage.files["activity.bin"];
+  CHECK((*r)->tokensRead(out) == Status::Corrupt);
+  CHECK((*r)->tokensWrite(blob("token Claude agent")) == Status::Ok);
+  CHECK((*r)->changePassphrase(kPass, "another long passphrase") == Status::Ok);
+  (*r)->lock();
+  CHECK((*r)->tokensRead(out) == Status::Locked);
+  CHECK((*r)->tokensWrite(blob("x")) == Status::Locked);
+  CHECK((*r)->unlock("another long passphrase", nullptr) == Status::Ok);
+  CHECK((*r)->tokensRead(out) == Status::Ok && out == blob("token Claude agent"));
+  CHECK((*r)->tokensWrite(std::vector<uint8_t>(kMaxTokensBytes + 1, 'a')) == Status::Invalid);
+  CHECK((*r)->tokensWrite({}) == Status::Ok);
+  CHECK(r->storage.files.count("tokens.bin") == 0);
+}
+
+TEST(tokens_gone_after_factory_reset) {
+  auto r = Rig::ready();
+  CHECK((*r)->tokensWrite(blob("t")) == Status::Ok);
+  CHECK((*r)->factoryReset() == Status::Ok);
+  CHECK(r->storage.files.count("tokens.bin") == 0);
+}
+
 TEST_MAIN()

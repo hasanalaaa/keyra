@@ -4,6 +4,7 @@
 //
 // One slot holds at most one item: a type action or a presence-gated op.
 // Arming either replaces whatever was in the slot. Items expire after 60 s.
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -38,8 +39,11 @@ enum class What { Username, Password, Both, Totp, Test, Text, Sequence, Probe };
 // Unprotect: turn "Protect reveal with Keyra's button" off.
 // DeleteEntry/DeletePasskey: remove one account or passkey (session, SPEC §5).
 // PasskeysBackupOn: let backups carry the passkeys again (passkeysInBackup, SPEC §11).
+// TokenCreate: let this session create one access token (SPEC §17).
+// AgentSave: store the account an app token sent (owned by that token, SPEC §17).
 enum class Op { Setup, Wifi, RestoreReplace, FactoryReset, HomeWifi, TrustBrowser, BlePair,
-                Reveal, Backup, Recovery, Unprotect, Update, DeleteEntry, DeletePasskey, PasskeysBackupOn };
+                Reveal, Backup, Recovery, Unprotect, Update, DeleteEntry, DeletePasskey, PasskeysBackupOn,
+                TokenCreate, AgentSave };
 // NoUsb: output is USB-only and no computer is plugged in. NoHost: nothing
 // connected on the selected output (auto or Bluetooth). HostChanged: the USB
 // computer the action was armed for went away before the press (SPEC §12.4).
@@ -85,11 +89,13 @@ struct TypeRequest {
   // before typing and again after (SPEC §10.5).
   bool switchLang = false;
   uint32_t usbSession = 0;  // set by arm(): the USB connection a USB action is bound to (0 = none)
+  uint32_t serial = 0;      // set by arm(): names this request in track()
 };
 
 struct Pending {
   TypeRequest req;  // never carries the free text: only the slot and the job do
   int64_t expiresInMs = 0;
+  std::string owner;  // who armed it (a session token or tokens::owner()); empty = none
 };
 
 struct Result {
@@ -141,7 +147,20 @@ class Machine {
   struct Armed {
     int64_t expiresIn = 0;
     std::string cancel;
+    uint32_t serial = 0;  // names this op in track()
   };
+
+  // Where one armed item stands, by the serial arm() (Pending.req.serial) or
+  // awaitPresence() (Armed.serial) gave it, so a token client can follow its
+  // own request even when other results came after it (SPEC §17).
+  struct Track {
+    enum class Stage { Unknown, Armed, Connecting, Running, Finished } stage = Stage::Unknown;
+    bool presence = false;
+    Code code = Code::Failed;          // type, Finished
+    OpCode opCode = OpCode::Failed;    // presence, Finished
+    int64_t expiresInMs = 0;           // Armed / Connecting
+  };
+  Track track(uint32_t serial);
 
   // Each item belongs to whoever armed it (`owner`: the session token; empty =
   // no session). The slot is taken only when it is free or holds an item of
@@ -150,6 +169,9 @@ class Machine {
   // busy. A replaced item of the same owner ends as cancelled.
   std::optional<Pending> arm(TypeRequest req, const std::string& owner);
   bool cancel();  // pending type action → last = cancelled
+  // Withdraws the waiting item (type action or presence op) when `owner` armed
+  // it; false (and nothing changes) otherwise.
+  bool cancelOwned(const std::string& owner);
   // The waiting presence op, when it is `op` and `token` is the cancel token
   // handed to whoever armed it (the screen that asked gave up): dropped
   // without running, result = cancelled. Anyone else gets false — otherwise a
@@ -196,6 +218,10 @@ class Machine {
   // Whether `owner` may put an item in the slot now (see arm()); a replaced
   // item of the same owner is recorded as cancelled.
   bool takeSlotLocked(const std::string& owner, int64_t now, bool presence);
+  // Records how the item with this serial ended, for track().
+  void finishedLocked(uint32_t serial, bool presence, Code code, OpCode opCode);
+  void lastLocked(const TypeRequest& req, Code code, int64_t at);
+  uint32_t nextSerialLocked();
 
   Clock now_;
   std::mutex mu_;
@@ -212,6 +238,18 @@ class Machine {
   bool usbMounted_ = false;
   uint32_t usbSession_ = 0;
   std::optional<Op> running_;
+  uint32_t serial_ = 0;         // of the item in the slot
+  uint32_t lastSerial_ = 0;     // last one handed out
+  uint32_t typingSerial_ = 0;   // while typing_
+  uint32_t runningSerial_ = 0;  // while running_
+  struct Finished {
+    uint32_t serial = 0;
+    bool presence = false;
+    Code code = Code::Failed;
+    OpCode opCode = OpCode::Failed;
+  };
+  std::array<Finished, 8> finished_{};  // ring of the latest outcomes
+  size_t finishedNext_ = 0;
   bool hasLast_ = false;
   Result last_;
   int64_t lastAt_ = 0;

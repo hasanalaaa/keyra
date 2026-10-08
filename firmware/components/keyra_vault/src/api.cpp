@@ -58,6 +58,8 @@ Status passkeyWrapKeys(uint8_t out[kMaxPasskeyWrapKeys][32], size_t& count) {
 Status passkeyReset() { return detail::instance().passkeyReset(); }
 Status activityRead(std::vector<uint8_t>& out) { return detail::instance().activityRead(out); }
 Status activityWrite(const std::vector<uint8_t>& data) { return detail::instance().activityWrite(data); }
+Status tokensRead(std::vector<uint8_t>& out) { return detail::instance().tokensRead(out); }
+Status tokensWrite(const std::vector<uint8_t>& data) { return detail::instance().tokensWrite(data); }
 uint32_t failedBeforeUnlock() { return detail::instance().failedBeforeUnlock(); }
 
 const char* statusName(Status s) {

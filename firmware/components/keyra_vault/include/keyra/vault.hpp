@@ -148,6 +148,13 @@ Status passkeyReset();
 inline constexpr size_t kMaxActivityBytes = 16 * 1024;
 Status activityRead(std::vector<uint8_t>& out);  // empty when nothing was logged
 Status activityWrite(const std::vector<uint8_t>& data);
+// Access tokens (SPEC §17): like the activity log, one opaque record of at most
+// kMaxTokensBytes ("tokens.bin", AAD "keyra/tokens/v1") that keyra_api owns.
+// Not part of backups; kept across passphrase changes and restores; gone with
+// a factory reset or a new setup.
+inline constexpr size_t kMaxTokensBytes = 8 * 1024;
+Status tokensRead(std::vector<uint8_t>& out);  // empty when there are none
+Status tokensWrite(const std::vector<uint8_t>& data);
 // Wrong passphrases or recovery keys tried before the latest successful unlock.
 uint32_t failedBeforeUnlock();
 

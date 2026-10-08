@@ -44,6 +44,8 @@
 //   fido.new   a replace-restore's staged fido.bin (v2)
 //   activity.bin  activity log (SPEC §15), same format as e/<id>.bin with AAD
 //              "keyra/activity/v1"; the plaintext is keyra_api's encoding (vault_activity.cpp)
+//   tokens.bin access tokens (SPEC §17), same format with AAD "keyra/tokens/v1";
+//              the plaintext is keyra_api's encoding (tokens.cpp)
 //   *.tmp      in-flight atomic writes (write tmp → close → rename); any found at
 //              init are leftovers of an interrupted write and are deleted.
 //
@@ -71,6 +73,7 @@ uint32_t unlockDelayMs(uint32_t failures);
 
 inline constexpr char kActivityPath[] = "activity.bin";
 inline constexpr size_t kMaxActivity = kMaxActivityBytes;
+inline constexpr char kTokensPath[] = "tokens.bin";
 
 class Vault {
  public:
@@ -120,6 +123,9 @@ class Vault {
   // Activity log (vault_activity.cpp): one opaque record, encrypted like an entry.
   Status activityRead(std::vector<uint8_t>& out);
   Status activityWrite(const std::vector<uint8_t>& data);
+  // Access tokens (vault_activity.cpp): one opaque record, encrypted like an entry.
+  Status tokensRead(std::vector<uint8_t>& out);
+  Status tokensWrite(const std::vector<uint8_t>& data);
   // Wrong passphrases / recovery keys tried before the last successful unlock.
   uint32_t failedBeforeUnlock() const { return failedBefore_; }
 
@@ -158,6 +164,9 @@ class Vault {
   };
 
   Status ready() const;  // init succeeded and storage is usable
+  // One small record sealed with the DEK (activity log, tokens); an empty write removes it.
+  Status sealedRead(const char* path, const char* aad, std::vector<uint8_t>& out);
+  Status sealedWrite(const char* path, const char* aad, size_t max, const std::vector<uint8_t>& data);
   Status requireUnlocked() const;
   Status loadMeta();
   Status writeMeta(const Meta& m);

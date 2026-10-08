@@ -70,9 +70,32 @@ void damaged() {
   CHECK(!decode(longTitle, out));
 }
 
+// SPEC §17: a token listing every few seconds is counted on one line.
+void coalesced() {
+  std::vector<Event> log;
+  append(log, ev(Kind::Unlock));
+  Event l = ev(Kind::AgentListed, 7, "Claude");
+  append(log, l, true);
+  l.at += 30;
+  append(log, l, true);
+  append(log, l, true);
+  CHECK(log.size() == 2 && log.back().n == 3 && log.back().at == 1790000030);
+  append(log, ev(Kind::AgentListed, 8, "Other"), true);  // another token: a new line
+  append(log, l, true);                                   // not the newest any more
+  CHECK(log.size() == 4 && log.back().n == 1);
+  append(log, ev(Kind::AgentArmed, 5, "Claude"));         // never coalesced
+  append(log, ev(Kind::AgentArmed, 5, "Claude"));
+  CHECK(log.size() == 6);
+  CHECK(std::string(kindName(Kind::TokenCreated)) == "token_created");
+  CHECK(std::string(kindName(Kind::AgentGenerated)) == "agent_generated");
+  std::vector<Event> back;
+  CHECK(decode(encode(log), back) && back.size() == 6 && back[1].n == 3 && back[4].kind == Kind::AgentArmed);
+}
+
 }  // namespace
 
 int main() {
+  coalesced();
   roundTrip();
   ringAndClip();
   damaged();

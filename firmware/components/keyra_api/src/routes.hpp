@@ -22,12 +22,15 @@ enum class Route {
   ListPasskeys, DeletePasskey,
   RevealEntry, GetRecovery, CreateRecovery, DeleteRecovery, UnlockRecovery,
   Update, UpdateCheck, UpdateDownload, UpdateApply,
+  // Access tokens (SPEC §17): managed by a session, used with a bearer token.
+  ListTokens, CreateToken, DeleteToken,
+  AgentEntries, AgentType, AgentStatus, AgentCancel, AgentSave, AgentGenerate,
 };
 
 struct Match {
   enum class Kind { Found, NotFound, MethodNotAllowed } kind = Kind::NotFound;
   Route route = Route::State;
-  uint32_t id = 0;  // entry, trusted-browser and passkey routes
+  uint32_t id = 0;  // entry, trusted-browser, passkey and token routes
   std::array<uint8_t, 6> addr{};  // BleForget/BleSetOs: the bond's address
 };
 
@@ -39,6 +42,8 @@ Match matchApi(Method m, std::string_view path);
 bool percentDecode(std::string_view in, std::string& out);
 bool needsSession(Route r);
 bool needsCsrf(Method m, Route r);
+// /api/agent/…: authorised by `Authorization: Bearer <token>`, never by a session.
+bool isAgent(Route r);
 
 // Host header names that address the device itself (AP IP, mDNS name, or the
 // current home-network IP when joined; any port). Anything else is refused so a
