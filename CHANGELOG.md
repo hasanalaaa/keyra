@@ -8,6 +8,12 @@ All notable changes to Keyra are documented here. The format follows
 
 ### Added
 
+- **Passkeys in backups, web app** (docs/research/PASSKEY-BACKUP.md): Settings
+  → "Passkeys in backups" (`passkeysInBackup`, on by default; turning it on is
+  a press, `passkeys_backup_on`), the Backup screen says whether the file holds
+  passkeys, restore results name the passkeys, and a merge over 50 passkeys or
+  4 wrap keys shows a clear refusal; the mock writes and reads v3 backups with
+  the same merge/replace rules.
 - **Auto-type sequences in the web app** (SPEC §10.4): an optional "Typing
   sequence" on each account (advanced, collapsed) with token buttons, live
   checking against the firmware grammar and a masked preview per part; "Type

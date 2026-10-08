@@ -6,7 +6,7 @@ import { Ready } from '../components/Ready';
 import { ApiError, api, isAwaiting } from '../lib/api';
 import { usePresence, usePressGate } from '../lib/actions';
 import { errorText, isLockedError } from '../lib/errors';
-import { accountCount, t } from '../lib/i18n';
+import { accountCount, passkeyCount, t } from '../lib/i18n';
 import { back } from '../lib/router';
 import { getState, loadEntries, setState, toast } from '../lib/store';
 import { minHint } from './common';
@@ -25,9 +25,18 @@ export function BackupSheet() {
 function BackupPart() {
   const [pass, setPass] = useState('');
   const [busy, setBusy] = useState(false);
+  // settings.passkeysInBackup decides whether the file holds passkeys; null until known,
+  // so the text never claims the wrong thing.
+  const [passkeys, setPasskeys] = useState<boolean | null>(null);
   const ok = Array.from(pass).length >= 12;
   // The whole vault leaves Keyra only after a press (SPEC §12.3).
   const gate = usePressGate('backup');
+  useEffect(() => {
+    api
+      .settings()
+      .then((s) => setPasskeys(s.passkeysInBackup))
+      .catch((e) => !isLockedError(e) && toast(errorText(e), 'error'));
+  }, []);
 
   const download = async () => {
     setBusy(true);
@@ -70,7 +79,7 @@ function BackupPart() {
     <section class="group">
       <h3 class="section-head">{t('backupHead')}</h3>
       <div class="card pad form">
-        <p class="callout">{t('backupBody')}</p>
+        {passkeys !== null && <p class="callout">{t(passkeys ? 'backupBody' : 'backupBodyNoPasskeys')}</p>}
         <SecretField
           label={t('backupLabel')}
           value={pass}
@@ -98,14 +107,20 @@ function RestorePart() {
   const [mode, setMode] = useState<'merge' | 'replace'>('merge');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [full, setFull] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const presence = usePresence('restore');
 
   useEffect(() => {
     const k = presence.phase.kind;
     if (k === 'done') {
-      // Replace: the vault now is exactly the backup.
-      void loadEntries().then(() => toast(t('restoreReplaced', { c: accountCount(getState().entries?.length ?? 0) }), 'ok'));
+      // Replace: the vault now is exactly the backup. Passkeys are the backup's only when it
+      // had them, so name how many Keyra holds rather than claim they were restored.
+      void Promise.all([loadEntries(), api.passkeys().catch(() => null)]).then(([, pk]) => {
+        const c = accountCount(getState().entries?.length ?? 0);
+        const n = pk?.passkeys.length ?? 0;
+        toast(n ? t('restoreReplacedPasskeys', { c, p: passkeyCount(n) }) : t('restoreReplaced', { c }), 'ok');
+      });
       setPass('');
       setFile(null);
     } else if (k === 'failed') setError(t('restoreWrong'));
@@ -115,6 +130,7 @@ function RestorePart() {
   const pick = async (f: File | undefined) => {
     setBadFile(false);
     setError(null);
+    setFull(false);
     if (!f) return;
     try {
       setFile({ name: f.name, data: JSON.parse(await f.text()) });
@@ -129,18 +145,21 @@ function RestorePart() {
     setConfirm(false);
     setBusy(true);
     setError(null);
+    setFull(false);
     const sent = Date.now();
     try {
       const r = await api.restore(pass, file.data, mode);
       if (isAwaiting(r)) presence.watch(sent, r);
       else {
         await loadEntries();
-        toast(t('restoreResult', { a: r.added, u: r.updated }), 'ok');
+        const counts = { a: r.added, u: r.updated, p: passkeyCount(r.passkeys) };
+        toast(t(r.passkeys > 0 ? 'restoreResultPasskeys' : 'restoreResult', counts), 'ok');
         setPass('');
         setFile(null);
       }
     } catch (e) {
       if (e instanceof ApiError && ['wrong', 'corrupt', 'invalid'].includes(e.code)) setError(t('restoreWrong'));
+      else if (e instanceof ApiError && e.code === 'passkeys_full') setFull(true);
       else if (!isLockedError(e)) toast(errorText(e), 'error');
     } finally {
       setBusy(false);
@@ -180,6 +199,7 @@ function RestorePart() {
           onChange={setMode}
         />
         <p class="field-help">{mode === 'merge' ? t('mergeHelper') : t('replaceHelper')}</p>
+        {full && <Notice tone="err">{t('passkeysFull')}</Notice>}
         <Button
           icon="upload"
           full

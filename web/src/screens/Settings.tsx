@@ -91,6 +91,20 @@ export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void 
     if (k === 'done') void load();
     if (k !== 'idle' && k !== 'ready') unprotect.abandon();
   }, [unprotect.phase.kind]);
+  // So is putting passkeys into backups (docs/research/PASSKEY-BACKUP.md); leaving them out is not.
+  const passkeysOn = usePresence('passkeys_backup_on');
+  useEffect(() => {
+    const k = passkeysOn.phase.kind;
+    if (k === 'done') void load();
+    if (k !== 'idle' && k !== 'ready') passkeysOn.abandon();
+  }, [passkeysOn.phase.kind]);
+  const putPasskeysInBackup = () => {
+    const sent = Date.now();
+    api
+      .putSettings({ passkeysInBackup: true })
+      .then((r) => (isAwaiting(r) ? passkeysOn.watch(sent, r) : setS(r)))
+      .catch((e) => !isLockedError(e) && toast(errorText(e), 'error'));
+  };
 
   const save = async (patch: Partial<S>) => {
     if (!s) return;
@@ -171,6 +185,19 @@ export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void 
                 label={t('protectReveal')}
                 checked={s.protectReveal}
                 onChange={(v) => (v ? void save({ protectReveal: true }) : setSub('unprotect'))}
+              />
+            )}
+          </Section>
+          <Section footer={t('passkeysInBackupFoot')}>
+            {passkeysOn.phase.kind === 'ready' ? (
+              <div class="row">
+                <Ready state="ready" deadline={passkeysOn.phase.deadline} total={passkeysOn.phase.total} title={t('passkeysInBackupPress')} onCancel={passkeysOn.abandon} />
+              </div>
+            ) : (
+              <SwitchRow
+                label={t('passkeysInBackup')}
+                checked={s.passkeysInBackup}
+                onChange={(v) => (v ? putPasskeysInBackup() : void save({ passkeysInBackup: false }))}
               />
             )}
           </Section>

@@ -40,7 +40,8 @@ export type PresenceOp =
   | 'unprotect'
   | 'update'
   | 'delete_entry'
-  | 'delete_passkey';
+  | 'delete_passkey'
+  | 'passkeys_backup_on';
 
 export interface PresenceResult {
   op: PresenceOp;
@@ -164,6 +165,13 @@ export interface Passkey {
   created: number; // unix seconds, 0 = unknown
 }
 
+/** POST /api/restore (merge): counts of what the backup brought in; `passkeys` = passkey records added. */
+export interface RestoreResult {
+  added: number;
+  updated: number;
+  passkeys: number;
+}
+
 export interface TrustedBrowser {
   id: number;
   name: string;
@@ -258,6 +266,8 @@ export interface Settings {
   layoutBle: string;
   /** SPEC §12.3-12.5 */
   protectReveal: boolean;
+  /** Backups carry the passkeys (docs/research/PASSKEY-BACKUP.md); turning it on is a press. */
+  passkeysInBackup: boolean;
   lockOnUsb: boolean;
   lockOnBle: boolean;
   lastBackupAt: number; // unix seconds, 0 = never
