@@ -568,6 +568,83 @@ async function passkeysFlow(base, opts) {
   await ctx.close();
 }
 
+// ---------- Keyboard layouts (SPEC §10.1-10.3): pick one, Layout Doctor, layout-safe generator ----------
+
+async function keyboardFlow(base, opts) {
+  const { ctx, page, tag } = await open(base, opts);
+  const en = opts.lang === 'en';
+  console.log(`keyboard ${tag || '(phone, ar, light)'}`);
+  await page.locator('input[type=password]').waitFor();
+  await unlockUi(page);
+  const saved = () => page.evaluate(async () => (await (await fetch('/api/settings')).json()).layoutUsb);
+  const usbRow = page.locator('.nav-row', { hasText: en ? 'USB keyboard layout' : 'تخطيط مفاتيح USB' });
+
+  // Pick from the list: German (Windows).
+  await page.evaluate(() => (location.hash = '#/settings'));
+  await page.locator('.settings .seg').first().waitFor();
+  await usbRow.click();
+  await page.locator('.layout-row').first().waitFor();
+  check((await page.locator('.layout-row').count()) === 16, 'every layout of the firmware table is offered');
+  check((await page.locator('.layout-row .layout-exp').count()) === 15, 'all but US are marked experimental');
+  await shot(page, `layouts${tag}`);
+  await page.locator('.layout-row', { hasText: 'German' }).first().click();
+  await page.locator('.layer .sheet').waitFor({ state: 'detached' });
+  check((await saved()) === 'de', 'German saved for USB');
+  check(/German/.test((await usbRow.textContent()) ?? ''), 'the row shows the saved layout');
+
+  // Layout Doctor: Keyra types the probe; what appeared names the layout.
+  await usbRow.click();
+  await page.locator('.doctor-btn').click();
+  await page.locator('.doctor-type').click();
+  await page.locator('.ready-ready').waitFor();
+  const typed = await button(base);
+  check(typed === 'typing probe · qwzy ö"§-', `the probe is typed (${typed})`);
+  await page.locator('.ready-typed').waitFor({ timeout: 5000 });
+  const input = page.locator('.doctor-input');
+  await input.waitFor({ timeout: 5000 });
+  await input.fill(typed.slice('typing probe · '.length));
+  await page.locator('.doctor-result').waitFor();
+  // A German Windows and a German Mac computer show the same: Keyra already has one, offers the other.
+  check(/German/.test((await page.locator('.doctor-result .notice').textContent()) ?? ''), 'already set to the matching layout');
+  check((await page.locator('.doctor-use').count()) === 1, 'the Mac twin is offered');
+  await shot(page, `layout-doctor${tag}`);
+  // The computer showed the UK layout's line instead.
+  await input.fill('qwyz ;"£/');
+  await page.locator('.doctor-use', { hasText: 'English (UK)' }).click();
+  await page.locator('.layer .sheet').waitFor({ state: 'detached' });
+  check((await saved()) === 'uk', 'the suggested layout is saved');
+
+  // Generator: a custom symbol set, then only characters the same on UK (USB) and US (Bluetooth).
+  const bodies = [];
+  page.on('request', (r) => r.url().endsWith('/api/generate') && bodies.push(JSON.parse(r.postData() ?? '{}')));
+  await page.evaluate(() => (location.hash = '#/generate'));
+  await page.waitForFunction(() => (document.querySelector('.gen-preview')?.textContent ?? '').trim().length === 20);
+  await page.locator('.symbol-input').fill('-_.-');
+  await page.locator('.symbol-input').press('Enter');
+  check((await page.locator('.symbol-input').inputValue()) === '-_.', 'symbol set cleaned to distinct punctuation');
+  await page.waitForFunction(() => {
+    const v = (document.querySelector('.gen-preview')?.textContent ?? '').trim();
+    return /^[A-Za-z0-9._-]{20}$/.test(v) && /[._-]/.test(v);
+  });
+  await page.locator('.symbol-input').fill('');
+  await page.locator('.symbol-input').press('Enter'); // back to the default set
+  const safe = page.getByRole('switch', { name: en ? 'Safe for my keyboard layouts' : 'آمنة لتخطيطات لوحات مفاتيحي' });
+  check(/English \(UK\)/.test((await page.locator('.row-note').textContent()) ?? ''), 'the note names the layouts');
+  const before = bodies.length;
+  await safe.click();
+  await page.waitForFunction(() => document.querySelector('.gen-preview.busy') === null);
+  for (let i = 0; i < 40 && !bodies.slice(before).some((b) => b.layoutSafe); i++) await page.waitForTimeout(100);
+  await page.waitForFunction(() => document.querySelector('.gen-preview.busy') === null);
+  const last = bodies.at(-1);
+  check(last.layoutSafe === true && JSON.stringify(last.layouts) === '["uk","us"]' && !('symbolSet' in last), `layout-safe request (${JSON.stringify(last)})`);
+  const pw = ((await page.locator('.gen-preview').textContent()) ?? '').trim();
+  check(pw.length === 20 && !/[@"#]/.test(pw), `no character that moves between UK and US (${pw})`);
+  await safe.scrollIntoViewIfNeeded();
+  await shot(page, `generate-layout-safe${tag}`);
+  console.log('  ✓ keyboard flow passed');
+  await ctx.close();
+}
+
 // ---------- flow 4: generator → type twice → save → update → history; type text (SPEC §9) ----------
 
 async function generatorFlow(base, opts) {
@@ -715,6 +792,8 @@ try {
   await burnFlow(await startMock(), { lang: 'en', dark: true });
   await updateFlow(await startMock({ MOCK_HOME_ONLINE: '1' }), {});
   await updateFlow(await startMock({ MOCK_HOME_ONLINE: '1' }), { lang: 'en', dark: true });
+  await keyboardFlow(await startMock(), {});
+  await keyboardFlow(await startMock(), { lang: 'en', dark: true });
 
   quantizeShots();
   if (errors.length) {

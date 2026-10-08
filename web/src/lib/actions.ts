@@ -32,7 +32,7 @@ export function useNow(active: boolean, ms = 1000): number {
 const TYPED_DWELL = 1900;
 const RESULT_FRESH_MS = 6000;
 
-type What = TypeWhat | 'test' | 'text';
+type What = TypeWhat | 'test' | 'text' | 'probe';
 
 interface Act {
   what: What;
@@ -42,8 +42,8 @@ interface Act {
   goneAt: number;
 }
 
-/** Type action for one entry, or with id 0 the settings type test / free text (`free`). */
-export function useTypeAction(id: number, free: 'test' | 'text' = 'test') {
+/** Type action for one entry, or with id 0 the settings type test / free text / Layout Doctor probe (`free`). */
+export function useTypeAction(id: number, free: 'test' | 'text' | 'probe' = 'test') {
   const app = useApp();
   const [act, setAct] = useState<Act | null>(null);
   const [outcome, setOutcome] = useState<Phase | null>(null);
@@ -114,9 +114,11 @@ export function useTypeAction(id: number, free: 'test' | 'text' = 'test') {
       const r =
         what === 'test'
           ? await api.typeTest(target, sw)
-          : what === 'text'
-            ? await api.typeText({ ...text!, target, switchLang: sw })
-            : await api.type(id, what, target, sw);
+          : what === 'probe'
+            ? await api.typeProbe(target, sw)
+            : what === 'text'
+              ? await api.typeText({ ...text!, target, switchLang: sw })
+              : await api.type(id, what, target, sw);
       const total = Math.max(1000, r.pending.expiresIn);
       setAct({ what, startedAt, deadline: Date.now() + r.pending.expiresIn, total, goneAt: 0 });
       return true;

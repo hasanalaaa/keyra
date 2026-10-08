@@ -5,12 +5,14 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { Icon } from './Icon';
 import { Button, ColoredSecret, IconButton, Slider, StrengthMeter, SwitchRow } from './ui';
 import { ErrorCard, HostNotice, Ready, readyText } from './Ready';
-import { api } from '../lib/api';
+import { ApiError, api } from '../lib/api';
 import { copyText } from '../lib/clipboard';
 import { errorText, isLockedError } from '../lib/errors';
 import {
   MAX_LENGTH,
   MIN_LENGTH,
+  SYMBOLS,
+  cleanSymbolSet,
   entropyBits,
   loadGenSettings,
   maxMinimum,
@@ -21,41 +23,83 @@ import {
 import { t } from '../lib/i18n';
 import { toast, useApp } from '../lib/store';
 import type { Phase } from '../lib/actions';
+import type { KeyboardLayout } from '../lib/types';
 
 export interface GeneratorState {
   settings: GenSettings;
   set: (patch: Partial<GenSettings>) => void;
   password: string;
+  /** The device's exact entropy for `password` (0 until one arrives). */
+  bits: number;
   busy: boolean;
   regenerate: () => void;
+  /** The layouts set for the USB and Bluetooth outputs (SPEC §10.2); null = this firmware has none. */
+  outputs: KeyboardLayout[] | null;
 }
 
 /** Settings remembered per browser; a new password from the device on every change (debounced). */
 export function useGenerator(): GeneratorState {
   const [settings, setSettings] = useState<GenSettings>(loadGenSettings);
   const [password, setPassword] = useState('');
+  const [bits, setBits] = useState(0);
   const [busy, setBusy] = useState(false);
+  // undefined while loading: a layout-safe password waits for the computers' layouts.
+  const [outputs, setOutputs] = useState<KeyboardLayout[] | null | undefined>(undefined);
   const seq = useRef(0);
+
+  useEffect(() => {
+    api
+      .keyboard()
+      .then((k) => {
+        const pick = (id: string) => k.layouts.find((l) => l.id === id);
+        setOutputs([pick(k.usb), pick(k.ble)].filter((l, i, all): l is KeyboardLayout => !!l && all.indexOf(l) === i));
+      })
+      .catch((e) => {
+        // Firmware before SPEC §10 has no GET /api/keyboard: the layout-safe switch stays hidden,
+        // so a remembered "on" must not stay in force where it cannot be turned off.
+        setOutputs(null);
+        setSettings((s) => (s.layoutSafe ? { ...s, layoutSafe: false } : s));
+        if (!(e instanceof ApiError && e.status === 404) && !isLockedError(e)) toast(errorText(e), 'error');
+      });
+  }, []);
 
   const regenerate = (s = settings) => {
     const my = ++seq.current;
     setBusy(true);
     api
-      .generate(s)
-      .then((r) => my === seq.current && setPassword(r.password))
-      .catch((e) => my === seq.current && !isLockedError(e) && toast(errorText(e), 'error'))
+      .generate(s, s.layoutSafe ? (outputs ?? []).map((l) => l.id) : [])
+      .then((r) => {
+        if (my !== seq.current) return;
+        setPassword(r.password);
+        setBits(r.entropyBits);
+      })
+      .catch((e) => {
+        if (my !== seq.current || isLockedError(e)) return;
+        // The layouts share too few characters for these settings (SPEC §10.2).
+        toast(s.layoutSafe && e instanceof ApiError && e.status === 400 ? t('layoutSafeTooFew') : errorText(e), 'error');
+      })
       .finally(() => my === seq.current && setBusy(false));
   };
 
+  const waiting = settings.layoutSafe && outputs === undefined;
   useEffect(() => {
     saveGenSettings(settings);
+    if (waiting) return;
     const h = setTimeout(() => regenerate(settings), 150);
     return () => clearTimeout(h);
-  }, [settings]);
+  }, [settings, waiting]);
   // A late answer must never overwrite a newer one, nor land after unmount.
   useEffect(() => () => void ++seq.current, []);
 
-  return { settings, set: (patch) => setSettings((s) => normalize({ ...s, ...patch })), password, busy, regenerate: () => regenerate() };
+  return {
+    settings,
+    set: (patch) => setSettings((s) => normalize({ ...s, ...patch })),
+    password,
+    bits,
+    busy,
+    regenerate: () => regenerate(),
+    outputs: outputs ?? null,
+  };
 }
 
 /** Big monospaced password (digits and symbols tinted), tap = copy. */
@@ -94,6 +138,13 @@ export function GenOptions({ gen }: { gen: GeneratorState }) {
   useEffect(() => setLengthText(String(s.length)), [s.length]);
   const maxDigits = useMemo(() => maxMinimum(s, 'minDigits'), [s]);
   const maxSymbols = useMemo(() => maxMinimum(s, 'minSymbols'), [s]);
+  const [symbolText, setSymbolText] = useState(s.symbolSet);
+  useEffect(() => setSymbolText(s.symbolSet), [s.symbolSet]);
+  const commitSymbols = () => {
+    const next = normalize({ ...s, symbolSet: cleanSymbolSet(symbolText) }).symbolSet;
+    gen.set({ symbolSet: next });
+    setSymbolText(next); // when it equals the set in use, nothing else re-renders the box
+  };
   const on = [s.lower, s.upper, s.digits, s.symbols].filter(Boolean).length;
   const toggle = (k: 'lower' | 'upper' | 'digits' | 'symbols', label: string) => (
     // The last enabled class cannot be turned off (the device needs one).
@@ -130,15 +181,44 @@ export function GenOptions({ gen }: { gen: GeneratorState }) {
       {s.digits && <Stepper label={t('minDigits')} value={s.minDigits} min={1} max={maxDigits} onChange={(v) => gen.set({ minDigits: v })} />}
       {toggle('symbols', t('symbols'))}
       {s.symbols && <Stepper label={t('minSymbols')} value={s.minSymbols} min={1} max={maxSymbols} onChange={(v) => gen.set({ minSymbols: v })} />}
+      {s.symbols && (
+        <label class="row symbol-row">
+          <span class="row-label">{t('symbolSet')}</span>
+          <input
+            class="input symbol-input mono"
+            dir="ltr"
+            autocapitalize="off"
+            autocomplete="off"
+            spellcheck={false}
+            maxLength={64}
+            placeholder={SYMBOLS}
+            value={symbolText}
+            onInput={(e) => setSymbolText(e.currentTarget.value)}
+            onBlur={commitSymbols}
+            onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), commitSymbols())}
+          />
+        </label>
+      )}
       <SwitchRow label={t('lookAlikes')} checked={s.avoidAmbiguous} onChange={(v) => gen.set({ avoidAmbiguous: v })} />
+      {gen.outputs && (
+        <>
+          <SwitchRow label={t('layoutSafe')} checked={s.layoutSafe} onChange={(v) => gen.set({ layoutSafe: v })} />
+          <p class="caption row-note">
+            {t('layoutSafeNote')} <bdi dir="ltr">{gen.outputs.map((l) => l.name).join(' · ')}</bdi>
+          </p>
+        </>
+      )}
     </div>
   );
 }
 
-/** Exact strength of what the settings produce (every password equally likely). */
-export function GenStrength({ settings }: { settings: GenSettings }) {
-  const bits = useMemo(() => entropyBits(settings), [settings]);
-  return <StrengthMeter bits={bits} />;
+/**
+ * Exact strength of what the settings produce (every password equally likely): known at once from
+ * the settings, except layout-safe ones, where only the device knows which characters are left.
+ */
+export function GenStrength({ gen }: { gen: GeneratorState }) {
+  const local = useMemo(() => entropyBits(gen.settings), [gen.settings]);
+  return <StrengthMeter bits={gen.settings.layoutSafe ? gen.bits : local} />;
 }
 
 /**
@@ -181,7 +261,7 @@ export function InlineGenerator({ onUse }: { onUse: (pw: string) => void }) {
   return (
     <div class="gen gen-inline">
       <GenPreview password={gen.password} busy={gen.busy} />
-      <GenStrength settings={gen.settings} />
+      <GenStrength gen={gen} />
       <GenOptions gen={gen} />
       <div class="sheet-foot">
         <Button variant="secondary" icon="refresh-cw" onClick={gen.regenerate}>

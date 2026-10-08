@@ -7,7 +7,7 @@ export interface Pending {
   kind: 'type';
   id: number; // 0 for the type test and free text
   title: string | null; // null for free text (SPEC §9.2)
-  what: TypeWhat | 'test' | 'text';
+  what: TypeWhat | 'test' | 'text' | 'probe';
   submit: boolean;
   expiresIn: number;
   target?: string | null; // "usb" or a Bluetooth device address
@@ -18,7 +18,7 @@ export interface TypeResult {
   code: ResultCode;
   at: number; // ms ago
   title?: string | null;
-  what?: TypeWhat | 'test' | 'text';
+  what?: TypeWhat | 'test' | 'text' | 'probe';
 }
 
 export type PresenceOp =
@@ -239,6 +239,9 @@ export interface Settings {
   output: Output;
   bleConnect: 'on_demand' | 'always';
   osUsb: HostOs;
+  /** SPEC §10.1: keyboard layout ids (GET /api/keyboard) of the computer on each output. */
+  layoutUsb: string;
+  layoutBle: string;
   /** SPEC §12.3-12.5 */
   protectReveal: boolean;
   lockOnUsb: boolean;
@@ -272,6 +275,21 @@ export interface BleInfo {
   pairing: { active: boolean; expiresIn: number };
   connected: BlePeer | null;
   bonds: BleBond[];
+}
+
+/** GET /api/keyboard (SPEC §10.1). */
+export interface KeyboardLayout {
+  id: string;
+  name: string; // English display name
+  platform: 'any' | 'windows' | 'mac';
+  experimental: boolean; // not yet confirmed on real hardware
+  probe: string; // what the Layout Doctor probe leaves on a computer with this layout (SPEC §10.3)
+}
+
+export interface Keyboard {
+  layouts: KeyboardLayout[];
+  usb: string;
+  ble: string;
 }
 
 export interface Totp {

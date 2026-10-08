@@ -153,7 +153,7 @@ export function GenerateSheet() {
     body = (
       <div class="gen">
         <GenPreview password={gen.password} busy={gen.busy} />
-        <GenStrength settings={gen.settings} />
+        <GenStrength gen={gen} />
         <div class="gen-quick">
           <Button variant="secondary" size="sm" icon="refresh-cw" onClick={gen.regenerate}>
             {t('newOne')}

@@ -6,6 +6,19 @@ All notable changes to Keyra are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Keyboard layouts in the web app (SPEC §10.1-10.3):** Settings → Typing
+  has a keyboard layout row for USB and for Bluetooth (the firmware's list,
+  layouts not yet confirmed on hardware marked "Experimental"); the **Layout
+  Doctor** types the probe after a button press, then matches what appeared on
+  the computer against each layout's probe string (the computer's system
+  breaks a Windows/Mac tie) and saves the suggestion. The generator gains
+  "Safe for my keyboard layouts" (`layoutSafe` with both outputs' layouts) and
+  a custom symbol set (`symbolSet`), remembered per browser. The mock reads
+  the firmware's `layouts.txt` for `GET /api/keyboard`, the probe and the
+  layout-safe characters.
+
 ### Fixed
 
 - **Button presses are bound to who asked (security):** any session could

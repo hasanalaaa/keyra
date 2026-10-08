@@ -114,7 +114,7 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
   };
 
   const phase = action.phase;
-  const what = action.what ?? 'both';
+  const what = (action.what ?? 'both') as TypeWhat; // an entry's action: never the test, text or probe
   let area;
   if (gate.phase.kind === 'ready') {
     area = (
@@ -145,7 +145,7 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
       />
     );
   } else if (phase.kind === 'error') {
-    area = <ActionError code={phase.code} retry={() => startAction(what as TypeWhat)} copy={() => copyOrReveal(what)} edit={() => go(`/a/${id}/edit`)} close={action.dismiss} />;
+    area = <ActionError code={phase.code} retry={() => startAction(what)} copy={() => copyOrReveal(what)} edit={() => go(`/a/${id}/edit`)} close={action.dismiss} />;
   } else {
     area = (
       <div class="actions">

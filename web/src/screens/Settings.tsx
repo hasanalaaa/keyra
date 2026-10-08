@@ -26,7 +26,8 @@ import { UpdateSheet } from './Update';
 import { TrustedSheet } from './Trusted';
 import { RecoverySheet } from './Recovery';
 import { shortDate } from '../lib/wifi';
-import type { RecoveryInfo } from '../lib/types';
+import type { Keyboard, RecoveryInfo } from '../lib/types';
+import { LayoutSheet, layoutTitle, type LayoutOutput } from './Keyboard';
 
 const SPEEDS = [
   { value: 30, key: 'slow' },
@@ -35,7 +36,7 @@ const SPEEDS = [
 ] as const;
 const AUTOLOCK = [1, 5, 15, 30, 60, 120];
 
-type Sub = 'wifi' | 'home' | 'trusted' | 'health' | 'activity' | 'update' | 'passkeys' | 'autolock' | 'passphrase' | 'test' | 'erase' | 'recovery' | 'unprotect' | null;
+type Sub = LayoutOutput | 'wifi' | 'home' | 'trusted' | 'health' | 'activity' | 'update' | 'passkeys' | 'autolock' | 'passphrase' | 'test' | 'erase' | 'recovery' | 'unprotect' | null;
 
 export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void }) {
   const app = useApp();
@@ -70,6 +71,18 @@ export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void 
       .then(setRecovery)
       .catch(() => setRecovery(null));
   useEffect(() => void loadRecovery(), []);
+  // SPEC §10.1; firmware before it answers 404 and the layout rows stay hidden.
+  const [kb, setKb] = useState<Keyboard | null>(null);
+  useEffect(() => {
+    api
+      .keyboard()
+      .then(setKb)
+      .catch((e) => !(e instanceof ApiError && e.status === 404) && !isLockedError(e) && toast(errorText(e), 'error'));
+  }, []);
+  const layoutName = (id: string) => {
+    const l = kb?.layouts.find((x) => x.id === id);
+    return l ? layoutTitle(l) : id;
+  };
   // Turning reveal protection off is itself a press (SPEC §12.3).
   const unprotect = usePresence('unprotect');
   useEffect(() => {
@@ -164,11 +177,17 @@ export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void 
             <SwitchRow label={t('lockOnUsb')} checked={s.lockOnUsb} onChange={(v) => void save({ lockOnUsb: v })} />
             <SwitchRow label={t('lockOnBle')} checked={s.lockOnBle} onChange={(v) => void save({ lockOnBle: v })} />
           </Section>
-          <Section title={t('groupTyping')} footer={`${t('footSpeed')} ${t('footSubmit')} ${t('footOs')}`}>
+          <Section title={t('groupTyping')} footer={`${t('footSpeed')} ${t('footSubmit')} ${t('footOs')}${kb ? ` ${t('footLayout')}` : ''}`}>
             <div class="row">
               <span class="row-label">{t('usbComputer')}</span>
               <OsSelect label={`${t('hostOs')} · ${t('usbComputer')}`} value={s.osUsb ?? ''} onChange={(os) => void save({ osUsb: os })} />
             </div>
+            {kb && (
+              <>
+                <NavRow label={t('layoutUsb')} value={<bdi dir="ltr">{layoutName(s.layoutUsb)}</bdi>} onClick={() => setSub('usb')} />
+                <NavRow label={t('layoutBle')} value={<bdi dir="ltr">{layoutName(s.layoutBle)}</bdi>} onClick={() => setSub('ble')} />
+              </>
+            )}
             <div class="row stack-row">
               <span class="row-label">{t('typingSpeed')}</span>
               <Segmented label={t('typingSpeed')} options={SPEEDS.map((o) => ({ value: o.value, label: t(o.key) }))} value={speed} onChange={(v) => void save({ keyDelayMs: v })} />
@@ -272,6 +291,19 @@ export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void 
       )}
       {sub === 'passphrase' && <PassphraseSheet onClose={() => setSub(null)} />}
       {sub === 'test' && <TypeTestSheet onClose={() => setSub(null)} />}
+      {(sub === 'usb' || sub === 'ble') && s && kb && (
+        <LayoutSheet
+          output={sub}
+          layouts={kb.layouts}
+          value={sub === 'usb' ? s.layoutUsb : s.layoutBle}
+          usbOs={s.osUsb ?? ''}
+          onPick={(id) => {
+            void save(sub === 'usb' ? { layoutUsb: id } : { layoutBle: id });
+            setSub(null);
+          }}
+          onClose={() => setSub(null)}
+        />
+      )}
       {sub === 'erase' && <EraseFlow onClose={() => setSub(null)} />}
       {sub === 'recovery' && (
         <RecoverySheet

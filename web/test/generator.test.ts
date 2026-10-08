@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   GEN_DEFAULTS,
+  SYMBOLS,
   acceptance,
+  cleanSymbolSet,
   entropyBits,
   generateRequest,
   generateWifiPassword,
@@ -82,11 +84,47 @@ describe('generator settings', () => {
     expect(generateRequest({ ...base, symbols: false, minSymbols: 5 })).toMatchObject({ symbols: false, minSymbols: 0, minDigits: 1 });
   });
 
+  it('sends a custom symbol set and the layout-safe option only when chosen (SPEC §9.1, §10.2)', () => {
+    const plain = generateRequest(base, ['us', 'de']);
+    expect(plain).not.toHaveProperty('symbolSet');
+    expect(plain).not.toHaveProperty('layoutSafe');
+    expect(plain).not.toHaveProperty('layouts');
+    expect(generateRequest({ ...base, symbolSet: '-_.' })).toMatchObject({ symbolSet: '-_.' });
+    // Both outputs on one layout: named once.
+    expect(generateRequest({ ...base, layoutSafe: true }, ['de', 'de'])).toMatchObject({ layoutSafe: true, layouts: ['de'] });
+    expect(generateRequest({ ...base, layoutSafe: true }, ['us', 'fr'])).toMatchObject({ layouts: ['us', 'fr'] });
+    // Unknown: the device uses its outputs' layouts, and "layouts": [] would be refused.
+    const unknown = generateRequest({ ...base, layoutSafe: true });
+    expect(unknown).toMatchObject({ layoutSafe: true });
+    expect(unknown).not.toHaveProperty('layouts');
+  });
+
+  it('keeps a symbol set to what the device accepts', () => {
+    expect(cleanSymbolSet('!!@ a1#é$')).toBe('!@#$');
+    expect(cleanSymbolSet('')).toBe('');
+    const all = '!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~';
+    expect(all).toHaveLength(32);
+    expect(cleanSymbolSet(all + all)).toBe(all);
+    // Its size drives the exact entropy, like the device's alphabet.
+    const digitsAndSet = { ...base, lower: false, upper: false, avoidAmbiguous: false, minDigits: 1, minSymbols: 1 };
+    expect(entropyBits({ ...digitsAndSet, symbolSet: '-_' })).toBeLessThan(entropyBits({ ...digitsAndSet, symbolSet: '' }));
+    expect(acceptance({ ...digitsAndSet, symbolSet: SYMBOLS })).toBeCloseTo(acceptance({ ...digitsAndSet, symbolSet: '' }), 12);
+    // Only look-alikes would leave no symbols while they are avoided: back to the default set.
+    expect(normalize({ ...base, symbolSet: '|`' }).symbolSet).toBe('');
+    expect(normalize({ ...base, avoidAmbiguous: false, symbolSet: '|`' }).symbolSet).toBe('|`');
+    expect(normalize({ ...base, symbolSet: 'aa--' }).symbolSet).toBe('-');
+  });
+
   it('remembers settings per browser, and survives blocked or bad storage', () => {
     const store = new Map<string, string>();
     vi.stubGlobal('localStorage', { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v) });
     saveGenSettings({ ...base, length: 32, symbols: false });
     expect(loadGenSettings()).toMatchObject({ length: 32, symbols: false });
+    saveGenSettings({ ...base, symbolSet: '-_', layoutSafe: true });
+    expect(loadGenSettings()).toMatchObject({ symbolSet: '-_', layoutSafe: true });
+    // Settings stored before these options existed get the defaults.
+    store.set('keyra.gen', '{"length":24}');
+    expect(loadGenSettings()).toMatchObject({ length: 24, symbolSet: '', layoutSafe: false });
     expect(store.get('keyra.gen')).not.toMatch(/password/);
     store.set('keyra.gen', '{"length":"x","digits":1}');
     expect(loadGenSettings()).toEqual(GEN_DEFAULTS);
