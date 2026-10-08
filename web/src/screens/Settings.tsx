@@ -25,6 +25,7 @@ import { ActivitySheet } from './Activity';
 import { UpdateSheet } from './Update';
 import { TrustedSheet } from './Trusted';
 import { RecoverySheet } from './Recovery';
+import { BothSequenceSheet } from './BothSequence';
 import { shortDate } from '../lib/wifi';
 import type { RecoveryInfo } from '../lib/types';
 
@@ -35,7 +36,7 @@ const SPEEDS = [
 ] as const;
 const AUTOLOCK = [1, 5, 15, 30, 60, 120];
 
-type Sub = 'wifi' | 'home' | 'trusted' | 'health' | 'activity' | 'update' | 'passkeys' | 'autolock' | 'passphrase' | 'test' | 'erase' | 'recovery' | 'unprotect' | null;
+type Sub = 'wifi' | 'home' | 'trusted' | 'health' | 'activity' | 'update' | 'passkeys' | 'autolock' | 'passphrase' | 'test' | 'erase' | 'recovery' | 'unprotect' | 'bothseq' | null;
 
 export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void }) {
   const app = useApp();
@@ -186,6 +187,7 @@ export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void 
               />
             </div>
             <SwitchRow label={t('submitAfterBoth')} checked={s.submitAfterBoth} onChange={(v) => void save({ submitAfterBoth: v })} />
+            <NavRow label={t('bothSeqRow')} value={s.bothSequence ? t('bothSeqCustom') : t('bothSeqBuiltIn')} onClick={() => setSub('bothseq')} />
             <NavRow label={t('typeTest')} onClick={() => setSub('test')} />
           </Section>
           <BluetoothSection s={s} save={save} />
@@ -272,6 +274,7 @@ export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void 
       )}
       {sub === 'passphrase' && <PassphraseSheet onClose={() => setSub(null)} />}
       {sub === 'test' && <TypeTestSheet onClose={() => setSub(null)} />}
+      {sub === 'bothseq' && s && <BothSequenceSheet settings={s} onSaved={setS} onClose={() => setSub(null)} />}
       {sub === 'erase' && <EraseFlow onClose={() => setSub(null)} />}
       {sub === 'recovery' && (
         <RecoverySheet

@@ -26,6 +26,8 @@ export interface AppState {
   ble: BleInfo | null;
   /** settings.lastBackupAt (unix s, 0 = never; null = not loaded) for the backup reminder (SPEC §12.5). */
   backupAt: number | null;
+  /** settings.bothSequence (SPEC §10.4): non-empty = "Both" types it (POST /type what "sequence"). */
+  bothSequence: string;
   langPref: LangPref;
   lang: Lang;
   themePref: ThemePref;
@@ -63,6 +65,7 @@ let state: AppState = {
   entries: null,
   ble: null,
   backupAt: null,
+  bothSequence: '',
   langPref,
   lang: detectLang(langPref, navigator.language || 'en'),
   themePref: readPref<ThemePref>(THEME_KEY, ['auto', 'light', 'dark'], 'auto'),
@@ -70,6 +73,12 @@ let state: AppState = {
 };
 
 const listeners = new Set<() => void>();
+
+/**
+ * Entry id → has its own sequence (SPEC §10.4). The API sends `sequence` only with the secrets,
+ * so this remembers what this tab saw revealed or saved, until the vault locks.
+ */
+export const knownSequences = new Map<number, boolean>();
 
 export const getState = (): AppState => state;
 
@@ -147,7 +156,8 @@ function lockReasonNow(d: DeviceState | null): LockReason {
 function becameLocked(d: DeviceState | null): void {
   if (!state.authed) return;
   forgetSession();
-  setState({ authed: false, lockReason: lockReasonNow(d), entries: null, ble: null, backupAt: null });
+  knownSequences.clear();
+  setState({ authed: false, lockReason: lockReasonNow(d), entries: null, ble: null, backupAt: null, bothSequence: '' });
   manualLock = false;
 }
 
@@ -256,7 +266,8 @@ async function opened(r: Awaiting | Unlocked): Promise<Awaiting | null> {
 
 export async function loadBackupAt(): Promise<void> {
   try {
-    setState({ backupAt: (await api.settings()).lastBackupAt ?? 0 });
+    const s = await api.settings();
+    setState({ backupAt: s.lastBackupAt ?? 0, bothSequence: s.bothSequence ?? '' });
   } catch {
     // Locked/offline: no reminder.
   }

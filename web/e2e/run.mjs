@@ -493,6 +493,87 @@ async function burnFlow(base, opts) {
   await ctx.close();
 }
 
+// ---------- Auto-type sequences (SPEC §10.4): {PRESS} splits typing into parts, one press each ----------
+
+async function sequenceFlow(base, opts) {
+  const { ctx, page, tag } = await open(base, opts);
+  const en = opts.lang === 'en';
+  console.log(`sequence ${tag || '(phone, ar, light)'}`);
+  await page.locator('input[type=password]').waitFor();
+  await unlockUi(page);
+  await page.evaluate(() => (location.hash = '#/new'));
+  const form = page.locator('.edit-form');
+  await form.waitFor();
+  const inputs = form.locator('input');
+  await inputs.nth(0).fill('Bank portal');
+  await inputs.nth(2).fill('hasan');
+  await form.locator('input[type=password]').fill('Euphrates-Bank-2026');
+  check((await form.locator('.seq-editor').count()) === 0, 'the sequence editor starts collapsed');
+  await form.locator('.seq-toggle').click();
+  const seq = form.locator('.seq-editor input');
+  // The editor refuses what the firmware refuses: no shortcut tokens.
+  await seq.fill('{CTRL+V}');
+  await form.locator('.seq-editor .field-error').waitFor();
+  check(await page.locator('.save-btn').isDisabled(), 'an invalid sequence cannot be saved');
+  await seq.fill('');
+  for (const token of ['{USERNAME}', '{ENTER}', '{PRESS}', '{PASSWORD}', '{ENTER}']) await form.locator(`.seq-token[title="${token}"]`).click();
+  check((await seq.inputValue()) === '{USERNAME}{ENTER}{PRESS}{PASSWORD}{ENTER}', 'token buttons insert at the caret');
+  check((await form.locator('.seq-part').count()) === 2, 'the preview shows one line per press');
+  await form.locator('.seq-preview').scrollIntoViewIfNeeded();
+  await shot(page, `edit-sequence${tag}`);
+  await page.locator('.save-btn').click();
+  await page.locator('.layer .sheet').waitFor({ state: 'detached' });
+
+  // Part 1, then part 2 after the next press.
+  await row(page, 'Bank portal').click();
+  await page.locator('.act-seq').click();
+  await page.locator('.ready-ready').waitFor();
+  await page.locator('.ready .seq-part.current', { hasText: '{USERNAME}' }).waitFor();
+  await page.locator('.toast').waitFor({ state: 'detached', timeout: 8000 }); // "Saved" would cover the card
+  await shot(page, `ready-sequence${tag}`);
+  check((await button(base)) === 'typing sequence part 1/2 · Bank portal', 'the first press types part 1');
+  await page.locator('.ready .seq-part.current', { hasText: '{PASSWORD}' }).waitFor({ timeout: 8000 });
+  check(/2/.test((await page.locator('.ready-body').textContent()) ?? ''), 'Ready says part 2 is next');
+  await shot(page, `ready-sequence-part2${tag}`);
+  check((await button(base)) === 'typing sequence part 2/2 · Bank portal', 'the second press types part 2');
+  await page.locator('.ready-typed').waitFor({ timeout: 8000 });
+  await page.locator('.ready-typed').waitFor({ state: 'detached', timeout: 8000 });
+
+  // Settings → Typing → the order "Both" types.
+  await page.evaluate(() => (location.hash = '#/settings'));
+  await page.locator('.settings .seg').first().waitFor();
+  const orderRow = page.locator('.nav-row', { hasText: en ? 'Order for "Both"' : 'ترتيب «الاثنان معاً»' });
+  await orderRow.click();
+  const sheet = page.locator('.both-seq');
+  await sheet.waitFor();
+  check((await sheet.locator('.seq-part').count()) === 1, 'the built-in order is previewed');
+  await sheet.locator('.seq-editor input').fill('{USERNAME}{TAB}{DELAY 500}{PASSWORD}{ENTER}');
+  await shot(page, `settings-both-order${tag}`);
+  await sheet.locator('button[type=submit]').click();
+  await sheet.waitFor({ state: 'detached' });
+  check((await orderRow.locator('.row-value').textContent()) === (en ? 'Custom' : 'مخصّص'), 'the row says the order is custom');
+  const cookie = (await ctx.cookies()).map((c) => `${c.name}=${c.value}`).join('; ');
+  const saved = await (await fetch(`${base}/api/settings`, { headers: { cookie } })).json();
+  check(saved.bothSequence === '{USERNAME}{TAB}{DELAY 500}{PASSWORD}{ENTER}', 'bothSequence is stored on the device');
+
+  // "Both" now types that order (as a sequence) on an account without its own.
+  await page.evaluate(() => (location.hash = '#/'));
+  await row(page, 'Microsoft').click();
+  await page.locator('.act-both').click();
+  await page.locator('.ready-ready').waitFor();
+  check((await button(base)) === 'typing sequence part 1/1 · Microsoft', '"Both" uses the custom order');
+  await page.locator('.ready-typed').waitFor({ timeout: 8000 });
+
+  await page.evaluate(() => (location.hash = '#/settings'));
+  await orderRow.click();
+  await sheet.locator('.btn-ghost', { hasText: en ? 'Reset to default' : 'أعد الافتراضي' }).click();
+  await sheet.waitFor({ state: 'detached' });
+  const reset = await (await fetch(`${base}/api/settings`, { headers: { cookie } })).json();
+  check(reset.bothSequence === '', 'reset returns to the built-in order');
+  console.log('  ✓ sequence flow passed');
+  await ctx.close();
+}
+
 // ---------- Firmware update (SPEC §14): from a file and from the latest release ----------
 
 /** An ESP-IDF app image as far as the mock checks it: magic, app description, signature sector. */
@@ -713,6 +794,8 @@ try {
   await activityFlow(await startMock(), { lang: 'en', dark: true });
   await burnFlow(await startMock(), {});
   await burnFlow(await startMock(), { lang: 'en', dark: true });
+  await sequenceFlow(await startMock(), {});
+  await sequenceFlow(await startMock(), { lang: 'en', dark: true });
   await updateFlow(await startMock({ MOCK_HOME_ONLINE: '1' }), {});
   await updateFlow(await startMock({ MOCK_HOME_ONLINE: '1' }), { lang: 'en', dark: true });
 

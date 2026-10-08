@@ -4,6 +4,8 @@ import { Icon } from '../components/Icon';
 import { Button, ColoredSecret, CopyButton, IconButton, MiniRing, Monogram, Segmented } from '../components/ui';
 import { ErrorCard, HostNotice, Ready, readyText } from '../components/Ready';
 import { HostLangRow } from '../components/HostOs';
+import { SequencePreview } from '../components/SequenceEditor';
+import { parseSequence } from '../lib/sequence';
 import { osOf, resolveTarget } from '../lib/hostos';
 import { defaultTarget, deviceLabel, storeTarget, storedTarget, validTarget } from '../lib/ble';
 import { ApiError, api } from '../lib/api';
@@ -12,7 +14,7 @@ import { errorText, isLockedError } from '../lib/errors';
 import { copyText } from '../lib/clipboard';
 import { t, type Key } from '../lib/i18n';
 import { go, replace } from '../lib/router';
-import { setState, toast, useApp } from '../lib/store';
+import { knownSequences, setState, toast, useApp } from '../lib/store';
 import { hostOf } from '../lib/csv';
 import { shortDate } from '../lib/wifi';
 import type { Entry, OldPassword, Totp, TypeWhat } from '../lib/types';
@@ -22,6 +24,7 @@ const CHIP: Record<TypeWhat | 'test' | 'text', Key> = {
   password: 'chipPassword',
   both: 'chipBoth',
   totp: 'chipCode',
+  sequence: 'chipSequence',
   test: 'typeTest',
   text: 'chipText',
 };
@@ -81,6 +84,18 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
     };
   }, [id, summary?.updated]);
 
+  // SPEC §10.4: `sequence` comes only with the secrets; remember what a revealed copy said.
+  useEffect(() => {
+    if (entry?.sequence !== undefined) knownSequences.set(id, entry.sequence !== '');
+  }, [id, entry?.sequence]);
+  const ownSeq = entry?.sequence !== undefined ? entry.sequence !== '' : (knownSequences.get(id) ?? false);
+  const parsedSeq = entry?.sequence ? parseSequence(entry.sequence) : null;
+  const seqParts = parsedSeq?.ok ? parsedSeq.parts : 1;
+  // A custom "Both" order is typed as a sequence (the entry's own sequence, if any, comes first).
+  const bothWhat: TypeWhat = app.bothSequence ? 'sequence' : 'both';
+  const pending = app.device?.pending;
+  const seqPending = pending && pending.what === 'sequence' && pending.id === id ? pending : null;
+
   const e = summary
     ? summary
     : entry
@@ -129,18 +144,29 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
       />
     );
   } else if (phase.kind === 'ready' || phase.kind === 'typing' || phase.kind === 'typed') {
+    // A sequence with {PRESS} types one part per press (SPEC §10.4): say which one is next.
+    const parts = seqPending?.parts ?? 1;
+    const part = seqPending?.part ?? 1;
+    const body = parts > 1 ? (part > 1 ? t('seqReadyNext', { i: part, n: parts }) : t('seqReadyFirst', { n: parts })) : t('readyBody');
     area = (
       <Ready
         state={phase.kind}
         deadline={phase.kind === 'ready' ? phase.deadline : 0}
         total={phase.kind === 'ready' ? phase.total : 60000}
-        {...readyText(app.device, t('readyBody'))}
+        {...readyText(app.device, body)}
         chip={
           <>
-            {t(CHIP[what])} · <bdi>{e.title}</bdi>
+            {t(what === 'sequence' && !ownSeq ? 'chipBoth' : CHIP[what])} · <bdi>{e.title}</bdi>
           </>
         }
-        notice={app.device ? <HostNotice device={app.device} /> : undefined}
+        notice={
+          app.device ? (
+            <>
+              {seqPending?.preview && <SequencePreview preview={seqPending.preview} current={parts > 1 ? part : undefined} />}
+              <HostNotice device={app.device} />
+            </>
+          ) : undefined
+        }
         onCancel={() => void action.cancel()}
       />
     );
@@ -164,7 +190,7 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
           </div>
         )}
         <HostLangRow key={hostTarget ?? ''} target={hostTarget} os={osOf(hostTarget, app.device?.host.usbOs, app.ble)} />
-        <button type="button" class="act-both" disabled={!e.hasPassword || !e.username} onClick={() => startAction('both')}>
+        <button type="button" class="act-both" disabled={!e.hasPassword || !e.username} onClick={() => startAction(bothWhat)}>
           <span class="both-icons" aria-hidden="true">
             <Icon name="user" size={24} />
             <Icon name="key-round" size={24} />
@@ -178,6 +204,15 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
           <ActionTile icon="user" label={t('username')} disabled={!e.username} onType={() => startAction('username')} copy={() => entry?.username ?? ''} />
           <ActionTile icon="key-round" label={t('password')} disabled={!e.hasPassword} onType={() => startAction('password')} {...secretCopy((x) => x.password)} />
         </div>
+        {ownSeq && (
+          <button type="button" class="act-seq" onClick={() => startAction('sequence')}>
+            <Icon name="keyboard" size={24} />
+            <span class="act-text">
+              <span class="act-label">{t('typeSequence')}</span>
+              <span class="act-sub">{seqParts > 1 ? t('typeSequenceParts', { n: seqParts }) : t('typeSequenceSub')}</span>
+            </span>
+          </button>
+        )}
         {e.hasTotp && <CodeCard id={id} onType={() => startAction('totp')} codeRef={totpRef} timeValid={app.device?.timeValid ?? true} />}
         <p class="helper-line">{e.hasPassword ? t('helper') : t('noPassword')}</p>
       </div>

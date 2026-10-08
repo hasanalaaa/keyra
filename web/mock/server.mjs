@@ -58,6 +58,7 @@ const defaultSettings = () => ({
   output: 'auto',
   bleConnect: 'on_demand',
   osUsb: '', // SPEC §10.5
+  bothSequence: '', // SPEC §10.4: '' = built in
   // password is write-only, never sent; MOCK_HOME_ONLINE starts already joined
   homeWifi: process.env.MOCK_HOME_ONLINE === '1' ? { enabled: true, ssid: 'Al-Rashid Home', password: 'home-wifi-pass' } : { enabled: false, ssid: '', password: '' },
   apMode: 'always',
@@ -290,12 +291,22 @@ function press(kind) {
         else if (t.kind === 'ble' && ble.connected !== t.addr) code = 'no_host';
         else if (text === null) code = 'failed';
         else if (/[^\x20-\x7e\t\n]/.test(text)) code = 'unsupported_char';
-        machine.last = { ok: code === 'typed', code, at: Date.now(), title: s.req.title, what: s.req.what };
+        // Machine::typingFinished: a sequence part typed fine with more to come is armed again
+        // for its next part (fresh 60 s), unless something else was armed meanwhile.
+        const more = code === 'typed' && s.req.what === 'sequence' && s.req.part + 1 < s.req.seq.parts;
+        if (more && !machine.slot) {
+          machine.slot = { kind: 'type', req: { ...s.req, part: s.req.part + 1 }, deadline: Date.now() + EXPIRY_MS, owner: s.owner };
+          syncDemand();
+          autoPress(machine.slot);
+        } else {
+          if (more) code = 'cancelled';
+          machine.last = { ok: code === 'typed', code, at: Date.now(), title: s.req.title, what: s.req.what };
+        }
         if (t.kind === 'ble') releaseBle(LINGER_MS);
         const e = vault?.entries.get(s.req.id);
         if (code === 'typed' && e) e.lastUsed = nowSec();
         // SPEC §16: typing the password uses one of the entry's remaining uses.
-        if (code === 'typed' && e?.burnAfter && ['password', 'both', 'sequence'].includes(s.req.what) && --e.burnAfter === 0) {
+        if (code === 'typed' && !more && e?.burnAfter && ['password', 'both', 'sequence'].includes(s.req.what) && --e.burnAfter === 0) {
           vault.entries.delete(e.id);
           logEvent('entry_burned', { id: e.id, title: e.title });
           console.log(`[mock] "${e.title}" deleted after its last allowed use`);
@@ -307,6 +318,7 @@ function press(kind) {
         }
       }, 250 + Math.min(1500, (text?.length ?? 0) * settings.keyDelayMs));
       // Free text: only its length, so e2e can check "twice" without the mock echoing secrets.
+      if (s.req.what === 'sequence') return `typing sequence part ${s.req.part + 1}/${s.req.seq.parts} · ${s.req.title}`;
       return s.req.what === 'text' ? `typing text (${text.length} chars)` : `typing ${s.req.what} · ${s.req.title}`;
     }
     return 'nothing to do (blink)';
@@ -332,6 +344,12 @@ function typedText(req) {
   const e = vault?.entries.get(req.id);
   if (!e) return null;
   const sep = settings.bothSeparator === 'enter' ? '\n' : '\t';
+  if (req.what === 'sequence') {
+    // seqrun::checkAll at the first press: a reason known up front stops it before any part.
+    const all = Array.from({ length: req.seq.parts }, (_, p) => seqPartText(req.seq, p, e));
+    if (req.part === 0 && all.some((x) => x === null)) return null;
+    return (req.part === 0 && all.find((x) => /[^\x20-\x7e\t\n]/.test(x))) || all[req.part];
+  }
   if (req.what === 'username') return e.username;
   if (req.what === 'password') return e.password;
   if (req.what === 'totp') return totpCode(e.totp)?.code ?? null;
@@ -561,10 +579,117 @@ const summary = (e) => ({
   lastUsed: e.lastUsed,
 });
 
+// ---------- auto-type sequences (SPEC §10.4; keyra_vault sequence.cpp, keyra_api sequence_run.cpp) ----------
+
+const SEQ_TOKENS = { USERNAME: ['username', 256], PASSWORD: ['password', 256], TOTP: ['totp', 10], TAB: ['tab', 1], ENTER: ['enter', 1], SPACE: ['space', 1], PRESS: ['press', 0] };
+const SEQ_MSG = {
+  empty: 'sequence must type something',
+  tooLong: 'sequence must be at most 256 bytes',
+  badText: 'sequence must be printable UTF-8 (no control characters)',
+  unclosed: 'sequence has a { without a matching }',
+  stray: 'a literal } must be written {}}',
+  unknown: 'unknown token: use {USERNAME} {PASSWORD} {TOTP} {TAB} {ENTER} {SPACE} {DELAY ms} {PRESS} {{} {}}',
+  delay: '{DELAY n}: n must be 100-3000 (milliseconds)',
+  steps: 'sequence has more than 32 steps',
+  presses: 'sequence has more than 4 {PRESS}',
+  placement: '{PRESS} needs something to type before and after it',
+  delayTotal: '{DELAY} adds up to more than 10 seconds',
+  typing: 'sequence could type more than 1024 characters',
+};
+
+/** Like seq::parse: { steps, parts, preview } or { error } (the firmware's English 400 message). */
+function seqParse(src) {
+  const no = (k) => ({ error: SEQ_MSG[k] });
+  if (src === '') return no('empty');
+  if (Buffer.byteLength(src) > 256) return no('tooLong');
+  // Control characters, DEL, and lone surrogates (not valid UTF-8).
+  if (/[\x00-\x1f\x7f]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(src)) return no('badText');
+  const steps = [];
+  const addText = (t) => (steps.at(-1)?.kind === 'text' ? (steps.at(-1).text += t) : steps.push({ kind: 'text', text: t }));
+  let presses = 0;
+  let typed = 0;
+  let delay = 0;
+  for (let i = 0; i < src.length; ) {
+    if (src[i] === '}') return no('stray');
+    if (src[i] !== '{') {
+      const m = /^[^{}]+/.exec(src.slice(i))[0];
+      addText(m);
+      typed += [...m].length;
+      i += m.length;
+      continue;
+    }
+    const three = src.slice(i, i + 3);
+    if (three === '{{}' || three === '{}}') {
+      addText(three[1]);
+      typed++;
+      i += 3;
+      continue;
+    }
+    const close = src.indexOf('}', i + 1);
+    if (close < 0) return no('unclosed');
+    const body = src.slice(i + 1, close);
+    i = close + 1;
+    if (body.startsWith('DELAY ')) {
+      const num = body.slice(6);
+      if (!/^[1-9][0-9]{0,3}$/.test(num) || +num < 100 || +num > 3000) return no('delay');
+      delay += +num;
+      steps.push({ kind: 'delay', ms: +num });
+      continue;
+    }
+    const tok = Object.hasOwn(SEQ_TOKENS, body) ? SEQ_TOKENS[body] : null;
+    if (!tok) return no('unknown');
+    if (tok[0] === 'press') presses++;
+    typed += tok[1];
+    steps.push({ kind: tok[0] });
+  }
+  if (steps.length > 32) return no('steps');
+  if (presses > 4) return no('presses');
+  if (delay > 10000) return no('delayTotal');
+  if (typed > 1024) return no('typing');
+  let typedInPart = false;
+  for (const st of steps) {
+    if (st.kind === 'press') {
+      if (!typedInPart) return no('placement');
+      typedInPart = false;
+    } else if (st.kind !== 'delay') typedInPart = true;
+  }
+  if (!typedInPart) return no(presses ? 'placement' : 'empty');
+  const preview = steps.map((st) => (st.kind === 'text' ? '•'.repeat([...st.text].length) : st.kind === 'delay' ? `{DELAY ${st.ms}}` : `{${st.kind.toUpperCase()}}`)).join('');
+  return { steps, parts: presses + 1, preview };
+}
+
+/** seqrun::builtIn: what "Both" means without a custom sequence. */
+const seqBuiltIn = () => `{USERNAME}${settings.bothSeparator === 'enter' ? '{ENTER}' : '{TAB}'}{PASSWORD}${settings.submitAfterBoth ? '{ENTER}' : ''}`;
+
+/** The text one part types (null: a field it names is empty, like checkPart's Failed). */
+function seqPartText(seq, part, e) {
+  let at = 0;
+  let out = '';
+  const code = seq.steps.some((st) => st.kind === 'totp') ? (totpCode(e.totp)?.code ?? '') : '';
+  for (const st of seq.steps) {
+    if (st.kind === 'press') {
+      if (++at > part) break;
+      continue;
+    }
+    if (at !== part) continue;
+    const field = { text: st.text, username: e.username, password: e.password, totp: code }[st.kind];
+    if (field !== undefined && !field) return null;
+    out += field ?? { tab: '\t', enter: '\n', space: ' ', delay: '' }[st.kind];
+  }
+  return out;
+}
+
+/** The pending card's view of a type request (handlers_kbd addPending: part is 1-based). */
+function pendingView(req) {
+  const v = { id: req.id, title: req.title, what: req.what, submit: req.submit };
+  if (req.what === 'sequence') Object.assign(v, { preview: req.seq.preview, part: req.part + 1, parts: req.seq.parts });
+  return v;
+}
+
 /** Copies present fields onto `base`; returns an error message on a wrong type. */
-function readEntry(src, withTimestamps, base = { title: '', url: '', username: '', password: '', totp: '', notes: '', favorite: false, created: 0, updated: 0, lastUsed: 0, history: [] }) {
+function readEntry(src, withTimestamps, base = { title: '', url: '', username: '', password: '', totp: '', notes: '', sequence: '', favorite: false, created: 0, updated: 0, lastUsed: 0, history: [] }) {
   const e = { ...base };
-  for (const k of STR_FIELDS) {
+  for (const k of [...STR_FIELDS, 'sequence']) {
     if (src[k] === undefined) continue;
     if (typeof src[k] !== 'string') return `"${k}" must be a string`;
     e[k] = src[k];
@@ -576,6 +701,10 @@ function readEntry(src, withTimestamps, base = { title: '', url: '', username: '
   if (src.burnAfter !== undefined) {
     if (!Number.isInteger(src.burnAfter) || src.burnAfter < 0 || src.burnAfter > 99) return '"burnAfter" must be 0-99';
     e.burnAfter = src.burnAfter;
+  }
+  if (e.sequence) {
+    const r = seqParse(e.sequence);
+    if (r.error) return `sequence: ${r.error}`;
   }
   if (withTimestamps) {
     for (const k of ['created', 'updated', 'lastUsed']) {
@@ -1005,8 +1134,9 @@ function getEntry(id) {
 
 // SPEC §12.3: the entry with secrets, or without them (hasPassword/hasTotp, history dates only).
 function entryView(e, revealed) {
-  const { password, totp, history, ...rest } = e;
-  if (revealed) return { ...rest, revealed, hasPassword: !!password, hasTotp: !!totp, password, totp, history };
+  // A custom sequence may hold literal secrets: it follows the password (SPEC §10.4).
+  const { password, totp, history, sequence, ...rest } = e;
+  if (revealed) return { ...rest, revealed, hasPassword: !!password, hasTotp: !!totp, password, totp, sequence: sequence ?? '', history };
   return { ...rest, revealed, hasPassword: !!password, hasTotp: !!totp, history: history.map((h) => ({ changedAt: h.changedAt })) };
 }
 
@@ -1146,7 +1276,7 @@ async function api(req, res, path) {
         })(),
         pending:
           session && s?.kind === 'type'
-            ? { kind: 'type', id: s.req.id, title: s.req.title, what: s.req.what, submit: s.req.submit, expiresIn: s.deadline - Date.now(), target: targetText(s.req.target) }
+            ? { kind: 'type', ...pendingView(s.req), expiresIn: s.deadline - Date.now(), target: targetText(s.req.target) }
             : null,
         last: session && machine.last ? { ...machine.last, at: Date.now() - machine.last.at } : null,
         presence: {
@@ -1355,10 +1485,21 @@ async function api(req, res, path) {
       }
       if (b.test) return send(res, 202, { pending: { kind: 'type', ...arm({ id: 0, title: 'Keyra test', what: 'test', submit: false, target }) } });
       if (!Number.isInteger(b.id) || b.id < 1 || b.id > 0xffffffff) bad('"id" (entry id) is required');
-      if (!['username', 'password', 'both', 'totp'].includes(b.what)) bad('"what" must be username, password, both or totp');
+      if (!['username', 'password', 'both', 'totp', 'sequence'].includes(b.what)) bad('"what" must be username, password, both, totp or sequence');
       if (b.submit !== undefined && typeof b.submit !== 'boolean') bad('"submit" must be a boolean');
+      if (b.what === 'sequence' && b.submit !== undefined) bad('a sequence says itself whether to press Enter; "submit" is not allowed');
       const submit = b.submit ?? (b.what === 'both' && settings.submitAfterBoth);
       const e = getEntry(b.id);
+      if (b.what === 'sequence') {
+        // kbdapi::sequenceRequest: the entry's own, else settings.bothSequence, else the built-in Both order.
+        const seq = seqParse(e.sequence || settings.bothSequence || seqBuiltIn());
+        if (seq.error) fail(500, 'corrupt', seq.error);
+        const needs = (k) => seq.steps.some((st) => st.kind === k);
+        if ((needs('username') && !e.username) || (needs('password') && !e.password) || (needs('totp') && !e.totp)) bad('Entry has no value for a field its sequence types');
+        if (needs('totp') && !timeValid) fail(409, 'no_time', 'Device clock is not set');
+        const p = arm({ id: e.id, title: e.title, what: 'sequence', submit: false, target, seq, part: 0 });
+        return send(res, 202, { pending: { kind: 'type', ...pendingView(p), expiresIn: p.expiresIn, target: p.target } });
+      }
       const missing =
         (b.what === 'username' && !e.username) ||
         (b.what === 'password' && !e.password) ||
@@ -1435,6 +1576,12 @@ async function api(req, res, path) {
       if (b.bothSeparator !== undefined) {
         if (b.bothSeparator !== 'tab' && b.bothSeparator !== 'enter') bad('bothSeparator must be "tab" or "enter"');
         next.bothSeparator = b.bothSeparator;
+      }
+      if (b.bothSequence !== undefined) {
+        if (typeof b.bothSequence !== 'string') bad('bothSequence must be a string');
+        const r = b.bothSequence ? seqParse(b.bothSequence) : {};
+        if (r.error) bad(r.error);
+        next.bothSequence = b.bothSequence;
       }
       if (b.submitAfterBoth !== undefined) {
         if (typeof b.submitAfterBoth !== 'boolean') bad('submitAfterBoth must be a boolean');
@@ -1732,6 +1879,7 @@ const publicSettings = () => ({
   output: settings.output,
   bleConnect: settings.bleConnect,
   osUsb: settings.osUsb,
+  bothSequence: settings.bothSequence,
   homeWifi: { enabled: settings.homeWifi.enabled, ssid: settings.homeWifi.ssid },
   apMode: settings.apMode,
   protectReveal: settings.protectReveal,

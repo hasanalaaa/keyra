@@ -6,6 +6,16 @@ All notable changes to Keyra are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Auto-type sequences in the web app** (SPEC §10.4): an optional "Typing
+  sequence" on each account (advanced, collapsed) with token buttons, live
+  checking against the firmware grammar and a masked preview per part; "Type
+  sequence" on the account, with "Part 1 of 2 — press again" on the Ready card
+  for each `{PRESS}`; Settings → Typing → Order for "Both" (`bothSequence`, with
+  reset to default), which "Both" then types. The mock stores, validates and
+  types sequences part by part like the firmware.
+
 ### Fixed
 
 - **Button presses are bound to who asked (security):** any session could

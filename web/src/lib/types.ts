@@ -1,6 +1,7 @@
 // Shapes of the device API (SPEC §5). This file is the client's view of the contract.
 
-export type TypeWhat = 'username' | 'password' | 'both' | 'totp';
+/** `sequence` (SPEC §10.4): the entry's own sequence, else settings.bothSequence, else the built-in Both order. */
+export type TypeWhat = 'username' | 'password' | 'both' | 'totp' | 'sequence';
 export type ResultCode = 'typed' | 'cancelled' | 'expired' | 'no_usb' | 'no_host' | 'unsupported_char' | 'failed' | 'host_changed';
 
 export interface Pending {
@@ -11,6 +12,10 @@ export interface Pending {
   submit: boolean;
   expiresIn: number;
   target?: string | null; // "usb" or a Bluetooth device address
+  /** what "sequence" only (SPEC §10.4): the whole sequence masked, and the part (1-based) the next press types. */
+  preview?: string;
+  part?: number;
+  parts?: number;
 }
 
 export interface TypeResult {
@@ -199,6 +204,8 @@ export interface Entry {
   updated: number;
   lastUsed: number;
   burnAfter?: number; // SPEC §16; absent on older firmware
+  /** SPEC §10.4: only when revealed ('' = none); it may hold literal secrets. */
+  sequence?: string;
   history: OldPassword[]; // newest first, at most 10 (SPEC §9.3)
 }
 
@@ -216,6 +223,7 @@ export interface EntryInput {
   notes: string;
   favorite: boolean;
   burnAfter: number; // SPEC §16: 0 = keep
+  sequence: string; // SPEC §10.4: '' = none
 }
 
 /** POST /api/type with free text (SPEC §9.2). */
@@ -239,6 +247,8 @@ export interface Settings {
   output: Output;
   bleConnect: 'on_demand' | 'always';
   osUsb: HostOs;
+  /** SPEC §10.4: the order "Both" types ('' = built in: username, separator, password, optional Enter). */
+  bothSequence?: string;
   /** SPEC §12.3-12.5 */
   protectReveal: boolean;
   lockOnUsb: boolean;
