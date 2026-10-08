@@ -121,6 +121,7 @@ void addEntrySummary(cJSON* o, const vault::Entry& e) {
   cJSON_AddBoolToObject(o, "favorite", e.favorite);
   cJSON_AddBoolToObject(o, "hasPassword", !e.password.empty());
   cJSON_AddBoolToObject(o, "hasTotp", !e.totp.empty());
+  cJSON_AddBoolToObject(o, "hasSequence", !e.sequence.empty());  // the sequence itself only when revealed
   cJSON_AddNumberToObject(o, "updated", static_cast<double>(e.updated));
   cJSON_AddNumberToObject(o, "lastUsed", static_cast<double>(e.lastUsed));
   cJSON_AddNumberToObject(o, "burnAfter", e.burnAfter);

@@ -180,7 +180,7 @@ Conventions
 | POST `/api/setup` | none, only if !initialized | `{passphrase, wifiPassword, deviceName?}` → 202 `{awaiting:"button", expiresIn}`; completes when the button is pressed (watch `state.presence` / `state.initialized`). passphrase 10–128 chars; wifiPassword 8–63 printable ASCII and ≠ `keyra1234`. The client then calls unlock. AP restarts with the new password ~3 s after commit. |
 | POST `/api/unlock` | none | `{passphrase}` → 200 `{csrf, failedAttempts}` (§15) / 401 `{error:"wrong", retryAfterMs}` / 429 `{error:"rate_limited", retryAfterMs}` / 202 trust the browser first (§8.2) |
 | POST `/api/lock` | session | → 204 |
-| GET `/api/entries` | session | → `{entries:[{id,title,url,username,favorite,hasPassword,hasTotp,updated,lastUsed,burnAfter}]}` (no secrets) |
+| GET `/api/entries` | session | → `{entries:[{id,title,url,username,favorite,hasPassword,hasTotp,hasSequence,updated,lastUsed,burnAfter}]}` (no secrets) |
 | GET `/api/entries/{id}` | session | → the entry; `password`, `totp`, old passwords and `sequence` only when `revealed` (§12.3) |
 | POST `/api/entries/{id}/reveal` | session | → 200 the revealed entry, or 202 press first (§12.3) |
 | POST `/api/entries` | session | entry (no id) → 201 `{id}` |

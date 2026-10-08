@@ -62,6 +62,7 @@ void addEntry(cJSON* o, const vault::Entry& e, bool revealed) {
   cJSON_AddBoolToObject(o, "revealed", revealed);
   cJSON_AddBoolToObject(o, "hasPassword", !e.password.empty());
   cJSON_AddBoolToObject(o, "hasTotp", !e.totp.empty());
+  cJSON_AddBoolToObject(o, "hasSequence", !e.sequence.empty());
   if (revealed) {
     cJSON_AddStringToObject(o, "password", e.password.c_str());
     cJSON_AddStringToObject(o, "totp", e.totp.c_str());
