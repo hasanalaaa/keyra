@@ -199,6 +199,20 @@ Conventions
 `Pending` = `{kind:"type", id, title, what, submit, expiresIn}` (expires after
 **60 s**). `Result` = `{ok:bool, code:"typed"|"cancelled"|"expired"|"no_usb"|"unsupported_char"|"failed", at:ms_ago, title?, what?}`.
 
+Restore (`/api/restore`):
+- The backup passphrase and the file are checked before anything changes, and
+  for `replace` before the press is requested (401 `wrong` / 400 invalid / 507 `full`).
+- `replace` is atomic: the new entries are staged next to the old ones and
+  committed by one marker file. A power cut or a write failure (storage full)
+  leaves either every old entry or every restored one, never a mix; an
+  interrupted commit is finished at the next boot or unlock.
+- `merge` matches an entry by id (only when title, username and url agree too)
+  or else by title, username and url. The copy with the newer `updated` wins,
+  so an old backup never overwrites a newer local edit (a tie keeps the local
+  one, and is not counted in `updated`). When the backup wins and changes the
+  password, the local password goes into the entry's history (§9.3). The same
+  id for a different account is added as a separate entry.
+
 Button semantics (owned by `keyra_api/actions`):
 - Short press: if a presence op is awaiting → approve it; else if a type action is pending → run it (one-shot); else no-op (LED blink).
 - Long press: cancel presence op / pending action; if nothing pending and unlocked → lock.

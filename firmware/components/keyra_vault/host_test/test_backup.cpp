@@ -104,12 +104,12 @@ TEST(merge_vs_replace) {
 
   size_t added = 0, updated = 0;
   CHECK((*dst)->importBackup(kBackupPass, backup, false, &added, &updated) == Status::Ok);
-  CHECK(added == 1 && updated == 2);
+  CHECK(added == 1 && updated == 0);  // x and y matched, but the local copies are no older
   auto all = sorted(*dst->v);
   CHECK(all.size() == 4);  // w, x, y, z
   Entry got;
-  CHECK((*dst)->get(x.id, got) == Status::Ok && got.password == "pw-x");
-  CHECK((*dst)->get(yLocal.id, got) == Status::Ok && got.password == "pw-y");  // kept local id
+  CHECK((*dst)->get(x.id, got) == Status::Ok && got.password == "local edit");
+  CHECK((*dst)->get(yLocal.id, got) == Status::Ok && got.password == "y local");  // kept local id
   CHECK((*dst)->get(w.id, got) == Status::Ok);
 
   CHECK((*dst)->importBackup(kBackupPass, backup, true, &added, &updated) == Status::Ok);
@@ -215,30 +215,252 @@ TEST(import_respects_entry_limit) {
         Status::Full);
 }
 
-TEST(failed_replace_resyncs_with_flash) {
+static std::vector<Entry> byId(Vault& v) {
+  std::vector<Entry> all;
+  v.list(all);
+  std::sort(all.begin(), all.end(), [](const Entry& a, const Entry& b) { return a.id < b.id; });
+  return all;
+}
+
+static bool sameSet(const std::vector<Entry>& a, const std::vector<Entry>& b) {
+  if (a.size() != b.size()) return false;
+  for (size_t i = 0; i < a.size(); ++i)
+    if (!same(a[i], b[i])) return false;
+  return true;
+}
+
+// A vault whose entries differ from `backup` in every way a replace must handle:
+// an entry only in the backup, one only in the vault, and an id in both with
+// different contents.
+struct ReplaceCase {
+  std::map<std::string, std::vector<uint8_t>> files;  // the vault on flash
+  std::string backup;
+  std::vector<Entry> oldSet, newSet;
+};
+
+static ReplaceCase replaceCase() {
+  ReplaceCase c;
   auto r = Rig::ready();
-  Entry a = sample("a"), b = sample("b");
-  CHECK((*r)->put(a) == Status::Ok && (*r)->put(b) == Status::Ok);
+  Entry a = sample("a"), b = sample("b"), cc = sample("c"), d = sample("d");
+  CHECK((*r)->put(a) == Status::Ok && (*r)->put(b) == Status::Ok && (*r)->put(cc) == Status::Ok);
+  CHECK((*r)->exportBackup(kBackupPass, c.backup) == Status::Ok);
+  c.newSet = byId(*r->v);
+  CHECK((*r)->remove(a.id) == Status::Ok);
+  b.password = "b changed";
+  b.updated += 10;
+  CHECK((*r)->put(b) == Status::Ok && (*r)->put(d) == Status::Ok);
+  c.oldSet = byId(*r->v);
+  c.files = r->storage.files;
+  return c;
+}
+
+static bool restoreLeftovers(const MemStorage& s) {
+  for (const auto& f : s.files)
+    if (f.first == "restore.commit" || f.first.find(".new") != std::string::npos) return true;
+  return false;
+}
+
+// Power cut at every mutating storage operation of a replace: after reboot the
+// vault holds exactly the old entries or exactly the backup's, never a mix.
+TEST(replace_is_atomic_across_power_cuts) {
+  const ReplaceCase c = replaceCase();
+  bool sawOld = false, sawNew = false;
+  for (int k = 0; k < 100; ++k) {
+    Rig t;
+    t.storage.files = c.files;
+    CHECK(t->init() == Status::Ok && t->unlock(kPass, nullptr) == Status::Ok);
+    t.storage.crashAfter = k;
+    const Status s = t->importBackup(kBackupPass, c.backup, true, nullptr, nullptr);
+    if (s != Status::Ok) CHECK(!t->unlocked());  // never shows RAM that flash may not match
+    t.reboot();
+    CHECK(t->init() == Status::Ok && t->unlock(kPass, nullptr) == Status::Ok);
+    CHECK(!restoreLeftovers(t.storage));
+    const auto got = byId(*t.v);
+    const bool isOld = sameSet(got, c.oldSet), isNew = sameSet(got, c.newSet);
+    CHECK(isOld || isNew);
+    sawOld |= isOld;
+    sawNew |= isNew;
+    if (s == Status::Ok) {
+      CHECK(isNew);
+      CHECK(k > 10);  // the sweep really covered the staging and the commit
+      break;
+    }
+    CHECK(k < 99);
+  }
+  CHECK(sawOld && sawNew);
+}
+
+// The same sweep with a single failing operation (the device keeps running).
+TEST(replace_is_atomic_across_io_errors) {
+  const ReplaceCase c = replaceCase();
+  for (int k = 0; k < 100; ++k) {
+    Rig t;
+    t.storage.files = c.files;
+    CHECK(t->init() == Status::Ok && t->unlock(kPass, nullptr) == Status::Ok);
+    t.storage.failAfter = k;
+    const Status s = t->importBackup(kBackupPass, c.backup, true, nullptr, nullptr);
+    if (t->unlocked()) {
+      const auto ram = byId(*t.v);
+      CHECK(s == Status::Ok ? sameSet(ram, c.newSet) : sameSet(ram, c.oldSet) || sameSet(ram, c.newSet));
+    }
+    t.reboot();
+    CHECK(t->init() == Status::Ok && t->unlock(kPass, nullptr) == Status::Ok);
+    CHECK(!restoreLeftovers(t.storage));
+    const auto got = byId(*t.v);
+    CHECK(sameSet(got, c.oldSet) || sameSet(got, c.newSet));
+    if (s == Status::Ok) {
+      CHECK(sameSet(got, c.newSet));
+      break;
+    }
+    CHECK(k < 99);
+  }
+}
+
+TEST(full_storage_during_replace_keeps_old_vault) {
+  const ReplaceCase c = replaceCase();
+  Rig t;
+  t.storage.files = c.files;
+  CHECK(t->init() == Status::Ok && t->unlock(kPass, nullptr) == Status::Ok);
+  t.storage.failAfter = 2;  // the second staged entry does not fit
+  size_t a = 9;
+  CHECK(t->importBackup(kBackupPass, c.backup, true, &a, nullptr) == Status::StorageError);
+  CHECK(a == 0);
+  CHECK(t.storage.files == c.files);  // staged files are gone again
+  CHECK(t->unlocked() && sameSet(byId(*t.v), c.oldSet));
+  // With the medium gone entirely, the vault locks rather than show stale RAM.
+  t.storage.crashAfter = 0;
+  CHECK(t->importBackup(kBackupPass, c.backup, true, nullptr, nullptr) == Status::StorageError);
+  CHECK(!t->unlocked());
+  t.reboot();
+  CHECK(t->init() == Status::Ok && t->unlock(kPass, nullptr) == Status::Ok);
+  CHECK(sameSet(byId(*t.v), c.oldSet));
+}
+
+TEST(replace_with_empty_backup_empties_vault) {
+  auto r = Rig::ready();
+  Entry e = sample("gone");
+  CHECK((*r)->put(e) == Status::Ok);
+  size_t a = 9;
+  CHECK((*r)->importBackup(kBackupPass, seal(r->crypto, "[]"), true, &a, nullptr) == Status::Ok && a == 0);
+  CHECK(byId(*r->v).empty());
+  r->reboot();
+  CHECK((*r)->init() == Status::Ok && (*r)->unlock(kPass, nullptr) == Status::Ok);
+  CHECK(byId(*r->v).empty() && !restoreLeftovers(r->storage));
+}
+
+// A staged file without the commit marker (power cut before the commit) is discarded.
+TEST(uncommitted_staging_is_discarded) {
+  auto r = Rig::ready();
+  Entry e = sample("kept");
+  CHECK((*r)->put(e) == Status::Ok);
+  const auto bin = std::find_if(r->storage.files.begin(), r->storage.files.end(),
+                                [](const auto& f) { return f.first.compare(0, 2, "e/") == 0; });
+  CHECK(bin != r->storage.files.end());
+  r->storage.files["e/0000002a.new"] = bin->second;
+  r->reboot();
+  CHECK((*r)->init() == Status::Ok && !restoreLeftovers(r->storage));
+  CHECK((*r)->unlock(kPass, nullptr) == Status::Ok && byId(*r->v).size() == 1);
+}
+
+// Merge: a backup older than the vault's copy never overwrites it.
+TEST(merge_keeps_newer_local_entry) {
+  auto r = Rig::ready();
+  Entry e = sample("mail");
+  CHECK((*r)->put(e) == Status::Ok);
   std::string backup;
   CHECK((*r)->exportBackup(kBackupPass, backup) == Status::Ok);
-  r->storage.failAfter = 1;  // first old file removed, the second removal fails
-  CHECK((*r)->importBackup(kBackupPass, backup, true, nullptr, nullptr) == Status::StorageError);
-  std::vector<Entry> all;
-  CHECK((*r)->list(all) == Status::Ok && all.size() == 1);  // exactly what is on flash
-  // With the medium gone entirely, the vault locks rather than show stale RAM.
-  r->storage.crashAfter = 0;
-  CHECK((*r)->importBackup(kBackupPass, backup, true, nullptr, nullptr) == Status::StorageError);
-  CHECK(!(*r)->unlocked());
+  e.password = "changed later";
+  e.updated = 1800000000;
+  CHECK((*r)->put(e) == Status::Ok);
+  size_t a = 9, u = 9;
+  CHECK((*r)->importBackup(kBackupPass, backup, false, &a, &u) == Status::Ok);
+  CHECK(a == 0 && u == 0);
+  Entry got;
+  CHECK((*r)->get(e.id, got) == Status::Ok && got.password == "changed later" && got.updated == 1800000000);
+  CHECK(got.history.size() == 1 && got.history[0].password == "pw-mail");
+}
+
+// Merge: a newer backup wins, and the local password it replaces is kept in history.
+TEST(merge_newer_backup_keeps_local_password_in_history) {
+  auto src = Rig::ready();
+  Entry e = sample("bank");  // pw-bank, updated 1700000001
+  CHECK((*src)->put(e) == Status::Ok);
+  std::string older;
+  CHECK((*src)->exportBackup(kBackupPass, older) == Status::Ok);
+  e.password = "newer";
+  e.updated = 1800000000;
+  CHECK((*src)->put(e) == Status::Ok);
+  std::string newer;  // history: [pw-bank]
+  CHECK((*src)->exportBackup(kBackupPass, newer) == Status::Ok);
+
+  // The local password is already in the backup's history: not repeated.
+  auto dst = Rig::ready();
+  CHECK((*dst)->importBackup(kBackupPass, older, true, nullptr, nullptr) == Status::Ok);
+  size_t a = 9, u = 9;
+  CHECK((*dst)->importBackup(kBackupPass, newer, false, &a, &u) == Status::Ok && a == 0 && u == 1);
+  Entry got;
+  CHECK((*dst)->get(e.id, got) == Status::Ok && got.password == "newer" && got.updated == 1800000000);
+  CHECK(got.history.size() == 1 && got.history[0].password == "pw-bank");
+
+  // A local password the backup never saw goes in front of the backup's history.
+  CHECK((*dst)->importBackup(kBackupPass, older, true, nullptr, nullptr) == Status::Ok);
+  Entry local;
+  CHECK((*dst)->get(e.id, local) == Status::Ok);
+  local.password = "local only";
+  local.updated = 1750000000;  // newer than `older`, older than `newer`
+  CHECK((*dst)->put(local) == Status::Ok);
+  CHECK((*dst)->importBackup(kBackupPass, newer, false, &a, &u) == Status::Ok && a == 0 && u == 1);
+  CHECK((*dst)->get(e.id, got) == Status::Ok && got.password == "newer");
+  CHECK(got.history.size() == 2 && got.history[0].password == "local only" &&
+        got.history[0].changedAt == 1800000000 && got.history[1].password == "pw-bank");
+}
+
+// Merge: the same id for a different account (another vault) is a different entry.
+TEST(merge_id_collision_keeps_both) {
+  auto r = Rig::ready();
+  CHECK((*r)->importBackup(kBackupPass, seal(r->crypto, "[{\"id\":42,\"title\":\"local\",\"password\":\"L\"}]"),
+                           true, nullptr, nullptr) == Status::Ok);
+  size_t a = 9, u = 9;
+  CHECK((*r)->importBackup(kBackupPass,
+                           seal(r->crypto, "[{\"id\":42,\"title\":\"other\",\"password\":\"O\",\"updated\":5}]"),
+                           false, &a, &u) == Status::Ok);
+  CHECK(a == 1 && u == 0);
+  auto all = sorted(*r->v);
+  CHECK(all.size() == 2);
+  if (all.size() == 2) {
+    CHECK(all[0].title == "local" && all[0].id == 42 && all[0].password == "L");
+    CHECK(all[1].title == "other" && all[1].id != 42 && all[1].password == "O");
+  }
+}
+
+TEST(check_backup_writes_nothing) {
+  auto r = Rig::ready();
+  Entry e = sample("keep");
+  CHECK((*r)->put(e) == Status::Ok);
+  std::string backup;
+  CHECK((*r)->exportBackup(kBackupPass, backup) == Status::Ok);
+  const auto snapshot = r->storage.files;
+  CHECK((*r)->checkBackup(kBackupPass, backup) == Status::Ok);
+  CHECK((*r)->checkBackup("not the pass phrase", backup) == Status::WrongPassphrase);
+  CHECK((*r)->checkBackup(kBackupPass, "{}") == Status::Invalid);
+  CHECK((*r)->checkBackup(kBackupPass, seal(r->crypto, "[{\"title\":5}]")) == Status::Invalid);
+  std::string many = "[";
+  for (size_t i = 0; i <= kMaxEntries; ++i) many += (i ? "," : "") + std::string("{}");
+  CHECK((*r)->checkBackup(kBackupPass, seal(r->crypto, many + "]")) == Status::Full);
+  CHECK(r->storage.files == snapshot);
+  (*r)->lock();
+  CHECK((*r)->checkBackup(kBackupPass, backup) == Status::Locked);
 }
 
 TEST(duplicates_inside_one_import_merge) {
   auto r = Rig::ready();
   size_t a = 0, u = 0;
   std::string plain =
-      "[{\"title\":\"t\",\"username\":\"u\",\"password\":\"1\"},"
-      "{\"title\":\"t\",\"username\":\"u\",\"password\":\"2\"}]";
+      "[{\"title\":\"t\",\"username\":\"u\",\"password\":\"1\",\"updated\":1},"
+      "{\"title\":\"t\",\"username\":\"u\",\"password\":\"2\",\"updated\":2},"
+      "{\"title\":\"t\",\"username\":\"u\",\"password\":\"3\",\"updated\":2}]";
   CHECK((*r)->importBackup(kBackupPass, seal(r->crypto, plain), false, &a, &u) == Status::Ok);
-  CHECK(a == 1 && u == 1);
+  CHECK(a == 1 && u == 1);  // the newest copy wins; a tie keeps the one already there
   std::vector<Entry> all;
   CHECK((*r)->list(all) == Status::Ok && all.size() == 1 && all[0].password == "2");
 }

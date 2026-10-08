@@ -14,6 +14,8 @@ namespace {
 
 constexpr char kMetaPath[] = "meta.bin";
 constexpr char kEntryDir[] = "e";
+constexpr char kRestoreMarker[] = "restore.commit";
+constexpr uint8_t kMarkerVersion = 1;
 constexpr char kMetaAad[] = "keyra/meta/v1";  // the passphrase wrap keeps its v1 AAD
 constexpr char kRecoveryAad[] = "keyra/wrap/recovery/v1";
 constexpr char kRecoveryInfo[] = "keyra/recovery/v1";
@@ -33,6 +35,7 @@ std::string hexId(uint32_t id) {
 }
 std::string entryPath(uint32_t id) { return std::string(kEntryDir) + "/" + hexId(id) + ".bin"; }
 std::string entryAad(uint32_t id) { return "keyra/e/v1/" + hexId(id); }
+std::string stagedPath(uint32_t id) { return std::string(kEntryDir) + "/" + hexId(id) + ".new"; }
 
 bool parseEntryName(const std::string& name, uint32_t& id) {
   if (name.size() != 12 || name.compare(8, 4, ".bin") != 0) return false;
@@ -50,6 +53,8 @@ bool endsWith(const std::string& s, const char* suffix) {
   size_t n = std::strlen(suffix);
   return s.size() >= n && s.compare(s.size() - n, n, suffix) == 0;
 }
+
+bool isStaged(const std::string& name) { return endsWith(name, ".new") || endsWith(name, ".new.tmp"); }
 
 const uint8_t* bytes(const char* s) { return reinterpret_cast<const uint8_t*>(s); }
 
@@ -111,6 +116,7 @@ Status Vault::init() {
       if (!p_.storage.remove(path)) return Status::StorageError;
     }
   }
+  if (Status s = settleRestore(); s != Status::Ok) return s;
   uint32_t failures;
   if (!p_.counter.load(failures)) return Status::StorageError;
   failures_ = failures;
@@ -233,6 +239,44 @@ Status Vault::removeAllEntryFiles() {
   for (const auto& n : names)
     if (!p_.storage.remove(std::string(kEntryDir) + "/" + n)) return Status::StorageError;
   return Status::Ok;
+}
+
+Status Vault::removeStaged() {
+  std::vector<std::string> names;
+  if (!p_.storage.list(kEntryDir, names)) return Status::StorageError;
+  for (const auto& n : names)
+    if (isStaged(n) && !p_.storage.remove(std::string(kEntryDir) + "/" + n)) return Status::StorageError;
+  return Status::Ok;
+}
+
+// Idempotent, so a power cut anywhere in here is finished by the next call. The
+// id list is what makes it so: once some staged files are renamed, the old and
+// new e/<id>.bin can no longer be told apart by name.
+Status Vault::settleRestore() {
+  std::vector<uint8_t> marker;
+  switch (p_.storage.read(kRestoreMarker, marker)) {
+    case Storage::Read::NotFound: return removeStaged();  // never committed: roll back
+    case Storage::Read::Error: return Status::StorageError;
+    case Storage::Read::Ok: break;
+  }
+  if (marker.empty() || marker[0] != kMarkerVersion || (marker.size() - 1) % 4 != 0) return Status::Corrupt;
+  std::vector<uint32_t> keep;
+  for (size_t at = 1; at < marker.size(); at += 4) keep.push_back(uint32_t(getLe(&marker[at], 4)));
+  std::vector<std::string> names;
+  if (!p_.storage.list(kEntryDir, names)) return Status::StorageError;
+  const std::string dir = std::string(kEntryDir) + "/";
+  for (const auto& n : names) {
+    uint32_t id;
+    // An old entry whose id the backup reuses is replaced by the rename below.
+    if (parseEntryName(n, id) && std::find(keep.begin(), keep.end(), id) == keep.end() &&
+        !p_.storage.remove(dir + n))
+      return Status::StorageError;
+  }
+  for (const auto& n : names) {
+    if (endsWith(n, ".new") && !p_.storage.rename(dir + n, dir + n.substr(0, n.size() - 4) + ".bin"))
+      return Status::StorageError;
+  }
+  return p_.storage.remove(kRestoreMarker) ? Status::Ok : Status::StorageError;
 }
 
 Status Vault::deriveKey(const std::string& pass, const uint8_t salt[16], uint32_t iters, Key& out) {
@@ -487,6 +531,7 @@ RecoveryInfo Vault::recoveryInfo() {
 
 Status Vault::loadEntries() {
   slots_.clear();
+  if (Status s = settleRestore(); s != Status::Ok) return s;  // never read a half-done restore
   std::vector<std::string> names;
   if (!p_.storage.list(kEntryDir, names)) return Status::StorageError;
   slots_.reserve(names.size());
@@ -556,7 +601,7 @@ Status Vault::get(uint32_t id, Entry& out) {
   return codec::decode(slot->plain.data(), slot->plain.size(), out) ? Status::Ok : Status::Corrupt;
 }
 
-Status Vault::persist(uint32_t id, const SecureBuf& plain) {
+Status Vault::persist(const std::string& path, uint32_t id, const SecureBuf& plain) {
   std::vector<uint8_t> file(kEntryOverhead + plain.size());
   file[0] = kEntryVersion;
   if (!p_.crypto.random(file.data() + 1, 12)) return Status::StorageError;
@@ -564,13 +609,13 @@ Status Vault::persist(uint32_t id, const SecureBuf& plain) {
   if (!p_.crypto.gcmSeal(dek_.data(), file.data() + 1, bytes(aad.c_str()), aad.size(),
                          plain.data(), plain.size(), file.data() + 13))
     return Status::StorageError;
-  return writeAtomic(entryPath(id), file.data(), file.size());
+  return writeAtomic(path, file.data(), file.size());
 }
 
 Status Vault::store(Entry& rec) {
   SecureBuf plain;
   if (!codec::encode(rec, plain)) return Status::Full;  // out of RAM for plaintext
-  if (Status s = persist(rec.id, plain); s != Status::Ok) return s;
+  if (Status s = persist(entryPath(rec.id), rec.id, plain); s != Status::Ok) return s;
   if (Slot* slot = find(rec.id)) {
     slot->plain = std::move(plain);
   } else {
@@ -702,17 +747,12 @@ Status Vault::exportBackup(const std::string& backupPass, std::string& outJson) 
   return s;
 }
 
-Status Vault::importBackup(const std::string& backupPass, const std::string& jsonText,
-                           bool replace, size_t* added, size_t* updated) {
-  std::lock_guard<std::mutex> g(m_);
-  if (added) *added = 0;
-  if (updated) *updated = 0;
-  if (Status s = requireUnlocked(); s != Status::Ok) return s;
-
+Status Vault::readBackup(const std::string& backupPass, const std::string& jsonText,
+                         std::vector<Entry>& out) {
+  out.clear();
   backup::Envelope env;
   if (!backup::readEnvelope(jsonText, env)) return Status::Invalid;
 
-  // 1. Decrypt and validate everything before touching the vault.
   json::Value root;
   {
     Key key;
@@ -735,19 +775,41 @@ Status Vault::importBackup(const std::string& backupPass, const std::string& jso
   }
   if (root.items.size() > kMaxEntries) return Status::Full;
 
-  std::vector<Entry> incoming(root.items.size());
+  out.resize(root.items.size());
+  for (size_t i = 0; i < out.size(); ++i) {
+    if (!backup::readEntry(root.items[i], out[i]) || !codec::valid(out[i])) {
+      for (auto& e : out) wipe(e);
+      out.clear();
+      return Status::Invalid;
+    }
+  }
+  return Status::Ok;
+}
+
+Status Vault::checkBackup(const std::string& backupPass, const std::string& jsonText) {
+  std::lock_guard<std::mutex> g(m_);
+  if (Status s = requireUnlocked(); s != Status::Ok) return s;
+  std::vector<Entry> incoming;
+  Status s = readBackup(backupPass, jsonText, incoming);
+  for (auto& e : incoming) wipe(e);
+  return s;
+}
+
+Status Vault::importBackup(const std::string& backupPass, const std::string& jsonText,
+                           bool replace, size_t* added, size_t* updated) {
+  std::lock_guard<std::mutex> g(m_);
+  if (added) *added = 0;
+  if (updated) *updated = 0;
+  if (Status s = requireUnlocked(); s != Status::Ok) return s;
+
+  // 1. Decrypt and validate everything before touching the vault.
+  std::vector<Entry> incoming;
+  if (Status s = readBackup(backupPass, jsonText, incoming); s != Status::Ok) return s;
   std::vector<Identity> index;  // merge view: existing entries + those this import adds
   auto cleanup = [&] {
     for (auto& e : incoming) wipe(e);
     for (auto& x : index) wipe(x.title), wipe(x.username), wipe(x.url);
   };
-  for (size_t i = 0; i < incoming.size(); ++i) {
-    if (!backup::readEntry(root.items[i], incoming[i]) || !codec::valid(incoming[i])) {
-      cleanup();
-      return Status::Invalid;
-    }
-  }
-  root = json::Value{};
 
   // 2. Plan ids so the final count is known before anything is written.
   auto taken = [&](uint32_t id) {
@@ -777,16 +839,24 @@ Status Vault::importBackup(const std::string& backupPass, const std::string& jso
   for (auto& e : incoming) {
     Identity* match = nullptr;
     if (!replace) {
+      auto sameAccount = [&e](const Identity& x) {
+        return x.title == e.title && x.username == e.username && x.url == e.url;
+      };
+      // An id alone is not enough: another vault may have used it for a different account.
       for (auto& x : index)
-        if (e.id != 0 && x.id == e.id) match = &x;
+        if (e.id != 0 && x.id == e.id && sameAccount(x)) {
+          match = &x;
+          break;
+        }
       if (!match)
         for (auto& x : index)
-          if (x.title == e.title && x.username == e.username && x.url == e.url) match = &x;
+          if (sameAccount(x)) {
+            match = &x;
+            break;
+          }
     }
     if (match) {
       e.id = match->id;
-      match->title = e.title, match->username = e.username, match->url = e.url;
-      ++nUpdated;
       continue;
     }
     if ((e.id == 0 || taken(e.id)) && !freshId(e.id)) {
@@ -801,19 +871,68 @@ Status Vault::importBackup(const std::string& backupPass, const std::string& jso
     return Status::Full;
   }
 
-  // 3. Apply. A storage failure from here on leaves a partial import (reported).
-  Status s = Status::Ok;
+  // 3a. Replace: stage the new set beside the old one, then commit with one
+  // atomic marker write (see settleRestore). A failure or power cut before the
+  // marker leaves the old vault; from the marker on, the new one.
   if (replace) {
-    s = removeAllEntryFiles();
-    slots_.clear();
+    Status s = removeStaged();
+    std::vector<uint8_t> marker{kMarkerVersion};
+    marker.reserve(1 + 4 * incoming.size());
+    for (const auto& e : incoming) {
+      if (s != Status::Ok) break;
+      SecureBuf plain;
+      s = codec::encode(e, plain) ? persist(stagedPath(e.id), e.id, plain) : Status::Full;
+      marker.resize(marker.size() + 4);
+      putLe(&marker[marker.size() - 4], e.id, 4);
+    }
+    if (s == Status::Ok) s = writeAtomic(kRestoreMarker, marker.data(), marker.size());
+    cleanup();
+    // Finishes or discards the restore on flash; RAM then mirrors the outcome.
+    if (Status r = loadEntries(); r != Status::Ok) {
+      wipeKeys();
+      slots_.clear();
+      unlocked_ = false;  // a written marker still completes it at the next init/unlock
+      if (s == Status::Ok) s = r;
+    }
+    if (s != Status::Ok) return s;
+    if (added) *added = nAdded;
+    return Status::Ok;
   }
+
+  // 3b. Merge. A storage failure from here on leaves a partial import (reported).
+  Status s = Status::Ok;
   for (auto& e : incoming) {
     if (s != Status::Ok) break;
-    s = store(e);
+    Slot* slot = find(e.id);
+    if (!slot) {
+      s = store(e);
+      continue;
+    }
+    Entry old;
+    if (!codec::decode(slot->plain.data(), slot->plain.size(), old)) {
+      s = Status::Corrupt;
+    } else if (old.updated >= e.updated) {
+      wipe(old);
+      continue;  // the vault's copy is as new or newer: a stale backup never wins
+    } else {
+      // Like put(): the password being replaced goes into history, here in front
+      // of the backup's own history, unless the backup already remembers it.
+      const bool known = std::any_of(e.history.begin(), e.history.end(),
+                                     [&old](const OldPassword& h) { return h.password == old.password; });
+      if (!known) {
+        std::swap(old.history, e.history);
+        keepHistory(old, e);
+      }
+      if (e.created == 0) e.created = old.created;
+      if (e.lastUsed == 0) e.lastUsed = old.lastUsed;
+    }
+    wipe(old);
+    if (s == Status::Ok) s = store(e);
+    if (s == Status::Ok) ++nUpdated;
   }
   cleanup();
   if (s != Status::Ok) {
-    // RAM must reflect what actually reached flash (replace already dropped it).
+    // RAM must reflect what actually reached flash.
     if (loadEntries() != Status::Ok) {
       wipeKeys();
       slots_.clear();

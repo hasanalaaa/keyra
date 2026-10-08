@@ -36,6 +36,12 @@ All notable changes to Keyra are documented here. The format follows
   before it is kept, so a crash shortly after start-up also rolls back; a
   flash storage error no longer rolls back (it cannot help), and an image with
   nothing to roll back to keeps running instead of being left unconfirmed.
+- **Restore** (SPEC §5): "replace" is now atomic — a power cut or full storage
+  mid-restore leaves the old vault or the restored one, never a half-empty mix.
+  "Merge" no longer lets an older backup overwrite a newer local edit (newer
+  `updated` wins; a replaced local password goes into history), and an id
+  reused by a different account is kept as a separate entry. A wrong backup
+  passphrase or bad file is reported before the button press is requested.
 
 ## [0.2.0] - 2026-10-08
 

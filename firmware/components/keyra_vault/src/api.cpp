@@ -45,6 +45,9 @@ Status importBackup(const std::string& backupPass, const std::string& json, bool
                     size_t* added, size_t* updated) {
   return detail::instance().importBackup(backupPass, json, replace, added, updated);
 }
+Status checkBackup(const std::string& backupPass, const std::string& json) {
+  return detail::instance().checkBackup(backupPass, json);
+}
 Status factoryReset() { return detail::instance().factoryReset(); }
 Status passkeyList(std::vector<PasskeyRecord>& out) { return detail::instance().passkeyList(out); }
 Status passkeyPut(uint32_t& id, const std::vector<uint8_t>& data) { return detail::instance().passkeyPut(id, data); }
