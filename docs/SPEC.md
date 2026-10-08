@@ -623,6 +623,11 @@ A press grants what it was asked for, to that session only: `reveal` opens
 one recovery-key change — each used up by that request, never by a reveal
 grace.
 
+Deliberate exception: `GET /api/entries/{id}/totp` (the current 2FA code)
+needs a session but no press. A code lives 30 s and is useless without the
+password, which does need one; asking for a press every 30 s would make the
+account screen unusable.
+
 ### 12.6 Withdrawing a press request
 
 Every 202 `{awaiting:"button"}` answer carries `cancel`, a 128-bit random
