@@ -724,6 +724,9 @@ async function keyboardFlow(base, opts) {
   await page.locator('input[type=password]').waitFor();
   await unlockUi(page);
   const saved = () => page.evaluate(async () => (await (await fetch('/api/settings')).json()).layoutUsb);
+  // The Arabic UI names layouts in Arabic (keyboard.ts AR_NAMES).
+  const german = en ? 'German' : 'الألمانية';
+  const ukName = en ? 'English (UK)' : 'الإنجليزية (البريطانية)';
   const usbRow = page.locator('.nav-row', { hasText: en ? 'USB keyboard layout' : 'تخطيط مفاتيح USB' });
 
   // Pick from the list: German (Windows).
@@ -734,10 +737,10 @@ async function keyboardFlow(base, opts) {
   check((await page.locator('.layout-row').count()) === 16, 'every layout of the firmware table is offered');
   check((await page.locator('.layout-row .layout-exp').count()) === 15, 'all but US are marked experimental');
   await shot(page, `layouts${tag}`);
-  await page.locator('.layout-row', { hasText: 'German' }).first().click();
+  await page.locator('.layout-row', { hasText: german }).first().click();
   await page.locator('.layer .sheet').waitFor({ state: 'detached' });
   check((await saved()) === 'de', 'German saved for USB');
-  check(/German/.test((await usbRow.textContent()) ?? ''), 'the row shows the saved layout');
+  check(((await usbRow.textContent()) ?? '').includes(german), 'the row shows the saved layout');
 
   // Layout Doctor: Keyra types the probe; what appeared names the layout.
   await usbRow.click();
@@ -752,12 +755,12 @@ async function keyboardFlow(base, opts) {
   await input.fill(typed.slice('typing probe · '.length));
   await page.locator('.doctor-result').waitFor();
   // A German Windows and a German Mac computer show the same: Keyra already has one, offers the other.
-  check(/German/.test((await page.locator('.doctor-result .notice').textContent()) ?? ''), 'already set to the matching layout');
+  check(((await page.locator('.doctor-result .notice').textContent()) ?? '').includes(german), 'already set to the matching layout');
   check((await page.locator('.doctor-use').count()) === 1, 'the Mac twin is offered');
   await shot(page, `layout-doctor${tag}`);
   // The computer showed the UK layout's line instead.
   await input.fill('qwyz ;"£/');
-  await page.locator('.doctor-use', { hasText: 'English (UK)' }).click();
+  await page.locator('.doctor-use', { hasText: ukName }).click();
   await page.locator('.layer .sheet').waitFor({ state: 'detached' });
   check((await saved()) === 'uk', 'the suggested layout is saved');
 
@@ -776,7 +779,7 @@ async function keyboardFlow(base, opts) {
   await page.locator('.symbol-input').fill('');
   await page.locator('.symbol-input').press('Enter'); // back to the default set
   const safe = page.getByRole('switch', { name: en ? 'Safe for my keyboard layouts' : 'آمنة لتخطيطات لوحات مفاتيحي' });
-  check(/English \(UK\)/.test((await page.locator('.row-note').textContent()) ?? ''), 'the note names the layouts');
+  check(((await page.locator('.row-note').textContent()) ?? '').includes(ukName), 'the note names the layouts');
   const before = bodies.length;
   await safe.click();
   await page.waitForFunction(() => document.querySelector('.gen-preview.busy') === null);
