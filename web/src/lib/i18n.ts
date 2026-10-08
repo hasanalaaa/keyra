@@ -1411,6 +1411,8 @@ export function t(key: Key, vars?: Record<string, string | number>): string {
 }
 
 /** "12 accounts" with the Arabic plural forms of DESIGN §5. */
+export const currentLang = (): Lang => current;
+
 export function accountCount(n: number): string {
   if (current === 'en') return n === 1 ? '1 account' : `${n} accounts`;
   if (n === 0) return 'لا حسابات';

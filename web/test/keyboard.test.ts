@@ -66,3 +66,18 @@ describe('Layout Doctor (SPEC §10.3)', () => {
     expect(fitsOs(LAYOUTS[4], 'android')).toBe(false);
   });
 });
+
+import { layoutName } from '../src/lib/keyboard';
+import { setLang } from '../src/lib/i18n';
+
+describe('layout names', () => {
+  it('shows Arabic names in the Arabic UI and the firmware name otherwise', () => {
+    const de = { id: 'de', name: 'German', platform: 'windows', experimental: true, probe: '' } as const;
+    const dv = { id: 'dvorak', name: 'Dvorak', platform: 'any', experimental: true, probe: '' } as const;
+    setLang('ar');
+    expect(layoutName(de)).toBe('الألمانية');
+    expect(layoutName(dv)).toBe('Dvorak');
+    setLang('en');
+    expect(layoutName(de)).toBe('German');
+  });
+});

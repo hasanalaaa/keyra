@@ -21,6 +21,7 @@ import {
   type GenSettings,
 } from '../lib/generator';
 import { t } from '../lib/i18n';
+import { layoutName } from '../lib/keyboard';
 import { toast, useApp } from '../lib/store';
 import type { Phase } from '../lib/actions';
 import type { KeyboardLayout } from '../lib/types';
@@ -204,7 +205,7 @@ export function GenOptions({ gen }: { gen: GeneratorState }) {
         <>
           <SwitchRow label={t('layoutSafe')} checked={s.layoutSafe} onChange={(v) => gen.set({ layoutSafe: v })} />
           <p class="caption row-note">
-            {t('layoutSafeNote')} <bdi dir="ltr">{gen.outputs.map((l) => l.name).join(' · ')}</bdi>
+            {t('layoutSafeNote')} <bdi>{gen.outputs.map(layoutName).join(' · ')}</bdi>
           </p>
         </>
       )}

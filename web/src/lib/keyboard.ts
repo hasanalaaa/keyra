@@ -1,7 +1,29 @@
 // Keyboard layouts (SPEC §10.1) and the Layout Doctor (SPEC §10.3): the probe types fixed key
 // positions, and what appears on the computer names its layout. Pure helpers, unit-tested in
 // test/keyboard.test.ts.
+import { currentLang } from './i18n';
 import type { HostOs, KeyboardLayout } from './types';
+
+// The firmware names layouts in English (layouts.txt); the Arabic UI shows these.
+const AR_NAMES: Record<string, string> = {
+  us: 'الإنجليزية (الأمريكية)',
+  uk: 'الإنجليزية (البريطانية)',
+  'uk-mac': 'البريطانية',
+  de: 'الألمانية',
+  'de-mac': 'الألمانية',
+  fr: 'الفرنسية (AZERTY)',
+  'fr-mac': 'الفرنسية (AZERTY)',
+  es: 'الإسبانية',
+  'es-mac': 'الإسبانية',
+  it: 'الإيطالية',
+  'it-mac': 'الإيطالية',
+  ar: 'العربية (101)',
+  'ar-mac': 'العربية',
+  'ar-pc-mac': 'العربية – PC',
+};
+
+/** The layout's name in the UI language (unknown ids and Dvorak/Colemak keep the firmware's). */
+export const layoutName = (l: KeyboardLayout): string => (currentLang() === 'ar' && AR_NAMES[l.id]) || l.name;
 
 /** How many characters a reading may be off and still suggest a layout (a typo, a missed key). */
 const MAX_TYPOS = 2;

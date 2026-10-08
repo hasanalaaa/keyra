@@ -7,7 +7,7 @@ import { Sheet } from '../components/Sheet';
 import { ErrorCard, HostNotice, Ready, readyText } from '../components/Ready';
 import { useTypeAction } from '../lib/actions';
 import { defaultTarget } from '../lib/ble';
-import { byFit, matchProbe } from '../lib/keyboard';
+import { byFit, layoutName, matchProbe } from '../lib/keyboard';
 import { t, type Key } from '../lib/i18n';
 import { loadBle, useApp } from '../lib/store';
 import type { HostOs, KeyboardLayout } from '../lib/types';
@@ -17,7 +17,7 @@ export type LayoutOutput = 'usb' | 'ble';
 const PLATFORM: Record<KeyboardLayout['platform'], Key> = { any: 'layoutAny', windows: 'osWindows', mac: 'osMac' };
 
 /** "German · Mac": the firmware's English name, plus the system when the name alone is ambiguous. */
-export const layoutTitle = (l: KeyboardLayout): string => (l.platform === 'any' ? l.name : `${l.name} · ${t(PLATFORM[l.platform])}`);
+export const layoutTitle = (l: KeyboardLayout): string => (l.platform === 'any' ? layoutName(l) : `${layoutName(l)} · ${t(PLATFORM[l.platform])}`);
 
 interface Props {
   output: LayoutOutput;
@@ -46,7 +46,7 @@ export function LayoutSheet({ output, layouts, value, usbOs, onPick, onClose }: 
               <button key={l.id} type="button" role="radio" aria-checked={l.id === value} class="row nav-row layout-row" onClick={() => onPick(l.id)}>
                 <span class="row-text">
                   <bdi class="row-title" dir="ltr">
-                    {l.name}
+                    {layoutName(l)}
                   </bdi>
                   <span class="row-sub">
                     {t(PLATFORM[l.platform])}
@@ -150,7 +150,7 @@ function LayoutDoctor({ output, layouts, value, usbOs, onPick, onBack, onArmed }
               {match.layouts.map((l) =>
                 l.id === value ? (
                   <Notice key={l.id} tone="accent" icon="check">
-                    {t('doctorAlready')} <bdi dir="ltr">{layoutTitle(l)}</bdi>
+                    {t('doctorAlready')} <bdi>{layoutTitle(l)}</bdi>
                   </Notice>
                 ) : (
                   <Button key={l.id} full variant={match.exact ? 'primary' : 'secondary'} class="doctor-use" onClick={() => onPick(l.id)}>
@@ -167,7 +167,7 @@ function LayoutDoctor({ output, layouts, value, usbOs, onPick, onBack, onArmed }
       )}
       {current && (
         <p class="caption">
-          {t('doctorNow')} <bdi dir="ltr">{layoutTitle(current)}</bdi>
+          {t('doctorNow')} <bdi>{layoutTitle(current)}</bdi>
         </p>
       )}
       {typed && (
