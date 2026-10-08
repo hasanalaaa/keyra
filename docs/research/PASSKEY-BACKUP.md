@@ -24,8 +24,11 @@ The new Keyra must hold the old `Kwrap` itself.
    holding a backup file and its passphrase can then sign in with those
    passkeys. That person already has every password in the same file, so the
    added risk is small, and losing all passkeys with the device is the
-   larger, everyday risk. Passkeys are included by default; `POST /api/backup
-   {passkeys:false}` and a switch on the Backup screen leave them out.
+   larger, everyday risk. Passkeys are included by default. A persisted
+   setting `passkeysInBackup` (GET/PUT `/api/settings`, default on) leaves them
+   out of every backup while off; turning it back on lets them leave the
+   device again, so it needs a button press (op `passkeys_backup_on`), like
+   turning `protectReveal` off. Restoring is not affected by the setting.
 2. **Wrap keys become a list.** `fido.bin` v2 = AES-256-GCM(DEK, AAD
    `"keyra/fido/v2/keys"`) over `n | n × 32-byte keys`, at most 4, the first
    being the one new credentials use. A credential ID is tried against each
@@ -37,7 +40,7 @@ The new Keyra must hold the old `Kwrap` itself.
    `{"entries":[…], "passkeys":{"keys":["<b64 32>",…], "records":["<b64>",…],
    "counter":n}}`. v1/v2 (a bare array) are still imported. Firmware older than
    this refuses v3 with "unsupported version" rather than half-importing it.
-   `passkeys` is absent when the owner leaves passkeys out.
+   `passkeys` is absent while the setting is off.
 4. **Restore.**
    - *merge*: add the backup's keys not already present (refuse the restore if
      the list would exceed 4) and the records whose credential ID is not
@@ -72,5 +75,5 @@ The new Keyra must hold the old `Kwrap` itself.
   key-list and 50-record limits refuse before anything changes; a power cut
   between stage and commit leaves old or new, never mixed.
 - Counter: after a restore it is above the backup's.
-- Web: Backup screen switch (default on), restore result names the passkeys,
+- Web: "Passkeys in backups" setting (default on, press to turn on), restore result names the passkeys,
   text no longer says passkeys are left out; mock mirrors it; e2e covers it.

@@ -9,6 +9,15 @@ using namespace keyra::vault::test;
 
 namespace {
 std::vector<uint8_t> blob(const char* s) { return std::vector<uint8_t>(s, s + std::strlen(s)); }
+// The key new credentials are wrapped with.
+Status firstKey(Vault& v, uint8_t out[32]) {
+  uint8_t keys[kMaxPasskeyWrapKeys][32];
+  size_t n = 0;
+  const Status s = v.passkeyWrapKeys(keys, n);
+  if (s == Status::Ok) CHECK(n == 1);
+  if (s == Status::Ok) std::memcpy(out, keys[0], 32);
+  return s;
+}
 }  // namespace
 
 TEST(passkeys_need_unlock) {
@@ -20,7 +29,7 @@ TEST(passkeys_need_unlock) {
   CHECK((*r)->passkeyList(out) == Status::Locked);
   CHECK((*r)->passkeyPut(id, blob("x")) == Status::Locked);
   CHECK((*r)->passkeyRemove(1) == Status::Locked);
-  CHECK((*r)->passkeyWrapKey(k) == Status::Locked);
+  CHECK(firstKey(*r->v, k) == Status::Locked);
   CHECK((*r)->passkeyReset() == Status::Locked);
 }
 
@@ -83,13 +92,13 @@ TEST(passkey_limits) {
 TEST(wrap_key_stable_until_reset) {
   auto r = Rig::ready();
   uint8_t k1[32], k2[32], k3[32];
-  CHECK((*r)->passkeyWrapKey(k1) == Status::Ok);
+  CHECK(firstKey(*r->v, k1) == Status::Ok);
   CHECK(r->storage.files.count("fido.bin") == 1);
   CHECK((*r)->changePassphrase(kPass, "another long passphrase") == Status::Ok);
   r->reboot();
   CHECK((*r)->init() == Status::Ok);
   CHECK((*r)->unlock("another long passphrase", nullptr) == Status::Ok);
-  CHECK((*r)->passkeyWrapKey(k2) == Status::Ok);
+  CHECK(firstKey(*r->v, k2) == Status::Ok);
   CHECK(std::memcmp(k1, k2, 32) == 0);
 
   uint32_t id = 0;
@@ -97,7 +106,7 @@ TEST(wrap_key_stable_until_reset) {
   CHECK((*r)->passkeyReset() == Status::Ok);
   std::vector<PasskeyRecord> out;
   CHECK((*r)->passkeyList(out) == Status::Ok && out.empty());
-  CHECK((*r)->passkeyWrapKey(k3) == Status::Ok);
+  CHECK(firstKey(*r->v, k3) == Status::Ok);
   CHECK(std::memcmp(k1, k3, 32) != 0);
 }
 
@@ -106,7 +115,7 @@ TEST(factory_reset_and_setup_drop_passkeys) {
   uint32_t id = 0;
   uint8_t k[32];
   CHECK((*r)->passkeyPut(id, blob("x")) == Status::Ok);
-  CHECK((*r)->passkeyWrapKey(k) == Status::Ok);
+  CHECK(firstKey(*r->v, k) == Status::Ok);
   CHECK((*r)->factoryReset() == Status::Ok);
   CHECK((*r)->setup(kPass) == Status::Ok);
   std::vector<PasskeyRecord> out;

@@ -576,6 +576,47 @@ void u2fFlows() {
   CHECK(r.auth.msg(a.data(), a.size(), r.user) == Bytes({0x67, 0x00}));
 }
 
+// After a restore the store holds several wrap keys: IDs made under any of them
+// work, new ones use the first (docs/research/PASSKEY-BACKUP.md).
+void severalWrapKeys() {
+  Rig r;
+  AuthData old;
+  MakeOpts o;
+  CHECK(make(r, cdh(1), o, old));
+  const Bytes chal(32, 0xC1), app = r.hash("https://u2f.example");
+  Bytes a = apdu(0x01, 0x03, cat(chal, app));
+  Bytes reg = r.auth.msg(a.data(), a.size(), r.user);
+  CHECK(sw(reg) == 0x9000);
+  const Bytes kh(reg.begin() + 67, reg.begin() + 67 + 62), pub(reg.begin() + 1, reg.begin() + 66);
+
+  // This Keyra gets a key of its own; the old one is now a restored one.
+  std::array<uint8_t, 32> restored;
+  std::copy(r.store.key, r.store.key + 32, restored.begin());
+  r.store.restored.push_back(restored);
+  r.store.key[0] ^= 0x5A;
+  Value v;
+  CHECK(r.call(ctap::kGetAssertion, getReq("example.com", cdh(2), {old.credId}), v) == ctap::kOk);
+  CHECK(verifyEs256(old.pub, cat(v.find(2)->str, cdh(2)), v.find(3)->str));
+  const Bytes body = cat(cat(cat(chal, app), Bytes{62}), kh);
+  a = apdu(0x02, 0x03, body);
+  Bytes auth = r.auth.msg(a.data(), a.size(), r.user);
+  CHECK(sw(auth) == 0x9000);
+  auth.resize(auth.size() - 2);
+  CHECK(verifyEs256(pub.data(), cat(cat(app, Bytes(auth.begin(), auth.begin() + 5)), chal),
+                    Bytes(auth.begin() + 5, auth.end())));
+  // The excludeList recognises a credential under a restored key too.
+  MakeOpts ex;
+  ex.exclude = {old.credId};
+  CHECK(r.call(ctap::kMakeCredential, makeReq(cdh(3), ex), v) == ctap::kCredentialExcluded);
+
+  // A new credential is wrapped with the first key only.
+  AuthData fresh;
+  CHECK(make(r, cdh(4), o, fresh));
+  r.store.restored.clear();
+  CHECK(r.call(ctap::kGetAssertion, getReq("example.com", cdh(5), {fresh.credId}), v) == ctap::kOk);
+  CHECK(r.call(ctap::kGetAssertion, getReq("example.com", cdh(5), {old.credId}), v) == ctap::kNoCredentials);
+}
+
 }  // namespace
 
 int main() {
@@ -590,5 +631,6 @@ int main() {
   resetAndSelection();
   derEncoding();
   u2fFlows();
+  severalWrapKeys();
   return KEYRA_TEST_RESULT();
 }

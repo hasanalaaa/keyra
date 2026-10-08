@@ -190,11 +190,11 @@ Conventions
 | GET `/api/entries/{id}/totp` | session | → `{code, period, remaining}` / 409 `no_time` / 404 |
 | POST `/api/type` | session | `{id, what:"username"\|"password"\|"both"\|"totp"\|"sequence", submit?, target?, switchLang?}`, `{text, repeat?, separator?}` (§9.2), `{test:true}` or `{probe:true}` (§10.3) → 202 `{pending}`; replaces this session's own pending item, 409 `busy` while another session's waits (§12.5a) |
 | POST `/api/type/cancel` | session | → 204 |
-| GET `/api/settings` | session | → `{deviceName, wifiSsid, autoLockMin, keyDelayMs, bothSeparator:"tab"\|"enter", submitAfterBoth:bool, ledBrightness, bleEnabled, output, bleConnect, protectReveal, lockOnUsb, lockOnBle, lastBackupAt, homeWifi:{enabled, ssid}, apMode, osUsb, layoutUsb, layoutBle, bothSequence}` |
-| PUT `/api/settings` | session | partial of the above (+ optional `wifiPassword`; `homeWifi` goes through `/api/wifi/home`, `lastBackupAt` is set by backups) → 200 settings. Changing `wifiSsid`/`wifiPassword`, or turning `protectReveal` off, requires presence → 202 `{awaiting:"button"}` |
+| GET `/api/settings` | session | → `{deviceName, wifiSsid, autoLockMin, keyDelayMs, bothSeparator:"tab"\|"enter", submitAfterBoth:bool, ledBrightness, bleEnabled, output, bleConnect, protectReveal, passkeysInBackup, lockOnUsb, lockOnBle, lastBackupAt, homeWifi:{enabled, ssid}, apMode, osUsb, layoutUsb, layoutBle, bothSequence}` |
+| PUT `/api/settings` | session | partial of the above (+ optional `wifiPassword`; `homeWifi` goes through `/api/wifi/home`, `lastBackupAt` is set by backups) → 200 settings. Changing `wifiSsid`/`wifiPassword`, turning `protectReveal` off or `passkeysInBackup` on (op `passkeys_backup_on`), requires presence → 202 `{awaiting:"button"}` |
 | POST `/api/passphrase` | session | `{current, next}` → 204 / 401 `{error:"wrong", retryAfterMs}` / 429 `rate_limited` |
-| POST `/api/backup` | session | `{passphrase}` (≥12 chars) → 200 `application/json` attachment `keyra-backup-YYYYMMDD.json` |
-| POST `/api/restore` | session | `{passphrase, backup:<object>, mode:"merge"\|"replace"}` → `{added, updated}`; `replace` requires presence (202) |
+| POST `/api/backup` | session | `{passphrase}` (≥12 chars) → 200 `application/json` attachment `keyra-backup-YYYYMMDD.json` (format v3; carries the passkeys when the `passkeysInBackup` setting is on, §11) |
+| POST `/api/restore` | session | `{passphrase, backup:<object>, mode:"merge"\|"replace"}` → `{added, updated, passkeys}` (`passkeys` = passkey records added); `replace` requires presence (202); 409 `passkeys_full` when the passkeys would not fit (§11) |
 | POST `/api/factory-reset` | none (must work when passphrase is forgotten) | → 202 `{awaiting:"button"}`; on button press: wipe vault + settings, restart into setup |
 
 `Pending` = `{kind:"type", id, title, what, submit, expiresIn, target, preview?, part?, parts?}` (expires after
@@ -209,7 +209,8 @@ Routes added after v1.0, described in their sections: `/api/ble`, `/api/ble/pair
 
 Restore (`/api/restore`):
 - The backup passphrase and the file are checked before anything changes, and
-  for `replace` before the press is requested (401 `wrong` / 400 invalid / 507 `full`).
+  for `replace` before the press is requested (401 `wrong` / 400 invalid / 507 `full`
+  / 409 `passkeys_full`).
 - `replace` is atomic: the new entries are staged next to the old ones and
   committed by one marker file. A power cut or a write failure (storage full)
   leaves either every old entry or every restored one, never a mix; an
@@ -558,8 +559,19 @@ Design, key formats and honest limits: [FIDO.md](FIDO.md). Contract points:
   long = refuse. The LED shows `Led::Fido`. Requests need the vault unlocked
   (they wait ≤ 30 s for it) and a press within 30 s.
 - **Vault.** Passkey records `f/<id>.bin` (AES-256-GCM with the DEK, AAD
-  `"keyra/f/v1/<id>"`, ≤ 50, ≤ 1 KiB each) and `fido.bin` (wrapping-key salt);
-  `vault::passkey*` in `keyra/vault.hpp`. Not in backups.
+  `"keyra/f/v1/<id>"`, ≤ 50, ≤ 1 KiB each) and `fido.bin` (the wrapping keys:
+  v1 a salt, v2 an encrypted list of ≤ 4 keys; `keyra_vault/src/core/vault_core.hpp`);
+  `vault::passkey*` in `keyra/vault.hpp`.
+- **Backups** ([PASSKEY-BACKUP.md](research/PASSKEY-BACKUP.md)). Backup format v3
+  (`backup_format.hpp`) carries the wrap keys, the passkey records and the
+  signature counter while the setting `passkeysInBackup` is on (default on;
+  turning it on again needs a press, op `passkeys_backup_on`). Restoring is not
+  affected by the setting. `merge` adds the keys and records not already present;
+  `replace` makes them the backup's in the same staged commit as the entries,
+  and leaves local passkeys alone when the backup has none. Both refuse with
+  409 `passkeys_full` before any change (and before the press) when the result
+  would pass 4 keys or 50 passkeys. The restore raises the signature counter to
+  at least the backup's + 1000. Credentials keep BE = BS = 0.
 - **API** (session):
   - `GET /api/fido` → `{passkeys:[{id, rpId, userName, displayName, created}], max:50}`
     (newest first; `created` unix seconds, 0 = unknown)

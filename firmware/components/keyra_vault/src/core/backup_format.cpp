@@ -64,6 +64,7 @@ bool readEnvelope(const std::string& textIn, Envelope& out) {
   const json::Value* kdf = root.find("kdf");
   if (!format || format->type != Type::String || format->s != "keyra-backup") return false;
   if (!v || v->type != Type::Int || v->i < 1 || v->i > kVersion) return false;
+  out.version = v->i;
   if (!kdf || kdf->type != Type::Object) return false;
   const json::Value* alg = kdf->find("alg");
   const json::Value* iter = kdf->find("iter");
@@ -165,6 +166,73 @@ bool readEntry(const json::Value& v, Entry& out) {
         !readInt(item, "changedAt", out.history.back().changedAt))
       return false;
   }
+  return true;
+}
+
+void writePasskeys(SecureString& out, const Passkeys& p) {
+  out += ',';
+  key(out, "passkeys");
+  out += '{';
+  key(out, "keys");
+  out += '[';
+  for (size_t i = 0; i < p.keys.size(); ++i) {
+    if (i) out += ',';
+    std::string b64 = text::base64Encode(p.keys[i].data(), p.keys[i].size());  // one allocation, wiped below
+    out += '"';
+    out.append(b64.data(), b64.size());
+    out += '"';
+    wipe(b64);
+  }
+  out += "],";
+  key(out, "records");
+  out += '[';
+  for (size_t i = 0; i < p.records.size(); ++i) {
+    if (i) out += ',';
+    out += '"';
+    const std::string b64 = text::base64Encode(p.records[i].data(), p.records[i].size());
+    out.append(b64.data(), b64.size());
+    out += '"';
+  }
+  out += "],";
+  key(out, "counter");
+  json::writeInt(out, p.counter);
+  out += '}';
+}
+
+bool readPasskeys(const json::Value& v, Passkeys& out) {
+  out = Passkeys{};
+  if (v.type != Type::Object) return false;
+  const json::Value* keys = v.find("keys");
+  const json::Value* records = v.find("records");
+  const json::Value* counter = v.find("counter");
+  if (!keys || keys->type != Type::Array || keys->items.size() > kMaxPasskeyWrapKeys) return false;
+  if (!records || records->type != Type::Array || records->items.size() > kMaxPasskeys) return false;
+  if (!counter || counter->type != Type::Int || counter->i < 0 || counter->i > int64_t(UINT32_MAX)) return false;
+  out.keys.reserve(keys->items.size());  // no regrowth: the allocator wipes, but only what it frees
+  for (const json::Value& k : keys->items) {
+    if (k.type != Type::String) return false;
+    std::string b64(k.s.data(), k.s.size());
+    std::vector<uint8_t> raw;
+    const bool ok = text::base64Decode(b64, raw) && raw.size() == 32;
+    if (ok) {
+      out.keys.emplace_back();
+      std::memcpy(out.keys.back().data(), raw.data(), 32);
+    }
+    wipe(b64);
+    if (!raw.empty()) mem::zeroize(raw.data(), raw.size());
+    if (!ok) return false;
+    for (size_t i = 0; i + 1 < out.keys.size(); ++i)
+      if (out.keys[i] == out.keys.back()) return false;  // never written: a hand-made file
+  }
+  out.records.reserve(records->items.size());
+  for (const json::Value& r : records->items) {
+    out.records.emplace_back();
+    if (!readB64(&r, out.records.back()) || out.records.back().empty() ||
+        out.records.back().size() > kMaxPasskeyRecord)
+      return false;
+  }
+  out.counter = uint32_t(counter->i);
+  out.present = true;
   return true;
 }
 

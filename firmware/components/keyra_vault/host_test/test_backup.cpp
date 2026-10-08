@@ -39,7 +39,7 @@ TEST(envelope_shape) {
   json::Value v;
   CHECK(json::parse(out.data(), out.size(), v));
   CHECK(v.find("format") && v.find("format")->s == "keyra-backup");
-  CHECK(v.find("v") && v.find("v")->i == 2);
+  CHECK(v.find("v") && v.find("v")->i == 3);
   const json::Value* kdf = v.find("kdf");
   CHECK(kdf && kdf->find("alg")->s == "pbkdf2-sha256" && kdf->find("iter")->i == kTestIterations);
   std::vector<uint8_t> salt;
@@ -135,7 +135,7 @@ TEST(invalid_backups_change_nothing) {
       "{}",
       "[]",
       "{\"format\":\"other\",\"v\":1}",
-      env("3", "1000", "AAAAAAAAAAAAAAAAAAAAAA=="),  // from a future firmware
+      env("4", "1000", "AAAAAAAAAAAAAAAAAAAAAA=="),  // from a future firmware
       env("0", "1000", "AAAAAAAAAAAAAAAAAAAAAA=="),
       env("1", "0", "AAAAAAAAAAAAAAAAAAAAAA=="),
       env("1", "10000001", "AAAAAAAAAAAAAAAAAAAAAA=="),
@@ -440,16 +440,16 @@ TEST(check_backup_writes_nothing) {
   std::string backup;
   CHECK((*r)->exportBackup(kBackupPass, backup) == Status::Ok);
   const auto snapshot = r->storage.files;
-  CHECK((*r)->checkBackup(kBackupPass, backup) == Status::Ok);
-  CHECK((*r)->checkBackup("not the pass phrase", backup) == Status::WrongPassphrase);
-  CHECK((*r)->checkBackup(kBackupPass, "{}") == Status::Invalid);
-  CHECK((*r)->checkBackup(kBackupPass, seal(r->crypto, "[{\"title\":5}]")) == Status::Invalid);
+  CHECK((*r)->checkBackup(kBackupPass, backup, true) == Status::Ok);
+  CHECK((*r)->checkBackup("not the pass phrase", backup, true) == Status::WrongPassphrase);
+  CHECK((*r)->checkBackup(kBackupPass, "{}", true) == Status::Invalid);
+  CHECK((*r)->checkBackup(kBackupPass, seal(r->crypto, "[{\"title\":5}]"), true) == Status::Invalid);
   std::string many = "[";
   for (size_t i = 0; i <= kMaxEntries; ++i) many += (i ? "," : "") + std::string("{}");
-  CHECK((*r)->checkBackup(kBackupPass, seal(r->crypto, many + "]")) == Status::Full);
+  CHECK((*r)->checkBackup(kBackupPass, seal(r->crypto, many + "]"), true) == Status::Full);
   CHECK(r->storage.files == snapshot);
   (*r)->lock();
-  CHECK((*r)->checkBackup(kBackupPass, backup) == Status::Locked);
+  CHECK((*r)->checkBackup(kBackupPass, backup, true) == Status::Locked);
 }
 
 TEST(duplicates_inside_one_import_merge) {

@@ -51,6 +51,8 @@ struct Settings {
   // SPEC §12.3-12.5: secrets reach a browser only after a press; lock when the
   // computer Keyra was used with goes away; when the last backup was saved.
   bool protectReveal = true;
+  // Backups carry the passkeys (docs/research/PASSKEY-BACKUP.md); turning it on needs a press.
+  bool passkeysInBackup = true;
   bool lockOnUsb = true;
   bool lockOnBle = false;
   int64_t lastBackupAt = 0;  // unix seconds, 0 = never (or no clock then)

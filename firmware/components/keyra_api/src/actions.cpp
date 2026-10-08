@@ -341,6 +341,7 @@ const char* opName(Op op) {
     case Op::Update: return "update";
     case Op::DeleteEntry: return "delete_entry";
     case Op::DeletePasskey: return "delete_passkey";
+    case Op::PasskeysBackupOn: return "passkeys_backup_on";
   }
   return "setup";
 }
@@ -348,7 +349,7 @@ const char* opName(Op op) {
 std::optional<Op> parseOp(const std::string& s) {
   for (Op op : {Op::Setup, Op::Wifi, Op::RestoreReplace, Op::FactoryReset, Op::HomeWifi, Op::TrustBrowser,
                 Op::BlePair, Op::Reveal, Op::Backup, Op::Recovery, Op::Unprotect, Op::Update,
-                Op::DeleteEntry, Op::DeletePasskey}) {
+                Op::DeleteEntry, Op::DeletePasskey, Op::PasskeysBackupOn}) {
     if (s == opName(op)) return op;
   }
   return std::nullopt;

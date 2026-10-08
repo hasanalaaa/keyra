@@ -80,7 +80,7 @@ class Authenticator {
   // wait for the button, and a vault locked in between refuses (kOperationDenied).
   uint8_t rearm(const uint8_t rpIdHash[32], Found& f);
   // allowList / excludeList entry, or a resident record: the credential if it is ours and alive.
-  bool lookup(const uint8_t key[32], const uint8_t rpIdHash[32], const std::vector<uint8_t>& id,
+  bool lookup(const WrapKeys& keys, const uint8_t rpIdHash[32], const std::vector<uint8_t>& id,
               const std::vector<cred::Resident>& residents, Found& out);
   bool residents(std::vector<cred::Resident>& out);
   uint8_t assertion(const Found& f, const uint8_t rpIdHash[32], const uint8_t clientDataHash[32], uint8_t flags,
