@@ -13,6 +13,9 @@ class VaultStore final : public Store {
   Result put(uint32_t& id, const std::vector<uint8_t>& data) override;
   Result remove(uint32_t id) override;
   Result reset() override;
+  bool pinSet() override;
+  Result pinRead(std::vector<uint8_t>& out) override;
+  Result pinWrite(const std::vector<uint8_t>& data) override;
 };
 
 }  // namespace keyra::fido

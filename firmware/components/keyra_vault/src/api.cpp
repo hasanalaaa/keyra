@@ -56,6 +56,9 @@ Status passkeyWrapKeys(uint8_t out[kMaxPasskeyWrapKeys][32], size_t& count) {
   return detail::instance().passkeyWrapKeys(out, count);
 }
 Status passkeyReset() { return detail::instance().passkeyReset(); }
+bool fidoPinSet() { return detail::instance().fidoPinSet(); }
+Status fidoPinRead(std::vector<uint8_t>& out) { return detail::instance().fidoPinRead(out); }
+Status fidoPinWrite(const std::vector<uint8_t>& data) { return detail::instance().fidoPinWrite(data); }
 Status activityRead(std::vector<uint8_t>& out) { return detail::instance().activityRead(out); }
 Status activityWrite(const std::vector<uint8_t>& data) { return detail::instance().activityWrite(data); }
 uint32_t failedBeforeUnlock() { return detail::instance().failedBeforeUnlock(); }

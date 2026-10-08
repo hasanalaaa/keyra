@@ -1,4 +1,4 @@
-import type { BleInfo, DeviceState, Keyboard, Entry, HostOs, EntryInput, ActivityEvent, EntrySummary, Health, Network, Passkey, RestoreResult, UpdateCheck, RecoveryInfo, Settings, Totp, TrustedBrowser, TypeTextRequest, TypeWhat, Pending, PresenceOp } from './types';
+import type { BleInfo, DeviceState, Keyboard, Entry, HostOs, EntryInput, ActivityEvent, EntrySummary, Health, Network, PasskeyList, RestoreResult, UpdateCheck, RecoveryInfo, Settings, Totp, TrustedBrowser, TypeTextRequest, TypeWhat, Pending, PresenceOp } from './types';
 import { generateRequest, type GenSettings } from './generator';
 
 export class ApiError extends Error {
@@ -232,7 +232,7 @@ export const api = {
   updateApply: () => json<Awaiting & { version: string }>('POST', '/update/apply'),
   healthRotate: (on: boolean) => json<Health>('POST', '/health/rotate', { on }),
   activity: () => json<{ events: ActivityEvent[]; max: number }>('GET', '/activity'),
-  passkeys: async () => await json<{ passkeys: Passkey[]; max: number }>('GET', '/fido'),
+  passkeys: async () => await json<PasskeyList>('GET', '/fido'),
   deletePasskey: (id: number) => json<Awaiting>('DELETE', `/fido/${id}`),
 };
 

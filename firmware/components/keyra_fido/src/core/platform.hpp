@@ -7,6 +7,12 @@
 
 namespace keyra::fido {
 
+// Zeroes key material; volatile so a wipe just before the end of scope is not
+// optimised away as a dead store.
+inline void secureWipe(void* p, size_t n) {
+  for (volatile uint8_t* v = static_cast<volatile uint8_t*>(p); n > 0; --n) *v++ = 0;
+}
+
 class Crypto {
  public:
   virtual ~Crypto() = default;
@@ -22,6 +28,12 @@ class Crypto {
   virtual bool p256Generate(uint8_t priv[32], uint8_t pub[65]) = 0;
   // ECDSA-SHA256 over msg; sig = r || s (32 bytes each, big-endian).
   virtual bool p256Sign(const uint8_t priv[32], const uint8_t* msg, size_t n, uint8_t sig[64]) = 0;
+  // ECDH: z = x-coordinate of priv × peer. False when peer (0x04 || X || Y) is not on the curve.
+  virtual bool p256Ecdh(const uint8_t priv[32], const uint8_t peer[65], uint8_t z[32]) = 0;
+  virtual bool hmacSha256(const uint8_t* key, size_t keyLen, const uint8_t* msg, size_t n, uint8_t out[32]) = 0;
+  // AES-256-CBC without padding (n a multiple of 16); in and out may not overlap.
+  virtual bool aesCbc(bool encrypt, const uint8_t key[32], const uint8_t iv[16], const uint8_t* in, size_t n,
+                      uint8_t* out) = 0;
 };
 
 // The credential wrapping keys (docs/FIDO.md): key[0] wraps new credentials;
@@ -46,7 +58,7 @@ struct Record {
   std::vector<uint8_t> data;  // cred.hpp resident encoding
 };
 
-// Discoverable credentials and the wrapping keys, held by the vault.
+// Discoverable credentials, the wrapping keys and the ClientPIN state, held by the vault.
 class Store {
  public:
   enum class Result { Ok, Locked, Full, NotFound, Error };
@@ -56,7 +68,12 @@ class Store {
   virtual Result list(std::vector<Record>& out) = 0;
   virtual Result put(uint32_t& id, const std::vector<uint8_t>& data) = 0;  // id 0 = new
   virtual Result remove(uint32_t id) = 0;
-  virtual Result reset() = 0;  // all records and wrapping keys gone; a new key next time
+  virtual Result reset() = 0;  // all records, wrapping keys and the PIN gone; a new key next time
+  // ClientPIN (core/pin.hpp record, encrypted by the vault). pinSet() also
+  // answers while locked (getInfo must); reading and writing need the vault open.
+  virtual bool pinSet() = 0;
+  virtual Result pinRead(std::vector<uint8_t>& out) = 0;  // NotFound when no PIN is set
+  virtual Result pinWrite(const std::vector<uint8_t>& data) = 0;
 };
 
 // Global signature counter; next() persists the incremented value before returning it.

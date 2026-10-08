@@ -22,7 +22,7 @@ void Device::step(uint32_t waitMs) {
     hid_.reply(m.cid, m.cmd, resp.data(), resp.size());
   }
   const int64_t now = link_.nowMs();
-  if (!store_.unlocked()) auth_.forgetNext();  // locked: nothing left to continue
+  if (!store_.unlocked()) auth_.vaultLocked();  // locked: nothing left to continue, PIN token gone
   hid_.tick(now);
   gate_.tick(now);
 }

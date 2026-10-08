@@ -165,6 +165,15 @@ export interface Passkey {
   created: number; // unix seconds, 0 = unknown
 }
 
+/** GET /api/fido: the passkeys and the security key PIN (set from the computer, docs/FIDO.md). */
+export interface PasskeyList {
+  passkeys: Passkey[];
+  max: number;
+  pinSet: boolean;
+  /** Wrong PINs left before it blocks; null when Keyra could not read it. */
+  pinRetries: number | null;
+}
+
 /** POST /api/restore (merge): counts of what the backup brought in; `passkeys` = passkey records added. */
 export interface RestoreResult {
   added: number;

@@ -9,13 +9,14 @@ import { api } from '../lib/api';
 import { errorText, isLockedError } from '../lib/errors';
 import { t } from '../lib/i18n';
 import { toast, useApp } from '../lib/store';
-import type { Passkey } from '../lib/types';
+import type { Passkey, PasskeyList } from '../lib/types';
 import { shortDate } from '../lib/wifi';
 
 export function PasskeysSheet({ onClose }: { onClose: () => void }) {
   const app = useApp();
   const [list, setList] = useState<Passkey[] | null>(null);
   const [max, setMax] = useState(50);
+  const [pin, setPin] = useState<Pick<PasskeyList, 'pinSet' | 'pinRetries'> | null>(null);
   const [confirm, setConfirm] = useState<Passkey | null>(null);
 
   const load = () =>
@@ -24,6 +25,7 @@ export function PasskeysSheet({ onClose }: { onClose: () => void }) {
       .then((r) => {
         setList(r.passkeys);
         setMax(r.max);
+        setPin({ pinSet: r.pinSet, pinRetries: r.pinRetries });
       })
       .catch((e) => {
         setList([]);
@@ -85,6 +87,22 @@ export function PasskeysSheet({ onClose }: { onClose: () => void }) {
             </ul>
             <p class="caption center">{t('passkeysCount', { n: list.length, max })}</p>
           </>
+        )}
+        {pin && (
+          // Set and changed in the computer's own dialogs (CTAP ClientPIN); Keyra only reports it.
+          <section class="passkey-pin" aria-labelledby="pk-pin">
+            <h3 id="pk-pin" class="section-head">{t('fidoPinTitle')}</h3>
+            <p class="callout">
+              {!pin.pinSet
+                ? t('fidoPinOff')
+                : pin.pinRetries === 0
+                  ? t('fidoPinBlocked')
+                  : pin.pinRetries === null
+                    ? t('fidoPinOn')
+                    : `${t('fidoPinOn')} ${t('fidoPinRetries', { n: pin.pinRetries })}`}
+            </p>
+            <p class="caption">{t('fidoPinHow')}</p>
+          </section>
         )}
         <p class="caption">{t('passkeysLimits')}</p>
       </div>

@@ -91,4 +91,39 @@ bool PsaCrypto::p256Sign(const uint8_t priv[32], const uint8_t* msg, size_t n, u
   return k.ok() && psa_sign_message(k.id(), kEs256, msg, n, sig, 64, &len) == PSA_SUCCESS && len == 64;
 }
 
+bool PsaCrypto::p256Ecdh(const uint8_t priv[32], const uint8_t peer[65], uint8_t z[32]) {
+  TempKey k(kP256Pair, 256, priv, 32, PSA_KEY_USAGE_DERIVE, PSA_ALG_ECDH);
+  size_t len = 0;
+  // PSA validates the peer point (on the curve, not the identity) before using it.
+  return k.ok() && psa_raw_key_agreement(PSA_ALG_ECDH, k.id(), peer, 65, z, 32, &len) == PSA_SUCCESS && len == 32;
+}
+
+bool PsaCrypto::hmacSha256(const uint8_t* key, size_t keyLen, const uint8_t* msg, size_t n, uint8_t out[32]) {
+  // PSA refuses an empty HMAC key; HMAC zero-pads keys, so one zero byte is the same key.
+  static const uint8_t kZero = 0;
+  if (keyLen == 0) key = &kZero, keyLen = 1;
+  constexpr psa_algorithm_t alg = PSA_ALG_HMAC(PSA_ALG_SHA_256);
+  TempKey k(PSA_KEY_TYPE_HMAC, keyLen * 8, key, keyLen, PSA_KEY_USAGE_SIGN_MESSAGE, alg);
+  size_t len = 0;
+  return k.ok() && psa_mac_compute(k.id(), alg, msg, n, out, 32, &len) == PSA_SUCCESS && len == 32;
+}
+
+bool PsaCrypto::aesCbc(bool encrypt, const uint8_t key[32], const uint8_t iv[16], const uint8_t* in, size_t n,
+                       uint8_t* out) {
+  if (n % 16 != 0) return false;
+  TempKey k(PSA_KEY_TYPE_AES, 256, key, 32, encrypt ? PSA_KEY_USAGE_ENCRYPT : PSA_KEY_USAGE_DECRYPT,
+            PSA_ALG_CBC_NO_PADDING);
+  if (!k.ok()) return false;
+  // Multi-part, because the one-shot psa_cipher_encrypt picks its own IV.
+  psa_cipher_operation_t op = PSA_CIPHER_OPERATION_INIT;
+  size_t a = 0, b = 0;
+  const bool ok =
+      (encrypt ? psa_cipher_encrypt_setup(&op, k.id(), PSA_ALG_CBC_NO_PADDING)
+               : psa_cipher_decrypt_setup(&op, k.id(), PSA_ALG_CBC_NO_PADDING)) == PSA_SUCCESS &&
+      psa_cipher_set_iv(&op, iv, 16) == PSA_SUCCESS && psa_cipher_update(&op, in, n, out, n, &a) == PSA_SUCCESS &&
+      psa_cipher_finish(&op, out + a, n - a, &b) == PSA_SUCCESS && a + b == n;
+  psa_cipher_abort(&op);
+  return ok;
+}
+
 }  // namespace keyra::fido::esp

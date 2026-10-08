@@ -38,6 +38,14 @@ esp_err_t list(httpd_req_t* r) {
     cJSON_AddItemToArray(arr, j);
   }
   cJSON_AddNumberToObject(o.get(), "max", fido::kMaxPasskeys);
+  fido::PinStatus pin;
+  const fido::Result pinRes = fido::pinStatus(pin);
+  if (pinRes == fido::Result::Locked) return failed(r, pinRes);
+  // An unreadable PIN record must not hide the passkey list: retries unknown (null).
+  if (pinRes != fido::Result::Ok) ESP_LOGE(TAG, "reading the security key PIN state failed");
+  cJSON_AddBoolToObject(o.get(), "pinSet", pinRes == fido::Result::Ok ? pin.set : true);
+  if (pinRes == fido::Result::Ok) cJSON_AddNumberToObject(o.get(), "pinRetries", pin.retries);
+  else cJSON_AddNullToObject(o.get(), "pinRetries");
   return http::sendJson(r, http::k200, o.get());
 }
 

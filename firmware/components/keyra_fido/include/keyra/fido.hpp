@@ -38,4 +38,12 @@ constexpr size_t kMaxPasskeys = 50;
 Result list(std::vector<Passkey>& out);  // newest first
 Result remove(uint32_t id);
 
+// The security key PIN (set and changed from the computer's own dialogs;
+// docs/FIDO.md "ClientPIN"). Vault must be unlocked.
+struct PinStatus {
+  bool set = false;
+  uint8_t retries = 8;  // wrong PINs left before it blocks (8 when none is set)
+};
+Result pinStatus(PinStatus& out);
+
 }  // namespace keyra::fido

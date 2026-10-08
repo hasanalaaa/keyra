@@ -123,4 +123,47 @@ TEST(factory_reset_and_setup_drop_passkeys) {
   CHECK(r->storage.files.count("fido.bin") == 0);
 }
 
+TEST(fido_pin_record_encrypted_known_while_locked_gone_with_reset) {
+  auto r = Rig::ready();
+  std::vector<uint8_t> out;
+  CHECK(!(*r)->fidoPinSet());
+  CHECK((*r)->fidoPinRead(out) == Status::NotFound);
+  CHECK((*r)->fidoPinWrite(blob("pin-record-secret")) == Status::Ok);
+  const auto& file = r->storage.files["fidopin.bin"];
+  CHECK(std::search(file.begin(), file.end(), std::begin("secret"), std::end("secret") - 1) == file.end());
+  CHECK((*r)->fidoPinWrite(std::vector<uint8_t>(kMaxFidoPinRecord + 1, 1)) == Status::Invalid);
+
+  r->reboot();
+  CHECK((*r)->init() == Status::Ok);
+  CHECK((*r)->fidoPinSet());  // locked: only whether one exists
+  CHECK((*r)->fidoPinRead(out) == Status::Locked);
+  CHECK((*r)->fidoPinWrite(blob("x")) == Status::Locked);
+  CHECK((*r)->unlock(kPass, nullptr) == Status::Ok);
+  CHECK((*r)->fidoPinRead(out) == Status::Ok && out == blob("pin-record-secret"));
+
+  // A tampered file is Corrupt, not a missing PIN.
+  r->storage.files["fidopin.bin"][20] ^= 1;
+  CHECK((*r)->fidoPinRead(out) == Status::Corrupt);
+  CHECK((*r)->fidoPinWrite(blob("again")) == Status::Ok);
+
+  CHECK((*r)->passkeyReset() == Status::Ok);  // authenticatorReset takes the PIN too
+  CHECK(!(*r)->fidoPinSet());
+  CHECK((*r)->fidoPinWrite(blob("again")) == Status::Ok);
+  CHECK((*r)->fidoPinWrite({}) == Status::Ok);  // empty = remove
+  CHECK(!(*r)->fidoPinSet() && r->storage.files.count("fidopin.bin") == 0);
+}
+
+TEST(fido_pin_survives_replace_restore) {
+  auto r = Rig::ready();
+  uint32_t id = 0;
+  CHECK((*r)->passkeyPut(id, blob("rp/user")) == Status::Ok);
+  std::string backup;
+  CHECK((*r)->exportBackup("backup pass phrase", backup, true, 5) == Status::Ok);
+  CHECK(backup.find("fidopin") == std::string::npos);
+  CHECK((*r)->fidoPinWrite(blob("pin")) == Status::Ok);
+  CHECK((*r)->importBackup("backup pass phrase", backup, true, nullptr, nullptr, nullptr) == Status::Ok);
+  std::vector<uint8_t> out;
+  CHECK((*r)->fidoPinRead(out) == Status::Ok && out == blob("pin"));
+}
+
 TEST_MAIN()

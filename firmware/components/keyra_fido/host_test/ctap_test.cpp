@@ -164,11 +164,12 @@ void getInfoKnownAnswer() {
   const Bytes req{ctap::kGetInfo};
   const Bytes got = r.auth.cbor(req.data(), req.size(), r.user, 0, 1);
   const Bytes expected = hex(
-      "00a4"
+      "00a8"
       "0182" "665532465f5632" "684649444f5f325f30"
+      "0282" "6b6372656450726f74656374" "6b686d61632d736563726574"
       "0350b722a2aa5acc48359c915fa93812679d"
-      "04a4" "62726bf5" "627570f5" "627576f5" "64706c6174f4"
-      "051904b0");
+      "04a5" "62726bf5" "627570f5" "627576f5" "64706c6174f4" "69636c69656e7450696ef4"
+      "051904b0" "06820201" "0708" "081840");
   CHECK(got == expected);
   CHECK(r.user.presenceCalls == 0 && r.user.unlockCalls == 0);
 }
@@ -382,7 +383,7 @@ void malformedRequests() {
   const Bytes empty;
   CHECK(r.auth.cbor(empty.data(), 0, r.user, 0, 1) == Bytes{ctap::kInvalidLength});
   CHECK(r.call(0x40, {}, v) == ctap::kInvalidCommand);
-  CHECK(r.call(ctap::kClientPin, hex("a1010102"), v) == ctap::kInvalidCommand);
+  CHECK(r.call(ctap::kClientPin, hex("a1010102"), v) == ctap::kInvalidCbor);  // trailing byte
   CHECK(r.call(ctap::kMakeCredential, {}, v) == ctap::kMissingParameter);
   CHECK(r.call(ctap::kMakeCredential, hex("a201"), v) == ctap::kInvalidCbor);         // truncated
   CHECK(r.call(ctap::kMakeCredential, hex("a2010203"), v) == ctap::kInvalidCbor);     // 2 entries, 1 given

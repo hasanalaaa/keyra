@@ -42,6 +42,9 @@
 //                  u8 n | n × key[32]) | tag[16], 1 ≤ n ≤ 4, key[0] wraps new credentials.
 //              v1 is kept until a restore adds a key, which writes v2.
 //   fido.new   a replace-restore's staged fido.bin (v2)
+//   fidopin.bin  the FIDO ClientPIN record, same format as e/<id>.bin with AAD
+//              "keyra/fidopin/v1"; the plaintext is keyra_fido's (core/pin.hpp).
+//              Removed with the passkeys (authenticatorReset, setup); restores keep it.
 //   activity.bin  activity log (SPEC §15), same format as e/<id>.bin with AAD
 //              "keyra/activity/v1"; the plaintext is keyra_api's encoding (vault_activity.cpp)
 //   *.tmp      in-flight atomic writes (write tmp → close → rename); any found at
@@ -116,6 +119,9 @@ class Vault {
   Status passkeyRemove(uint32_t id);
   Status passkeyWrapKeys(uint8_t out[kMaxPasskeyWrapKeys][32], size_t& count);
   Status passkeyReset();
+  bool fidoPinSet();
+  Status fidoPinRead(std::vector<uint8_t>& out);
+  Status fidoPinWrite(const std::vector<uint8_t>& data);
 
   // Activity log (vault_activity.cpp): one opaque record, encrypted like an entry.
   Status activityRead(std::vector<uint8_t>& out);

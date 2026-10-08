@@ -17,7 +17,18 @@ namespace keyra::fido::cred {
 
 constexpr size_t kIdLen = 62;
 constexpr uint8_t kIdVersion = 0x01;
-constexpr uint8_t kFlagResident = 0x01;
+// flags: bit 0 discoverable, bit 1 hmac-secret was asked for at creation,
+// bits 2-3 the credProtect level (0 = an ID from before credProtect = level 1).
+// Bits 4-7 are zero; IDs made before these bits existed still read the same.
+constexpr uint8_t kFlagResident = 0x01, kFlagHmacSecret = 0x02;
+constexpr uint8_t kProtectShift = 2, kProtectMask = 0x0C;
+inline uint8_t protectLevel(uint8_t flags) {
+  const uint8_t level = (flags & kProtectMask) >> kProtectShift;
+  return level == 0 ? 1 : level;
+}
+inline uint8_t withProtect(uint8_t flags, uint8_t level) {
+  return static_cast<uint8_t>((flags & ~kProtectMask) | ((level & 3) << kProtectShift));
+}
 
 bool wrap(Crypto& c, const uint8_t key[32], const uint8_t rpIdHash[32], const uint8_t priv[32], uint8_t flags,
           uint8_t out[kIdLen]);

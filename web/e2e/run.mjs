@@ -664,6 +664,8 @@ async function passkeysFlow(base, opts) {
   await page.locator('.passkey-row').first().waitFor();
   check((await page.locator('.passkey-row').count()) === 3, 'three seeded passkeys listed');
   check((await page.locator('.passkey-row bdi').first().textContent()) === 'www.amazon.com', 'newest first');
+  const pinText = page.locator('.passkey-pin .callout');
+  check(((await pinText.textContent()) ?? '').includes(L(opts, 'No PIN', 'لا يوجد رمز PIN')), 'no security key PIN yet');
   await shot(page, `passkeys${tag}`);
   const github = page.locator('.passkey-row', { hasText: 'github.com' });
   const keys = async () => (await (await authed(ctx, `${base}/api/fido`)).json()).passkeys.length;
@@ -689,6 +691,15 @@ async function passkeysFlow(base, opts) {
   check((await keys()) === 2, 'passkey gone after the press');
   const r = await fetch(`${base}/api/fido`);
   check(r.status === 401, 'passkey list needs a session');
+  // The computer sets a PIN (ClientPIN, docs/FIDO.md); the app only reports it.
+  await fetch(`${base}/__mock/fido`, { method: 'POST', body: JSON.stringify({ pinSet: true, pinRetries: 5 }) });
+  const fido = await (await authed(ctx, `${base}/api/fido`)).json();
+  check(fido.pinSet === true && fido.pinRetries === 5, 'GET /api/fido reports the PIN');
+  await page.keyboard.press('Escape');
+  await page.locator('.nav-row', { hasText: opts.lang === 'en' ? 'Passkeys' : 'مفاتيح المرور' }).click();
+  await page.locator('.passkey-row').first().waitFor();
+  const shown = (await pinText.textContent()) ?? '';
+  check(shown.includes(L(opts, 'A PIN is set', 'رمز PIN مُعيَّن')) && shown.includes('5'), 'PIN set, 5 tries left shown');
   console.log('  ✓ passkeys flow passed');
   await ctx.close();
 }

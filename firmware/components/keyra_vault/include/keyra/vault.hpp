@@ -137,9 +137,18 @@ Status passkeyRemove(uint32_t id);
 // credentials, the others came with restored backups. A fresh vault has one,
 // HMAC-SHA256(DEK, "keyra/fido/v1/wrap" || salt), its 16-byte salt created on first use.
 Status passkeyWrapKeys(uint8_t out[kMaxPasskeyWrapKeys][32], size_t& count);
-// authenticatorReset: deletes every record and every wrap key (old wrapped
-// credentials stop decrypting; the next call makes a fresh salt).
+// authenticatorReset: deletes every record, every wrap key (old wrapped
+// credentials stop decrypting; the next call makes a fresh salt) and the FIDO PIN.
 Status passkeyReset();
+// The FIDO ClientPIN record (keyra_fido's encoding, at most kMaxFidoPinRecord
+// bytes) in "fidopin.bin", AES-256-GCM(DEK), AAD "keyra/fidopin/v1". Read and
+// write need the vault unlocked (NotFound when there is none; an empty write
+// removes it). fidoPinSet() only checks that the file exists, so it also works
+// while locked (getInfo has to say whether a PIN is set). Not part of backups.
+inline constexpr size_t kMaxFidoPinRecord = 64;
+bool fidoPinSet();
+Status fidoPinRead(std::vector<uint8_t>& out);
+Status fidoPinWrite(const std::vector<uint8_t>& data);
 
 // Activity log (SPEC §15). One opaque record of at most kMaxActivityBytes,
 // encrypted with the DEK ("activity.bin", AAD "keyra/activity/v1"); keyra_api

@@ -8,6 +8,20 @@ All notable changes to Keyra are documented here. The format follows
 
 ### Added
 
+- **Security key PIN, hmac-secret and credProtect** (firmware + web,
+  [FIDO.md](docs/FIDO.md#clientpin)): CTAP2 `authenticatorClientPIN` with PIN/UV
+  auth protocols 2 and 1 (getPINRetries, getKeyAgreement, setPIN, changePIN,
+  getPINToken). The PIN is set from the computer, is separate from the master
+  passphrase, and is kept in the vault as `fidopin.bin` (DEK-encrypted hash and
+  retries; 8 tries, 3 wrong per power-up, blocked at 0 until authenticatorReset).
+  With a PIN set only the PIN gives user verification; without one nothing
+  changes. `hmac-secret` derives its per-credential secrets from the wrapping key
+  (nothing new stored; restored backups give the same secrets), `credProtect`
+  levels 1-3 are kept in the credential ID's flags byte (older IDs = level 1).
+  getInfo lists the extensions, `clientPin`, `pinUvAuthProtocols [2,1]`,
+  `maxCredentialCountInList` and `maxCredentialIdLength`; still `FIDO_2_0`.
+  `GET /api/fido` adds `pinSet` and `pinRetries`, and Settings → Passkeys shows
+  them with how to set the PIN. The PIN is not part of backups.
 - **Passkeys in backups** (firmware, [PASSKEY-BACKUP.md](docs/research/PASSKEY-BACKUP.md)):
   backups (format v3) carry the passkey wrapping keys, the passkey records and
   the signature counter while the new setting `passkeysInBackup` is on

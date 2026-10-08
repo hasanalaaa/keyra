@@ -14,6 +14,8 @@ namespace {
 constexpr char kDir[] = "f";
 constexpr char kKeysPath[] = "fido.bin";
 constexpr char kStagedKeysPath[] = "fido.new";
+constexpr char kPinPath[] = "fidopin.bin";
+constexpr char kPinAad[] = "keyra/fidopin/v1";
 constexpr char kWrapLabel[] = "keyra/fido/v1/wrap";
 constexpr char kKeysAad[] = "keyra/fido/v2/keys";
 constexpr uint8_t kVersion = 1;
@@ -56,7 +58,7 @@ Status Vault::removePasskeyFilesLocked() {
   if (!p_.storage.list(kDir, names)) return Status::StorageError;
   for (const auto& n : names)
     if (!p_.storage.remove(std::string(kDir) + "/" + n)) return Status::StorageError;
-  return p_.storage.remove(kKeysPath) ? Status::Ok : Status::StorageError;
+  return p_.storage.remove(kKeysPath) && p_.storage.remove(kPinPath) ? Status::Ok : Status::StorageError;
 }
 
 Status Vault::persistPasskey(const std::string& path, uint32_t id, const uint8_t* data, size_t n) {
@@ -337,6 +339,48 @@ Status Vault::passkeyReset() {
   passkeysLoaded_ = false;
   // The next passkeyWrapKeys() creates a fresh salt.
   return removePasskeyFilesLocked();
+}
+
+bool Vault::fidoPinSet() {
+  std::lock_guard<std::mutex> g(m_);
+  if (!ready_ || !initialized_) return false;
+  std::vector<uint8_t> file;
+  return p_.storage.read(kPinPath, file) == Storage::Read::Ok;
+}
+
+Status Vault::fidoPinRead(std::vector<uint8_t>& out) {
+  std::lock_guard<std::mutex> g(m_);
+  out.clear();
+  if (Status s = requireUnlocked(); s != Status::Ok) return s;
+  std::vector<uint8_t> file;
+  switch (p_.storage.read(kPinPath, file)) {
+    case Storage::Read::NotFound: return Status::NotFound;
+    case Storage::Read::Error: return Status::StorageError;
+    case Storage::Read::Ok: break;
+  }
+  if (file.size() < kOverhead || file[0] != kVersion) return Status::Corrupt;
+  out.resize(file.size() - kOverhead);
+  switch (p_.crypto.gcmOpen(dek_.data(), file.data() + 1, bytes(kPinAad), sizeof kPinAad - 1, file.data() + 13,
+                            file.size() - 13, out.data())) {
+    case Crypto::Open::Ok: return Status::Ok;
+    case Crypto::Open::AuthFailed: out.clear(); return Status::Corrupt;
+    case Crypto::Open::Error: out.clear(); return Status::StorageError;
+  }
+  return Status::StorageError;
+}
+
+Status Vault::fidoPinWrite(const std::vector<uint8_t>& data) {
+  std::lock_guard<std::mutex> g(m_);
+  if (Status s = requireUnlocked(); s != Status::Ok) return s;
+  if (data.size() > kMaxFidoPinRecord) return Status::Invalid;
+  if (data.empty()) return p_.storage.remove(kPinPath) ? Status::Ok : Status::StorageError;
+  std::vector<uint8_t> file(kOverhead + data.size());
+  file[0] = kVersion;
+  if (!p_.crypto.random(file.data() + 1, 12) ||
+      !p_.crypto.gcmSeal(dek_.data(), file.data() + 1, bytes(kPinAad), sizeof kPinAad - 1, data.data(), data.size(),
+                         file.data() + 13))
+    return Status::StorageError;
+  return writeAtomic(kPinPath, file.data(), file.size());
 }
 
 }  // namespace keyra::vault
