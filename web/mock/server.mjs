@@ -59,6 +59,8 @@ const defaultSettings = () => ({
   bleConnect: 'on_demand',
   osUsb: '', // SPEC §10.5
   bothSequence: '', // SPEC §10.4: '' = built in
+  layoutUsb: 'us', // SPEC §10.1
+  layoutBle: 'us',
   // password is write-only, never sent; MOCK_HOME_ONLINE starts already joined
   homeWifi: process.env.MOCK_HOME_ONLINE === '1' ? { enabled: true, ssid: 'Al-Rashid Home', password: 'home-wifi-pass' } : { enabled: false, ssid: '', password: '' },
   apMode: 'always',
@@ -290,7 +292,7 @@ function press(kind) {
         else if (t.kind === 'usb' && !host.usb) code = 'no_usb';
         else if (t.kind === 'ble' && ble.connected !== t.addr) code = 'no_host';
         else if (text === null) code = 'failed';
-        else if (/[^\x20-\x7e\t\n]/.test(text)) code = 'unsupported_char';
+        else if (s.req.what !== 'probe' && /[^\x20-\x7e\t\n]/.test(text)) code = 'unsupported_char';
         // Machine::typingFinished: a sequence part typed fine with more to come is armed again
         // for its next part (fresh 60 s), unless something else was armed meanwhile.
         const more = code === 'typed' && s.req.what === 'sequence' && s.req.part + 1 < s.req.seq.parts;
@@ -319,6 +321,7 @@ function press(kind) {
       }, 250 + Math.min(1500, (text?.length ?? 0) * settings.keyDelayMs));
       // Free text: only its length, so e2e can check "twice" without the mock echoing secrets.
       if (s.req.what === 'sequence') return `typing sequence part ${s.req.part + 1}/${s.req.seq.parts} · ${s.req.title}`;
+      if (s.req.what === 'probe') return `typing probe · ${text}`; // what the computer shows (no secret in it)
       return s.req.what === 'text' ? `typing text (${text.length} chars)` : `typing ${s.req.what} · ${s.req.title}`;
     }
     return 'nothing to do (blink)';
@@ -340,6 +343,8 @@ function press(kind) {
 /** What the HID engine would type for a request (null = entry vanished). */
 function typedText(req) {
   if (req.what === 'test') return 'Keyra test 123';
+  // The keys are fixed; the simulated computer uses the layout Keyra is set to for that output.
+  if (req.what === 'probe') return layoutById(req.target.kind === 'ble' ? settings.layoutBle : settings.layoutUsb).probe;
   if (req.what === 'text') return req.text + (req.twice ? (req.enterBetween ? '\n' : '\t') + req.text : '');
   const e = vault?.entries.get(req.id);
   if (!e) return null;
@@ -487,6 +492,87 @@ function importBackup(incoming, replace) {
   return { added, updated };
 }
 
+// ---------- keyboard layouts (SPEC §10.1-10.3; firmware keyra_hid keymap.cpp + layouts/gen_layouts.py) ----------
+// Read from the firmware's own source table, so ids, names, probe strings and
+// layout-proof characters are exactly the device's.
+
+const LAYOUTS_TXT = fileURLToPath(new URL('../../firmware/components/keyra_hid/layouts/layouts.txt', import.meta.url));
+const MAX_LAYOUTS_SAFE = 8;
+const LAYOUT_ERR = 'layoutUsb/layoutBle must be a layout id from GET /api/keyboard';
+const LAYOUTS_ERR = 'layouts must be 1-8 layout ids';
+const SHIFT = 0x02;
+const MAC_SWAP_KEYS = new Set([0x35, 0x64]);
+// typeProbe(): Q W Y Z Space ; Shift+2 Shift+3 / (US positions).
+const PROBE_KEYS = [[0x14, 0], [0x1a, 0], [0x1c, 0], [0x1d, 0], [0x2c, 0], [0x33, 0], [0x1f, 1], [0x20, 1], [0x38, 0]];
+
+function parseLayouts(path) {
+  const out = [];
+  for (const raw of readFileSync(path, 'utf8').split('\n')) {
+    const line = raw.split('  #')[0].trim();
+    if (!line || line.startsWith('#')) continue;
+    const parts = line.split(/\s+/);
+    if (parts[0] === 'layout') {
+      const platform = { any: 'any', win: 'windows', mac: 'mac' }[parts[2]];
+      out.push({ id: parts[1], platform, name: parts.slice(3).join(' '), keys: [] });
+      continue;
+    }
+    const cells = parts.slice(1, 5).map((tok) => (tok === '-' ? null : { cp: parseInt(tok.replace('*', '').slice(2), 16), dead: tok.endsWith('*') }));
+    out.at(-1).keys.push({ usage: parseInt(parts[0], 16), cells });
+  }
+  for (const l of out) {
+    // gen_layouts.py glyphs(): the key press Keyra uses for each character.
+    l.glyphs = new Map();
+    for (const { usage, cells } of l.keys) {
+      cells.forEach((c, layer) => {
+        if (!c) return;
+        const rank = [c.dead, l.platform === 'mac' && MAC_SWAP_KEYS.has(usage), layer, usage].map(Number);
+        const best = l.glyphs.get(c.cp);
+        const i = best ? rank.findIndex((v, j) => v !== best.rank[j]) : -1;
+        if (!best || (i >= 0 && rank[i] < best.rank[i])) l.glyphs.set(c.cp, { rank, usage, layer, dead: c.dead });
+      });
+    }
+    // charFor(): what the key press leaves on the host (nothing for a dead key).
+    const charFor = (usage, layer) => {
+      const c = l.keys.find((k) => k.usage === usage)?.cells[layer];
+      return c && !c.dead ? String.fromCodePoint(c.cp) : '';
+    };
+    l.probe = PROBE_KEYS.map(([usage, shift]) => charFor(usage, shift)).join('');
+  }
+  return out;
+}
+
+const LAYOUTS = parseLayouts(LAYOUTS_TXT);
+const layoutById = (id) => LAYOUTS.find((l) => l.id === id);
+
+/** keymap.cpp sameOnAll(): `ch` comes from the very same single key press on every layout. */
+function sameOnAll(ch, layouts) {
+  const strokes = layouts.map((l) => {
+    const g = l.glyphs.get(ch.codePointAt(0));
+    if (!g || g.dead) return null;
+    const alt = l.platform === 'mac' ? 0x04 : 0x40; // Option (left Alt) on a Mac, AltGr elsewhere
+    return `${g.usage}:${(g.layer & 1 ? SHIFT : 0) | (g.layer & 2 ? alt : 0)}`;
+  });
+  return strokes[0] !== null && strokes.every((s) => s === strokes[0]);
+}
+
+/** handlers_kbd.cpp layoutSafeChars(): → allowed characters, null (not restricted) or an error message. */
+function layoutSafeChars(b) {
+  if (b.layoutSafe !== undefined && typeof b.layoutSafe !== 'boolean') return { error: 'layoutSafe must be a boolean' };
+  if (!b.layoutSafe) return b.layouts !== undefined ? { error: 'layouts needs layoutSafe' } : { allowed: null };
+  let chosen;
+  if (b.layouts === undefined) {
+    chosen = [layoutById(settings.layoutUsb)];
+    if (settings.layoutBle !== settings.layoutUsb) chosen.push(layoutById(settings.layoutBle));
+  } else {
+    if (!Array.isArray(b.layouts) || b.layouts.length < 1 || b.layouts.length > MAX_LAYOUTS_SAFE) return { error: LAYOUTS_ERR };
+    chosen = b.layouts.map((id) => (typeof id === 'string' ? layoutById(id) : undefined));
+    if (chosen.some((l) => !l)) return { error: LAYOUTS_ERR };
+  }
+  let allowed = '';
+  for (let c = 0x21; c < 0x7f; c++) if (sameOnAll(String.fromCharCode(c), chosen)) allowed += String.fromCharCode(c);
+  return { allowed };
+}
+
 // ---------- generator (same rules as firmware keyra_api/src/generator.cpp) ----------
 
 const GEN_SYMBOLS = '!@#$%^&*-_=+?';
@@ -523,13 +609,15 @@ function generate(b) {
   const symbolSet = b.symbolSet ?? GEN_SYMBOLS;
   const symErr = 'symbolSet must be 1-32 distinct ASCII punctuation characters';
   if (typeof symbolSet !== 'string' || !/^[!-/:-@[-`{-~]{1,32}$/.test(symbolSet) || new Set(symbolSet).size !== symbolSet.length) return symErr;
+  const safe = layoutSafeChars(b);
+  if (safe.error) return safe.error;
   if (L < 8 || L > 128) return 'length must be 8-128';
   if (!b.lower && !b.upper && !b.digits && !b.symbols) return 'enable at least one of lower, upper, digits, symbols';
   const minD = b.minDigits ?? 0;
   const minS = b.minSymbols ?? 0;
   const minErr = 'minDigits/minSymbols need their class enabled and must fit in the length';
   if (minD > L || minS > L || (!b.digits && minD > 0) || (!b.symbols && minS > 0)) return minErr;
-  const strip = (s) => (b.avoidAmbiguous ? [...s].filter((c) => !GEN_AMBIGUOUS.includes(c)).join('') : s);
+  const strip = (s) => [...s].filter((c) => !(b.avoidAmbiguous && GEN_AMBIGUOUS.includes(c)) && (safe.allowed === null || safe.allowed.includes(c))).join('');
   const classes = [
     [b.lower, 'abcdefghijklmnopqrstuvwxyz', 1],
     [b.upper, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 1],
@@ -538,7 +626,7 @@ function generate(b) {
   ]
     .filter(([on]) => on)
     .map(([, chars, min]) => ({ chars: strip(chars), min }));
-  if (classes.some((c) => !c.chars)) return 'avoidAmbiguous leaves an enabled class without characters';
+  if (classes.some((c) => !c.chars)) return 'avoidAmbiguous or layoutSafe leaves an enabled class without characters';
   if (classes.reduce((a, c) => a + c.min, 0) > L) return minErr;
   const p = genAcceptance(classes, L);
   if (p < 1e-3) return 'minimums are too high for this length';
@@ -574,6 +662,7 @@ const summary = (e) => ({
   favorite: e.favorite,
   hasPassword: e.password !== '',
   hasTotp: e.totp !== '',
+  hasSequence: !!e.sequence,
   burnAfter: e.burnAfter ?? 0,
   updated: e.updated,
   lastUsed: e.lastUsed,
@@ -1072,6 +1161,7 @@ function match(method, rawPath) {
     case 'lock': return one('POST', 'lock');
     case 'type': return one('POST', 'type');
     case 'generate': return one('POST', 'generate');
+    case 'keyboard': return one('GET', 'keyboard');
     case 'type/cancel': return one('POST', 'typeCancel');
     case 'presence/cancel': return one('POST', 'presenceCancel');
     case 'passphrase': return one('POST', 'passphrase');
@@ -1136,8 +1226,8 @@ function getEntry(id) {
 function entryView(e, revealed) {
   // A custom sequence may hold literal secrets: it follows the password (SPEC §10.4).
   const { password, totp, history, sequence, ...rest } = e;
-  if (revealed) return { ...rest, revealed, hasPassword: !!password, hasTotp: !!totp, password, totp, sequence: sequence ?? '', history };
-  return { ...rest, revealed, hasPassword: !!password, hasTotp: !!totp, history: history.map((h) => ({ changedAt: h.changedAt })) };
+  if (revealed) return { ...rest, revealed, hasPassword: !!password, hasTotp: !!totp, hasSequence: !!sequence, password, totp, sequence: sequence ?? '', history };
+  return { ...rest, revealed, hasPassword: !!password, hasTotp: !!totp, hasSequence: !!sequence, history: history.map((h) => ({ changedAt: h.changedAt })) };
 }
 
 // SPEC §12.3: a press grants what it was asked for — reveal for 60 s, or one backup / one recovery-key change.
@@ -1460,6 +1550,7 @@ async function api(req, res, path) {
 
     case 'type': {
       if (b.test !== undefined && typeof b.test !== 'boolean') bad('"test" must be a boolean');
+      if (b.probe !== undefined && typeof b.probe !== 'boolean') bad('"probe" must be a boolean');
       if (b.switchLang !== undefined && typeof b.switchLang !== 'boolean') bad('"switchLang" must be a boolean');
       if (b.switchLang) console.log('[mock] Ctrl+Space before and after typing (input language switch)');
       let target = pickTarget();
@@ -1484,6 +1575,8 @@ async function api(req, res, path) {
         return send(res, 202, { pending: { kind: 'type', ...pending } });
       }
       if (b.test) return send(res, 202, { pending: { kind: 'type', ...arm({ id: 0, title: 'Keyra test', what: 'test', submit: false, target }) } });
+      // Layout Doctor (SPEC §10.3).
+      if (b.probe) return send(res, 202, { pending: { kind: 'type', ...arm({ id: 0, title: 'Keyboard check', what: 'probe', submit: false, target }) } });
       if (!Number.isInteger(b.id) || b.id < 1 || b.id > 0xffffffff) bad('"id" (entry id) is required');
       if (!['username', 'password', 'both', 'totp', 'sequence'].includes(b.what)) bad('"what" must be username, password, both, totp or sequence');
       if (b.submit !== undefined && typeof b.submit !== 'boolean') bad('"submit" must be a boolean');
@@ -1515,6 +1608,14 @@ async function api(req, res, path) {
       if (typeof r === 'string') bad(r);
       return send(res, 200, r);
     }
+
+    case 'keyboard':
+      return send(res, 200, {
+        // Only US is confirmed on real hardware (SPEC §10.1).
+        layouts: LAYOUTS.map((l) => ({ id: l.id, name: l.name, platform: l.platform, experimental: l.id !== 'us', probe: l.probe })),
+        usb: settings.layoutUsb,
+        ble: settings.layoutBle,
+      });
 
     case 'presenceCancel': {
       // Like Machine::cancelPresence: only the named op, and nothing runs later.
@@ -1564,6 +1665,11 @@ async function api(req, res, path) {
       if (b.output !== undefined) {
         if (!['auto', 'usb', 'ble'].includes(b.output)) bad('output must be "auto", "usb" or "ble"');
         next.output = b.output;
+      }
+      for (const k of ['layoutUsb', 'layoutBle']) {
+        if (b[k] === undefined) continue;
+        if (typeof b[k] !== 'string' || !layoutById(b[k])) bad(LAYOUT_ERR);
+        next[k] = b[k];
       }
       if (b.osUsb !== undefined) {
         if (!OSES.includes(b.osUsb)) bad('osUsb must be "", "mac", "ios", "windows", "android" or "linux"');
@@ -1880,6 +1986,8 @@ const publicSettings = () => ({
   bleConnect: settings.bleConnect,
   osUsb: settings.osUsb,
   bothSequence: settings.bothSequence,
+  layoutUsb: settings.layoutUsb,
+  layoutBle: settings.layoutBle,
   homeWifi: { enabled: settings.homeWifi.enabled, ssid: settings.homeWifi.ssid },
   apMode: settings.apMode,
   protectReveal: settings.protectReveal,

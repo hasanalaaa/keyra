@@ -74,11 +74,6 @@ let state: AppState = {
 
 const listeners = new Set<() => void>();
 
-/**
- * Entry id → has its own sequence (SPEC §10.4). The API sends `sequence` only with the secrets,
- * so this remembers what this tab saw revealed or saved, until the vault locks.
- */
-export const knownSequences = new Map<number, boolean>();
 
 export const getState = (): AppState => state;
 
@@ -156,7 +151,6 @@ function lockReasonNow(d: DeviceState | null): LockReason {
 function becameLocked(d: DeviceState | null): void {
   if (!state.authed) return;
   forgetSession();
-  knownSequences.clear();
   setState({ authed: false, lockReason: lockReasonNow(d), entries: null, ble: null, backupAt: null, bothSequence: '' });
   manualLock = false;
 }

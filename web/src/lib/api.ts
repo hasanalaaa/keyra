@@ -1,4 +1,4 @@
-import type { BleInfo, DeviceState, Entry, HostOs, EntryInput, ActivityEvent, EntrySummary, Health, Network, Passkey, UpdateCheck, RecoveryInfo, Settings, Totp, TrustedBrowser, TypeTextRequest, TypeWhat, Pending, PresenceOp } from './types';
+import type { BleInfo, DeviceState, Keyboard, Entry, HostOs, EntryInput, ActivityEvent, EntrySummary, Health, Network, Passkey, UpdateCheck, RecoveryInfo, Settings, Totp, TrustedBrowser, TypeTextRequest, TypeWhat, Pending, PresenceOp } from './types';
 import { generateRequest, type GenSettings } from './generator';
 
 export class ApiError extends Error {
@@ -188,14 +188,18 @@ export const api = {
   type: (id: number, what: TypeWhat, target?: string, switchLang = false) =>
     json<{ pending: Pending }>('POST', '/type', { id, what, target, switchLang }),
   typeTest: (target?: string, switchLang = false) => json<{ pending: Pending }>('POST', '/type', { test: true, target, switchLang }),
+  /** Layout Doctor (SPEC §10.3): types fixed keys; what appears names the computer's layout. */
+  typeProbe: (target?: string, switchLang = false) => json<{ pending: Pending }>('POST', '/type', { probe: true, target, switchLang }),
   /** Free text (SPEC §9.2). */
   typeText: (r: TypeTextRequest & { target?: string; switchLang?: boolean }) => json<{ pending: Pending }>('POST', '/type', r),
   /** On the device, from its hardware RNG (SPEC §9.1). */
-  generate: (s: GenSettings) => json<{ password: string; entropyBits: number }>('POST', '/generate', generateRequest(s)),
+  /** `layouts`: for the layout-safe option, the computers' layouts (SPEC §10.2). */
+  generate: (s: GenSettings, layouts: string[] = []) => json<{ password: string; entropyBits: number }>('POST', '/generate', generateRequest(s, layouts)),
   cancelType: () => json<void>('POST', '/type/cancel'),
   /** Withdraws a waiting "press Keyra's button" op, so a later press does not run it. */
   cancelPresence: (op: PresenceOp, cancel: string) => json<void>('POST', '/presence/cancel', { op, cancel }),
   settings: () => json<Settings>('GET', '/settings'),
+  keyboard: () => json<Keyboard>('GET', '/keyboard'),
   /** 200 → Settings; 202 → presence required (Wi-Fi changes). */
   async putSettings(s: Partial<Settings> & { wifiPassword?: string }): Promise<Settings | Awaiting> {
     return json<Settings | Awaiting>('PUT', '/settings', s);

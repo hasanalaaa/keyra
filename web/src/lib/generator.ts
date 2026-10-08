@@ -31,6 +31,10 @@ export interface GenSettings {
   minDigits: number;
   minSymbols: number;
   avoidAmbiguous: boolean;
+  /** SPEC §9.1 `symbolSet`: the symbols to draw from; '' = the device's default set. */
+  symbolSet: string;
+  /** SPEC §10.2: only characters every computer Keyra types into gets right. */
+  layoutSafe: boolean;
 }
 
 export const MIN_LENGTH = 8;
@@ -49,7 +53,22 @@ export const GEN_DEFAULTS: GenSettings = {
   minDigits: 1,
   minSymbols: 1,
   avoidAmbiguous: true,
+  symbolSet: '',
+  layoutSafe: false,
 };
+
+/** SPEC §9.1: a custom symbol set is 1-32 distinct ASCII punctuation characters. */
+export const MAX_SYMBOL_SET = 32;
+const PUNCTUATION = /[!-/:-@[-`{-~]/;
+
+/** What the user typed as a symbol set, reduced to what the device accepts (in order, no repeats). */
+export function cleanSymbolSet(input: string): string {
+  let out = '';
+  for (const ch of input) if (PUNCTUATION.test(ch) && !out.includes(ch) && out.length < MAX_SYMBOL_SET) out += ch;
+  return out;
+}
+
+const withoutAmbiguous = (chars: string) => [...chars].filter((c) => !AMBIGUOUS.includes(c)).join('');
 
 interface Klass {
   size: number;
@@ -57,12 +76,12 @@ interface Klass {
 }
 
 function klasses(s: GenSettings): Klass[] {
-  const drop = (chars: string) => (s.avoidAmbiguous ? [...chars].filter((c) => !AMBIGUOUS.includes(c)).length : chars.length);
+  const drop = (chars: string) => (s.avoidAmbiguous ? withoutAmbiguous(chars) : chars).length;
   const out: Klass[] = [];
   if (s.lower) out.push({ size: drop('abcdefghijklmnopqrstuvwxyz'), min: 1 });
   if (s.upper) out.push({ size: drop('ABCDEFGHIJKLMNOPQRSTUVWXYZ'), min: 1 });
   if (s.digits) out.push({ size: drop('0123456789'), min: Math.max(1, s.minDigits) });
-  if (s.symbols) out.push({ size: drop(SYMBOLS), min: Math.max(1, s.minSymbols) });
+  if (s.symbols) out.push({ size: drop(s.symbolSet || SYMBOLS), min: Math.max(1, s.minSymbols) });
   return out;
 }
 
@@ -99,7 +118,10 @@ export function valid(s: GenSettings): boolean {
   return acceptance(s) >= MIN_ACCEPTANCE;
 }
 
-/** log2 of how many passwords these settings can produce (all equally likely). */
+/**
+ * log2 of how many passwords these settings can produce (all equally likely). With `layoutSafe` the
+ * device drops characters the browser cannot know about, so only its own `entropyBits` is exact then.
+ */
 export function entropyBits(s: GenSettings): number {
   const p = acceptance(s);
   if (!p) return 0;
@@ -121,6 +143,10 @@ export function maxMinimum(s: GenSettings, key: 'minDigits' | 'minSymbols'): num
 export function normalize(s: GenSettings): GenSettings {
   const n: GenSettings = { ...s, length: Math.round(Math.min(MAX_LENGTH, Math.max(MIN_LENGTH, Number(s.length) || GEN_DEFAULTS.length))) };
   if (!n.lower && !n.upper && !n.digits && !n.symbols) n.lower = true;
+  n.symbolSet = cleanSymbolSet(String(n.symbolSet ?? ''));
+  // A set made only of look-alikes would leave the symbols empty: the device refuses that.
+  if (n.avoidAmbiguous && !withoutAmbiguous(n.symbolSet)) n.symbolSet = '';
+  n.layoutSafe = n.layoutSafe === true;
   n.minDigits = Math.max(1, Math.round(Number(n.minDigits) || 1));
   n.minSymbols = Math.max(1, Math.round(Number(n.minSymbols) || 1));
   n.minDigits = Math.min(n.minDigits, maxMinimum({ ...n, minDigits: 1 }, 'minDigits'));
@@ -128,8 +154,12 @@ export function normalize(s: GenSettings): GenSettings {
   return n;
 }
 
-/** Body of POST /api/generate. */
-export function generateRequest(s: GenSettings) {
+/**
+ * Body of POST /api/generate. `layouts`: the computers' layout ids for `layoutSafe` (SPEC §10.2);
+ * when unknown the device uses the ones set for its outputs, which is the same thing.
+ */
+export function generateRequest(s: GenSettings, layouts: readonly string[] = []) {
+  const ids = [...new Set(layouts)];
   return {
     length: s.length,
     lower: s.lower,
@@ -139,6 +169,8 @@ export function generateRequest(s: GenSettings) {
     minDigits: s.digits ? s.minDigits : 0,
     minSymbols: s.symbols ? s.minSymbols : 0,
     avoidAmbiguous: s.avoidAmbiguous,
+    ...(s.symbolSet ? { symbolSet: s.symbolSet } : {}),
+    ...(s.layoutSafe ? { layoutSafe: true, ...(ids.length ? { layouts: ids } : {}) } : {}),
   };
 }
 

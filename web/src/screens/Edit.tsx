@@ -16,7 +16,7 @@ import { t } from '../lib/i18n';
 import { back, replace } from '../lib/router';
 import { parseQrText, titleOf, toOtpauth, type OtpAccount } from '../lib/qrImport';
 import { normalizeTotp } from '../lib/totp';
-import { knownSequences, loadEntries, toast } from '../lib/store';
+import { loadEntries, toast } from '../lib/store';
 import type { EntryInput } from '../lib/types';
 import { ENTRY_MAX, bytes } from '../lib/limits';
 import { parseSequence } from '../lib/sequence';
@@ -106,7 +106,6 @@ export function EditAccount({ id }: { id?: number }) {
         for (const k of Object.keys(body) as (keyof EntryInput)[]) if (body[k] !== initial[k]) (patch as Record<string, unknown>)[k] = body[k];
         await api.update(id, patch);
       } else newId = (await api.create(body)).id;
-      if (newId) knownSequences.set(newId, body.sequence !== '');
       toast(t('saved'), 'ok');
       await loadEntries();
       after.current = () => {

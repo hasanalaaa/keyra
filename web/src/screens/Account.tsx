@@ -14,7 +14,7 @@ import { errorText, isLockedError } from '../lib/errors';
 import { copyText } from '../lib/clipboard';
 import { t, type Key } from '../lib/i18n';
 import { go, replace } from '../lib/router';
-import { knownSequences, setState, toast, useApp } from '../lib/store';
+import { setState, toast, useApp } from '../lib/store';
 import { hostOf } from '../lib/csv';
 import { shortDate } from '../lib/wifi';
 import type { Entry, OldPassword, Totp, TypeWhat } from '../lib/types';
@@ -84,11 +84,8 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
     };
   }, [id, summary?.updated]);
 
-  // SPEC §10.4: `sequence` comes only with the secrets; remember what a revealed copy said.
-  useEffect(() => {
-    if (entry?.sequence !== undefined) knownSequences.set(id, entry.sequence !== '');
-  }, [id, entry?.sequence]);
-  const ownSeq = entry?.sequence !== undefined ? entry.sequence !== '' : (knownSequences.get(id) ?? false);
+  // SPEC §10.4: the sequence itself comes only with the secrets; hasSequence always does.
+  const ownSeq = entry?.sequence !== undefined ? entry.sequence !== '' : !!(entry?.hasSequence ?? summary?.hasSequence);
   const parsedSeq = entry?.sequence ? parseSequence(entry.sequence) : null;
   const seqParts = parsedSeq?.ok ? parsedSeq.parts : 1;
   // A custom "Both" order is typed as a sequence (the entry's own sequence, if any, comes first).
@@ -129,7 +126,7 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
   };
 
   const phase = action.phase;
-  const what = action.what ?? 'both';
+  const what = (action.what ?? 'both') as TypeWhat; // an entry's action: never the test, text or probe
   let area;
   if (gate.phase.kind === 'ready') {
     area = (
@@ -171,7 +168,7 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
       />
     );
   } else if (phase.kind === 'error') {
-    area = <ActionError code={phase.code} retry={() => startAction(what as TypeWhat)} copy={() => copyOrReveal(what)} edit={() => go(`/a/${id}/edit`)} close={action.dismiss} />;
+    area = <ActionError code={phase.code} retry={() => startAction(what)} copy={() => copyOrReveal(what)} edit={() => go(`/a/${id}/edit`)} close={action.dismiss} />;
   } else {
     area = (
       <div class="actions">
