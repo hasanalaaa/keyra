@@ -19,13 +19,14 @@ formats and the REST API are contracts (changes need a migration).
 | Restore "replace" atomic across power cuts and full storage (stage, commit marker, roll forward/back at init); merge keeps newer local entries and moves replaced passwords into history; replace checked before the press | `a824dcd` |
 | Update: install held until the restart; the press installs only the image the phone showed; https-only redirects; rate-limit and network errors told apart; 15 s probation before a new image is kept | `b8ccc90` |
 
-## Wave 2 — features the firmware has but the app does not show (in progress)
+## Wave 2 — features the firmware has but the app does not show (done)
 
 - Keyboard layout per output (GET /api/keyboard, `layoutUsb`/`layoutBle`), Layout
   Doctor probe, layout-safe generator option (SPEC §10.1–10.3).
 - Auto-type sequences: editor on the account, "Type sequence" with multi-part
   progress, `bothSequence` editor (SPEC §10.4).
-- Mock parity for all of the above.
+- Mock parity for all of the above. Also: `hasSequence` on entries, Arabic layout
+  names, U2F refuses to sign once the vault has locked.
 
 ## Wave 3 — hardening and coverage
 
@@ -34,18 +35,15 @@ formats and the REST API are contracts (changes need a migration).
 | e2e for recovery-key create/unlock, restore merge + replace, factory reset, passphrase change, settings changes, entry delete, trusted-browser removal | These flows have no browser test today | Each flow passes in `npm run e2e` in ar and en-dark |
 | Mock drift: passphrase throttle (429 + retryAfterMs), `host.usbOs` only with a session, home-network error kept while connected | The app is tested against the mock | Mock answers match firmware handlers |
 | SPEC §5 API table refreshed (settings fields, `failedAttempts`, `/type` fields, result codes) | The table predates v1.1 | Every route and field in `routes.cpp` / handlers is listed |
-| UI ranges: LED brightness 0 (off), typing delay beyond 3 presets, show remaining reveal grace (`state.graceMs`) | Firmware allows them | Settable from Settings |
-| Passkeys and the activity log are not in backups: say so in Backup and Passkeys screens | Silent surprise on a new device | Text in ar/en |
+| ~~UI ranges: LED 0, more typing delays~~ | Kept on purpose (DESIGN App. B): an LED that can be turned off hides "waiting for the button"; the three delays are the tested ones | — |
+| Passkeys and the activity log are not in backups: say so | Silent surprise on a new device | Done (Backup and Passkeys screens) |
+| Web bundle at 179 KB of 190 KB | Little room left | Next big screen needs trimming first (e.g. lazy QR/Shamir code) |
 
 ## Wave 4 — owner decisions first, then build
 
-1. **2FA codes without a press.** `GET /entries/{id}/totp` needs a session but no
-   press. Options: keep (codes live 30 s, useless without the password), or gate it
-   like reveal. Recommendation: keep, and document as a deliberate exception.
-2. **Destructive edits without a press.** Deleting or overwriting accounts, removing
-   passkeys, Bluetooth devices or trusted browsers needs a session only. Options:
-   keep (logged in Activity), or ask for a press on delete. Recommendation: press for
-   "delete account" and "remove passkey" only.
+1. **2FA codes without a press** — decided: kept, documented as an exception (SPEC §12.5a).
+2. **Destructive edits without a press** — decided: "delete account" and "remove
+   passkey" need a press (in progress); the rest stays session-only and logged.
 3. **Passkeys in backups.** Today they are lost with the device. Needs a backup
    format change (encrypted records + salt) — design note first.
 
