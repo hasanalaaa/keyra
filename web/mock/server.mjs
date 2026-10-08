@@ -292,7 +292,7 @@ function press(kind) {
         else if (t.kind === 'usb' && !host.usb) code = 'no_usb';
         else if (t.kind === 'ble' && ble.connected !== t.addr) code = 'no_host';
         else if (text === null) code = 'failed';
-        else if (s.req.what !== 'probe' && /[^\x20-\x7e\t\n]/.test(text)) code = 'unsupported_char';
+        else if (s.req.what !== 'probe' && !typeable(text, layoutFor(t), { tabEnter: true })) code = 'unsupported_char';
         // Machine::typingFinished: a sequence part typed fine with more to come is armed again
         // for its next part (fresh 60 s), unless something else was armed meanwhile.
         const more = code === 'typed' && s.req.what === 'sequence' && s.req.part + 1 < s.req.seq.parts;
@@ -353,7 +353,7 @@ function typedText(req) {
     // seqrun::checkAll at the first press: a reason known up front stops it before any part.
     const all = Array.from({ length: req.seq.parts }, (_, p) => seqPartText(req.seq, p, e));
     if (req.part === 0 && all.some((x) => x === null)) return null;
-    return (req.part === 0 && all.find((x) => /[^\x20-\x7e\t\n]/.test(x))) || all[req.part];
+    return (req.part === 0 && all.find((x) => !typeable(x, layoutFor(req.target), { tabEnter: true }))) || all[req.part];
   }
   if (req.what === 'username') return e.username;
   if (req.what === 'password') return e.password;
@@ -543,6 +543,18 @@ function parseLayouts(path) {
 
 const LAYOUTS = parseLayouts(LAYOUTS_TXT);
 const layoutById = (id) => LAYOUTS.find((l) => l.id === id);
+
+/** keymap.cpp typeable(): every character has a key press (or dead key + Space) on `layout`; no control characters. */
+function typeable(text, layout, { tabEnter = false } = {}) {
+  for (const ch of text) {
+    if (tabEnter && (ch === '\t' || ch === '\n')) continue; // typed as keys, not looked up
+    const cp = ch.codePointAt(0);
+    if (cp < 0x20 || (cp >= 0x7f && cp < 0xa0) || !layout.glyphs.has(cp)) return false;
+  }
+  return true;
+}
+/** kbdapi::layoutFor(): the layout set for the output a target types into. */
+const layoutFor = (target) => layoutById(target.kind === 'ble' ? settings.layoutBle : settings.layoutUsb);
 
 /** keymap.cpp sameOnAll(): `ch` comes from the very same single key press on every layout. */
 function sameOnAll(ch, layouts) {
@@ -1361,7 +1373,7 @@ async function api(req, res, path) {
             output: next.kind === 'none' ? null : next.kind,
             bleTarget: bond ? { addr: bond.addr, name: bond.name } : null,
             connecting: !!armed && ble.connected !== armed,
-            usbOs: settings.osUsb,
+            ...(session ? { usbOs: settings.osUsb } : {}), // handlers.cpp getState: session only
           };
         })(),
         pending:
@@ -1567,7 +1579,10 @@ async function api(req, res, path) {
         // Free text (SPEC §9.2), like handlers_gen.cpp textRequest.
         if (['id', 'what', 'test', 'submit'].some((k) => b[k] !== undefined)) bad('"text" cannot be combined with id, what, test or submit');
         if (typeof b.text !== 'string') bad('"text" (string) is required');
-        if (!/^[\x20-\x7e]{1,256}$/.test(b.text)) bad('text must be 1-256 characters Keyra can type (printable ASCII, no control characters)');
+        // validate::typeText: 1-256 code points, each typeable on the layout set for this output.
+        const n = [...b.text].length;
+        if (n < 1 || n > 256 || !typeable(b.text, layoutFor(target)))
+          bad('text must be 1-256 characters the keyboard layout set for this output can type (no control characters)');
         if (b.repeat !== undefined && b.repeat !== 1 && b.repeat !== 2) bad('repeat must be 1 or 2');
         if (b.separator !== undefined && b.separator !== 'tab' && b.separator !== 'enter') bad('separator must be "tab" or "enter"');
         const req = { id: 0, title: null, what: 'text', submit: false, target, text: b.text, twice: b.repeat === 2, enterBetween: b.separator === 'enter' };
@@ -1743,8 +1758,13 @@ async function api(req, res, path) {
       const nxt = str(b, 'next');
       if (Buffer.byteLength(cur) > 1024) bad('passphrase too long');
       if (!validPassphrase(nxt)) bad('next must be 10-128 characters');
+      // Vault::changePassphrase goes through attempt(): a wrong `current` is throttled like unlock.
+      throttle();
       await sleep(KDF_MS);
-      if (cur !== vault.passphrase) fail(401, 'wrong', 'Wrong passphrase');
+      if (cur !== vault.passphrase) wrongAttempt('Wrong passphrase');
+      failedBefore = failures - 1;
+      failures = 0;
+      lockedUntil = 0;
       vault.passphrase = nxt;
       logEvent('passphrase');
       return send(res, 204);
@@ -1774,6 +1794,11 @@ async function api(req, res, path) {
       if (mode !== 'merge' && mode !== 'replace') bad('mode must be "merge" or "replace"');
       if (!b.backup || typeof b.backup !== 'object' || Array.isArray(b.backup)) bad('"backup" (object) is required');
       if (mode === 'replace') {
+        // postRestore: a wrong passphrase or a bad file is reported now (vault::checkBackup), not after the press.
+        await sleep(KDF_MS);
+        const checked = openBackup(pass, b.backup);
+        if (checked === 'wrong') fail(401, 'wrong', 'Wrong passphrase');
+        if (checked === 'invalid') bad('Invalid data');
         return awaiting(
           res,
           awaitPresence('restore', () => {
