@@ -17,11 +17,12 @@ void Device::step(uint32_t waitMs) {
   hid::Message m;
   if (link_.recv(pkt, waitMs) && hid_.feed(pkt, sizeof pkt, link_.nowMs(), m)) {
     hid_.begin(m.cid);
-    const auto resp = m.cmd == hid::kCbor ? auth_.cbor(m.data.data(), m.data.size(), *this, link_.nowMs())
+    const auto resp = m.cmd == hid::kCbor ? auth_.cbor(m.data.data(), m.data.size(), *this, link_.nowMs(), m.cid)
                                           : auth_.msg(m.data.data(), m.data.size(), *this);
     hid_.reply(m.cid, m.cmd, resp.data(), resp.size());
   }
   const int64_t now = link_.nowMs();
+  if (!store_.unlocked()) auth_.forgetNext();  // locked: nothing left to continue
   hid_.tick(now);
   gate_.tick(now);
 }

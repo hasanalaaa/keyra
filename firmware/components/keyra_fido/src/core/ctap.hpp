@@ -42,8 +42,11 @@ class Authenticator {
   Authenticator(Crypto& c, Store& s, Counter& n, AttestationStore& a)
       : crypto_(c), store_(s), counter_(n), attestation_(a) {}
 
-  // CTAPHID_CBOR: command byte + CBOR → status byte + CBOR.
-  std::vector<uint8_t> cbor(const uint8_t* req, size_t n, User& user, int64_t nowMs);
+  // CTAPHID_CBOR: command byte + CBOR → status byte + CBOR. `cid`: the CTAPHID
+  // channel it came on (GetNextAssertion only continues on the same channel).
+  std::vector<uint8_t> cbor(const uint8_t* req, size_t n, User& user, int64_t nowMs, uint32_t cid);
+  // Forgets a GetAssertion in progress (the vault locked). Holds no key anyway.
+  void forgetNext() { next_ = Next{}; }
   // CTAPHID_MSG: U2F APDU → response data + status word.
   std::vector<uint8_t> msg(const uint8_t* apdu, size_t n, User& user);
 
@@ -56,8 +59,11 @@ class Authenticator {
     std::string userName, displayName;
     int64_t created = 0;
   };
-  struct Next {  // GetNextAssertion state
-    std::vector<Found> rest;
+  // GetNextAssertion state: which credentials are left, never their keys — each
+  // is unwrapped again, with the vault checked, right before it signs.
+  struct Next {
+    std::vector<Found> rest;  // priv always zero
+    uint32_t cid = 0;
     std::array<uint8_t, 32> rpIdHash{}, clientDataHash{};
     uint8_t flags = 0;
     int64_t until = 0;
@@ -70,6 +76,9 @@ class Authenticator {
   uint8_t reset(User& user);
   uint8_t selection(User& user);
 
+  // Unwraps f's private key again right before signing: no key lives across a
+  // wait for the button, and a vault locked in between refuses (kOperationDenied).
+  uint8_t rearm(const uint8_t rpIdHash[32], Found& f);
   // allowList / excludeList entry, or a resident record: the credential if it is ours and alive.
   bool lookup(const uint8_t key[32], const uint8_t rpIdHash[32], const std::vector<uint8_t>& id,
               const std::vector<cred::Resident>& residents, Found& out);

@@ -13,7 +13,7 @@ bool wrap(Crypto& c, const uint8_t key[32], const uint8_t rpIdHash[32], const ui
   plain[32] = flags;
   out[0] = kIdVersion;
   const bool ok = c.random(out + 1, 12) && c.gcmSeal(key, out + 1, rpIdHash, 32, plain, sizeof plain, out + 13);
-  std::memset(plain, 0, sizeof plain);
+  for (volatile uint8_t* v = plain; v != plain + sizeof plain; ++v) *v = 0;  // not a removable dead store
   return ok;
 }
 
@@ -26,7 +26,7 @@ bool unwrap(Crypto& c, const uint8_t key[32], const uint8_t rpIdHash[32], const 
     std::memcpy(priv, plain, 32);
     flags = plain[32];
   }
-  std::memset(plain, 0, sizeof plain);
+  for (volatile uint8_t* v = plain; v != plain + sizeof plain; ++v) *v = 0;  // not a removable dead store
   return ok;
 }
 

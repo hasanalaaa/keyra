@@ -6,6 +6,16 @@ All notable changes to Keyra are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Passkeys (security):** a signature could still be made after the vault
+  locked — from keys unwrapped before the lock, while waiting for the touch,
+  or by GetNextAssertion (which also worked from another USB channel and kept
+  the other credentials' private keys in RAM until the next command). Keys are
+  now unwrapped only right before signing, after the touch and with the vault
+  checked; GetNextAssertion keeps credential IDs only and stays on its channel;
+  key wipes can no longer be optimised away.
+
 ## [0.2.0] - 2026-10-08
 
 Highlights:

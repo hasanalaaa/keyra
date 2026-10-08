@@ -11,6 +11,12 @@
 namespace keyra::fido {
 namespace {
 
+// Zeroes key material; volatile so a wipe just before the end of scope is not
+// optimised away as a dead store.
+void wipe(void* p, size_t n) {
+  for (volatile uint8_t* v = static_cast<volatile uint8_t*>(p); n > 0; --n) *v++ = 0;
+}
+
 using cbor::Value;
 using T = cbor::Value::Type;
 using namespace ctap;
@@ -83,15 +89,19 @@ void writeCose(cbor::Writer& w, const uint8_t pub[65]) {
 
 }  // namespace
 
-std::vector<uint8_t> Authenticator::cbor(const uint8_t* req, size_t n, User& user, int64_t now) {
+std::vector<uint8_t> Authenticator::cbor(const uint8_t* req, size_t n, User& user, int64_t now, uint32_t cid) {
   std::vector<uint8_t> body;
   uint8_t status = kInvalidLength;
   if (n >= 1) {
     const uint8_t cmd = req[0];
-    if (cmd != kGetNextAssertion) next_ = Next{};  // only valid right after GetAssertion
+    // Only valid right after GetAssertion, and only on the channel that asked.
+    if (cmd != kGetNextAssertion || cid != next_.cid) next_ = Next{};
     switch (cmd) {
       case kMakeCredential: status = makeCredential(req + 1, n - 1, user, body); break;
-      case kGetAssertion: status = getAssertion(req + 1, n - 1, user, now, body); break;
+      case kGetAssertion:
+        status = getAssertion(req + 1, n - 1, user, now, body);
+        if (!next_.rest.empty()) next_.cid = cid;
+        break;
       case kGetNextAssertion: status = getNextAssertion(now, body); break;
       case kGetInfo: status = getInfo(body); break;
       case kReset: status = reset(user); break;
@@ -151,7 +161,7 @@ bool Authenticator::lookup(const uint8_t key[32], const uint8_t rpIdHash[32], co
       return true;
     }
   }
-  std::memset(out.priv.data(), 0, 32);
+  wipe(out.priv.data(), 32);
   return false;
 }
 
@@ -228,15 +238,15 @@ uint8_t Authenticator::makeCredential(const uint8_t* p, size_t n, User& user, st
   if (store_.wrapKey(key) != Store::Result::Ok) return kOther;
   std::vector<cred::Resident> res;
   if (!residents(res)) {
-    std::memset(key, 0, sizeof key);
+    wipe(key, sizeof key);
     return kOther;
   }
 
   for (const auto& id : excludes) {
     Found f;
     if (lookup(key, rpIdHash, id, res, f)) {
-      std::memset(f.priv.data(), 0, 32);
-      std::memset(key, 0, sizeof key);
+      wipe(f.priv.data(), 32);
+      wipe(key, sizeof key);
       // The spec asks for presence first, so a site cannot silently probe.
       const uint8_t s = fromAnswer(user.waitPresence());
       return s == kOk ? uint8_t{kCredentialExcluded} : s;
@@ -248,21 +258,21 @@ uint8_t Authenticator::makeCredential(const uint8_t* p, size_t n, User& user, st
   for (const auto& r : res)
     if (std::memcmp(r.rpIdHash, rpIdHash, 32) == 0 && r.userId == uid->str) same = &r;
   if (rk && !same && res.size() >= cred::kMaxResident) {
-    std::memset(key, 0, sizeof key);
+    wipe(key, sizeof key);
     return kKeyStoreFull;
   }
 
-  if (uint8_t s = fromAnswer(user.waitPresence()); s != kOk) {
-    std::memset(key, 0, sizeof key);
-    return s;
-  }
+  // No key across the wait for the button; a vault locked meanwhile refuses.
+  wipe(key, sizeof key);
+  if (uint8_t s = fromAnswer(user.waitPresence()); s != kOk) return s;
+  if (!store_.unlocked() || store_.wrapKey(key) != Store::Result::Ok) return kOperationDenied;
 
   uint8_t priv[32], pub[65], credId[cred::kIdLen];
   bool ok = crypto_.p256Generate(priv, pub) &&
             cred::wrap(crypto_, key, rpIdHash, priv, rk ? cred::kFlagResident : 0, credId);
-  std::memset(key, 0, sizeof key);
+  wipe(key, sizeof key);
   if (!ok) {
-    std::memset(priv, 0, sizeof priv);
+    wipe(priv, sizeof priv);
     return kOther;
   }
 
@@ -278,14 +288,14 @@ uint8_t Authenticator::makeCredential(const uint8_t* p, size_t n, User& user, st
     uint32_t id = same ? same->recordId : 0;
     const Store::Result sr = store_.put(id, cred::encode(r));
     if (sr != Store::Result::Ok) {
-      std::memset(priv, 0, sizeof priv);
+      wipe(priv, sizeof priv);
       return sr == Store::Result::Full ? kKeyStoreFull : kOther;
     }
   }
 
   uint32_t counter = 0;
   if (!counter_.next(counter)) {
-    std::memset(priv, 0, sizeof priv);
+    wipe(priv, sizeof priv);
     return kOther;
   }
   std::vector<uint8_t> authData(rpIdHash, rpIdHash + 32);
@@ -302,7 +312,7 @@ uint8_t Authenticator::makeCredential(const uint8_t* p, size_t n, User& user, st
   // Self attestation: signed by the credential key itself (no certificate).
   std::vector<uint8_t> der;
   ok = sign(priv, authData, cdh->str.data(), der);
-  std::memset(priv, 0, sizeof priv);
+  wipe(priv, sizeof priv);
   if (!ok) return kOther;
 
   cbor::Writer w;
@@ -380,7 +390,7 @@ uint8_t Authenticator::getAssertion(const uint8_t* p, size_t n, User& user, int6
   if (store_.wrapKey(key) != Store::Result::Ok) return kOther;
   std::vector<cred::Resident> res;
   if (!residents(res)) {
-    std::memset(key, 0, sizeof key);
+    wipe(key, sizeof key);
     return kOther;
   }
 
@@ -405,22 +415,22 @@ uint8_t Authenticator::getAssertion(const uint8_t* p, size_t n, User& user, int6
       if (lookup(key, rpIdHash, r->credId, res, f)) found.push_back(std::move(f));
     }
   }
-  std::memset(key, 0, sizeof key);
+  wipe(key, sizeof key);
+  // Only which credentials matched is kept; their keys come back in rearm().
+  for (auto& f : found) wipe(f.priv.data(), 32);
   if (found.empty()) return kNoCredentials;
 
   uint8_t flags = kFlagUv;  // no signature is ever made while locked (docs/FIDO.md)
   if (up) {
-    if (uint8_t s = fromAnswer(user.waitPresence()); s != kOk) {
-      for (auto& f : found) std::memset(f.priv.data(), 0, 32);
-      return s;
-    }
+    if (uint8_t s = fromAnswer(user.waitPresence()); s != kOk) return s;
     flags |= kFlagUp;
   }
 
   const size_t count = found.size();
+  if (uint8_t s = rearm(rpIdHash, found[0]); s != kOk) return s;
   const uint8_t s = assertion(found[0], rpIdHash, cdh->str.data(), flags, discoverable || found[0].resident,
                               discoverable ? count : 1, out);
-  std::memset(found[0].priv.data(), 0, 32);
+  wipe(found[0].priv.data(), 32);
   if (s == kOk && discoverable && count > 1) {
     next_.rest.assign(std::make_move_iterator(found.begin() + 1), std::make_move_iterator(found.end()));
     std::reverse(next_.rest.begin(), next_.rest.end());  // pop_back order = newest first
@@ -428,8 +438,6 @@ uint8_t Authenticator::getAssertion(const uint8_t* p, size_t n, User& user, int6
     std::memcpy(next_.clientDataHash.data(), cdh->str.data(), 32);
     next_.flags = flags;
     next_.until = now + kNextAssertionMs;
-  } else {
-    for (auto& f : found) std::memset(f.priv.data(), 0, 32);
   }
   return s;
 }
@@ -441,10 +449,26 @@ uint8_t Authenticator::getNextAssertion(int64_t now, std::vector<uint8_t>& out) 
   }
   Found f = std::move(next_.rest.back());
   next_.rest.pop_back();
+  // Locked (or the passkey deleted) since GetAssertion: stop the sequence.
+  if (uint8_t s = rearm(next_.rpIdHash.data(), f); s != kOk) {
+    next_ = Next{};
+    return s;
+  }
   const uint8_t s = assertion(f, next_.rpIdHash.data(), next_.clientDataHash.data(), next_.flags, true, 1, out);
-  std::memset(f.priv.data(), 0, 32);
+  wipe(f.priv.data(), 32);
   if (next_.rest.empty()) next_ = Next{};
   return s;
+}
+
+uint8_t Authenticator::rearm(const uint8_t rpIdHash[32], Found& f) {
+  if (!store_.unlocked()) return kOperationDenied;
+  uint8_t key[32];
+  if (store_.wrapKey(key) != Store::Result::Ok) return kOperationDenied;
+  std::vector<cred::Resident> res;
+  const std::vector<uint8_t> id = f.credId;
+  const bool ok = residents(res) && lookup(key, rpIdHash, id, res, f);
+  wipe(key, sizeof key);
+  return ok ? kOk : kNoCredentials;
 }
 
 uint8_t Authenticator::reset(User& user) {
@@ -515,8 +539,8 @@ uint16_t Authenticator::u2fRegister(const uint8_t* body, User& user, std::vector
   if (store_.wrapKey(key) != Store::Result::Ok) return u2f::kSwOther;
   uint8_t priv[32], pub[65], kh[cred::kIdLen];
   bool ok = crypto_.p256Generate(priv, pub) && cred::wrap(crypto_, key, app, priv, 0, kh);
-  std::memset(key, 0, sizeof key);
-  std::memset(priv, 0, sizeof priv);
+  wipe(key, sizeof key);
+  wipe(priv, sizeof priv);
   if (!ok) return u2f::kSwOther;
 
   std::vector<uint8_t> signed_{0x00};
@@ -528,7 +552,7 @@ uint16_t Authenticator::u2fRegister(const uint8_t* body, User& user, std::vector
   std::vector<uint8_t> cert;
   ok = attest::get(crypto_, attestation_, attKey, cert) &&
        crypto_.p256Sign(attKey, signed_.data(), signed_.size(), sig);
-  std::memset(attKey, 0, sizeof attKey);
+  wipe(attKey, sizeof attKey);
   if (!ok) return u2f::kSwOther;
   const auto der = derSignature(sig);
 
@@ -560,24 +584,24 @@ uint16_t Authenticator::u2fAuthenticate(uint8_t p1, const uint8_t* body, size_t 
   const bool listed = residents(res);
   Found f;
   const bool mine = listed && lookup(key, app, kh, res, f);
-  std::memset(key, 0, sizeof key);
+  wipe(key, sizeof key);
   if (!listed) return u2f::kSwOther;
   if (!mine) return u2f::kSwWrongData;
   if (p1 == 0x07) {
-    std::memset(f.priv.data(), 0, 32);
+    wipe(f.priv.data(), 32);
     return u2f::kSwConditions;  // check-only: "this handle is ours"
   }
   uint8_t flags = 0;
   if (p1 == 0x03) {
     if (!user.takePresence()) {
-      std::memset(f.priv.data(), 0, 32);
+      wipe(f.priv.data(), 32);
       return u2f::kSwConditions;
     }
     flags = kFlagUp;
   }
   uint32_t counter = 0;
   if (!counter_.next(counter)) {
-    std::memset(f.priv.data(), 0, 32);
+    wipe(f.priv.data(), 32);
     return u2f::kSwOther;
   }
   std::vector<uint8_t> signed_(app, app + 32);
@@ -586,7 +610,7 @@ uint16_t Authenticator::u2fAuthenticate(uint8_t p1, const uint8_t* body, size_t 
   signed_.insert(signed_.end(), challenge, challenge + 32);
   uint8_t sig[64];
   const bool ok = crypto_.p256Sign(f.priv.data(), signed_.data(), signed_.size(), sig);
-  std::memset(f.priv.data(), 0, 32);
+  wipe(f.priv.data(), 32);
   if (!ok) return u2f::kSwOther;
   const auto der = derSignature(sig);
   out.push_back(flags);

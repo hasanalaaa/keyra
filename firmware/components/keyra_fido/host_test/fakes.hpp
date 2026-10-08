@@ -1,6 +1,7 @@
 #pragma once
 // In-memory Store / Counter and a scripted User for the CTAP tests.
 #include <deque>
+#include <functional>
 #include <map>
 
 #include "core/attest.hpp"
@@ -90,8 +91,10 @@ class ScriptUser final : public User {
     if (unlock == Answer::Approved && open) *open = true;
     return unlock;
   }
+  std::function<void()> onPresence;  // runs while "waiting for the touch" (e.g. the vault locks)
   Answer waitPresence() override {
     ++presenceCalls;
+    if (onPresence) onPresence();
     if (presence.empty()) return Answer::Approved;
     const Answer a = presence.front();
     presence.pop_front();

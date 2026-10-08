@@ -31,12 +31,13 @@ struct Rig {
   ScriptUser user;
   MemAttestation attestation;
   Authenticator auth{crypto, store, counter, attestation};
+  uint32_t cid = 1;  // the CTAPHID channel requests arrive on
   Rig() { user.open = &store.open; }
 
   uint8_t call(uint8_t cmd, const Bytes& params, Value& out) {
     Bytes req{cmd};
     req.insert(req.end(), params.begin(), params.end());
-    const Bytes r = auth.cbor(req.data(), req.size(), user, 0);
+    const Bytes r = auth.cbor(req.data(), req.size(), user, 0, cid);
     out = Value{};
     if (r.size() > 1) CHECK(cbor::decode(r.data() + 1, r.size() - 1, out));
     return r[0];
@@ -161,7 +162,7 @@ bool make(Rig& r, const Bytes& h, const MakeOpts& o, AuthData& ad) {
 void getInfoKnownAnswer() {
   Rig r;
   const Bytes req{ctap::kGetInfo};
-  const Bytes got = r.auth.cbor(req.data(), req.size(), r.user, 0);
+  const Bytes got = r.auth.cbor(req.data(), req.size(), r.user, 0, 1);
   const Bytes expected = hex(
       "00a4"
       "0182" "665532465f5632" "684649444f5f325f30"
@@ -277,6 +278,59 @@ void residentCredentials() {
   CHECK(r.call(ctap::kGetNextAssertion, {}, v) == ctap::kNotAllowed);
 }
 
+// docs/FIDO.md: no signature while the vault is locked — also not from keys
+// unwrapped before a lock, and no GetNextAssertion on another channel.
+void noSignatureAfterLock() {
+  {
+    Rig r;
+    AuthData a1, a2;
+    MakeOpts o;
+    o.rk = true;
+    CHECK(make(r, cdh(1), o, a1));
+    o.uid = {9, 9};
+    CHECK(make(r, cdh(1), o, a2));
+    Value v;
+    CHECK(r.call(ctap::kGetAssertion, getReq("example.com", cdh(5), {}), v) == ctap::kOk);
+    CHECK(v.find(5) && v.find(5)->u == 2);
+    // Locked between GetAssertion and GetNextAssertion: refused, nothing signed, no unlock prompt.
+    const int unlocks = r.user.unlockCalls;
+    r.store.open = false;
+    CHECK(r.call(ctap::kGetNextAssertion, {}, v) != ctap::kOk && !v.find(3));
+    CHECK(r.user.unlockCalls == unlocks);
+    // The sequence is over even once unlocked again.
+    r.store.open = true;
+    CHECK(r.call(ctap::kGetNextAssertion, {}, v) == ctap::kNotAllowed);
+
+    // Another channel cannot continue someone else's sequence.
+    CHECK(r.call(ctap::kGetAssertion, getReq("example.com", cdh(6), {}), v) == ctap::kOk);
+    r.cid = 2;
+    CHECK(r.call(ctap::kGetNextAssertion, {}, v) == ctap::kNotAllowed);
+    r.cid = 1;
+    CHECK(r.call(ctap::kGetNextAssertion, {}, v) == ctap::kNotAllowed);  // and it is gone for the first too
+  }
+  {
+    // Locked while waiting for the touch: no assertion, no counter step.
+    Rig r;
+    AuthData a1;
+    MakeOpts o;
+    o.rk = true;
+    CHECK(make(r, cdh(1), o, a1));
+    const uint32_t counter = r.counter.value;
+    r.user.onPresence = [&r] { r.store.open = false; };
+    Value v;
+    CHECK(r.call(ctap::kGetAssertion, getReq("example.com", cdh(5), {}), v) == ctap::kOperationDenied && !v.find(3));
+    CHECK(r.counter.value == counter);
+    // Same for making a credential: nothing stored.
+    r.store.open = true;
+    const size_t stored = r.store.recs.size();
+    o.uid = {7};
+    AuthData a2;
+    CHECK(!make(r, cdh(2), o, a2));
+    r.store.open = true;
+    CHECK(r.store.recs.size() == stored && r.counter.value == counter);
+  }
+}
+
 void storeFull() {
   Rig r;
   MakeOpts o;
@@ -326,7 +380,7 @@ void malformedRequests() {
   Rig r;
   Value v;
   const Bytes empty;
-  CHECK(r.auth.cbor(empty.data(), 0, r.user, 0) == Bytes{ctap::kInvalidLength});
+  CHECK(r.auth.cbor(empty.data(), 0, r.user, 0, 1) == Bytes{ctap::kInvalidLength});
   CHECK(r.call(0x40, {}, v) == ctap::kInvalidCommand);
   CHECK(r.call(ctap::kClientPin, hex("a1010102"), v) == ctap::kInvalidCommand);
   CHECK(r.call(ctap::kMakeCredential, {}, v) == ctap::kMissingParameter);
@@ -529,6 +583,7 @@ int main() {
   roundTripAllowList();
   excludeList();
   residentCredentials();
+  noSignatureAfterLock();
   storeFull();
   presenceOutcomes();
   malformedRequests();
