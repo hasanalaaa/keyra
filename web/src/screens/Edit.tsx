@@ -5,6 +5,8 @@ import { InlineGenerator, Stepper } from '../components/Generator';
 import { QR_ERRORS, QrPhoto } from '../components/QrPhoto';
 import { Alert, Sheet, type SheetCtl } from '../components/Sheet';
 import { Ready } from '../components/Ready';
+import { Icon } from '../components/Icon';
+import { SequenceEditor, sequenceError } from '../components/SequenceEditor';
 import { ApiError, api } from '../lib/api';
 import { usePressGate } from '../lib/actions';
 import { errorText, isLockedError } from '../lib/errors';
@@ -14,11 +16,12 @@ import { t } from '../lib/i18n';
 import { back, replace } from '../lib/router';
 import { parseQrText, titleOf, toOtpauth, type OtpAccount } from '../lib/qrImport';
 import { normalizeTotp } from '../lib/totp';
-import { loadEntries, toast } from '../lib/store';
+import { knownSequences, loadEntries, toast } from '../lib/store';
 import type { EntryInput } from '../lib/types';
 import { ENTRY_MAX, bytes } from '../lib/limits';
+import { parseSequence } from '../lib/sequence';
 
-const EMPTY: EntryInput = { title: '', url: '', username: '', password: '', totp: '', notes: '', favorite: false, burnAfter: 0 };
+const EMPTY: EntryInput = { title: '', url: '', username: '', password: '', totp: '', notes: '', favorite: false, burnAfter: 0, sequence: '' };
 
 export function EditAccount({ id }: { id?: number }) {
   const [initial, setInitial] = useState<EntryInput | null>(id ? null : EMPTY);
@@ -29,6 +32,7 @@ export function EditAccount({ id }: { id?: number }) {
   const [gen, setGen] = useState(false);
   const [confirm, setConfirm] = useState<'discard' | 'delete' | null>(null);
   const [qrError, setQrError] = useState<string | null>(null);
+  const [seqOpen, setSeqOpen] = useState(false); // advanced: collapsed until asked for
   const ctl = useRef<SheetCtl | null>(null);
   const after = useRef<() => void>(() => back(id ? `/a/${id}` : '/'));
 
@@ -42,7 +46,7 @@ export function EditAccount({ id }: { id?: number }) {
       .then((e) => {
         if (!live) return;
         if (!e) return ctl.current?.close(); // cancelled or not pressed: nothing to edit
-        const v: EntryInput = { title: e.title, url: e.url, username: e.username, password: e.password ?? '', totp: e.totp ?? '', notes: e.notes, favorite: e.favorite, burnAfter: e.burnAfter ?? 0 };
+        const v: EntryInput = { title: e.title, url: e.url, username: e.username, password: e.password ?? '', totp: e.totp ?? '', notes: e.notes, favorite: e.favorite, burnAfter: e.burnAfter ?? 0, sequence: e.sequence ?? '' };
         setInitial(v);
         setForm(v);
       })
@@ -65,6 +69,12 @@ export function EditAccount({ id }: { id?: number }) {
   const nameErr = !form.title.trim() ? t('nameRequired') : over('title');
   const totpErr = totpNorm === null ? t('totpError') : null;
   const bad = useMemo(() => untypeable(form.password), [form.password]);
+  const seqErr = sequenceError(form.sequence);
+  // Masked: literal text in a sequence may be a secret.
+  const seqPreview = useMemo(() => {
+    const r = form.sequence ? parseSequence(form.sequence) : null;
+    return r?.ok ? r.preview : '';
+  }, [form.sequence]);
 
   const onQr = (text: string) => {
     const r = parseQrText(text);
@@ -85,7 +95,8 @@ export function EditAccount({ id }: { id?: number }) {
 
   const save = async () => {
     setTouched({ title: true, totp: true });
-    if (nameErr || totpErr || tooLong || saving || !initial) return;
+    if (seqErr) setSeqOpen(true);
+    if (nameErr || totpErr || seqErr || tooLong || saving || !initial) return;
     setSaving(true);
     const body: EntryInput = { ...form, title: form.title.trim(), url: form.url.trim(), username: form.username.trim(), totp: totpNorm ?? '' };
     try {
@@ -95,6 +106,7 @@ export function EditAccount({ id }: { id?: number }) {
         for (const k of Object.keys(body) as (keyof EntryInput)[]) if (body[k] !== initial[k]) (patch as Record<string, unknown>)[k] = body[k];
         await api.update(id, patch);
       } else newId = (await api.create(body)).id;
+      if (newId) knownSequences.set(newId, body.sequence !== '');
       toast(t('saved'), 'ok');
       await loadEntries();
       after.current = () => {
@@ -139,7 +151,7 @@ export function EditAccount({ id }: { id?: number }) {
         return false;
       }}
       start={
-        <Button variant="ghost" size="sm" class="save-btn" disabled={!form.title.trim() || tooLong || saving || !initial} onClick={() => void save()}>
+        <Button variant="ghost" size="sm" class="save-btn" disabled={!form.title.trim() || tooLong || !!seqErr || saving || !initial} onClick={() => void save()}>
           {t('save')}
         </Button>
       }
@@ -231,6 +243,30 @@ export function EditAccount({ id }: { id?: number }) {
           )}
         </div>
         {form.burnAfter > 0 && <p class="group-foot burn-foot">{t('burnHelp', { n: form.burnAfter })}</p>}
+        <div class={`card seq-block${seqOpen ? ' open' : ''}`}>
+          <button type="button" class="row nav-row seq-toggle" aria-expanded={seqOpen} onClick={() => setSeqOpen(!seqOpen)}>
+            <span class="row-label">
+              {t('seqToggle')}
+              <span class="caption">{seqPreview ? <bdi dir="ltr" class="seq-sum mono">{seqPreview}</bdi> : t('seqToggleSub')}</span>
+            </span>
+            <Icon name="chevron-right" size={16} class="row-chev" />
+          </button>
+          {seqOpen && (
+            <div class="seq-body">
+              <SequenceEditor
+                label={t('seqLabel')}
+                value={form.sequence}
+                onValue={set('sequence')}
+                have={{ username: !!form.username.trim(), password: !!form.password, totp: !!form.totp.trim() }}
+              />
+              {form.sequence && (
+                <Button variant="ghost" size="sm" icon="trash-2" onClick={() => set('sequence')('')}>
+                  {t('seqClear')}
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
         {id && (
           <Button variant="danger" full icon="trash-2" class="delete-btn" onClick={() => setConfirm('delete')}>
             {t('deleteAccount')}
