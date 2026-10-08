@@ -222,23 +222,27 @@ const LOOKALIKES: Record<string, string> = {
   '\u066B': '.', '\u066C': ',', '\u06D4': '.',
 };
 
-export function toTypeable(s: string): string {
+export function toTypeable(s: string, chars?: string): string {
   let out = '';
   for (const ch of s) {
     const c = ch.codePointAt(0)!;
-    if (c >= 0x0660 && c <= 0x0669) out += String(c - 0x0660); // Arabic-Indic digits
+    if (chars?.includes(ch)) out += ch; // the layout has it (e.g. Arabic digits on an Arabic Mac)
+    else if (c >= 0x0660 && c <= 0x0669) out += String(c - 0x0660); // Arabic-Indic digits
     else if (c >= 0x06f0 && c <= 0x06f9) out += String(c - 0x06f0); // Persian digits
     else out += LOOKALIKES[ch] ?? ch;
   }
   return out;
 }
 
-/** Characters Keyra cannot type (anything outside printable US-ASCII), de-duplicated. */
-export function untypeable(s: string): string[] {
+/**
+ * Characters Keyra cannot type, de-duplicated: outside `chars` (a layout's GET /api/keyboard
+ * "chars", what POST /type {text} accepts there) or, without it, outside printable US-ASCII.
+ */
+export function untypeable(s: string, chars?: string): string[] {
   const bad = new Set<string>();
   for (const ch of s) {
     const c = ch.codePointAt(0)!;
-    if (c < 0x20 || c > 0x7e) bad.add(ch);
+    if (chars !== undefined ? !chars.includes(ch) : c < 0x20 || c > 0x7e) bad.add(ch);
   }
   return [...bad];
 }

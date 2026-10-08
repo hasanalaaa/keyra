@@ -3,7 +3,7 @@ import { byFit, fitsOs, matchProbe, normalizeProbe, typos } from '../src/lib/key
 import type { KeyboardLayout } from '../src/lib/types';
 
 // Probe strings as GET /api/keyboard sends them (firmware keyra_hid probeText(), layouts.txt).
-const L = (id: string, platform: KeyboardLayout['platform'], probe: string): KeyboardLayout => ({ id, name: id, platform, experimental: id !== 'us', probe });
+const L = (id: string, platform: KeyboardLayout['platform'], probe: string): KeyboardLayout => ({ id, name: id, platform, experimental: id !== 'us', probe, chars: '' });
 const LAYOUTS = [
   L('us', 'any', 'qwyz ;@#/'),
   L('uk', 'windows', 'qwyz ;"£/'),
@@ -72,8 +72,8 @@ import { setLang } from '../src/lib/i18n';
 
 describe('layout names', () => {
   it('shows Arabic names in the Arabic UI and the firmware name otherwise', () => {
-    const de = { id: 'de', name: 'German', platform: 'windows', experimental: true, probe: '' } as const;
-    const dv = { id: 'dvorak', name: 'Dvorak', platform: 'any', experimental: true, probe: '' } as const;
+    const de = { id: 'de', name: 'German', platform: 'windows', experimental: true, probe: '', chars: '' } as const;
+    const dv = { id: 'dvorak', name: 'Dvorak', platform: 'any', experimental: true, probe: '', chars: '' } as const;
     setLang('ar');
     expect(layoutName(de)).toBe('الألمانية');
     expect(layoutName(dv)).toBe('Dvorak');

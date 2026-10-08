@@ -489,7 +489,9 @@ Settings `layoutUsb` and `layoutBle` (default `us`) name the keyboard layout of
 the computer on each output, from the table in
 `firmware/components/keyra_hid/layouts/layouts.txt` (US, UK, German, French,
 Spanish, Italian — Windows and Mac variants — Dvorak, Colemak, Arabic).
-`GET /api/keyboard` → `{layouts:[{id,name,platform,experimental,probe}], usb, ble}`.
+`GET /api/keyboard` → `{layouts:[{id,name,platform,experimental,probe,chars}], usb, ble}`;
+`chars` is every character `POST /api/type {text}` accepts on an output set to that layout
+(the app checks typed text against it before sending).
 Text a layout cannot type is refused (`unsupported_char`), never typed wrong.
 
 ### 10.2 Layout-proof generator

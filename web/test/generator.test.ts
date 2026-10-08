@@ -175,6 +175,9 @@ describe('untypeable', () => {
   it('lists characters outside printable US-ASCII once each', () => {
     expect(untypeable('café-éé-ع\t')).toEqual(['é', 'ع', '\t']);
     expect(untypeable('Plain ASCII ~!')).toEqual([]);
+    // With a layout's characters (GET /api/keyboard "chars"): exactly those, nothing else.
+    expect(untypeable('Grüße a', ' Gaeßrüß')).toEqual([]);
+    expect(untypeable('ab ع', ' ع')).toEqual(['a', 'b']);
   });
 });
 
@@ -184,5 +187,7 @@ describe('toTypeable', () => {
     expect(_toTypeable('it’s “ok” — 1…2')).toBe('it\'s "ok" - 1...2');
     expect(_toTypeable('١٢٣؟،٪')).toBe('123?,%');
     expect(_toTypeable('P@ss-w0rd!')).toBe('P@ss-w0rd!');
+    // A layout that has Arabic digits keeps them (an Arabic Mac has no ASCII ones).
+    expect(_toTypeable('١٢ “x”', '١٢ "x')).toBe('١٢ "x"');
   });
 });

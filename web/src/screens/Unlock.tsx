@@ -25,7 +25,6 @@ export function Unlock({ reason }: { reason: LockReason }) {
   useEffect(() => {
     const k = presence.phase.kind;
     if (k === 'done') {
-      toast(t('eraseDone'), 'ok');
       replace('/welcome');
     } else if (k === 'failed') {
       toast(t('genericError'), 'error');

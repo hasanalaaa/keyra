@@ -39,6 +39,13 @@ All notable changes to Keyra are documented here. The format follows
 
 ### Fixed
 
+- **Type text checks the keyboard layout, not US-ASCII.** `GET /api/keyboard`
+  now lists each layout's `chars`; the Type text screen accepts exactly those
+  (e.g. ü and ß on German) and names what the set layout lacks (Latin letters
+  on Arabic 101 used to pass the app and fail on the device).
+- The "Keyra is starting fresh" message shows after a factory reset (the
+  screen closed before it could say it).
+
 - **Button presses are bound to who asked (security):** any session could
   replace the item waiting for the press (so the user's press approved
   something else), and one reveal press also allowed a backup download and a

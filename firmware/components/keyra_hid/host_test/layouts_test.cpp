@@ -195,8 +195,31 @@ void testProbe() {
 
 }  // namespace
 
+// GET /api/keyboard "chars": exactly what typeable() accepts, so the app checks text the way Keyra does.
+void testLayoutChars() {
+  for (size_t i = 0; i < layoutCount(); ++i) {
+    const auto l = static_cast<Layout>(i);
+    const std::string chars = layoutChars(l);
+    CHECK(typeable(chars, l));
+    size_t n = 0;
+    for (const char* p = chars.data(); p < chars.data() + chars.size(); ++n) {
+      uint32_t cp = 0;
+      CHECK(nextCodePoint(p, chars.data() + chars.size(), cp));
+    }
+    size_t want = 0;
+    for (uint32_t cp = 0x20; cp <= 0xFFFF; ++cp) {
+      KeyStroke ks[kMaxStrokes];
+      if (strokesFor(l, cp, ks) > 0) ++want;
+    }
+    CHECK(n == want);
+  }
+  CHECK(layoutChars(id("us")).size() == 95);  // printable ASCII, nothing else
+  CHECK(layoutChars(id("ar")).find('a') == std::string::npos);
+}
+
 int main() {
   testTableShape();
+  testLayoutChars();
   testRoundTripAgainstCldr();
   testArabicHosts();
   testLayoutSafe();

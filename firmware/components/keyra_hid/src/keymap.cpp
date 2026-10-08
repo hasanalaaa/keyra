@@ -176,4 +176,16 @@ std::string probeText(Layout layout) {
   return s;
 }
 
+std::string layoutChars(Layout layout) {
+  std::string s;
+  const data::LayoutDef* d = def(layout);
+  if (d == nullptr) return s;
+  KeyStroke ks[kMaxStrokes];
+  for (size_t i = 0; i < d->glyphCount; ++i) {
+    const uint32_t cp = d->glyphs[i].cp;
+    if (strokesFor(layout, cp, ks) > 0) appendUtf8(s, cp);  // same rule as typeable()
+  }
+  return s;
+}
+
 }  // namespace keyra::hid

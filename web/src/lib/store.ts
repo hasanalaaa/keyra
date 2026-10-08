@@ -196,7 +196,11 @@ export async function pollNow(): Promise<void> {
     const authed = d.unlocked && d.session && hasCsrf();
     if (state.authed && !authed) becameLocked(d);
     const linkChanged = state.device?.host.ble !== d.host.ble;
+    // Said here, not by the erase screen: the app routes to Welcome (and closes that screen)
+    // as soon as a poll shows the reset, often before the screen sees its press result.
+    const erased = !!state.device?.initialized && !d.initialized;
     setState({ device: d, deviceAt: sent, online: true });
+    if (erased) toast(t('eraseDone'), 'ok');
     if (state.authed && (linkChanged || (d.host.ble && !state.ble))) void loadBle();
     stateFailures = 0;
   } catch {

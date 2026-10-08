@@ -1057,6 +1057,7 @@ async function resetFlow(base, opts) {
   await page.locator('.ready-ready').waitFor();
   check((await button(base)) === 'approved factory_reset', 'button approves the reset');
   await page.locator('.welcome').waitFor({ timeout: 10000 });
+  await page.locator('.toast-ok', { hasText: L(opts, 'Keyra is starting fresh.', 'سيبدأ Keyra من جديد.') }).waitFor({ timeout: 6000 });
   const st = await (await fetch(`${base}/api/state`)).json();
   check(st.initialized === false && st.unlocked === false, 'device is uninitialized after the reset');
   console.log('  ✓ factory reset flow passed');
@@ -1143,6 +1144,27 @@ async function settingsFlow(base, opts) {
   expectErrors(before, 400);
   await page.waitForTimeout(800);
   check((await pageApi(page, 'GET', '/api/state')).body.last?.code === 'typed', 'typed without unsupported_char');
+
+  // GET /api/keyboard "chars" and the Type text screen check text the way the device does.
+  const kbd = (await pageApi(page, 'GET', '/api/keyboard')).body;
+  const charsOf = (id) => kbd.layouts.find((l) => l.id === id).chars;
+  check(charsOf('us').length === 95, 'US layout: exactly printable ASCII');
+  check(charsOf('de').includes('ü') && !charsOf('ar').includes('a'), 'German has ü, Arabic 101 has no Latin letters');
+  const typeScreen = async (text) => {
+    await page.evaluate(() => (location.hash = '#/'));
+    await page.evaluate(() => (location.hash = '#/type'));
+    await page.locator('.type-text textarea').fill(text);
+    await page.waitForTimeout(300); // GET /api/keyboard
+    return page.locator('.type-text .notice').count();
+  };
+  check((await typeScreen('Grüße')) === 0, 'German: Grüße accepted on the Type text screen');
+  check(!(await page.locator('.type-text button[type=submit]').isDisabled()), 'and it can be sent');
+  check((await pageApi(page, 'PUT', '/api/settings', { layoutUsb: 'ar' })).status === 200, 'Arabic 101 set for USB');
+  check((await typeScreen('ab سلام')) === 1, 'Arabic 101: Latin letters flagged');
+  const note = (await page.locator('.type-text .notice').textContent()) ?? '';
+  check(note.includes('a b') && !note.includes('س'), `only the missing letters are named (${note})`);
+  check(await page.locator('.type-text button[type=submit]').isDisabled(), 'and it cannot be sent');
+  await page.evaluate(() => (location.hash = '#/'));
   await pageApi(page, 'PUT', '/api/settings', { layoutUsb: 'us' });
   console.log('  ✓ settings flow passed');
   await ctx.close();

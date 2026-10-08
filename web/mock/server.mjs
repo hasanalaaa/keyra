@@ -553,6 +553,13 @@ function typeable(text, layout, { tabEnter = false } = {}) {
   }
   return true;
 }
+/** keymap.cpp layoutChars(): every character typeable() accepts, in code point order. */
+const layoutChars = (layout) =>
+  [...layout.glyphs.keys()]
+    .filter((cp) => typeable(String.fromCodePoint(cp), layout))
+    .sort((a, b) => a - b)
+    .map((cp) => String.fromCodePoint(cp))
+    .join('');
 /** kbdapi::layoutFor(): the layout set for the output a target types into. */
 const layoutFor = (target) => layoutById(target.kind === 'ble' ? settings.layoutBle : settings.layoutUsb);
 
@@ -1633,7 +1640,7 @@ async function api(req, res, path) {
     case 'keyboard':
       return send(res, 200, {
         // Only US is confirmed on real hardware (SPEC §10.1).
-        layouts: LAYOUTS.map((l) => ({ id: l.id, name: l.name, platform: l.platform, experimental: l.id !== 'us', probe: l.probe })),
+        layouts: LAYOUTS.map((l) => ({ id: l.id, name: l.name, platform: l.platform, experimental: l.id !== 'us', probe: l.probe, chars: layoutChars(l) })),
         usb: settings.layoutUsb,
         ble: settings.layoutBle,
       });

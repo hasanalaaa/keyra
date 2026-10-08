@@ -59,6 +59,8 @@ esp_err_t getKeyboard(httpd_req_t* r) {
     // Not yet confirmed on real hardware (SPEC §10.1): the UI says so.
     cJSON_AddBoolToObject(item, "experimental", l != hid::kLayoutUs);
     cJSON_AddStringToObject(item, "probe", hid::probeText(l).c_str());
+    // POST /api/type {text} accepts exactly these on an output set to this layout.
+    cJSON_AddStringToObject(item, "chars", hid::layoutChars(l).c_str());
     cJSON_AddItemToArray(list, item);
   }
   cJSON_AddStringToObject(o.get(), "usb", s.layoutUsb.c_str());

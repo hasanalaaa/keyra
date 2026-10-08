@@ -578,7 +578,6 @@ function EraseFlow({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     const k = presence.phase.kind;
     if (k === 'done') {
-      toast(t('eraseDone'), 'ok');
       go('/welcome');
     } else if (k === 'failed') {
       toast(t('genericError'), 'error');

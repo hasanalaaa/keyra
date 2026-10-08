@@ -298,6 +298,7 @@ export interface KeyboardLayout {
   platform: 'any' | 'windows' | 'mac';
   experimental: boolean; // not yet confirmed on real hardware
   probe: string; // what the Layout Doctor probe leaves on a computer with this layout (SPEC §10.3)
+  chars: string; // every character POST /type {text} accepts on an output set to this layout
 }
 
 export interface Keyboard {

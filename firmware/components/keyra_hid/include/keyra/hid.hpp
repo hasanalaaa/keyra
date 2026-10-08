@@ -70,6 +70,7 @@ bool       findLayout(std::string_view id, Layout& out);
 // of them the computer really uses.
 bool        sameOnAll(uint32_t cp, const Layout* layouts, size_t n);
 std::string probeText(Layout);  // what the probe types on a computer with that layout
+std::string layoutChars(Layout);  // every character typeable() accepts, in code point order (UTF-8)
 
 // The FIDO security-key interface (usage page 0xF1D0, 64-byte reports) that
 // keyra_fido speaks CTAPHID over. The receiver runs in the USB task: copy and return.
