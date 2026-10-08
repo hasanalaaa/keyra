@@ -45,8 +45,8 @@ formats and the REST API are contracts (changes need a migration).
 1. **2FA codes without a press** — decided: kept, documented as an exception (SPEC §12.5a).
 2. **Destructive edits without a press** — decided and done (`1f9d459`): "delete
    account" and "remove passkey" need a press; the rest stays session-only and logged.
-3. **Passkeys in backups.** Today they are lost with the device. Needs a backup
-   format change (encrypted records + salt) — design note first.
+3. **Passkeys in backups** — decided ([PASSKEY-BACKUP.md](PASSKEY-BACKUP.md)):
+   backup v3 carries the wrap keys, records and counter; in progress.
 
 ## Wave 5 — new features (from the research, still valid)
 
