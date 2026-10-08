@@ -28,16 +28,17 @@ formats and the REST API are contracts (changes need a migration).
 - Mock parity for all of the above. Also: `hasSequence` on entries, Arabic layout
   names, U2F refuses to sign once the vault has locked.
 
-## Wave 3 — hardening and coverage
+## Wave 3 — hardening and coverage (done)
 
-| Item | Why | Acceptance |
-|---|---|---|
-| e2e for recovery-key create/unlock, restore merge + replace, factory reset, passphrase change, settings changes, entry delete, trusted-browser removal | These flows have no browser test today | Each flow passes in `npm run e2e` in ar and en-dark |
-| Mock drift: passphrase throttle (429 + retryAfterMs), `host.usbOs` only with a session, home-network error kept while connected | The app is tested against the mock | Mock answers match firmware handlers |
-| SPEC §5 API table refreshed (settings fields, `failedAttempts`, `/type` fields, result codes) | The table predates v1.1 | Every route and field in `routes.cpp` / handlers is listed |
-| ~~UI ranges: LED 0, more typing delays~~ | Kept on purpose (DESIGN App. B): an LED that can be turned off hides "waiting for the button"; the three delays are the tested ones | — |
-| Passkeys and the activity log are not in backups: say so | Silent surprise on a new device | Done (Backup and Passkeys screens) |
-| Web bundle at 179 KB of 190 KB | Little room left | Next big screen needs trimming first (e.g. lazy QR/Shamir code) |
+- e2e for recovery-key create/unlock, restore merge + replace, factory reset,
+  passphrase change (with the 429 throttle), settings, entry and passkey delete,
+  trusted-browser removal — each in ar/light and en/dark (`dfa5d3f`, `1f9d459`).
+- Mock drift fixed: passphrase throttle, `host.usbOs` only with a session, text
+  checked against the output's layout, restore "replace" checked before the press.
+- Type text checks the layout's own characters (`chars` in GET /api/keyboard)
+  instead of US-ASCII; the erase message shows after a factory reset (`afebe53`).
+- Kept on purpose (DESIGN App. B): LED minimum 10%, the three typing delays.
+- Web bundle at 179.6 KB of 190 KB: the next big screen needs trimming first.
 
 ## Wave 4 — owner decisions first, then build
 
