@@ -264,10 +264,11 @@ function dropSessionItems() {
 
 const ACTIVITY_MAX = 200;
 /** Appends while unlocked (the firmware cannot write the encrypted log when locked). */
-function logEvent(kind, { id = 0, title = '', detail = 0, n = 0 } = {}) {
+function logEvent(kind, { id = 0, title = '', detail = 0, n = 0, host } = {}) {
   if (!unlocked || !vault) return;
   vault.activity ??= [];
-  vault.activity.push({ kind, at: timeValid ? nowSec() : 0, id, n, detail, title: [...title].join('').slice(0, 64) });
+  // host: SPEC §9.4, the page an extension typed another site's login into.
+  vault.activity.push({ kind, at: timeValid ? nowSec() : 0, id, n, detail, title: [...title].join('').slice(0, 64), ...(host ? { host } : {}) });
   if (vault.activity.length > ACTIVITY_MAX) vault.activity.splice(0, vault.activity.length - ACTIVITY_MAX);
 }
 
@@ -890,6 +891,7 @@ function seqPartText(seq, part, e) {
 /** The pending card's view of a type request (handlers_kbd addPending: part is 1-based). */
 function pendingView(req) {
   const v = { id: req.id, title: req.title, what: req.what, submit: req.submit };
+  if (req.host) v.host = req.host; // SPEC §9.4: the page an extension token armed it for
   if (req.what === 'sequence') Object.assign(v, { preview: req.seq.preview, part: req.part + 1, parts: req.seq.parts });
   return v;
 }
@@ -1218,6 +1220,9 @@ function originAllowed(req) {
   return origin === `http://${req.headers.host}`;
 }
 
+/** SPEC §9.4: bearer requests to /api/agent/* may also come from a browser extension. */
+const EXT_ORIGIN = /^(chrome-extension|moz-extension|safari-web-extension):\/\/[A-Za-z0-9._-]+$/;
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** SPEC §8.2 `via`: the firmware reads the socket's local address; the mock uses the Host. */
@@ -1314,6 +1319,7 @@ function match(method, rawPath) {
     case 'agent/cancel': return one('POST', 'agentCancel');
     case 'agent/save': return one('POST', 'agentSave');
     case 'agent/generate': return one('POST', 'agentGenerate');
+    case 'agent/match': return one('POST', 'agentMatch');
     case 'tags':
       return method === 'GET' ? { route: 'tags' } : method === 'POST' ? { route: 'createTag' } : { notAllowed: true };
     case 'tag/tap': return one('POST', 'tagTap');
@@ -1345,8 +1351,8 @@ function match(method, rawPath) {
 }
 
 const OPEN = new Set(['state', 'setup', 'unlock', 'unlockRecovery', 'factoryReset', 'presenceCancel', 'tagTap', 'tagStatus']);
-const AGENT = new Set(['agentEntries', 'agentType', 'agentStatus', 'agentCancel', 'agentSave', 'agentGenerate']);
-const BODY = new Set(['createToken', 'createTag', 'tagTap', 'tagStatus', 'agentType', 'agentSave', 'agentGenerate', 'healthRotate', 'setup', 'unlock', 'unlockRecovery', 'create', 'update', 'import', 'type', 'generate', 'putSettings', 'passphrase', 'backup', 'restore', 'wifiHome', 'bleSetOs', 'presenceCancel']);
+const AGENT = new Set(['agentEntries', 'agentType', 'agentStatus', 'agentCancel', 'agentSave', 'agentGenerate', 'agentMatch']);
+const BODY = new Set(['createToken', 'createTag', 'tagTap', 'tagStatus', 'agentType', 'agentSave', 'agentGenerate', 'agentMatch', 'healthRotate', 'setup', 'unlock', 'unlockRecovery', 'create', 'update', 'import', 'type', 'generate', 'putSettings', 'passphrase', 'backup', 'restore', 'wifiHome', 'bleSetOs', 'presenceCancel']);
 
 const validPassphrase = (s) => typeof s === 'string' && [...s].length >= 10 && [...s].length <= 128;
 const validWifi = (s) => typeof s === 'string' && s.length >= 8 && s.length <= 63 && /^[\x20-\x7e]+$/.test(s) && s !== 'keyra1234';
@@ -1446,6 +1452,7 @@ const MAX_SCOPE = 32;
 const RATE_MAX = 10;
 const RATE_WINDOW_MS = 10000;
 const TOKEN_RE = /^keyra_[a-z2-7]{32}$/;
+const TOKEN_KINDS = ['agent', 'app', 'extension']; // index = kind byte in tokens.bin and token_created detail
 const tokenRate = new Map(); // token id (0 = unrecognised) → request times
 const tokenLast = new Map(); // token id → { serial, save, id, title?, what? }
 
@@ -1480,6 +1487,24 @@ function urlHost(url = '') {
   u = u.slice(u.lastIndexOf('@') + 1);
   u = u.startsWith('[') ? (u.includes(']') ? u.slice(1, u.indexOf(']')) : '') : u.split(':')[0];
   return /[\x00-\x20\x7f]/.test(u) ? '' : u.toLowerCase();
+}
+
+// SPEC §9.4 host rule (docs/research/HOST-MATCH.md; extension/src/host.ts runs the same table).
+const COUNTRY_SLD = new Set(['ac', 'co', 'com', 'edu', 'gob', 'gov', 'go', 'mil', 'ne', 'net', 'or', 'org', 'sch']);
+const normHost = (h) => String(h ?? '').trim().toLowerCase().replace(/\.$/, '').replace(/^www\./, '');
+const isIp = (h) => h.includes(':') || /^\d{1,3}(\.\d{1,3}){3}$/.test(h);
+function siteLike(h) {
+  const l = h.split('.');
+  return l.length >= 2 && l.every(Boolean) && !(l.length === 2 && l[1].length === 2 && COUNTRY_SLD.has(l[0]));
+}
+function hostMatch(login, page) {
+  const a = normHost(login);
+  const b = normHost(page);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (isIp(a) || isIp(b)) return false;
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  return long.endsWith('.' + short) && siteLike(short);
 }
 
 /** RateLimit::allow: 10 per sliding 10 s per key. Returns the wait in ms, 0 = allowed. */
@@ -1556,7 +1581,7 @@ function agentStatus(t) {
 const WHATS = ['username', 'password', 'both', 'totp'];
 
 /** typereq::readTarget + entryRequest + arm (handlers.cpp): what POST /api/agent/type and a tag tap share. */
-function armEntry(id, what, targetIn, submitIn) {
+function armEntry(id, what, targetIn, submitIn, host) {
   let target = pickTarget();
   if (targetIn !== undefined) {
     if (targetIn === 'usb') target = { kind: 'usb' };
@@ -1576,7 +1601,7 @@ function armEntry(id, what, targetIn, submitIn) {
   if (missing) bad('Entry has no value for that field');
   if (what === 'totp' && !timeValid) fail(409, 'no_time', 'Device clock is not set');
   const submit = submitIn ?? (what === 'both' && settings.submitAfterBoth);
-  return { e, p: arm({ id: e.id, title: e.title, what, submit, target }) };
+  return { e, p: arm({ id: e.id, title: e.title, what, submit, target, ...(host ? { host } : {}) }) };
 }
 
 // ---------- NFC tap tags (SPEC §18; firmware keyra_api/src/tags.cpp, handlers_tags.cpp) ----------
@@ -1676,7 +1701,7 @@ async function api(req, res, path) {
   const m = match(method, path);
   if (!m) fail(404, 'not_found', 'No such endpoint');
   if (m.notAllowed) fail(405, 'method_not_allowed', 'Method not allowed');
-  if (method !== 'GET' && !originAllowed(req)) fail(403, 'csrf', 'Cross-origin request refused');
+  if (method !== 'GET' && !originAllowed(req) && !(AGENT.has(m.route) && EXT_ORIGIN.test(req.headers.origin))) fail(403, 'csrf', 'Cross-origin request refused');
 
   expire();
   syncDemand();
@@ -2016,7 +2041,7 @@ async function api(req, res, path) {
     case 'createToken': {
       // handlers_agent.cpp createToken: checked first, then the press, then the same call again.
       if (typeof b.name !== 'string' || !b.name || Buffer.byteLength(b.name) > 48 || /[\x00-\x1f\x7f]/.test(b.name)) bad('"name" must be 1-48 bytes of text');
-      if (b.kind !== 'agent' && b.kind !== 'app') bad('"kind" must be "agent" or "app"');
+      if (!TOKEN_KINDS.includes(b.kind)) bad('"kind" must be "agent", "app" or "extension"');
       let scope = 'all';
       if (b.scope !== 'all') {
         if (!Array.isArray(b.scope) || b.scope.length < 1 || b.scope.length > MAX_SCOPE) bad('"scope" must be "all" or 1-32 entry ids');
@@ -2032,7 +2057,7 @@ async function api(req, res, path) {
       while (!id || vault.tokens.some((x) => x.id === id));
       const t = { id, hash: sha(secret), name: b.name, kind: b.kind, scope, created: timeValid ? nowSec() : 0, lastUsed: 0 };
       vault.tokens.push(t);
-      logEvent('token_created', { title: t.name, detail: t.kind === 'app' ? 1 : 0 });
+      logEvent('token_created', { title: t.name, detail: TOKEN_KINDS.indexOf(t.kind) });
       console.log(`[mock] access token ${id} created (${t.kind})`);
       return send(res, 201, { token: secret, ...tokenView(t) });
     }
@@ -2156,9 +2181,18 @@ async function api(req, res, path) {
       if (!['username', 'password', 'both', 'totp'].includes(b.what)) bad('"what" must be username, password, both or totp');
       if (!inScope(bearer, b.id)) fail(404, 'not_found', 'No such entry');
       if (b.submit !== undefined && typeof b.submit !== 'boolean') bad('"submit" must be a boolean');
-      const { e, p } = armEntry(b.id, b.what, b.target, b.submit);
+      // SPEC §9.4: an extension says which page it types into; another site's login needs anyHost.
+      let host;
+      if (bearer.kind === 'extension') {
+        if (typeof b.host !== 'string' || !normHost(b.host) || b.host.length > 253) bad('"host" (the page\'s host) is required');
+        if (b.anyHost !== undefined && typeof b.anyHost !== 'boolean') bad('"anyHost" must be a boolean');
+        host = normHost(b.host);
+        if (!hostMatch(urlHost(getEntry(b.id).url), host) && b.anyHost !== true) fail(409, 'host_mismatch', 'This login is for another site');
+      }
+      const { e, p } = armEntry(b.id, b.what, b.target, b.submit, host);
       tokenLast.set(bearer.id, { serial: machine.slot.req.serial, save: false, id: e.id, title: e.title, what: b.what });
-      logEvent('agent_armed', { id: e.id, title: bearer.name, detail: ['username', 'password', 'both', 'totp'].indexOf(b.what) });
+      const other = host && !hostMatch(urlHost(e.url), host);
+      logEvent('agent_armed', { id: e.id, title: bearer.name, detail: ['username', 'password', 'both', 'totp'].indexOf(b.what), ...(other ? { host } : {}) });
       return send(res, 202, { pending: { kind: 'type', ...p, by: bearer.name }, expiresIn: p.expiresIn });
     }
 
@@ -2176,13 +2210,34 @@ async function api(req, res, path) {
     }
 
     case 'agentSave': {
-      if (bearer.kind !== 'app') fail(403, 'forbidden', 'This token cannot save accounts');
+      if (bearer.kind === 'agent') fail(403, 'forbidden', 'This token cannot save accounts');
       for (const k of ['title', 'url', 'username', 'password']) {
         if (b[k] !== undefined && (typeof b[k] !== 'string' || Buffer.byteLength(b[k]) > LIMITS[k])) bad(`"${k}" must be a string within the vault's limits`);
       }
-      if (!b.title) bad('"title" (string) is required');
       const tokenId = bearer.id;
       const name = bearer.name;
+      // SPEC §9.4 "Save or update": replace sets the username (if given) and password of a login in scope.
+      if (b.replace !== undefined) {
+        if (!Number.isInteger(b.replace) || b.replace < 1 || b.replace > 0xffffffff) bad('"replace" must be an entry id');
+        if (!b.password) bad('"password" is required to update a login');
+        if (!inScope(bearer, b.replace)) fail(404, 'not_found', 'No such entry');
+        const id = getEntry(b.replace).id;
+        const exp = awaitPresence('agent_save', () => {
+          const old = unlocked && vault?.entries.get(id);
+          if (!old) return false;
+          const now = nowSec();
+          const e = { ...old, username: b.username ?? old.username, password: b.password, updated: now };
+          if (old.password && old.password !== b.password) e.history = [{ password: old.password, changedAt: now }, ...old.history].slice(0, MAX_HISTORY);
+          vault.entries.set(id, e);
+          const last = tokenLast.get(tokenId);
+          if (last?.serial === serial) last.id = id;
+          logEvent('agent_saved', { id, title: name });
+        });
+        const serial = machine.slot.serial;
+        tokenLast.set(tokenId, { serial, save: true, id: 0 });
+        return send(res, 202, { awaiting: 'button', op: 'agent_save', expiresIn: exp, mode: 'update' });
+      }
+      if (!b.title) bad('"title" (string) is required');
       const exp = awaitPresence('agent_save', () => {
         if (!unlocked) return false;
         const id = freshId();
@@ -2196,11 +2251,23 @@ async function api(req, res, path) {
       });
       const serial = machine.slot.serial;
       tokenLast.set(tokenId, { serial, save: true, id: 0 });
-      return send(res, 202, { awaiting: 'button', op: 'agent_save', expiresIn: exp });
+      return send(res, 202, { awaiting: 'button', op: 'agent_save', expiresIn: exp, mode: 'create' });
+    }
+
+    case 'agentMatch': {
+      if (bearer.kind !== 'extension') fail(403, 'forbidden', 'Only a browser extension token can match pages');
+      if (typeof b.host !== 'string' || b.host.length > 253) bad('"host" (string) is required');
+      if (b.username !== undefined && typeof b.username !== 'string') bad('"username" must be a string');
+      const list = [...vault.entries.values()]
+        .filter((e) => inScope(bearer, e.id) && hostMatch(urlHost(e.url), b.host))
+        .slice(0, 20)
+        .map((e) => ({ id: e.id, title: e.title, host: urlHost(e.url), ...(b.username !== undefined ? { sameUser: e.username === b.username } : {}) }));
+      logCoalesced('agent_listed', { id: bearer.id, title: bearer.name });
+      return send(res, 200, { entries: list });
     }
 
     case 'agentGenerate': {
-      if (bearer.kind !== 'app') fail(403, 'forbidden', 'This token cannot generate passwords');
+      if (bearer.kind === 'agent') fail(403, 'forbidden', 'This token cannot generate passwords');
       logCoalesced('agent_generated', { id: bearer.id, title: bearer.name });
       const r = generate(b);
       if (typeof r === 'string') bad(r);
