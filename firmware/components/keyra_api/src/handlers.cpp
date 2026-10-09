@@ -15,6 +15,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "handlers_agent.hpp"
 #include "handlers_fido.hpp"
 #include "handlers_gen.hpp"
 #include "handlers_kbd.hpp"
@@ -32,6 +33,7 @@
 #include "keyra/vault.hpp"
 #include "runtime.hpp"
 #include "trusted.hpp"
+#include "type_request.hpp"
 #include "validate.hpp"
 
 namespace keyra::api {
@@ -52,6 +54,7 @@ struct Ctx {
   std::string token;
   json::Ptr body;  // parsed JSON object, when the route takes one
   net::Via via = net::Via::Home;
+  std::optional<tokens::Token> bearer;  // /api/agent/…: the access token (SPEC §17)
 };
 
 // ---------- small helpers ----------
@@ -385,15 +388,7 @@ esp_err_t getState(Ctx& c) {
   if (c.session) update::addState(o.get());
 
   if (pending) {
-    cJSON* p = cJSON_AddObjectToObject(o.get(), "pending");
-    cJSON_AddStringToObject(p, "kind", "type");
-    cJSON_AddNumberToObject(p, "id", pending->req.id);
-    genapi::addTitle(p, pending->req.what, pending->req.title);
-    cJSON_AddStringToObject(p, "what", actions::whatName(pending->req.what));
-    cJSON_AddBoolToObject(p, "submit", pending->req.submit);
-    cJSON_AddNumberToObject(p, "expiresIn", static_cast<double>(pending->expiresInMs));
-    addTarget(p, "target", pending->req.target);
-    kbdapi::addPending(p, pending->req);
+    typereq::addPending(cJSON_AddObjectToObject(o.get(), "pending"), *pending);
   } else {
     cJSON_AddNullToObject(o.get(), "pending");
   }
@@ -814,17 +809,8 @@ esp_err_t entryTotp(Ctx& c) {
 
 esp_err_t sendPending(httpd_req_t* r, const std::optional<actions::Pending>& pending) {
   if (!pending) return sendBusy(r);
-  const actions::Pending& p = *pending;
   json::Ptr o(cJSON_CreateObject());
-  cJSON* po = cJSON_AddObjectToObject(o.get(), "pending");
-  cJSON_AddStringToObject(po, "kind", "type");
-  cJSON_AddNumberToObject(po, "id", p.req.id);
-  genapi::addTitle(po, p.req.what, p.req.title);
-  cJSON_AddStringToObject(po, "what", actions::whatName(p.req.what));
-  cJSON_AddBoolToObject(po, "submit", p.req.submit);
-  cJSON_AddNumberToObject(po, "expiresIn", static_cast<double>(p.expiresInMs));
-  addTarget(po, "target", p.req.target);
-  kbdapi::addPending(po, p.req);
+  typereq::addPending(cJSON_AddObjectToObject(o.get(), "pending"), *pending);
   return http::sendJson(r, http::k202, o.get());
 }
 
@@ -834,25 +820,10 @@ esp_err_t postType(Ctx& c) {
   if (json::getBool(c.body.get(), "test", test) == Field::BadType) return badRequest(c.r, "\"test\" must be a boolean");
   if (json::getBool(c.body.get(), "probe", probe) == Field::BadType)
     return badRequest(c.r, "\"probe\" must be a boolean");
-  // Where to type: named in the request ("usb" or a bonded device), else the default.
-  const settings::Settings st = settings::get();
-  const ble::Status bst = ble::status();
-  Target target = defaultTarget(st, bst);
-  std::string targetStr;
-  const Field tf = json::getString(c.body.get(), "target", targetStr);
-  if (tf == Field::BadType) return badRequest(c.r, "\"target\" must be \"usb\" or a device address");
-  if (tf == Field::Ok) {
-    const auto t = parseTarget(targetStr);
-    if (!t) return badRequest(c.r, "\"target\" must be \"usb\" or a device address");
-    if (t->kind == Target::Kind::Ble) {
-      if (!st.bleEnabled) return http::sendError(c.r, http::k409, "ble_disabled", "Bluetooth is turned off");
-      if (std::none_of(bst.bonds.begin(), bst.bonds.end(), [&](const ble::Peer& p) { return p.addr == t->addr; }))
-        return http::sendError(c.r, http::k404, "not_found", "No such device");
-    }
-    target = *t;
-  }
+  Target target;
+  esp_err_t err = ESP_OK;
+  if (!typereq::readTarget(c.r, c.body.get(), target, err)) return err;
   if (cJSON_HasObjectItem(c.body.get(), "text")) {
-    esp_err_t err = ESP_OK;
     if (!genapi::textRequest(c.r, c.body.get(), target, req, err)) return err;
   } else if (test) {
     req = {0, "Keyra test", actions::What::Test, false, target, nullptr, nullptr, 0};
@@ -866,31 +837,19 @@ esp_err_t postType(Ctx& c) {
     const auto what = json::getString(c.body.get(), "what", whatStr) == Field::Ok ? actions::parseWhat(whatStr)
                                                                                   : std::nullopt;
     if (!what) return badRequest(c.r, "\"what\" must be username, password, both, totp or sequence");
-    bool submit = *what == actions::What::Both && settings::get().submitAfterBoth;
-    if (json::getBool(c.body.get(), "submit", submit) == Field::BadType)
-      return badRequest(c.r, "\"submit\" must be a boolean");
-    if (*what == actions::What::Sequence && cJSON_HasObjectItem(c.body.get(), "submit"))
-      return badRequest(c.r, "a sequence says itself whether to press Enter; \"submit\" is not allowed");
-
-    vault::Entry e;
-    const Status st = vault::get(static_cast<uint32_t>(id), e);
-    if (st != Status::Ok) return sendVaultError(c.r, st);
     if (*what == actions::What::Sequence) {
-      esp_err_t err = ESP_OK;
+      if (cJSON_HasObjectItem(c.body.get(), "submit"))
+        return badRequest(c.r, "a sequence says itself whether to press Enter; \"submit\" is not allowed");
+      vault::Entry e;
+      const Status st = vault::get(static_cast<uint32_t>(id), e);
+      if (st != Status::Ok) return sendVaultError(c.r, st);
       const bool ok = kbdapi::sequenceRequest(c.r, e, target, req, err);
       vault::wipe(e);
       if (!ok) return err;
       return sendPending(c.r, machine().arm(std::move(req), c.token));
     }
-    const bool missing = (*what == actions::What::Username && e.username.empty()) ||
-                         (*what == actions::What::Password && e.password.empty()) ||
-                         (*what == actions::What::Both && (e.username.empty() || e.password.empty())) ||
-                         (*what == actions::What::Totp && e.totp.empty());
-    req = {static_cast<uint32_t>(id), e.title, *what, submit, target, nullptr, nullptr, 0};
-    vault::wipe(e);
-    if (missing) return badRequest(c.r, "Entry has no value for that field");
-    if (*what == actions::What::Totp && !timeValid())
-      return http::sendError(c.r, http::k409, "no_time", "Device clock is not set");
+    if (!typereq::entryRequest(c.r, c.body.get(), static_cast<uint32_t>(id), *what, target, req, err)) return err;
+    return sendPending(c.r, machine().arm(std::move(req), c.token));
   }
   bool switchLang = false;
   if (json::getBool(c.body.get(), "switchLang", switchLang) == Field::BadType)
@@ -1206,6 +1165,8 @@ bool takesBody(Route r) {
     case Route::UnlockRecovery:
     case Route::PresenceCancel:
     case Route::HealthRotate:
+    case Route::CreateToken:
+    case Route::AgentType: case Route::AgentSave: case Route::AgentGenerate:
       return true;
     default:
       return false;
@@ -1239,7 +1200,7 @@ esp_err_t deferToWorker(Ctx& c) {
   httpd_req_t* copy = nullptr;
   if (httpd_req_async_handler_begin(c.r, &copy) != ESP_OK)
     return http::sendError(c.r, http::k500, "no_memory", "Out of memory");
-  Ctx* job = new Ctx{copy, c.match, c.session, std::move(c.token), std::move(c.body), c.via};
+  Ctx* job = new Ctx{copy, c.match, c.session, std::move(c.token), std::move(c.body), c.via, std::move(c.bearer)};
   if (xQueueSend(g_slowQueue, &job, 0) != pdTRUE) {
     delete job;
     http::sendError(copy, http::k503, "busy", "Keyra is busy; try again");
@@ -1294,11 +1255,99 @@ esp_err_t dispatch(Ctx& c) {
     case Route::UpdateCheck: return update::check(c.r);
     case Route::UpdateDownload: return update::download(c.r);
     case Route::UpdateApply: return update::apply(c.r, c.token);
+    case Route::ListTokens: return agent::listTokens(c.r);
+    case Route::CreateToken: return agent::createToken(c.r, c.body.get(), c.token);
+    case Route::DeleteToken: return agent::deleteToken(c.r, c.match.id);
+    case Route::AgentEntries:
+    case Route::AgentType:
+    case Route::AgentStatus:
+    case Route::AgentCancel:
+    case Route::AgentSave:
+    case Route::AgentGenerate: return agent::dispatch(c.r, c.match.route, *c.bearer, c.body.get());
   }
   return http::sendError(c.r, http::k404, "not_found", "No such endpoint");
 }
 
 }  // namespace
+
+namespace typereq {
+
+bool readTarget(httpd_req_t* r, const cJSON* body, Target& out, esp_err_t& err) {
+  const settings::Settings st = settings::get();
+  const ble::Status bst = ble::status();
+  out = defaultTarget(st, bst);
+  std::string targetStr;
+  const Field tf = json::getString(body, "target", targetStr);
+  if (tf == Field::Missing) return true;
+  const auto t = tf == Field::Ok ? parseTarget(targetStr) : std::nullopt;
+  if (!t) {
+    err = badRequest(r, "\"target\" must be \"usb\" or a device address");
+    return false;
+  }
+  if (t->kind == Target::Kind::Ble) {
+    if (!st.bleEnabled) {
+      err = http::sendError(r, http::k409, "ble_disabled", "Bluetooth is turned off");
+      return false;
+    }
+    if (std::none_of(bst.bonds.begin(), bst.bonds.end(), [&](const ble::Peer& p) { return p.addr == t->addr; })) {
+      err = http::sendError(r, http::k404, "not_found", "No such device");
+      return false;
+    }
+  }
+  out = *t;
+  return true;
+}
+
+bool entryRequest(httpd_req_t* r, const cJSON* body, uint32_t id, actions::What what, const Target& target,
+                  actions::TypeRequest& out, esp_err_t& err) {
+  bool submit = what == actions::What::Both && settings::get().submitAfterBoth;
+  if (json::getBool(body, "submit", submit) == Field::BadType) {
+    err = badRequest(r, "\"submit\" must be a boolean");
+    return false;
+  }
+  bool switchLang = false;
+  if (json::getBool(body, "switchLang", switchLang) == Field::BadType) {
+    err = badRequest(r, "\"switchLang\" must be a boolean");
+    return false;
+  }
+  vault::Entry e;
+  const Status st = vault::get(id, e);
+  if (st != Status::Ok) {
+    err = sendVaultError(r, st);
+    return false;
+  }
+  const bool missing = (what == actions::What::Username && e.username.empty()) ||
+                       (what == actions::What::Password && e.password.empty()) ||
+                       (what == actions::What::Both && (e.username.empty() || e.password.empty())) ||
+                       (what == actions::What::Totp && e.totp.empty());
+  out = {id, e.title, what, submit, target, nullptr, nullptr, 0};
+  out.switchLang = switchLang;
+  vault::wipe(e);
+  if (missing) {
+    err = badRequest(r, "Entry has no value for that field");
+    return false;
+  }
+  if (what == actions::What::Totp && !timeValid()) {
+    err = http::sendError(r, http::k409, "no_time", "Device clock is not set");
+    return false;
+  }
+  return true;
+}
+
+void addPending(cJSON* po, const actions::Pending& p) {
+  cJSON_AddStringToObject(po, "kind", "type");
+  cJSON_AddNumberToObject(po, "id", p.req.id);
+  genapi::addTitle(po, p.req.what, p.req.title);
+  cJSON_AddStringToObject(po, "what", actions::whatName(p.req.what));
+  cJSON_AddBoolToObject(po, "submit", p.req.submit);
+  cJSON_AddNumberToObject(po, "expiresIn", static_cast<double>(p.expiresInMs));
+  addTarget(po, "target", p.req.target);
+  kbdapi::addPending(po, p.req);
+  const std::string by = agent::ownerName(p.owner);
+  if (!by.empty()) cJSON_AddStringToObject(po, "by", by.c_str());
+}
+
+}  // namespace typereq
 
 esp_err_t handleApi(httpd_req_t* r, Method method, std::string_view path) {
   const bool restore = path == "/api/restore";
@@ -1310,7 +1359,7 @@ esp_err_t handleApi(httpd_req_t* r, Method method, std::string_view path) {
     http::sendError(r, http::k413, "too_large", "Request body too large");
     return ESP_FAIL;  // closes the socket instead of draining an oversized body
   }
-  Ctx c{r, matchApi(method, path), false, {}, nullptr, net::viaForSocket(httpd_req_to_sockfd(r))};
+  Ctx c{r, matchApi(method, path), false, {}, nullptr, net::viaForSocket(httpd_req_to_sockfd(r)), std::nullopt};
   if (c.match.kind == Match::Kind::NotFound) return http::sendError(r, http::k404, "not_found", "No such endpoint");
   if (c.match.kind == Match::Kind::MethodNotAllowed)
     return http::sendError(r, http::k405, "method_not_allowed", "Method not allowed");
@@ -1319,6 +1368,14 @@ esp_err_t handleApi(httpd_req_t* r, Method method, std::string_view path) {
     const bool hasOrigin = httpd_req_get_hdr_value_len(r, "Origin") > 0;
     if (!isAllowedOrigin(http::header(r, "Origin", 128), hasOrigin, net::homeIp()))
       return http::sendError(r, http::k403, "csrf", "Cross-origin request refused");
+  }
+
+  // Access tokens (SPEC §17): a bearer token, never the session cookie or CSRF,
+  // and not user activity (an agent must not keep the vault from auto-locking).
+  if (isAgent(c.match.route)) {
+    esp_err_t err = ESP_OK;
+    c.bearer = agent::authenticate(r, err);
+    if (!c.bearer) return err;
   }
 
   // Session: cookie token must be live AND the vault unlocked.

@@ -1,4 +1,4 @@
-import type { BleInfo, DeviceState, Keyboard, Entry, HostOs, EntryInput, ActivityEvent, EntrySummary, Health, Network, PasskeyList, RestoreResult, UpdateCheck, RecoveryInfo, Settings, Totp, TrustedBrowser, TypeTextRequest, TypeWhat, Pending, PresenceOp } from './types';
+import type { AccessToken, BleInfo, DeviceState, Keyboard, Entry, HostOs, EntryInput, ActivityEvent, EntrySummary, Health, Network, PasskeyList, RestoreResult, UpdateCheck, RecoveryInfo, Settings, Totp, TrustedBrowser, TypeTextRequest, TypeWhat, Pending, PresenceOp } from './types';
 import { generateRequest, type GenSettings } from './generator';
 
 export class ApiError extends Error {
@@ -232,6 +232,11 @@ export const api = {
   updateApply: () => json<Awaiting & { version: string }>('POST', '/update/apply'),
   healthRotate: (on: boolean) => json<Health>('POST', '/health/rotate', { on }),
   activity: () => json<{ events: ActivityEvent[]; max: number }>('GET', '/activity'),
+  tokens: () => json<{ tokens: AccessToken[]; max: number }>('GET', '/tokens'),
+  /** 201 → the new token with its secret, shown once; 202 → press Keyra's button, then call again (SPEC §17). */
+  createToken: (t: { name: string; kind: AccessToken['kind']; scope: AccessToken['scope'] }) =>
+    json<(AccessToken & { token: string }) | Awaiting>('POST', '/tokens', t),
+  revokeToken: (id: number) => json<void>('DELETE', `/tokens/${id}`),
   passkeys: async () => await json<PasskeyList>('GET', '/fido'),
   deletePasskey: (id: number) => json<Awaiting>('DELETE', `/fido/${id}`),
 };

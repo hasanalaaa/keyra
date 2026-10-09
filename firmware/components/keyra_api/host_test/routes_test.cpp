@@ -157,6 +157,34 @@ void policy() {
   CHECK(!needsCsrf(Method::Get, Route::WifiScan));
 }
 
+// SPEC §17: tokens are managed by a session; /api/agent/… takes a bearer token only.
+void tokenRoutes() {
+  CHECK(is(matchApi(Method::Get, "/api/tokens"), Route::ListTokens));
+  CHECK(is(matchApi(Method::Post, "/api/tokens"), Route::CreateToken));
+  CHECK(is(matchApi(Method::Delete, "/api/tokens/77"), Route::DeleteToken, 77));
+  CHECK(matchApi(Method::Get, "/api/tokens/77").kind == K::MethodNotAllowed);
+  CHECK(matchApi(Method::Delete, "/api/tokens/0").kind == K::NotFound);
+  CHECK(matchApi(Method::Delete, "/api/tokens/x").kind == K::NotFound);
+  CHECK(needsSession(Route::ListTokens) && needsSession(Route::CreateToken) && needsSession(Route::DeleteToken));
+  CHECK(needsCsrf(Method::Post, Route::CreateToken) && needsCsrf(Method::Delete, Route::DeleteToken));
+  CHECK(!isAgent(Route::CreateToken) && !isAgent(Route::Type));
+
+  CHECK(is(matchApi(Method::Get, "/api/agent/entries"), Route::AgentEntries));
+  CHECK(is(matchApi(Method::Post, "/api/agent/type"), Route::AgentType));
+  CHECK(is(matchApi(Method::Get, "/api/agent/status"), Route::AgentStatus));
+  CHECK(is(matchApi(Method::Post, "/api/agent/cancel"), Route::AgentCancel));
+  CHECK(is(matchApi(Method::Post, "/api/agent/save"), Route::AgentSave));
+  CHECK(is(matchApi(Method::Post, "/api/agent/generate"), Route::AgentGenerate));
+  CHECK(matchApi(Method::Get, "/api/agent/type").kind == K::MethodNotAllowed);
+  CHECK(matchApi(Method::Get, "/api/agent/entries/1").kind == K::NotFound);
+  for (Route r : {Route::AgentEntries, Route::AgentType, Route::AgentStatus, Route::AgentCancel, Route::AgentSave,
+                  Route::AgentGenerate}) {
+    CHECK(isAgent(r));
+    CHECK(!needsSession(r));
+    CHECK(!needsCsrf(Method::Post, r));
+  }
+}
+
 void hosts() {
   CHECK(isOwnHost(""));
   CHECK(isOwnHost("192.168.4.1"));
@@ -256,6 +284,7 @@ void inputRules() {
 
 int main() {
   apiRoutes();
+  tokenRoutes();
   policy();
   hosts();
   origins();

@@ -32,6 +32,13 @@ enum class Kind : uint8_t {
   RotateStarted = 16,  // "change every password" (SPEC §13.1) started
   RotateEnded = 17,    // ... and ended
   EntryBurned = 18,    // id + title: deleted after its last allowed typing (SPEC §16)
+  // Access tokens (SPEC §17). title: the token's name; never the token itself.
+  TokenCreated = 19,   // detail: 0 agent, 1 app
+  TokenRevoked = 20,
+  AgentListed = 21,    // id: the token's id; n: lists in a row (counted, not repeated)
+  AgentArmed = 22,     // id: the entry; detail: 0 username, 1 password, 2 both, 3 2FA code
+  AgentSaved = 23,     // id: the new entry
+  AgentGenerated = 24, // id: the token's id; n: passwords in a row
 };
 
 enum class LockWhy : uint8_t { Manual = 0, Idle = 1, Usb = 2, Ble = 3, Button = 4 };
@@ -52,8 +59,11 @@ std::vector<uint8_t> encode(const std::vector<Event>& events);
 // False on a malformed record (the caller starts a new log rather than lose
 // the ability to log); unknown kinds are kept as they are.
 bool decode(const std::vector<uint8_t>& bytes, std::vector<Event>& out);
-// Appends `e` (title clipped) and drops the oldest beyond kMaxEvents.
-void append(std::vector<Event>& events, Event e);
+// Appends `e` (title clipped) and drops the oldest beyond kMaxEvents. With
+// `coalesce`, an event of the same kind, id and title as the newest one only
+// adds its n (at least 1) to that one and moves its time: a token listing
+// every few seconds cannot push the rest of the history out.
+void append(std::vector<Event>& events, Event e, bool coalesce = false);
 
 const char* kindName(Kind k);  // stable API token, e.g. "typed"
 
@@ -61,7 +71,7 @@ const char* kindName(Kind k);  // stable API token, e.g. "typed"
 // vault is unlocked; when it is locked the event is dropped (nothing can be
 // written without the key). Never fails loudly: logging must not break the
 // action it records.
-void log(Event e);
+void log(Event e, bool coalesce = false);
 void log(Kind k, uint32_t id = 0, std::string title = {}, uint8_t detail = 0, uint32_t n = 0);
 bool list(std::vector<Event>& out);  // false when the stored log cannot be read
 

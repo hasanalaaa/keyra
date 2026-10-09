@@ -131,6 +131,23 @@ Match matchDecoded(Method m, std::string_view path) {
     if (!parseId(p.substr(kFido.size()), id)) return {};
     return m == Method::Delete ? found(Route::DeletePasskey, id) : notAllowed();
   }
+  if (p == "tokens") {
+    if (m == Method::Get) return found(Route::ListTokens);
+    if (m == Method::Post) return found(Route::CreateToken);
+    return notAllowed();
+  }
+  constexpr std::string_view kTokens = "tokens/";
+  if (p.substr(0, kTokens.size()) == kTokens) {
+    uint32_t id = 0;
+    if (!parseId(p.substr(kTokens.size()), id)) return {};
+    return m == Method::Delete ? found(Route::DeleteToken, id) : notAllowed();
+  }
+  if (p == "agent/entries") return only(m, Method::Get, Route::AgentEntries);
+  if (p == "agent/type") return only(m, Method::Post, Route::AgentType);
+  if (p == "agent/status") return only(m, Method::Get, Route::AgentStatus);
+  if (p == "agent/cancel") return only(m, Method::Post, Route::AgentCancel);
+  if (p == "agent/save") return only(m, Method::Post, Route::AgentSave);
+  if (p == "agent/generate") return only(m, Method::Post, Route::AgentGenerate);
   if (p == "wifi/scan") return only(m, Method::Get, Route::WifiScan);
   if (p == "wifi/home") return only(m, Method::Put, Route::WifiHome);
   if (p == "trusted") return only(m, Method::Get, Route::ListTrusted);
@@ -164,15 +181,20 @@ Match matchDecoded(Method m, std::string_view path) {
 
 }  // namespace
 
+bool isAgent(Route r) {
+  return r == Route::AgentEntries || r == Route::AgentType || r == Route::AgentStatus || r == Route::AgentCancel ||
+         r == Route::AgentSave || r == Route::AgentGenerate;
+}
+
 bool needsSession(Route r) {
-  return r != Route::State && r != Route::Setup && r != Route::Unlock && r != Route::UnlockRecovery &&
+  return !isAgent(r) && r != Route::State && r != Route::Setup && r != Route::Unlock && r != Route::UnlockRecovery &&
          r != Route::FactoryReset && r != Route::PresenceCancel;
 }
 
 bool needsCsrf(Method m, Route r) {
   // setup/unlock/factory-reset have no session yet (or a forgotten passphrase);
   // setup and factory-reset are gated by the physical button instead.
-  return m != Method::Get && r != Route::Unlock && r != Route::UnlockRecovery && r != Route::Setup &&
+  return m != Method::Get && !isAgent(r) && r != Route::Unlock && r != Route::UnlockRecovery && r != Route::Setup &&
          r != Route::FactoryReset && r != Route::PresenceCancel;
 }
 

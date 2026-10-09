@@ -122,6 +122,7 @@
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
 [dir="rtl"] .ready-pill { translate:50% 0; }
+.pill-text { min-inline-size:0; overflow:hidden; text-overflow:ellipsis; }
 .pill-dot { inline-size:10px; block-size:10px; border-radius:50%; background:var(--led); flex:none; animation:breathe-dot var(--d-breath) var(--ease-io) infinite; }
 @keyframes breathe-dot { 50% { opacity:.35; } }
 .skip-link { position:absolute; inset-inline-start:var(--s-2); inset-block-start:-60px; z-index:30; padding:var(--s-2) var(--s-3); border-radius:var(--r-sm); background:var(--accent); color:var(--on-accent); }
@@ -281,6 +282,9 @@
 .net-row .row-label bdi, .trusted-row .row-label bdi, .passkey-row .row-label bdi { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .net-row:disabled { opacity:1; cursor:default; }
 .net-row:disabled bdi, .net-row:disabled .bars { opacity:.45; }
+.pick-row { gap:12px; cursor:pointer; }
+.pick-row input { inline-size:20px; block-size:20px; accent-color:var(--accent); flex:none; }
+.token-pick { max-block-size:40vh; overflow-y:auto; }
 .net-open, .trusted-row .caption, .passkey-row .caption, .passkeys > .caption { color:var(--text-3); }
 .home-status .chip { flex:none; }
 .home-hint { color:var(--text-2); }

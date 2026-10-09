@@ -205,7 +205,8 @@ Routes added after v1.0, described in their sections: `/api/ble`, `/api/ble/pair
 `/api/trusted[/{id}]` (§8.2); `/api/generate` (§9.1); `/api/keyboard` (§10.1);
 `/api/fido[/{id}]` (§11); `/api/recovery`, `/api/unlock/recovery`,
 `/api/presence/cancel` (§12); `/api/health`, `/api/health/rotate` (§13);
-`/api/update`, `/api/update/check|download|apply` (§14); `/api/activity` (§15).
+`/api/update`, `/api/update/check|download|apply` (§14); `/api/activity` (§15);
+`/api/tokens[/{id}]`, `/api/agent/…` (§17).
 
 Restore (`/api/restore`):
 - The backup passphrase and the file are checked before anything changes, and
@@ -787,8 +788,10 @@ removed, accounts deleted. Never a password, a code or typed text.
   Bluetooth host gone, 4 Keyra's button), `typed` / `text_typed` (detail 0
   USB, 1 Bluetooth), `revealed`, `backup`, `restore` (n; detail 1 = replace),
   `passphrase`, `recovery_created`, `recovery_removed`, `ble_pairing`,
-  `ble_forgot`, `trusted_removed`, `entry_deleted`; `unknown` for a kind this
-  firmware does not name.
+  `ble_forgot`, `trusted_removed`, `entry_deleted`, `entry_burned` (§16),
+  `rotate_started`, `rotate_ended` (§13.1), `token_created`, `token_revoked`,
+  `agent_listed`, `agent_armed`, `agent_saved`, `agent_generated` (§17);
+  `unknown` for a kind this firmware does not name.
 - There is no endpoint to clear it: a borrowed or stolen session cannot hide
   what it did.
 - `POST /api/unlock` and `/api/unlock/recovery` answer
@@ -810,3 +813,62 @@ sequence (formats 1–3 still read, as 0), backups carry it when non-zero, and
   uses are left.
 - Typing still needs the press; a cancelled or failed action uses nothing.
 
+
+## 17. Access tokens and the Agent Gate
+
+Apps and AI agents may ask Keyra to type a login; they never read one. Design
+and threat model: [research/TOKENS.md](research/TOKENS.md); the MCP server for
+AI agents is `tools/keyra-mcp/`. This section is a contract the Android app and
+NFC tags build on.
+
+- **Token.** `keyra_` + 32 characters of RFC 4648 base32 (lowercase, no
+  padding) = 160 bits from the hardware RNG, shown once at creation. Keyra
+  stores only SHA-256 of the whole string, with its metadata, in the vault
+  record `tokens.bin` (sealed with the DEK, AAD `keyra/tokens/v1`; plaintext
+  format in `keyra_api/src/tokens.cpp`). Not part of backups; kept across
+  passphrase changes and restores (scoped ids that no longer exist simply
+  match nothing); gone with a new setup or factory reset. At most **8**.
+- **Metadata.** `{id, name (1–48 bytes UTF-8), kind:"agent"|"app",
+  scope:"all"|[entry id…] (1–32), created, lastUsed}` (unix seconds, 0 =
+  unknown/never; `lastUsed` is written at most once a minute).
+- **Managing** (session + CSRF, like every other session route):
+  - `GET /api/tokens` → `{tokens:[metadata…], max:8}`
+  - `POST /api/tokens {name, kind, scope}` → 202 press (op `token_create`,
+    §12.5a) → the same call again within 60 s → 201 `{token, …metadata}`.
+    Checked before the press: 400 `invalid` (name, kind, scope; a scope id
+    that is not an account), 409 `tokens_full`.
+  - `DELETE /api/tokens/{id}` → 204 (no press; 404 `not_found`). Whatever the
+    token has waiting for the button is withdrawn with it.
+- **Using** — `/api/agent/…` with `Authorization: Bearer <token>`; no session
+  cookie, no CSRF header (the `Origin` rule of §5 still applies to non-GET).
+  Every call first answers:
+  - 401 `locked` while the vault is locked (the hashes cannot be read);
+  - 401 `invalid_token` (+ `WWW-Authenticate: Bearer`) for a malformed,
+    unknown or revoked token;
+  - 429 `rate_limited` `{retryAfterMs}` + `Retry-After` beyond **10 requests
+    in any 10 s** per token (all unrecognised tokens share one more such
+    budget).
+  Token requests do not count as user activity for auto-lock.
+
+| Method & path | Kinds | Body → Response |
+|---|---|---|
+| GET `/api/agent/entries` | agent, app | → `{entries:[{id, title, host}]}` for the entries in scope; `host` = the URL's host name only (lowercase, no scheme, user, port or path). Never usernames or secrets. |
+| POST `/api/agent/type` | agent, app | `{id, what:"username"\|"password"\|"both"\|"totp", target?, submit?, switchLang?}` → 202 `{pending:Pending, expiresIn}`. Arms exactly like `POST /api/type` (same 60 s, press, targets §8.1, layout and Caps Lock rules, 409 `no_time` for a code without a clock); an id outside the scope → 404 `not_found` like an unknown one; 409 `busy` while anyone else's item waits; the token's own waiting item is replaced (ends `cancelled`). No sequences, test, probe or free text. |
+| GET `/api/agent/status` | agent, app | → this token's last request: `{state, request:"type"\|"save", id?, title?, what?, code?, expiresIn?}`. `state`: `none` (nothing, or too long ago), `armed` (waits for the press), `waiting` (a Bluetooth target still connecting, or typing/saving now), `typed`, `saved` (`id` = the new entry), `cancelled` (long press, replaced, lock, revoke), `expired`, `failed` (`code` = the §5 Result code, e.g. `no_usb`). |
+| POST `/api/agent/cancel` | agent, app | → 204, or 409 `not_cancelled` when nothing of this token waits. |
+| POST `/api/agent/save` | app | `{title, url?, username?, password?}` (vault limits) → 202 `{awaiting:"button", op:"agent_save", expiresIn}`; the press creates the entry (status `saved` with its `id`); a scoped token gets the new id added to its scope while there is room. 403 `forbidden` for an agent token. |
+| POST `/api/agent/generate` | app | Same body and answer as `POST /api/generate` (§9.1). The password is not stored: the app needs it for a sign-up form, and keeping it needs `/api/agent/save` (a press). 403 `forbidden` for an agent token. |
+
+- **The phone sees who asked.** `state.pending` (and the 202 above) carries
+  `by: <token name>` when a token armed the action.
+- **Owner.** Items a token arms belong to `token:<id>` in the §12.5a sense:
+  never replaced by a browser and never replacing one; a long press, the
+  phone's cancel, a lock or revoking the token ends them.
+- **Activity log** (§15) kinds: `token_created` (title = name, detail 0
+  agent / 1 app), `token_revoked` (title), `agent_listed` (id = token id,
+  title = name, `n` = lists in a row, counted on one line), `agent_armed`
+  (id = entry, title = token name, detail 0 username / 1 password / 2 both /
+  3 code), `agent_saved` (id = new entry, title = token name),
+  `agent_generated` (id = token id, `n` as for lists). The typing itself is
+  the usual `typed`. Status and cancel calls are not logged; the token is
+  never logged anywhere.

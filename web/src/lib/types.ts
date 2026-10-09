@@ -16,6 +16,8 @@ export interface Pending {
   preview?: string;
   part?: number;
   parts?: number;
+  /** The access token that armed it (SPEC §17); absent when a browser did. */
+  by?: string;
 }
 
 export interface TypeResult {
@@ -41,7 +43,9 @@ export type PresenceOp =
   | 'update'
   | 'delete_entry'
   | 'delete_passkey'
-  | 'passkeys_backup_on';
+  | 'passkeys_backup_on'
+  | 'token_create'
+  | 'agent_save';
 
 export interface PresenceResult {
   op: PresenceOp;
@@ -136,6 +140,12 @@ export interface ActivityEvent {
     | 'rotate_started'
     | 'rotate_ended'
     | 'entry_burned'
+    | 'token_created'
+    | 'token_revoked'
+    | 'agent_listed'
+    | 'agent_armed'
+    | 'agent_saved'
+    | 'agent_generated'
     | 'unknown';
   at: number;
   id?: number;
@@ -179,6 +189,16 @@ export interface RestoreResult {
   added: number;
   updated: number;
   passkeys: number;
+}
+
+/** An access token for an app or AI agent (SPEC §17). The secret itself is shown once, at creation. */
+export interface AccessToken {
+  id: number;
+  name: string;
+  kind: 'agent' | 'app';
+  scope: 'all' | number[];
+  created: number; // unix seconds, 0 = unknown
+  lastUsed: number; // 0 = never
 }
 
 export interface TrustedBrowser {

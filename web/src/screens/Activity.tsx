@@ -13,9 +13,11 @@ import type { ActivityEvent } from '../lib/types';
 
 const LOCK_TEXT: Key[] = ['actLock', 'actLockIdle', 'actLockUsb', 'actLockBle', 'actLockButton'];
 
-/** One line of text for an event (exported for tests). */
-export function eventText(e: ActivityEvent): string {
+/** One line of text for an event (exported for tests). `account` names an entry id (agent events carry the id only). */
+export function eventText(e: ActivityEvent, account: (id: number) => string | undefined = () => undefined): string {
   const title = e.title ?? '';
+  const acc = () => account(e.id ?? 0) ?? `#${e.id ?? 0}`;
+  const times = (e.n ?? 0) > 1 ? ` ×${e.n}` : '';
   const over = e.detail === 1 ? t('actOverBle') : '';
   switch (e.kind) {
     case 'unlock': return t(e.detail === 1 ? 'actUnlockRecovery' : 'actUnlock');
@@ -36,6 +38,12 @@ export function eventText(e: ActivityEvent): string {
     case 'trusted_removed': return t('actTrustedRemoved', { title });
     case 'entry_deleted': return t('actDeleted', { title });
     case 'entry_burned': return t('actBurned', { title });
+    case 'token_created': return t('actTokenCreated', { title });
+    case 'token_revoked': return t('actTokenRevoked', { title });
+    case 'agent_listed': return t('actAgentListed', { title }) + times;
+    case 'agent_armed': return t('actAgentArmed', { title, account: acc() });
+    case 'agent_saved': return t('actAgentSaved', { title, account: acc() });
+    case 'agent_generated': return t('actAgentGenerated', { title }) + times;
     default: return t('actOther');
   }
 }
@@ -59,6 +67,12 @@ function iconOf(e: ActivityEvent): IconName {
     case 'ble_pairing': return 'bluetooth';
     case 'entry_deleted':
     case 'entry_burned': return 'trash-2';
+    case 'agent_armed': return 'keyboard';
+    case 'token_created':
+    case 'token_revoked':
+    case 'agent_listed':
+    case 'agent_saved':
+    case 'agent_generated': return 'key-round';
     default: return 'shield-check';
   }
 }
@@ -107,7 +121,7 @@ export function ActivitySheet({ onClose }: { onClose: () => void }) {
                 <div class={`row activity-row${e.kind === 'failed_unlocks' ? ' warn' : ''}`}>
                   <Icon name={iconOf(e)} size={20} class="row-icon" />
                   <span class="row-label">
-                    <bdi dir="auto">{eventText(e)}</bdi>
+                    <bdi dir="auto">{eventText(e, (id) => app.entries?.find((x) => x.id === id)?.title)}</bdi>
                     <span class="caption">{when(e.at, app.lang)}</span>
                   </span>
                 </div>

@@ -15,7 +15,10 @@ const char* TAG = "protect";
 using Grace = Sessions::Grace;
 
 Grace graceFor(actions::Op op) {
-  return op == actions::Op::Backup ? Grace::Backup : op == actions::Op::Recovery ? Grace::Recovery : Grace::Reveal;
+  return op == actions::Op::Backup        ? Grace::Backup
+         : op == actions::Op::Recovery    ? Grace::Recovery
+         : op == actions::Op::TokenCreate ? Grace::Token
+                                          : Grace::Reveal;
 }
 
 std::string toHex(const uint8_t* p, size_t n) {

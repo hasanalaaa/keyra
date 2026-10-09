@@ -6,8 +6,8 @@ namespace keyra::actions {
 namespace {
 
 // Status views of the slot never hold the free text, so it stays in one place.
-Pending view(const TypeRequest& req, int64_t expiresInMs) {
-  Pending p{req, expiresInMs};
+Pending view(const TypeRequest& req, int64_t expiresInMs, const std::string& owner) {
+  Pending p{req, expiresInMs, owner};
   p.req.text.reset();
   return p;
 }
@@ -16,15 +16,31 @@ Pending view(const TypeRequest& req, int64_t expiresInMs) {
 
 FreeText::~FreeText() { vault::wipe(text); }
 
+uint32_t Machine::nextSerialLocked() {
+  if (++lastSerial_ == 0) lastSerial_ = 1;  // 0 means "none"
+  return lastSerial_;
+}
+
+void Machine::finishedLocked(uint32_t serial, bool presence, Code code, OpCode opCode) {
+  if (serial == 0) return;
+  finished_[finishedNext_] = {serial, presence, code, opCode};
+  finishedNext_ = (finishedNext_ + 1) % finished_.size();
+}
+
+void Machine::lastLocked(const TypeRequest& req, Code code, int64_t at) {
+  hasLast_ = true;
+  last_ = {code == Code::Typed, code, 0, req.title, req.what};
+  lastAt_ = at;
+  finishedLocked(req.serial, false, code, OpCode::Failed);
+}
+
 bool Machine::takeSlotLocked(const std::string& owner, int64_t now, bool presence) {
   expireLocked(now);
   if (presence && running_) return false;  // an approved op is still committing
   if (kind_ == Kind::None) return true;
   if (owner.empty() || owner != owner_) return false;
   if (kind_ == Kind::Type) {
-    hasLast_ = true;
-    last_ = {false, Code::Cancelled, 0, req_.title, req_.what};
-    lastAt_ = now;
+    lastLocked(req_, Code::Cancelled, now);
   } else {
     recordOpLocked(op_, OpCode::Cancelled, now);
   }
@@ -40,8 +56,9 @@ std::optional<Pending> Machine::arm(TypeRequest req, const std::string& owner) {
   kind_ = Kind::Type;
   req_ = std::move(req);
   req_.usbSession = req_.target.kind == Target::Kind::Usb && usbMounted_ ? usbSession_ : 0;
+  req_.serial = serial_ = nextSerialLocked();
   deadline_ = now + kExpiryMs;
-  return view(req_, kExpiryMs);
+  return view(req_, kExpiryMs, owner_);
 }
 
 bool Machine::cancel() {
@@ -49,9 +66,21 @@ bool Machine::cancel() {
   const int64_t now = now_();
   expireLocked(now);
   if (kind_ != Kind::Type) return false;
-  hasLast_ = true;
-  last_ = {false, Code::Cancelled, 0, req_.title, req_.what};
-  lastAt_ = now;
+  lastLocked(req_, Code::Cancelled, now);
+  clearSlotLocked();
+  return true;
+}
+
+bool Machine::cancelOwned(const std::string& owner) {
+  std::lock_guard<std::mutex> lock(mu_);
+  const int64_t now = now_();
+  expireLocked(now);
+  if (kind_ == Kind::None || owner.empty() || owner != owner_) return false;
+  if (kind_ == Kind::Type) {
+    lastLocked(req_, Code::Cancelled, now);
+  } else {
+    recordOpLocked(op_, OpCode::Cancelled, now);
+  }
   clearSlotLocked();
   return true;
 }
@@ -78,19 +107,16 @@ std::optional<Machine::Armed> Machine::awaitPresence(Op op, Commit commit, const
   op_ = op;
   commit_ = std::move(commit);
   cancelToken_ = token_ ? token_() : std::string();
+  serial_ = nextSerialLocked();
   deadline_ = now + kExpiryMs;
-  return Armed{kExpiryMs, cancelToken_};
+  return Armed{kExpiryMs, cancelToken_, serial_};
 }
 
 void Machine::dropSessionItems() {
   std::lock_guard<std::mutex> lock(mu_);
   const bool sessionOp = kind_ == Kind::Presence && op_ != Op::Setup && op_ != Op::FactoryReset &&
                          op_ != Op::TrustBrowser;
-  if (kind_ == Kind::Type) {
-    hasLast_ = true;
-    last_ = {false, Code::Cancelled, 0, req_.title, req_.what};
-    lastAt_ = now_();
-  }
+  if (kind_ == Kind::Type) lastLocked(req_, Code::Cancelled, now_());
   if (sessionOp) recordOpLocked(op_, OpCode::Cancelled, now_());
   if (kind_ == Kind::Type || sessionOp) clearSlotLocked();
 }
@@ -110,9 +136,7 @@ void Machine::setUsbMounted(bool mounted) {
   }
   if (kind_ == Kind::Type && req_.usbSession != 0) {
     const int64_t now = now_();
-    hasLast_ = true;
-    last_ = {false, Code::HostChanged, 0, req_.title, req_.what};
-    lastAt_ = now;
+    lastLocked(req_, Code::HostChanged, now);
     clearSlotLocked();
     flashLocked(Indicator::Error, now, kFlashMs);
   }
@@ -155,6 +179,7 @@ Decision Machine::onButton(Button b, bool unlocked) {
       d.op = op_;
       d.commit = std::move(commit_);
       running_ = op_;
+      runningSerial_ = serial_;
       clearSlotLocked();
     } else if (kind_ == Kind::Type && !typing_ && req_.target.kind == Target::Kind::Ble && !linkReady_) {
       // Still connecting: typing now could only fail. Keep the action armed.
@@ -164,6 +189,7 @@ Decision Machine::onButton(Button b, bool unlocked) {
       d.effect = Effect::Run;
       d.run = std::move(req_);
       typing_ = true;
+      typingSerial_ = d.run.serial;
       clearSlotLocked();
     } else if (!typing_) {
       d.effect = Effect::Blink;
@@ -171,11 +197,7 @@ Decision Machine::onButton(Button b, bool unlocked) {
     }
     return d;
   }
-  if (kind_ == Kind::Type) {
-    hasLast_ = true;
-    last_ = {false, Code::Cancelled, 0, req_.title, req_.what};
-    lastAt_ = now;
-  }
+  if (kind_ == Kind::Type) lastLocked(req_, Code::Cancelled, now);
   if (kind_ == Kind::Presence) recordOpLocked(op_, OpCode::Cancelled, now);
   if (kind_ != Kind::None) {
     d.effect = Effect::Cancelled;
@@ -195,27 +217,31 @@ void Machine::typingFinished(const TypeRequest& req, Code code) {
   std::lock_guard<std::mutex> lock(mu_);
   const int64_t now = now_();
   typing_ = false;
+  typingSerial_ = 0;
   if (code == Code::Typed && req.what == What::Sequence && req.seq && req.part + 1 < req.seq->parts) {
     if (kind_ == Kind::None) {  // waits for the {PRESS}: same request, next part
       kind_ = Kind::Type;
       req_ = req;
       ++req_.part;
+      serial_ = req_.serial;
       deadline_ = now + kExpiryMs;
       return;
     }
     code = Code::Cancelled;  // another item replaced it while this part was typing
   }
-  hasLast_ = true;
-  last_ = {code == Code::Typed, code, 0, req.title, req.what};
-  lastAt_ = now;
+  lastLocked(req, code, now);
   flashLocked(code == Code::Typed ? Indicator::Success : Indicator::Error, now, kFlashMs);
 }
 
 void Machine::commitFinished(bool ok) {
   std::lock_guard<std::mutex> lock(mu_);
   const int64_t now = now_();
-  if (running_) recordOpLocked(*running_, ok ? OpCode::Done : OpCode::Failed, now);
+  if (running_) {
+    recordOpLocked(*running_, ok ? OpCode::Done : OpCode::Failed, now);
+    finishedLocked(runningSerial_, true, Code::Failed, ok ? OpCode::Done : OpCode::Failed);
+  }
   running_.reset();
+  runningSerial_ = 0;
   flashLocked(ok ? Indicator::Success : Indicator::Error, now, kFlashMs);
 }
 
@@ -229,9 +255,43 @@ std::optional<OpResult> Machine::opResult() {
   return r;
 }
 
+// Every presence op that ends without running (cancelled, expired, replaced)
+// comes through here while it is still in the slot, so serial_ is its serial.
 void Machine::recordOpLocked(Op op, OpCode code, int64_t at) {
   opResult_ = OpResult{op, code, 0};
   opResultAt_ = at;
+  if (kind_ == Kind::Presence) finishedLocked(serial_, true, Code::Failed, code);
+}
+
+Machine::Track Machine::track(uint32_t serial) {
+  std::lock_guard<std::mutex> lock(mu_);
+  const int64_t now = now_();
+  expireLocked(now);
+  Track t;
+  if (serial == 0) return t;
+  if (kind_ != Kind::None && serial_ == serial) {
+    t.presence = kind_ == Kind::Presence;
+    const bool connecting = kind_ == Kind::Type && req_.target.kind == Target::Kind::Ble && !linkReady_;
+    t.stage = connecting ? Track::Stage::Connecting : Track::Stage::Armed;
+    t.expiresInMs = deadline_ - now;
+    return t;
+  }
+  if ((typing_ && typingSerial_ == serial) || (running_ && runningSerial_ == serial)) {
+    t.stage = Track::Stage::Running;
+    t.presence = running_ && runningSerial_ == serial;
+    return t;
+  }
+  // Newest first: a sequence part that typed and was armed again is not "finished".
+  for (size_t i = 0; i < finished_.size(); ++i) {
+    const Finished& f = finished_[(finishedNext_ + finished_.size() - 1 - i) % finished_.size()];
+    if (f.serial != serial) continue;
+    t.stage = Track::Stage::Finished;
+    t.presence = f.presence;
+    t.code = f.code;
+    t.opCode = f.opCode;
+    return t;
+  }
+  return t;
 }
 
 std::optional<Pending> Machine::pending() {
@@ -239,7 +299,7 @@ std::optional<Pending> Machine::pending() {
   const int64_t now = now_();
   expireLocked(now);
   if (kind_ != Kind::Type) return std::nullopt;
-  return view(req_, deadline_ - now);
+  return view(req_, deadline_ - now, owner_);
 }
 
 std::optional<Result> Machine::last() {
@@ -279,9 +339,7 @@ void Machine::expireLocked(int64_t now) {
   if (kind_ == Kind::Type) {
     // A Bluetooth host that never showed up is the more useful explanation.
     const bool noHost = req_.target.kind == Target::Kind::Ble && !linkReady_;
-    hasLast_ = true;
-    last_ = {false, noHost ? Code::NoHost : Code::Expired, 0, req_.title, req_.what};
-    lastAt_ = deadline_;
+    lastLocked(req_, noHost ? Code::NoHost : Code::Expired, deadline_);
   } else {
     recordOpLocked(op_, OpCode::Expired, deadline_);
   }
@@ -294,6 +352,7 @@ void Machine::clearSlotLocked() {
   commit_ = nullptr;  // destroys captured secrets of a dropped presence op
   cancelToken_.clear();
   owner_.clear();
+  serial_ = 0;
   deadline_ = 0;
 }
 
@@ -342,6 +401,8 @@ const char* opName(Op op) {
     case Op::DeleteEntry: return "delete_entry";
     case Op::DeletePasskey: return "delete_passkey";
     case Op::PasskeysBackupOn: return "passkeys_backup_on";
+    case Op::TokenCreate: return "token_create";
+    case Op::AgentSave: return "agent_save";
   }
   return "setup";
 }
@@ -349,7 +410,7 @@ const char* opName(Op op) {
 std::optional<Op> parseOp(const std::string& s) {
   for (Op op : {Op::Setup, Op::Wifi, Op::RestoreReplace, Op::FactoryReset, Op::HomeWifi, Op::TrustBrowser,
                 Op::BlePair, Op::Reveal, Op::Backup, Op::Recovery, Op::Unprotect, Op::Update,
-                Op::DeleteEntry, Op::DeletePasskey, Op::PasskeysBackupOn}) {
+                Op::DeleteEntry, Op::DeletePasskey, Op::PasskeysBackupOn, Op::TokenCreate, Op::AgentSave}) {
     if (s == opName(op)) return op;
   }
   return std::nullopt;

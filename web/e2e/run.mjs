@@ -1320,6 +1320,68 @@ async function settingsFlow(base, opts) {
   await ctx.close();
 }
 
+// ---------- Apps and agents (SPEC §17): a token made with a press arms typing, never reads; revoked → 401 ----------
+
+async function tokensFlow(base, opts) {
+  const { ctx, page, tag } = await open(base, opts);
+  console.log(`tokens ${tag || '(phone, ar, light)'}`);
+  await unlockUi(page);
+  const github = (await pageApi(page, 'GET', '/api/entries')).body.entries.find((e) => e.title === 'GitHub');
+  await settingsRow(page, L(opts, 'Apps and agents', 'التطبيقات والوكلاء'));
+  await page.locator('.sheet button', { hasText: L(opts, 'New access token', 'رمز وصول جديد') }).click();
+  await page.locator('.tokens-new input:not([type=checkbox])').first().fill('Claude');
+  const create = page.locator('.tokens-new button', { hasText: L(opts, 'Create token', 'أنشئ الرمز') });
+  check(await create.isDisabled(), 'no account picked yet: cannot create');
+  await page.locator('.pick-row', { hasText: 'GitHub' }).click();
+  await shot(page, `tokens-new${tag}`);
+  await create.click();
+  await page.locator('.ready-ready').waitFor();
+  check((await button(base)) === 'approved token_create', 'the press approves creating the token');
+  const shown = page.locator('[data-testid=access-token]');
+  await shown.waitFor({ timeout: 8000 });
+  const token = ((await shown.textContent()) ?? '').trim();
+  check(/^keyra_[a-z2-7]{32}$/.test(token), `token shown once (${token.length} chars)`);
+  await shot(page, `tokens-created${tag}`);
+  await page.locator('.kit button', { hasText: L(opts, 'Done', 'تم') }).click();
+  await page.locator('[data-testid=token-list] .trusted-row', { hasText: 'Claude' }).waitFor();
+  check(!JSON.stringify((await pageApi(page, 'GET', '/api/tokens')).body).includes(token), 'the list never returns the token');
+
+  // The agent's side: a bearer token, not the session.
+  const agent = (method, path, body) =>
+    fetch(`${base}/api/agent${path}`, {
+      method,
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    }).then(async (r) => ({ status: r.status, body: r.status === 204 ? null : await r.json() }));
+  const list = await agent('GET', '/entries');
+  check(list.status === 200 && list.body.entries.length === 1, 'scoped: one entry listed');
+  check(list.body.entries[0].host === 'github.com' && !('username' in list.body.entries[0]), 'title and host only');
+  const armed = await agent('POST', '/type', { id: github.id, what: 'password' });
+  check(armed.status === 202 && armed.body.pending.by === 'Claude', `armed (${armed.status})`);
+  check(!JSON.stringify(armed.body).includes('gh!R3d'), 'arming never returns the secret');
+  check((await agent('GET', '/status')).body.state === 'armed', 'status: armed');
+  // The phone shows who asked.
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => (location.hash = '#/'));
+  await page.locator('.ready-pill', { hasText: 'Claude' }).waitFor();
+  await shot(page, `tokens-pill${tag}`);
+  check((await button(base)) === 'typing password · GitHub', 'the press types it');
+  await waitFor(async () => (await agent('GET', '/status')).body.state === 'typed', 'status: typed');
+
+  // Revoke in Settings (no press): the token stops at once.
+  await settingsRow(page, L(opts, 'Apps and agents', 'التطبيقات والوكلاء'));
+  await page.locator('[data-testid=token-list] .trusted-row', { hasText: 'Claude' }).locator('.icon-btn').click();
+  await page.locator('.alert .btn-danger-confirm').click();
+  await page.locator('.sheet .callout.center').waitFor();
+  const refused = await agent('GET', '/entries');
+  check(refused.status === 401 && refused.body.error === 'invalid_token', `revoked → 401 (${refused.status})`);
+  const kinds = (await pageApi(page, 'GET', '/api/activity')).body.events.map((e) => e.kind);
+  for (const k of ['token_created', 'agent_listed', 'agent_armed', 'typed', 'token_revoked']) check(kinds.includes(k), `activity has ${k}`);
+  await page.keyboard.press('Escape');
+  console.log('  ✓ tokens flow passed');
+  await ctx.close();
+}
+
 // ---------- Trusted browsers (SPEC §8.2): removing this browser signs it out; it must be trusted again ----------
 
 async function trustedFlow(base, opts) {
@@ -1425,6 +1487,8 @@ try {
   await settingsFlow(await startMock(), { lang: 'en', dark: true });
   await trustedFlow(await startMock({ MOCK_VIA: 'home' }), {});
   await trustedFlow(await startMock({ MOCK_VIA: 'home' }), { lang: 'en', dark: true });
+  await tokensFlow(await startMock(), {});
+  await tokensFlow(await startMock(), { lang: 'en', dark: true });
 
   quantizeShots();
   if (errors.length) {

@@ -68,8 +68,19 @@ bool decode(const std::vector<uint8_t>& bytes, std::vector<Event>& out) {
   return out.size() <= kMaxEvents;
 }
 
-void append(std::vector<Event>& events, Event e) {
+void append(std::vector<Event>& events, Event e, bool coalesce) {
   e.title = clip(std::move(e.title));
+  if (coalesce) {
+    e.n = e.n == 0 ? 1 : e.n;
+    if (!events.empty()) {
+      Event& last = events.back();
+      if (last.kind == e.kind && last.id == e.id && last.title == e.title) {
+        last.n = last.n > UINT32_MAX - e.n ? UINT32_MAX : last.n + e.n;
+        if (e.at != 0) last.at = e.at;
+        return;
+      }
+    }
+  }
   events.push_back(std::move(e));
   if (events.size() > kMaxEvents) events.erase(events.begin(), events.end() - kMaxEvents);
 }
@@ -94,6 +105,12 @@ const char* kindName(Kind k) {
     case Kind::RotateStarted: return "rotate_started";
     case Kind::RotateEnded: return "rotate_ended";
     case Kind::EntryBurned: return "entry_burned";
+    case Kind::TokenCreated: return "token_created";
+    case Kind::TokenRevoked: return "token_revoked";
+    case Kind::AgentListed: return "agent_listed";
+    case Kind::AgentArmed: return "agent_armed";
+    case Kind::AgentSaved: return "agent_saved";
+    case Kind::AgentGenerated: return "agent_generated";
   }
   return "unknown";
 }

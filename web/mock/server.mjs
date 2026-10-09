@@ -165,6 +165,15 @@ const machine = {
   opResult: null, // { op, code, at }
 };
 
+// Machine::track (SPEC §17): every armed item gets a serial; how it ended is kept by serial.
+let serialSeq = 0;
+const outcomes = new Map(); // serial → { code, presence }
+function noteOutcome(serial, code, presence) {
+  if (!serial) return;
+  outcomes.set(serial, { code, presence });
+  if (outcomes.size > 8) outcomes.delete(outcomes.keys().next().value);
+}
+
 function expire(now = Date.now()) {
   const s = machine.slot;
   if (!s || now < s.deadline) return;
@@ -172,7 +181,11 @@ function expire(now = Date.now()) {
     // A Bluetooth host that never connected is the better explanation.
     const code = s.req.target.kind === 'ble' && ble.connected !== s.req.target.addr ? 'no_host' : 'expired';
     machine.last = { ok: false, code, at: s.deadline, title: s.req.title, what: s.req.what };
-  } else machine.opResult = { op: s.op, code: 'expired', at: s.deadline };
+    noteOutcome(s.req.serial, code, false);
+  } else {
+    machine.opResult = { op: s.op, code: 'expired', at: s.deadline };
+    noteOutcome(s.serial, 'expired', true);
+  }
   machine.slot = null;
 }
 
@@ -190,10 +203,20 @@ function takeSlot(owner, presence) {
   const s = machine.slot;
   if (!s) return true;
   if (!owner || owner !== s.owner) return false;
-  if (s.kind === 'type') machine.last = { ok: false, code: 'cancelled', at: Date.now(), title: s.req.title, what: s.req.what };
-  else machine.opResult = { op: s.op, code: 'cancelled', at: Date.now() };
+  endCancelled(s);
   machine.slot = null;
   return true;
+}
+
+/** Records a waiting item as cancelled (type → last, presence → opResult). */
+function endCancelled(s) {
+  if (s.kind === 'type') {
+    machine.last = { ok: false, code: 'cancelled', at: Date.now(), title: s.req.title, what: s.req.what };
+    noteOutcome(s.req.serial, 'cancelled', false);
+  } else {
+    machine.opResult = { op: s.op, code: 'cancelled', at: Date.now() };
+    noteOutcome(s.serial, 'cancelled', true);
+  }
 }
 
 const BUSY = "Keyra is waiting for another request; long-press its button to cancel it";
@@ -201,10 +224,12 @@ const BUSY = "Keyra is waiting for another request; long-press its button to can
 function arm(req) {
   if (!takeSlot(requester, false)) fail(409, 'busy', BUSY);
   req.usbSession = req.target.kind === 'usb' && host.usb ? usbSession : 0;
+  req.serial = ++serialSeq;
   machine.slot = { kind: 'type', req, deadline: Date.now() + EXPIRY_MS, owner: requester };
   syncDemand();
   autoPress(machine.slot);
-  return { ...req, target: targetText(req.target), expiresIn: EXPIRY_MS };
+  const { serial: _s, usbSession: _u, ...view } = req;
+  return { ...view, target: targetText(req.target), expiresIn: EXPIRY_MS };
 }
 
 /** Session ops are bound to their session (409 busy otherwise); tryOnly (no session) belongs to nobody. */
@@ -215,7 +240,7 @@ function awaitPresence(op, commit, { tryOnly = false } = {}) {
     fail(409, 'busy', BUSY);
   }
   // Like Machine::cancelPresence: only the requester gets the token that withdraws it.
-  machine.slot = { kind: 'presence', op, commit, deadline: Date.now() + EXPIRY_MS, cancel: randomBytes(16).toString('hex'), owner };
+  machine.slot = { kind: 'presence', op, commit, deadline: Date.now() + EXPIRY_MS, cancel: randomBytes(16).toString('hex'), owner, serial: ++serialSeq };
   autoPress(machine.slot);
   return EXPIRY_MS;
 }
@@ -228,11 +253,8 @@ function autoPress(slot) {
 function dropSessionItems() {
   const s = machine.slot;
   if (!s) return;
-  if (s.kind === 'type') {
-    machine.last = { ok: false, code: 'cancelled', at: Date.now(), title: s.req.title, what: s.req.what };
-    machine.slot = null;
-  } else if (!['setup', 'factory_reset', 'trust_browser'].includes(s.op)) {
-    machine.opResult = { op: s.op, code: 'cancelled', at: Date.now() };
+  if (s.kind === 'type' || !['setup', 'factory_reset', 'trust_browser'].includes(s.op)) {
+    endCancelled(s);
     machine.slot = null;
   }
 }
@@ -268,6 +290,7 @@ function press(kind) {
     if (s?.kind === 'presence') {
       machine.slot = null;
       machine.running = s.op;
+      machine.runningSerial = s.serial;
       setTimeout(() => {
         let ok = false;
         try {
@@ -276,7 +299,9 @@ function press(kind) {
           console.error(`[mock] ${s.op} commit failed:`, e.message);
         }
         machine.opResult = { op: s.op, code: ok ? 'done' : 'failed', at: Date.now() };
+        noteOutcome(s.serial, ok ? 'done' : 'failed', true);
         machine.running = null;
+        machine.runningSerial = 0;
       }, 300);
       return `approved ${s.op}`;
     }
@@ -285,10 +310,12 @@ function press(kind) {
     if (s?.kind === 'type' && !machine.typing) {
       machine.slot = null;
       machine.typing = true;
+      machine.typingSerial = s.req.serial;
       ble.wanted = null; // the job owns the link now
       const text = typedText(s.req);
       setTimeout(() => {
         machine.typing = false;
+        machine.typingSerial = 0;
         let code = 'typed';
         if (t.kind === 'none') code = 'no_host';
         else if (t.kind === 'usb' && !host.usb) code = 'no_usb';
@@ -305,6 +332,7 @@ function press(kind) {
         } else {
           if (more) code = 'cancelled';
           machine.last = { ok: code === 'typed', code, at: Date.now(), title: s.req.title, what: s.req.what };
+          noteOutcome(s.req.serial, code, false);
         }
         if (t.kind === 'ble') releaseBle(LINGER_MS);
         const e = vault?.entries.get(s.req.id);
@@ -329,8 +357,7 @@ function press(kind) {
     return 'nothing to do (blink)';
   }
   if (s) {
-    if (s.kind === 'type') machine.last = { ok: false, code: 'cancelled', at: Date.now(), title: s.req.title, what: s.req.what };
-    else machine.opResult = { op: s.op, code: 'cancelled', at: Date.now() };
+    endCancelled(s);
     machine.slot = null;
     return 'cancelled';
   }
@@ -1278,7 +1305,17 @@ function match(method, rawPath) {
     case 'activity': return one('GET', 'activity');
     case 'ble': return one('GET', 'ble');
     case 'ble/pair': return one('POST', 'blePair');
+    case 'tokens':
+      return method === 'GET' ? { route: 'tokens' } : method === 'POST' ? { route: 'createToken' } : { notAllowed: true };
+    case 'agent/entries': return one('GET', 'agentEntries');
+    case 'agent/type': return one('POST', 'agentType');
+    case 'agent/status': return one('GET', 'agentStatus');
+    case 'agent/cancel': return one('POST', 'agentCancel');
+    case 'agent/save': return one('POST', 'agentSave');
+    case 'agent/generate': return one('POST', 'agentGenerate');
   }
+  const tk = /^tokens\/([0-9]{1,10})$/.exec(p);
+  if (tk) return Number(tk[1]) > 0 && Number(tk[1]) <= 0xffffffff ? (method === 'DELETE' ? { route: 'deleteToken', id: Number(tk[1]) } : { notAllowed: true }) : null;
   const bond = /^ble\/bonds\/(.*)$/.exec(p);
   if (bond) {
     if (!/^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/.test(bond[1])) return null;
@@ -1301,7 +1338,8 @@ function match(method, rawPath) {
 }
 
 const OPEN = new Set(['state', 'setup', 'unlock', 'unlockRecovery', 'factoryReset', 'presenceCancel']);
-const BODY = new Set(['healthRotate', 'setup', 'unlock', 'unlockRecovery', 'create', 'update', 'import', 'type', 'generate', 'putSettings', 'passphrase', 'backup', 'restore', 'wifiHome', 'bleSetOs', 'presenceCancel']);
+const AGENT = new Set(['agentEntries', 'agentType', 'agentStatus', 'agentCancel', 'agentSave', 'agentGenerate']);
+const BODY = new Set(['createToken', 'agentType', 'agentSave', 'agentGenerate', 'healthRotate', 'setup', 'unlock', 'unlockRecovery', 'create', 'update', 'import', 'type', 'generate', 'putSettings', 'passphrase', 'backup', 'restore', 'wifiHome', 'bleSetOs', 'presenceCancel']);
 
 const validPassphrase = (s) => typeof s === 'string' && [...s].length >= 10 && [...s].length <= 128;
 const validWifi = (s) => typeof s === 'string' && s.length >= 8 && s.length <= 63 && /^[\x20-\x7e]+$/.test(s) && s !== 'keyra1234';
@@ -1394,6 +1432,120 @@ function wrongAttempt(message) {
   fail(401, 'wrong', message, { retryAfterMs });
 }
 
+// ---------- access tokens (SPEC §17; firmware keyra_api/src/tokens.cpp, handlers_agent.cpp) ----------
+
+const MAX_TOKENS = 8;
+const MAX_SCOPE = 32;
+const RATE_MAX = 10;
+const RATE_WINDOW_MS = 10000;
+const TOKEN_RE = /^keyra_[a-z2-7]{32}$/;
+const tokenRate = new Map(); // token id (0 = unrecognised) → request times
+const tokenLast = new Map(); // token id → { serial, save, id, title?, what? }
+
+function base32Encode(buf) {
+  const A = 'abcdefghijklmnopqrstuvwxyz234567';
+  let bits = 0;
+  let v = 0;
+  let out = '';
+  for (const byte of buf) {
+    v = (v << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      out += A[(v >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  }
+  return out;
+}
+
+const tokenView = (t) => ({ id: t.id, name: t.name, kind: t.kind, scope: t.scope, created: t.created, lastUsed: t.lastUsed });
+const inScope = (t, id) => t.scope === 'all' || t.scope.includes(id);
+const byOf = (owner) => {
+  const id = /^token:(\d+)$/.exec(owner ?? '')?.[1];
+  if (!id) return {};
+  return { by: vault?.tokens?.find((t) => t.id === Number(id))?.name ?? '?' };
+};
+
+/** tokens.cpp urlHost: the host name only. */
+function urlHost(url = '') {
+  let u = url.replace(/^[^:/?#]*:\/\//, '');
+  u = u.split(/[/?#]/)[0];
+  u = u.slice(u.lastIndexOf('@') + 1);
+  u = u.startsWith('[') ? (u.includes(']') ? u.slice(1, u.indexOf(']')) : '') : u.split(':')[0];
+  return /[\x00-\x20\x7f]/.test(u) ? '' : u.toLowerCase();
+}
+
+/** RateLimit::allow: 10 per sliding 10 s per key. Returns the wait in ms, 0 = allowed. */
+function rateWait(key) {
+  const now = Date.now();
+  const times = (tokenRate.get(key) ?? []).filter((t) => now - t < RATE_WINDOW_MS);
+  if (times.length >= RATE_MAX) {
+    tokenRate.set(key, times);
+    return times[0] + RATE_WINDOW_MS - now;
+  }
+  times.push(now);
+  tokenRate.set(key, times);
+  return 0;
+}
+
+function rateFail(wait) {
+  fail(429, 'rate_limited', 'Too many requests for this token', { retryAfterMs: wait }, { 'Retry-After': String(Math.ceil(wait / 1000)) });
+}
+
+/** handlers_agent.cpp authenticate: vault unlocked, a known token, within its rate. */
+function authenticateToken(req) {
+  if (!unlocked || !vault) fail(401, 'locked', 'Vault is locked');
+  const h = req.headers.authorization ?? '';
+  const presented = /^bearer +(.*)$/i.exec(h)?.[1]?.trim() ?? '';
+  const hash = TOKEN_RE.test(presented) ? sha(presented) : '';
+  const t = hash ? (vault.tokens ?? []).find((x) => safeEqual(x.hash, hash)) : undefined;
+  if (!t) {
+    const wait = rateWait(0);
+    if (wait) rateFail(wait);
+    fail(401, 'invalid_token', 'Unknown or revoked access token', undefined, { 'WWW-Authenticate': 'Bearer' });
+  }
+  const wait = rateWait(t.id);
+  if (wait) rateFail(wait);
+  if (timeValid && nowSec() - t.lastUsed >= 60) t.lastUsed = nowSec();
+  return t;
+}
+
+/** activity::append(…, coalesce): a repeat of the newest event only counts. */
+function logCoalesced(kind, { id, title }) {
+  const last = vault?.activity?.at(-1);
+  if (unlocked && last && last.kind === kind && last.id === id && last.title === title) {
+    last.n += 1;
+    if (timeValid) last.at = nowSec();
+    return;
+  }
+  logEvent(kind, { id, title, n: 1 });
+}
+
+const TYPE_STATE = { typed: 'typed', cancelled: 'cancelled', expired: 'expired' };
+const SAVE_STATE = { done: 'saved', cancelled: 'cancelled', expired: 'expired', failed: 'failed' };
+
+/** handlers_agent.cpp getStatus, by the serial of this token's last request. */
+function agentStatus(t) {
+  expire();
+  const last = tokenLast.get(t.id);
+  if (!last) return { state: 'none' };
+  const out = { request: last.save ? 'save' : 'type' };
+  const s = machine.slot;
+  const o = outcomes.get(last.serial);
+  if (s && (s.kind === 'type' ? s.req.serial : s.serial) === last.serial) {
+    const connecting = s.kind === 'type' && s.req.target.kind === 'ble' && ble.connected !== s.req.target.addr;
+    Object.assign(out, { state: connecting ? 'waiting' : 'armed', expiresIn: s.deadline - Date.now() });
+  } else if ((machine.typing && machine.typingSerial === last.serial) || (machine.running && machine.runningSerial === last.serial)) {
+    out.state = 'waiting';
+  } else if (o) {
+    if (last.save) out.state = SAVE_STATE[o.code] ?? 'failed';
+    else Object.assign(out, { state: TYPE_STATE[o.code] ?? 'failed', code: o.code });
+  } else out.state = 'none';
+  if (last.id) out.id = last.id;
+  if (!last.save) Object.assign(out, { title: last.title, what: last.what });
+  return out;
+}
+
 async function api(req, res, path) {
   const method = req.method;
   const via = viaOf(req);
@@ -1411,12 +1563,16 @@ async function api(req, res, path) {
     lockAll('idle');
   }
 
+  // SPEC §17: /api/agent/… takes a bearer token, never the session; not user activity.
+  let bearer = null;
+  if (AGENT.has(m.route)) bearer = authenticateToken(req);
+
   const token = cookie(req, 'ks');
-  requester = token && sessions.has(token) ? token : '';
+  requester = bearer ? `token:${bearer.id}` : token && sessions.has(token) ? token : '';
   const sess = token ? sessions.get(token) : undefined;
   if (sess) sess.lastUsed = Date.now();
   const session = !!sess && unlocked;
-  if (!OPEN.has(m.route)) {
+  if (!OPEN.has(m.route) && !bearer) {
     if (!session) fail(401, 'locked', 'Vault is locked');
     if (method !== 'GET' && !safeEqual(req.headers['x-keyra-csrf'], sess.csrf)) fail(403, 'csrf', 'Missing or invalid CSRF token');
     if (m.route !== 'totp' && m.route !== 'ble') lastActivity = Date.now(); // polls are not the user (handleApi)
@@ -1458,7 +1614,7 @@ async function api(req, res, path) {
         })(),
         pending:
           session && s?.kind === 'type'
-            ? { kind: 'type', ...pendingView(s.req), expiresIn: s.deadline - Date.now(), target: targetText(s.req.target) }
+            ? { kind: 'type', ...pendingView(s.req), expiresIn: s.deadline - Date.now(), target: targetText(s.req.target), ...byOf(s.owner) }
             : null,
         last: session && machine.last ? { ...machine.last, at: Date.now() - machine.last.at } : null,
         presence: {
@@ -1726,16 +1882,140 @@ async function api(req, res, path) {
       const s = machine.slot;
       if (!(s?.kind === 'presence' && s.op === b.op && s.cancel && safeEqual(b.cancel, s.cancel)))
         fail(409, 'not_cancelled', 'Nothing of yours is waiting for the button');
-      machine.opResult = { op: s.op, code: 'cancelled', at: Date.now() };
+      endCancelled(s);
       machine.slot = null;
       console.log(`[mock] ${s.op} cancelled from the app`);
       return send(res, 204);
     }
 
+    case 'tokens':
+      return send(res, 200, { tokens: (vault.tokens ?? []).map(tokenView), max: MAX_TOKENS });
+
+    case 'createToken': {
+      // handlers_agent.cpp createToken: checked first, then the press, then the same call again.
+      if (typeof b.name !== 'string' || !b.name || Buffer.byteLength(b.name) > 48 || /[\x00-\x1f\x7f]/.test(b.name)) bad('"name" must be 1-48 bytes of text');
+      if (b.kind !== 'agent' && b.kind !== 'app') bad('"kind" must be "agent" or "app"');
+      let scope = 'all';
+      if (b.scope !== 'all') {
+        if (!Array.isArray(b.scope) || b.scope.length < 1 || b.scope.length > MAX_SCOPE) bad('"scope" must be "all" or 1-32 entry ids');
+        if (!b.scope.every((id) => Number.isInteger(id) && vault.entries.has(id))) bad('"scope" names an account that does not exist');
+        scope = [...new Set(b.scope)];
+      }
+      vault.tokens ??= [];
+      if (vault.tokens.length >= MAX_TOKENS) fail(409, 'tokens_full', 'Keyra holds at most 8 access tokens');
+      if (!consumeGrace(sess, 'token_create')) return requestPress(res, 'token_create', token);
+      const secret = 'keyra_' + base32Encode(randomBytes(20));
+      let id;
+      do id = randomBytes(4).readUInt32BE();
+      while (!id || vault.tokens.some((x) => x.id === id));
+      const t = { id, hash: sha(secret), name: b.name, kind: b.kind, scope, created: timeValid ? nowSec() : 0, lastUsed: 0 };
+      vault.tokens.push(t);
+      logEvent('token_created', { title: t.name, detail: t.kind === 'app' ? 1 : 0 });
+      console.log(`[mock] access token ${id} created (${t.kind})`);
+      return send(res, 201, { token: secret, ...tokenView(t) });
+    }
+
+    case 'deleteToken': {
+      const i = (vault.tokens ?? []).findIndex((x) => x.id === m.id);
+      if (i < 0) fail(404, 'not_found', 'No such access token');
+      const [t] = vault.tokens.splice(i, 1);
+      tokenRate.delete(t.id);
+      tokenLast.delete(t.id);
+      const s = machine.slot;
+      if (s && s.owner === `token:${t.id}`) {
+        endCancelled(s);
+        machine.slot = null;
+        syncDemand();
+      }
+      logEvent('token_revoked', { title: t.name });
+      return send(res, 204);
+    }
+
+    case 'agentEntries': {
+      const list = [...vault.entries.values()].filter((e) => inScope(bearer, e.id)).map((e) => ({ id: e.id, title: e.title, host: urlHost(e.url) }));
+      logCoalesced('agent_listed', { id: bearer.id, title: bearer.name });
+      return send(res, 200, { entries: list });
+    }
+
+    case 'agentType': {
+      if (!Number.isInteger(b.id) || b.id < 1 || b.id > 0xffffffff) bad('"id" (entry id) is required');
+      if (!['username', 'password', 'both', 'totp'].includes(b.what)) bad('"what" must be username, password, both or totp');
+      if (!inScope(bearer, b.id)) fail(404, 'not_found', 'No such entry');
+      if (b.submit !== undefined && typeof b.submit !== 'boolean') bad('"submit" must be a boolean');
+      let target = pickTarget();
+      if (b.target !== undefined) {
+        if (b.target === 'usb') target = { kind: 'usb' };
+        else if (typeof b.target === 'string' && /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/.test(b.target)) {
+          if (!settings.bleEnabled) fail(409, 'ble_disabled', 'Bluetooth is turned off');
+          const addr = b.target.toUpperCase();
+          if (!ble.bonds.some((x) => x.addr === addr)) fail(404, 'not_found', 'No such device');
+          target = { kind: 'ble', addr };
+        } else bad('"target" must be "usb" or a device address');
+      }
+      const e = getEntry(b.id);
+      const missing =
+        (b.what === 'username' && !e.username) ||
+        (b.what === 'password' && !e.password) ||
+        (b.what === 'both' && (!e.username || !e.password)) ||
+        (b.what === 'totp' && !e.totp);
+      if (missing) bad('Entry has no value for that field');
+      if (b.what === 'totp' && !timeValid) fail(409, 'no_time', 'Device clock is not set');
+      const submit = b.submit ?? (b.what === 'both' && settings.submitAfterBoth);
+      const p = arm({ id: e.id, title: e.title, what: b.what, submit, target });
+      tokenLast.set(bearer.id, { serial: machine.slot.req.serial, save: false, id: e.id, title: e.title, what: b.what });
+      logEvent('agent_armed', { id: e.id, title: bearer.name, detail: ['username', 'password', 'both', 'totp'].indexOf(b.what) });
+      return send(res, 202, { pending: { kind: 'type', ...p, by: bearer.name }, expiresIn: p.expiresIn });
+    }
+
+    case 'agentStatus':
+      return send(res, 200, agentStatus(bearer));
+
+    case 'agentCancel': {
+      expire();
+      const s = machine.slot;
+      if (!s || s.owner !== `token:${bearer.id}`) fail(409, 'not_cancelled', 'Nothing of this token is waiting for the button');
+      endCancelled(s);
+      machine.slot = null;
+      syncDemand();
+      return send(res, 204);
+    }
+
+    case 'agentSave': {
+      if (bearer.kind !== 'app') fail(403, 'forbidden', 'This token cannot save accounts');
+      for (const k of ['title', 'url', 'username', 'password']) {
+        if (b[k] !== undefined && (typeof b[k] !== 'string' || Buffer.byteLength(b[k]) > LIMITS[k])) bad(`"${k}" must be a string within the vault's limits`);
+      }
+      if (!b.title) bad('"title" (string) is required');
+      const tokenId = bearer.id;
+      const name = bearer.name;
+      const exp = awaitPresence('agent_save', () => {
+        if (!unlocked) return false;
+        const id = freshId();
+        const now = nowSec();
+        vault.entries.set(id, { id, title: b.title, url: b.url ?? '', username: b.username ?? '', password: b.password ?? '', totp: '', notes: '', sequence: '', favorite: false, created: now, updated: now, lastUsed: 0, history: [], burnAfter: 0 });
+        const last = tokenLast.get(tokenId);
+        if (last?.serial === serial) last.id = id;
+        const t = vault.tokens?.find((x) => x.id === tokenId);
+        if (t && t.scope !== 'all' && t.scope.length < MAX_SCOPE) t.scope.push(id);
+        logEvent('agent_saved', { id, title: name });
+      });
+      const serial = machine.slot.serial;
+      tokenLast.set(tokenId, { serial, save: true, id: 0 });
+      return send(res, 202, { awaiting: 'button', op: 'agent_save', expiresIn: exp });
+    }
+
+    case 'agentGenerate': {
+      if (bearer.kind !== 'app') fail(403, 'forbidden', 'This token cannot generate passwords');
+      logCoalesced('agent_generated', { id: bearer.id, title: bearer.name });
+      const r = generate(b);
+      if (typeof r === 'string') bad(r);
+      return send(res, 200, r);
+    }
+
     case 'typeCancel': {
       const s = machine.slot;
       if (s?.kind === 'type') {
-        machine.last = { ok: false, code: 'cancelled', at: Date.now(), title: s.req.title, what: s.req.what };
+        endCancelled(s);
         machine.slot = null;
         syncDemand();
       }
@@ -2185,6 +2465,7 @@ function setUsb(on) {
   const s = machine.slot;
   if (s?.kind === 'type' && s.req.usbSession) {
     machine.last = { ok: false, code: 'host_changed', at: Date.now(), title: s.req.title, what: s.req.what };
+    noteOutcome(s.req.serial, 'host_changed', false);
     machine.slot = null;
   }
   // The firmware waits 1 s to ride out a bus reset; the mock locks at once.
