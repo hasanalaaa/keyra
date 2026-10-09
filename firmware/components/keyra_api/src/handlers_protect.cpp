@@ -18,6 +18,7 @@ Grace graceFor(actions::Op op) {
   return op == actions::Op::Backup        ? Grace::Backup
          : op == actions::Op::Recovery    ? Grace::Recovery
          : op == actions::Op::TokenCreate ? Grace::Token
+         : op == actions::Op::TagCreate   ? Grace::Tag
                                           : Grace::Reveal;
 }
 

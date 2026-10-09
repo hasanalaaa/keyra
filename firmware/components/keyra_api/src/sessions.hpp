@@ -41,7 +41,8 @@ class Sessions {
   // was asked for: revealing secrets for 60 s, or one backup / one recovery-key
   // change, which use their press up (consumeGrace).
   // Token: create one access token (SPEC §17), used up like Recovery.
-  enum class Grace { Reveal, Backup, Recovery, Token };
+  // Tag: create one NFC tap tag (SPEC §18), used up the same way.
+  enum class Grace { Reveal, Backup, Recovery, Token, Tag };
   // Starts that grace for this live session; false when it is gone.
   bool grantGrace(std::string_view token, int64_t nowMs, Grace g);
   // Milliseconds of that grace left for this session (0 = none or unknown token).
@@ -63,7 +64,7 @@ class Sessions {
     int64_t lastUsed = 0;
     uint32_t trustId = 0;
     uint32_t generation = 0;
-    std::array<int64_t, 4> graceUntil{};  // by Grace
+    std::array<int64_t, 5> graceUntil{};  // by Grace
   };
   Slot* findLocked(std::string_view token);
   std::string randomHex();

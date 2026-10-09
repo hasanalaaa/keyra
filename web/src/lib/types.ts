@@ -45,7 +45,8 @@ export type PresenceOp =
   | 'delete_passkey'
   | 'passkeys_backup_on'
   | 'token_create'
-  | 'agent_save';
+  | 'agent_save'
+  | 'tag_create';
 
 export interface PresenceResult {
   op: PresenceOp;
@@ -146,6 +147,10 @@ export interface ActivityEvent {
     | 'agent_armed'
     | 'agent_saved'
     | 'agent_generated'
+    | 'tag_created'
+    | 'tag_revoked'
+    | 'tag_tapped'
+    | 'tag_refused'
     | 'unknown';
   at: number;
   id?: number;
@@ -200,6 +205,23 @@ export interface AccessToken {
   created: number; // unix seconds, 0 = unknown
   lastUsed: number; // 0 = never
 }
+
+/** An NFC tap tag (SPEC §18): opening its URL arms one account for typing. */
+export interface NfcTag {
+  id: number;
+  name: string;
+  kind: 'simple' | 'secure';
+  entry: number;
+  what: 'username' | 'password' | 'both' | 'totp';
+  target: string | null; // null = the device's default; "usb" or a Bluetooth address
+  created: number; // unix seconds, 0 = unknown
+  lastUsed: number; // 0 = never
+  bound?: boolean; // secure: a good tap was seen
+  counter?: number; // secure: the last accepted tap's counter
+}
+
+/** POST /api/tags 201: the URL (with a simple tag's secret) and a secure tag's keys, shown once. */
+export type NewNfcTag = NfcTag & { url: string; keys?: { meta: string; file: string } };
 
 export interface TrustedBrowser {
   id: number;

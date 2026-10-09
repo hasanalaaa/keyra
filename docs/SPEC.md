@@ -206,7 +206,8 @@ Routes added after v1.0, described in their sections: `/api/ble`, `/api/ble/pair
 `/api/fido[/{id}]` (§11); `/api/recovery`, `/api/unlock/recovery`,
 `/api/presence/cancel` (§12); `/api/health`, `/api/health/rotate` (§13);
 `/api/update`, `/api/update/check|download|apply` (§14); `/api/activity` (§15);
-`/api/tokens[/{id}]`, `/api/agent/…` (§17).
+`/api/tokens[/{id}]`, `/api/agent/…` (§17); `/api/tags[/{id}]`, `/api/tag/tap|status`
+and the page `GET /t/…` (§18).
 
 Restore (`/api/restore`):
 - The backup passphrase and the file are checked before anything changes, and
@@ -790,7 +791,8 @@ removed, accounts deleted. Never a password, a code or typed text.
   `passphrase`, `recovery_created`, `recovery_removed`, `ble_pairing`,
   `ble_forgot`, `trusted_removed`, `entry_deleted`, `entry_burned` (§16),
   `rotate_started`, `rotate_ended` (§13.1), `token_created`, `token_revoked`,
-  `agent_listed`, `agent_armed`, `agent_saved`, `agent_generated` (§17);
+  `agent_listed`, `agent_armed`, `agent_saved`, `agent_generated` (§17),
+  `tag_created`, `tag_revoked`, `tag_tapped`, `tag_refused` (§18);
   `unknown` for a kind this firmware does not name.
 - There is no endpoint to clear it: a borrowed or stolen session cannot hide
   what it did.
@@ -872,3 +874,78 @@ NFC tags build on.
   `agent_generated` (id = token id, `n` as for lists). The typing itself is
   the usual `typed`. Status and cancel calls are not logged; the token is
   never logged anywhere.
+
+## 18. NFC tap tags
+
+An NFC sticker holds a URL on Keyra; a phone that reads it (iPhone XS or newer
+in the background, Android with NFC on) opens it, and while the phone is on
+Keyra's network that arms **one account** for typing — exactly like
+`POST /api/type`. It never shows or returns a secret. Design and threat model:
+[research/NFC-TAGS.md](research/NFC-TAGS.md). Keyra has no NFC hardware.
+
+- **Kinds.**
+  - *Simple* (any NTAG213/215/216): `http://keyra.local/t/<id>/<secret>`,
+    `<secret>` = 24 characters of RFC 4648 base32 (lowercase) = 120 bits from
+    the hardware RNG. Keyra keeps only SHA-256 of the secret. Anyone who copies
+    the URL can arm that account (never read it); the press is still needed.
+  - *Secure* (NTAG 424 DNA, SUN/SDM, NXP AN12196):
+    `http://keyra.local/t/<id>?p=<PICCData>&m=<SDMMAC>` — `p` = 32 hex digits
+    of encrypted PICCData (AES-128 with the SDM meta-read key; plaintext tag
+    byte `0xC7`, 7-byte UID, 3-byte SDMReadCtr LSB first, padding), `m` = 16
+    hex digits of SDMMAC: the odd-numbered bytes of AES-CMAC(K<sub>S</sub>, empty
+    input), K<sub>S</sub> = AES-CMAC(SDM file-read key, `3CC3 0001 0080 ‖ UID ‖
+    SDMReadCtr`). Accepted only when the MAC matches, the UID equals the one
+    bound by the first good tap, and the counter is **greater** than the last
+    accepted one (each accepted counter is stored before arming: a URL never
+    works twice). Both keys are random per tag and shown once.
+- **Storage.** Vault record `tags.bin`, sealed with the DEK (AAD
+  `keyra/tags/v1`; plaintext format in `keyra_api/src/tags.cpp`). At most
+  **16**. Per tag: `{id, name (1–48 bytes UTF-8), kind:"simple"|"secure",
+  entry, what:"username"|"password"|"both"|"totp", target:null|"usb"|bond
+  address, created, lastUsed}`, plus the secret's hash (simple) or both AES
+  keys, the bound UID and the last counter (secure). Not part of backups; kept
+  across passphrase changes and restores (a tag whose account is gone answers
+  404 `not_found`); gone with a new setup or factory reset.
+- **Managing** (session + CSRF):
+  - `GET /api/tags` → `{tags:[{id, name, kind, entry, what, target, created,
+    lastUsed, bound?, counter?}], max:16}` — never a secret or key.
+  - `POST /api/tags {name, kind, entry, what, target?}` → 202 press (op
+    `tag_create`, §12.5a) → the same call again within 60 s → 201 `{…metadata,
+    url, keys?:{meta, file}}` (`url`: a simple tag's full URL with its secret,
+    or a secure tag's template with zeros where the tag mirrors `p` and `m`;
+    `keys`: 32 hex digits each, secure only), shown once. Checked before the
+    press: 400 `invalid` (name, kind, what, an account that does not exist or
+    lacks that field, target), 409 `ble_disabled`, 404 `not_found` (target),
+    409 `tags_full`.
+  - `DELETE /api/tags/{id}` → 204 (no press; 404 `not_found`). Whatever the tag
+    has waiting for the button is withdrawn.
+- **Tapping** — no session, no CSRF (the `Origin` rule of §5 applies):
+  - `GET /t/<id>/<secret>`, `GET /t/<id>?p=…&m=…` → a small self-contained
+    HTML page (no external assets; Arabic or English from the browser's
+    language). **A GET changes nothing** (link previews fetch URLs). Its
+    script removes the secret from the address bar, POSTs the tap, then polls
+    the status and shows "Press Keyra's button" → "Typed".
+  - `POST /api/tag/tap {id, secret}` or `{id, p, m}` → 202 `{state:"armed",
+    title, what, expiresIn, ticket}`. Arms exactly like `POST /api/type` (same
+    60 s, press, targets §8.1, layout and Caps Lock rules) with the tag's
+    account, what and target; owner `tag:<id>` (§12.5a: never replaced by a
+    browser, a token or another tag; replaces only its own item). Refusals:
+    401 `locked` (the vault is locked: nothing can be checked), 401
+    `invalid_tag` (unknown or revoked tag, wrong secret, wrong MAC, another
+    chip), 409 `replayed` (a counter not above the last one), 429
+    `rate_limited` `{retryAfterMs}` + `Retry-After` beyond **10 taps in any
+    10 s** per tag (unknown tags and wrong secrets/MACs share one more such
+    budget), 409 `busy`, 404 `not_found` (the account is gone), 400 `invalid`
+    (it lost the field), 409 `no_time` (a code without a clock), 409
+    `ble_disabled`.
+  - `POST /api/tag/status {id, ticket}` → `{state, code?, expiresIn?}` for that
+    tap: `armed`, `waiting`, `typed`, `cancelled`, `expired`, `failed` (`code`
+    = the §5 Result code), `none` (unknown ticket or too long ago).
+  Taps are not user activity for auto-lock.
+- **The phone sees who asked.** `state.pending.by` = the tag's name.
+- **Activity log** (§15) kinds: `tag_created` (title = name, detail 0 simple /
+  1 secure), `tag_revoked` (title), `tag_tapped` (id = entry, title = tag
+  name, detail as `agent_armed`), `tag_refused` (id = tag id, title, detail 0
+  wrong secret or MAC / 1 replayed / 2 another chip; `n` = in a row, counted on
+  one line). The typing itself is the usual `typed`. Secrets, keys and URLs are
+  never logged.

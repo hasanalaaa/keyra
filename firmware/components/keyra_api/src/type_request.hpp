@@ -17,7 +17,7 @@ bool readTarget(httpd_req_t* r, const cJSON* body, Target& out, esp_err_t& err);
 bool entryRequest(httpd_req_t* r, const cJSON* body, uint32_t id, actions::What what, const Target& target,
                   actions::TypeRequest& out, esp_err_t& err);
 // The fields of a `pending` object (SPEC §5 Pending), plus `by` when an access
-// token armed it.
+// token or an NFC tag armed it.
 void addPending(cJSON* o, const actions::Pending& p);
 
 }  // namespace keyra::api::typereq

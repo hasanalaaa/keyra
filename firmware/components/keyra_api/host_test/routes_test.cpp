@@ -185,6 +185,28 @@ void tokenRoutes() {
   }
 }
 
+// SPEC §18: tags are managed by a session; the tap page's calls need none.
+void tagRoutes() {
+  CHECK(is(matchApi(Method::Get, "/api/tags"), Route::ListTags));
+  CHECK(is(matchApi(Method::Post, "/api/tags"), Route::CreateTag));
+  CHECK(is(matchApi(Method::Delete, "/api/tags/9"), Route::DeleteTag, 9));
+  CHECK(matchApi(Method::Put, "/api/tags").kind == K::MethodNotAllowed);
+  CHECK(matchApi(Method::Get, "/api/tags/9").kind == K::MethodNotAllowed);
+  CHECK(matchApi(Method::Delete, "/api/tags/0").kind == K::NotFound);
+  CHECK(needsSession(Route::ListTags) && needsSession(Route::CreateTag) && needsSession(Route::DeleteTag));
+  CHECK(needsCsrf(Method::Post, Route::CreateTag) && needsCsrf(Method::Delete, Route::DeleteTag));
+  CHECK(is(matchApi(Method::Post, "/api/tag/tap"), Route::TagTap));
+  CHECK(is(matchApi(Method::Post, "/api/tag/status"), Route::TagStatus));
+  CHECK(matchApi(Method::Get, "/api/tag/tap").kind == K::MethodNotAllowed);
+  for (Route r : {Route::TagTap, Route::TagStatus}) {
+    CHECK(isTagTap(r) && !isAgent(r));
+    CHECK(!needsSession(r) && !needsCsrf(Method::Post, r));
+  }
+  CHECK(!isTagTap(Route::CreateTag) && !isTagTap(Route::Type));
+  CHECK(isTapPage("/t/123/abc") && isTapPage("/t/123"));
+  CHECK(!isTapPage("/t/") && !isTapPage("/t") && !isTapPage("/") && !isTapPage("/tags") && !isTapPage("/api/t/1"));
+}
+
 void hosts() {
   CHECK(isOwnHost(""));
   CHECK(isOwnHost("192.168.4.1"));
@@ -285,6 +307,7 @@ void inputRules() {
 int main() {
   apiRoutes();
   tokenRoutes();
+  tagRoutes();
   policy();
   hosts();
   origins();

@@ -55,7 +55,7 @@ formats and the REST API are contracts (changes need a migration).
 | CTAP2 ClientPIN = master passphrase, `hmac-secret`, `credProtect` | Wider site support, SSH `-sk`, LUKS | L | FEATURES-2 D10 |
 | Agent Gate: arm-only tokens for AI agents (never return a secret) — **built** (SPEC §17, [TOKENS.md](TOKENS.md), `tools/keyra-mcp`) | Unique; fits the button model | M | FEATURES-2 D7 |
 | Android app: autofill save/fill with button-gated typing | Biggest daily-use gain on phones | L | FEATURES-2 D6 |
-| NTAG 424 tap-to-arm tags | Delight; one entry per tag | M | Needs arm-only tokens |
+| NFC tap-to-arm tags (simple NTAG21x and NTAG 424 DNA SUN) — **built** (SPEC §18, [NFC-TAGS.md](NFC-TAGS.md)); real-tag check pending | Delight; one entry per tag | M | FEATURES-2 H14/D11 |
 
 ## Real-hardware checklist (code cannot prove these)
 

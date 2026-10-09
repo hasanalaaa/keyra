@@ -16,6 +16,7 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "handlers_agent.hpp"
+#include "handlers_tags.hpp"
 #include "handlers_fido.hpp"
 #include "handlers_gen.hpp"
 #include "handlers_kbd.hpp"
@@ -1166,6 +1167,7 @@ bool takesBody(Route r) {
     case Route::PresenceCancel:
     case Route::HealthRotate:
     case Route::CreateToken:
+    case Route::CreateTag: case Route::TagTap: case Route::TagStatus:
     case Route::AgentType: case Route::AgentSave: case Route::AgentGenerate:
       return true;
     default:
@@ -1264,6 +1266,11 @@ esp_err_t dispatch(Ctx& c) {
     case Route::AgentCancel:
     case Route::AgentSave:
     case Route::AgentGenerate: return agent::dispatch(c.r, c.match.route, *c.bearer, c.body.get());
+    case Route::ListTags: return tagapi::listTags(c.r);
+    case Route::CreateTag: return tagapi::createTag(c.r, c.body.get(), c.token);
+    case Route::DeleteTag: return tagapi::deleteTag(c.r, c.match.id);
+    case Route::TagTap: return tagapi::tap(c.r, c.body.get());
+    case Route::TagStatus: return tagapi::status(c.r, c.body.get());
   }
   return http::sendError(c.r, http::k404, "not_found", "No such endpoint");
 }
@@ -1343,7 +1350,8 @@ void addPending(cJSON* po, const actions::Pending& p) {
   cJSON_AddNumberToObject(po, "expiresIn", static_cast<double>(p.expiresInMs));
   addTarget(po, "target", p.req.target);
   kbdapi::addPending(po, p.req);
-  const std::string by = agent::ownerName(p.owner);
+  std::string by = agent::ownerName(p.owner);
+  if (by.empty()) by = tagapi::ownerName(p.owner);
   if (!by.empty()) cJSON_AddStringToObject(po, "by", by.c_str());
 }
 

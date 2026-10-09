@@ -18,6 +18,7 @@
 //   POST /__mock/ble {pair:"<device name>"} (a device pairs while the window is open) · {connected:bool}
 //     · {autoConnect:bool} (default true: the wanted device connects ~1.5 s after an action is armed)
 //   POST /__mock/fido {pinSet:bool, pinRetries?:0-8} (the computer set, changed or used the security key PIN)
+//   POST /__mock/sun {id, ctr?} → {url}: what an NTAG 424 DNA secure tag (SPEC §18) would open on its next read
 // Home Wi‑Fi: any network joins ~2 s after the press, except with the password "wrong-password".
 import { createServer } from 'node:http';
 import { createCipheriv, createDecipheriv, createHash, createHmac, pbkdf2Sync, randomBytes, timingSafeEqual } from 'node:crypto';
@@ -1313,7 +1314,13 @@ function match(method, rawPath) {
     case 'agent/cancel': return one('POST', 'agentCancel');
     case 'agent/save': return one('POST', 'agentSave');
     case 'agent/generate': return one('POST', 'agentGenerate');
+    case 'tags':
+      return method === 'GET' ? { route: 'tags' } : method === 'POST' ? { route: 'createTag' } : { notAllowed: true };
+    case 'tag/tap': return one('POST', 'tagTap');
+    case 'tag/status': return one('POST', 'tagStatus');
   }
+  const tg = /^tags\/([0-9]{1,10})$/.exec(p);
+  if (tg) return Number(tg[1]) > 0 && Number(tg[1]) <= 0xffffffff ? (method === 'DELETE' ? { route: 'deleteTag', id: Number(tg[1]) } : { notAllowed: true }) : null;
   const tk = /^tokens\/([0-9]{1,10})$/.exec(p);
   if (tk) return Number(tk[1]) > 0 && Number(tk[1]) <= 0xffffffff ? (method === 'DELETE' ? { route: 'deleteToken', id: Number(tk[1]) } : { notAllowed: true }) : null;
   const bond = /^ble\/bonds\/(.*)$/.exec(p);
@@ -1337,9 +1344,9 @@ function match(method, rawPath) {
   return { notAllowed: true };
 }
 
-const OPEN = new Set(['state', 'setup', 'unlock', 'unlockRecovery', 'factoryReset', 'presenceCancel']);
+const OPEN = new Set(['state', 'setup', 'unlock', 'unlockRecovery', 'factoryReset', 'presenceCancel', 'tagTap', 'tagStatus']);
 const AGENT = new Set(['agentEntries', 'agentType', 'agentStatus', 'agentCancel', 'agentSave', 'agentGenerate']);
-const BODY = new Set(['createToken', 'agentType', 'agentSave', 'agentGenerate', 'healthRotate', 'setup', 'unlock', 'unlockRecovery', 'create', 'update', 'import', 'type', 'generate', 'putSettings', 'passphrase', 'backup', 'restore', 'wifiHome', 'bleSetOs', 'presenceCancel']);
+const BODY = new Set(['createToken', 'createTag', 'tagTap', 'tagStatus', 'agentType', 'agentSave', 'agentGenerate', 'healthRotate', 'setup', 'unlock', 'unlockRecovery', 'create', 'update', 'import', 'type', 'generate', 'putSettings', 'passphrase', 'backup', 'restore', 'wifiHome', 'bleSetOs', 'presenceCancel']);
 
 const validPassphrase = (s) => typeof s === 'string' && [...s].length >= 10 && [...s].length <= 128;
 const validWifi = (s) => typeof s === 'string' && s.length >= 8 && s.length <= 63 && /^[\x20-\x7e]+$/.test(s) && s !== 'keyra1234';
@@ -1461,9 +1468,9 @@ function base32Encode(buf) {
 const tokenView = (t) => ({ id: t.id, name: t.name, kind: t.kind, scope: t.scope, created: t.created, lastUsed: t.lastUsed });
 const inScope = (t, id) => t.scope === 'all' || t.scope.includes(id);
 const byOf = (owner) => {
-  const id = /^token:(\d+)$/.exec(owner ?? '')?.[1];
+  const [, kind, id] = /^(token|tag):(\d+)$/.exec(owner ?? '') ?? [];
   if (!id) return {};
-  return { by: vault?.tokens?.find((t) => t.id === Number(id))?.name ?? '?' };
+  return { by: vault?.[kind === 'tag' ? 'tags' : 'tokens']?.find((t) => t.id === Number(id))?.name ?? '?' };
 };
 
 /** tokens.cpp urlHost: the host name only. */
@@ -1476,20 +1483,20 @@ function urlHost(url = '') {
 }
 
 /** RateLimit::allow: 10 per sliding 10 s per key. Returns the wait in ms, 0 = allowed. */
-function rateWait(key) {
+function rateWait(key, rate = tokenRate) {
   const now = Date.now();
-  const times = (tokenRate.get(key) ?? []).filter((t) => now - t < RATE_WINDOW_MS);
+  const times = (rate.get(key) ?? []).filter((t) => now - t < RATE_WINDOW_MS);
   if (times.length >= RATE_MAX) {
-    tokenRate.set(key, times);
+    rate.set(key, times);
     return times[0] + RATE_WINDOW_MS - now;
   }
   times.push(now);
-  tokenRate.set(key, times);
+  rate.set(key, times);
   return 0;
 }
 
-function rateFail(wait) {
-  fail(429, 'rate_limited', 'Too many requests for this token', { retryAfterMs: wait }, { 'Retry-After': String(Math.ceil(wait / 1000)) });
+function rateFail(wait, message = 'Too many requests for this token') {
+  fail(429, 'rate_limited', message, { retryAfterMs: wait }, { 'Retry-After': String(Math.ceil(wait / 1000)) });
 }
 
 /** handlers_agent.cpp authenticate: vault unlocked, a known token, within its rate. */
@@ -1511,14 +1518,14 @@ function authenticateToken(req) {
 }
 
 /** activity::append(…, coalesce): a repeat of the newest event only counts. */
-function logCoalesced(kind, { id, title }) {
+function logCoalesced(kind, { id, title, detail = 0 }) {
   const last = vault?.activity?.at(-1);
   if (unlocked && last && last.kind === kind && last.id === id && last.title === title) {
     last.n += 1;
     if (timeValid) last.at = nowSec();
     return;
   }
-  logEvent(kind, { id, title, n: 1 });
+  logEvent(kind, { id, title, n: 1, detail });
 }
 
 const TYPE_STATE = { typed: 'typed', cancelled: 'cancelled', expired: 'expired' };
@@ -1544,6 +1551,121 @@ function agentStatus(t) {
   if (last.id) out.id = last.id;
   if (!last.save) Object.assign(out, { title: last.title, what: last.what });
   return out;
+}
+
+const WHATS = ['username', 'password', 'both', 'totp'];
+
+/** typereq::readTarget + entryRequest + arm (handlers.cpp): what POST /api/agent/type and a tag tap share. */
+function armEntry(id, what, targetIn, submitIn) {
+  let target = pickTarget();
+  if (targetIn !== undefined) {
+    if (targetIn === 'usb') target = { kind: 'usb' };
+    else if (typeof targetIn === 'string' && /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/.test(targetIn)) {
+      if (!settings.bleEnabled) fail(409, 'ble_disabled', 'Bluetooth is turned off');
+      const addr = targetIn.toUpperCase();
+      if (!ble.bonds.some((x) => x.addr === addr)) fail(404, 'not_found', 'No such device');
+      target = { kind: 'ble', addr };
+    } else bad('"target" must be "usb" or a device address');
+  }
+  const e = getEntry(id);
+  const missing =
+    (what === 'username' && !e.username) ||
+    (what === 'password' && !e.password) ||
+    (what === 'both' && (!e.username || !e.password)) ||
+    (what === 'totp' && !e.totp);
+  if (missing) bad('Entry has no value for that field');
+  if (what === 'totp' && !timeValid) fail(409, 'no_time', 'Device clock is not set');
+  const submit = submitIn ?? (what === 'both' && settings.submitAfterBoth);
+  return { e, p: arm({ id: e.id, title: e.title, what, submit, target }) };
+}
+
+// ---------- NFC tap tags (SPEC §18; firmware keyra_api/src/tags.cpp, handlers_tags.cpp) ----------
+
+const MAX_TAGS = 16;
+const tagRate = new Map(); // tag id (0 = unknown tag, wrong secret or MAC) → tap times
+const tagLast = new Map(); // tag id → { serial, ticket }
+const simTags = new Map(); // tag id → the simulated NTAG 424 DNA: { uid, ctr }
+const TAG_HOST = 'keyra.local';
+
+const tagView = (t) => ({
+  id: t.id, name: t.name, kind: t.kind, entry: t.entry, what: t.what, target: t.target || null, created: t.created, lastUsed: t.lastUsed,
+  ...(t.kind === 'secure' ? { bound: t.bound, counter: t.counter } : {}),
+});
+
+function aesEcb(key, block, decrypt = false) {
+  const c = (decrypt ? createDecipheriv : createCipheriv)('aes-128-ecb', key, null);
+  c.setAutoPadding(false);
+  return Buffer.concat([c.update(block), c.final()]);
+}
+
+/** AES-CMAC (RFC 4493), like tags.cpp cmac(). */
+function cmac(key, msg) {
+  const shift = (b) => {
+    const o = Buffer.alloc(16);
+    for (let i = 0; i < 16; i++) o[i] = ((b[i] << 1) | (i < 15 ? b[i + 1] >> 7 : 0)) & 0xff;
+    if (b[0] & 0x80) o[15] ^= 0x87;
+    return o;
+  };
+  const k1 = shift(aesEcb(key, Buffer.alloc(16)));
+  const k2 = shift(k1);
+  const n = Math.max(1, Math.ceil(msg.length / 16));
+  const whole = msg.length > 0 && msg.length % 16 === 0;
+  const last = Buffer.alloc(16);
+  msg.copy(last, 0, (n - 1) * 16);
+  if (!whole) last[msg.length - (n - 1) * 16] = 0x80;
+  let x = Buffer.alloc(16);
+  for (let b = 0; b < n - 1; b++) {
+    for (let i = 0; i < 16; i++) x[i] ^= msg[16 * b + i];
+    x = aesEcb(key, x);
+  }
+  for (let i = 0; i < 16; i++) x[i] ^= last[i] ^ (whole ? k1 : k2)[i];
+  return aesEcb(key, x);
+}
+
+/** SDMMAC (AN12196): session key = CMAC(file key, SV2), MAC over empty input, odd bytes. */
+function sunMac(fileKey, uidCtr) {
+  const session = cmac(fileKey, Buffer.concat([Buffer.from('3cc300010080', 'hex'), uidCtr]));
+  const full = cmac(session, Buffer.alloc(0));
+  return Buffer.from([1, 3, 5, 7, 9, 11, 13, 15].map((i) => full[i]));
+}
+
+/** tags.cpp verifySun → 'ok' | 'bad' | 'chip' | 'replay', with the tap's uid and counter. */
+function verifySun(t, pHex, mHex) {
+  const plain = aesEcb(Buffer.from(t.metaKey, 'hex'), Buffer.from(pHex, 'hex'), true);
+  const uid = plain.subarray(1, 8).toString('hex');
+  const ctr = plain[8] | (plain[9] << 8) | (plain[10] << 16);
+  const mac = sunMac(Buffer.from(t.fileKey, 'hex'), plain.subarray(1, 11));
+  if (plain[0] !== 0xc7 || !timingSafeEqual(mac, Buffer.from(mHex, 'hex'))) return { v: 'bad' };
+  if (t.bound && t.uid !== uid) return { v: 'chip' };
+  if (t.bound && ctr <= t.counter) return { v: 'replay' };
+  return { v: 'ok', uid, ctr };
+}
+
+/** The URL a secure tag would open on its next read (or at counter `ctr`), for e2e. */
+function simulateSun(t, ctr) {
+  let sim = simTags.get(t.id);
+  if (!sim) simTags.set(t.id, (sim = { uid: Buffer.concat([Buffer.from([0x04]), randomBytes(6)]), ctr: 0 }));
+  const c = Number.isInteger(ctr) ? ctr : ++sim.ctr;
+  const plain = Buffer.concat([Buffer.from([0xc7]), sim.uid, Buffer.from([c & 0xff, (c >> 8) & 0xff, (c >> 16) & 0xff]), randomBytes(5)]);
+  const p = aesEcb(Buffer.from(t.metaKey, 'hex'), plain).toString('hex').toUpperCase();
+  const m = sunMac(Buffer.from(t.fileKey, 'hex'), plain.subarray(1, 11)).toString('hex').toUpperCase();
+  return `/t/${t.id}?p=${p}&m=${m}`;
+}
+
+/** handlers_tags.cpp status, by the ticket the tap answered with. */
+function tagStatus(id, ticket) {
+  expire();
+  const last = tagLast.get(id);
+  if (!last || last.ticket !== ticket) return { state: 'none' };
+  const s = machine.slot;
+  const o = outcomes.get(last.serial);
+  if (s?.kind === 'type' && s.req.serial === last.serial) {
+    const connecting = s.req.target.kind === 'ble' && ble.connected !== s.req.target.addr;
+    return { state: connecting ? 'waiting' : 'armed', expiresIn: s.deadline - Date.now() };
+  }
+  if (machine.typing && machine.typingSerial === last.serial) return { state: 'waiting' };
+  if (o) return { state: TYPE_STATE[o.code] ?? 'failed', code: o.code };
+  return { state: 'none' };
 }
 
 async function api(req, res, path) {
@@ -1931,6 +2053,98 @@ async function api(req, res, path) {
       return send(res, 204);
     }
 
+    case 'tags':
+      return send(res, 200, { tags: (vault.tags ?? []).map(tagView), max: MAX_TAGS });
+
+    case 'createTag': {
+      // handlers_tags.cpp createTag: checked first, then the press, then the same call again.
+      if (typeof b.name !== 'string' || !b.name || Buffer.byteLength(b.name) > 48 || /[\x00-\x1f\x7f]/.test(b.name)) bad('"name" must be 1-48 bytes of text');
+      if (b.kind !== 'simple' && b.kind !== 'secure') bad('"kind" must be "simple" or "secure"');
+      if (!WHATS.includes(b.what)) bad('"what" must be username, password, both or totp');
+      if (!Number.isInteger(b.entry) || b.entry < 1 || b.entry > 0xffffffff) bad('"entry" (account id) is required');
+      const e = vault.entries.get(b.entry) ?? bad('"entry" names an account that does not exist');
+      const missing = (b.what === 'username' && !e.username) || (b.what === 'password' && !e.password) || (b.what === 'both' && (!e.username || !e.password)) || (b.what === 'totp' && !e.totp);
+      if (missing) bad('Entry has no value for that field');
+      if (b.target !== undefined && (typeof b.target !== 'string' || !/^(usb|([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2})?$/.test(b.target))) bad('"target" must be "usb" or a device address');
+      if (b.target && b.target !== 'usb') {
+        if (!settings.bleEnabled) fail(409, 'ble_disabled', 'Bluetooth is turned off');
+        if (!ble.bonds.some((x) => x.addr === b.target.toUpperCase())) fail(404, 'not_found', 'No such device');
+      }
+      vault.tags ??= [];
+      if (vault.tags.length >= MAX_TAGS) fail(409, 'tags_full', 'Keyra holds at most 16 tags');
+      if (!consumeGrace(sess, 'tag_create')) return requestPress(res, 'tag_create', token);
+      let id;
+      do id = randomBytes(4).readUInt32BE();
+      while (!id || vault.tags.some((x) => x.id === id));
+      const t = { id, name: b.name, kind: b.kind, entry: e.id, what: b.what, target: b.target ?? '', created: timeValid ? nowSec() : 0, lastUsed: 0 };
+      let out;
+      if (t.kind === 'simple') {
+        const secret = base32Encode(randomBytes(15));
+        t.hash = sha(secret);
+        out = { url: `http://${TAG_HOST}/t/${id}/${secret}` };
+      } else {
+        Object.assign(t, { metaKey: randomBytes(16).toString('hex'), fileKey: randomBytes(16).toString('hex'), bound: false, uid: '', counter: 0 });
+        out = { url: `http://${TAG_HOST}/t/${id}?p=${'0'.repeat(32)}&m=${'0'.repeat(16)}`, keys: { meta: t.metaKey, file: t.fileKey } };
+      }
+      vault.tags.push(t);
+      logEvent('tag_created', { title: t.name, detail: t.kind === 'secure' ? 1 : 0 });
+      console.log(`[mock] tag ${id} created (${t.kind})`);
+      return send(res, 201, { ...out, ...tagView(t) });
+    }
+
+    case 'deleteTag': {
+      const i = (vault.tags ?? []).findIndex((x) => x.id === m.id);
+      if (i < 0) fail(404, 'not_found', 'No such tag');
+      const [t] = vault.tags.splice(i, 1);
+      tagRate.delete(t.id);
+      tagLast.delete(t.id);
+      const s = machine.slot;
+      if (s && s.owner === `tag:${t.id}`) {
+        endCancelled(s);
+        machine.slot = null;
+        syncDemand();
+      }
+      logEvent('tag_revoked', { title: t.name });
+      return send(res, 204);
+    }
+
+    case 'tagTap': {
+      // handlers_tags.cpp tap: not a session, not user activity; the tag's secret or SUN message is the key.
+      if (!unlocked || !vault) fail(401, 'locked', 'Vault is locked');
+      const refuse = () => {
+        const wait = rateWait(0, tagRate);
+        if (wait) rateFail(wait, 'Too many taps; wait a moment');
+        fail(401, 'invalid_tag', 'This tag is not known to Keyra, or was revoked');
+      };
+      if (!Number.isInteger(b.id) || b.id < 1 || b.id > 0xffffffff) refuse();
+      const simple = typeof b.secret === 'string';
+      const secure = !simple && /^[0-9a-fA-F]{32}$/.test(b.p ?? '') && /^[0-9a-fA-F]{16}$/.test(b.m ?? '');
+      if ((simple && !/^[a-z2-7]{24}$/.test(b.secret)) || (!simple && !secure)) refuse();
+      const tag = (vault.tags ?? []).find((x) => x.id === b.id && x.kind === (simple ? 'simple' : 'secure'));
+      if (!tag) refuse();
+      const r = simple ? { v: safeEqual(tag.hash, sha(b.secret)) ? 'ok' : 'bad' } : verifySun(tag, b.p, b.m);
+      if (r.v !== 'ok') {
+        logCoalesced('tag_refused', { id: tag.id, title: tag.name, detail: r.v === 'replay' ? 1 : r.v === 'chip' ? 2 : 0 });
+        if (r.v === 'replay') fail(409, 'replayed', 'This tap was already used; tap the tag again');
+        refuse();
+      }
+      const wait = rateWait(tag.id, tagRate);
+      if (wait) rateFail(wait, 'Too many taps; wait a moment');
+      // The counter is used up even when arming fails below.
+      if (!simple) Object.assign(tag, { bound: true, uid: r.uid, counter: r.ctr });
+      if (timeValid && nowSec() - tag.lastUsed >= 60) tag.lastUsed = nowSec();
+      requester = `tag:${tag.id}`;
+      const { e, p } = armEntry(tag.entry, tag.what, tag.target || undefined, undefined);
+      const ticket = randomBytes(4).readUInt32BE() || 1;
+      tagLast.set(tag.id, { serial: machine.slot.req.serial, ticket });
+      logEvent('tag_tapped', { id: e.id, title: tag.name, detail: WHATS.indexOf(tag.what) });
+      return send(res, 202, { state: 'armed', title: e.title, what: tag.what, expiresIn: p.expiresIn, ticket });
+    }
+
+    case 'tagStatus':
+      if (!Number.isInteger(b.id) || !Number.isInteger(b.ticket)) bad('"id" and "ticket" are required');
+      return send(res, 200, tagStatus(b.id, b.ticket));
+
     case 'agentEntries': {
       const list = [...vault.entries.values()].filter((e) => inScope(bearer, e.id)).map((e) => ({ id: e.id, title: e.title, host: urlHost(e.url) }));
       logCoalesced('agent_listed', { id: bearer.id, title: bearer.name });
@@ -1942,26 +2156,7 @@ async function api(req, res, path) {
       if (!['username', 'password', 'both', 'totp'].includes(b.what)) bad('"what" must be username, password, both or totp');
       if (!inScope(bearer, b.id)) fail(404, 'not_found', 'No such entry');
       if (b.submit !== undefined && typeof b.submit !== 'boolean') bad('"submit" must be a boolean');
-      let target = pickTarget();
-      if (b.target !== undefined) {
-        if (b.target === 'usb') target = { kind: 'usb' };
-        else if (typeof b.target === 'string' && /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/.test(b.target)) {
-          if (!settings.bleEnabled) fail(409, 'ble_disabled', 'Bluetooth is turned off');
-          const addr = b.target.toUpperCase();
-          if (!ble.bonds.some((x) => x.addr === addr)) fail(404, 'not_found', 'No such device');
-          target = { kind: 'ble', addr };
-        } else bad('"target" must be "usb" or a device address');
-      }
-      const e = getEntry(b.id);
-      const missing =
-        (b.what === 'username' && !e.username) ||
-        (b.what === 'password' && !e.password) ||
-        (b.what === 'both' && (!e.username || !e.password)) ||
-        (b.what === 'totp' && !e.totp);
-      if (missing) bad('Entry has no value for that field');
-      if (b.what === 'totp' && !timeValid) fail(409, 'no_time', 'Device clock is not set');
-      const submit = b.submit ?? (b.what === 'both' && settings.submitAfterBoth);
-      const p = arm({ id: e.id, title: e.title, what: b.what, submit, target });
+      const { e, p } = armEntry(b.id, b.what, b.target, b.submit);
       tokenLast.set(bearer.id, { serial: machine.slot.req.serial, save: false, id: e.id, title: e.title, what: b.what });
       logEvent('agent_armed', { id: e.id, title: bearer.name, detail: ['username', 'password', 'both', 'totp'].indexOf(b.what) });
       return send(res, 202, { pending: { kind: 'type', ...p, by: bearer.name }, expiresIn: p.expiresIn });
@@ -2438,7 +2633,8 @@ function serveStatic(req, res, path) {
     res.writeHead(probe[0], { 'Content-Type': probe[1], 'Cache-Control': 'no-store' });
     return res.end(probe[2]);
   }
-  const asset = req.method === 'GET' ? ASSETS[path] : undefined;
+  // SPEC §18: a tag's URL serves the tap page, which changes nothing by itself.
+  const asset = req.method === 'GET' ? (/^\/t\/./.test(path) ? ['tap.html', 'text/html; charset=utf-8'] : ASSETS[path]) : undefined;
   const file = asset && DIST + asset[0];
   if (!file || !existsSync(file)) {
     const hint = asset ? 'Run `npm run build` first (or use `npm run dev`).' : 'Not found';
@@ -2447,7 +2643,7 @@ function serveStatic(req, res, path) {
   res.writeHead(200, {
     ...SECURITY,
     'Content-Type': asset[1],
-    'Cache-Control': asset[0] === 'index.html' ? 'no-cache' : 'public, max-age=31536000',
+    'Cache-Control': asset[0] === 'index.html' ? 'no-cache' : asset[0] === 'tap.html' ? 'no-store' : 'public, max-age=31536000',
   });
   res.end(readFileSync(file));
 }
@@ -2507,6 +2703,11 @@ async function mockControl(req, res, path) {
     const retries = Number.isInteger(b.pinRetries) && b.pinRetries >= 0 && b.pinRetries <= 8 ? b.pinRetries : 8;
     vault.fidoPin = { set: b.pinSet, retries: b.pinSet ? retries : 8 };
     return send(res, 200, vault.fidoPin);
+  }
+  if (path === '/__mock/sun' && Number.isInteger(b.id)) {
+    const t = vault?.tags?.find((x) => x.id === b.id && x.kind === 'secure');
+    if (!t) return send(res, 404, { error: 'not_found', message: 'No such secure tag' });
+    return send(res, 200, { url: simulateSun(t, b.ctr) });
   }
   if (path === '/__mock/usb' && typeof b.usb === 'boolean') {
     setUsb(b.usb);

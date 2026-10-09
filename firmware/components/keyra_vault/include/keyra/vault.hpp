@@ -164,6 +164,13 @@ Status activityWrite(const std::vector<uint8_t>& data);
 inline constexpr size_t kMaxTokensBytes = 8 * 1024;
 Status tokensRead(std::vector<uint8_t>& out);  // empty when there are none
 Status tokensWrite(const std::vector<uint8_t>& data);
+// NFC tap tags (SPEC §18): the same kind of record ("tags.bin", AAD
+// "keyra/tags/v1"), holding each tag's secret hash or AES keys and counter.
+// Not part of backups; kept across passphrase changes and restores; gone with
+// a factory reset or a new setup.
+inline constexpr size_t kMaxTagsBytes = 4 * 1024;
+Status tagsRead(std::vector<uint8_t>& out);  // empty when there are none
+Status tagsWrite(const std::vector<uint8_t>& data);
 // Wrong passphrases or recovery keys tried before the latest successful unlock.
 uint32_t failedBeforeUnlock();
 

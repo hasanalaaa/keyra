@@ -25,12 +25,14 @@ enum class Route {
   // Access tokens (SPEC §17): managed by a session, used with a bearer token.
   ListTokens, CreateToken, DeleteToken,
   AgentEntries, AgentType, AgentStatus, AgentCancel, AgentSave, AgentGenerate,
+  // NFC tap tags (SPEC §18): managed by a session; tapped by anyone holding the tag.
+  ListTags, CreateTag, DeleteTag, TagTap, TagStatus,
 };
 
 struct Match {
   enum class Kind { Found, NotFound, MethodNotAllowed } kind = Kind::NotFound;
   Route route = Route::State;
-  uint32_t id = 0;  // entry, trusted-browser, passkey and token routes
+  uint32_t id = 0;  // entry, trusted-browser, passkey, token and tag routes
   std::array<uint8_t, 6> addr{};  // BleForget/BleSetOs: the bond's address
 };
 
@@ -44,6 +46,10 @@ bool needsSession(Route r);
 bool needsCsrf(Method m, Route r);
 // /api/agent/…: authorised by `Authorization: Bearer <token>`, never by a session.
 bool isAgent(Route r);
+// /api/tag/…: the tap page's calls, authorised by the tag's secret or SUN message.
+bool isTagTap(Route r);
+// GET /t/<id>/<secret> and /t/<id>?p=…&m=…: the tap page (SPEC §18), which changes nothing.
+bool isTapPage(std::string_view path);
 
 // Host header names that address the device itself (AP IP, mDNS name, or the
 // current home-network IP when joined; any port). Anything else is refused so a

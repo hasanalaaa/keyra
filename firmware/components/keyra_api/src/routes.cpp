@@ -142,6 +142,19 @@ Match matchDecoded(Method m, std::string_view path) {
     if (!parseId(p.substr(kTokens.size()), id)) return {};
     return m == Method::Delete ? found(Route::DeleteToken, id) : notAllowed();
   }
+  if (p == "tags") {
+    if (m == Method::Get) return found(Route::ListTags);
+    if (m == Method::Post) return found(Route::CreateTag);
+    return notAllowed();
+  }
+  constexpr std::string_view kTags = "tags/";
+  if (p.substr(0, kTags.size()) == kTags) {
+    uint32_t id = 0;
+    if (!parseId(p.substr(kTags.size()), id)) return {};
+    return m == Method::Delete ? found(Route::DeleteTag, id) : notAllowed();
+  }
+  if (p == "tag/tap") return only(m, Method::Post, Route::TagTap);
+  if (p == "tag/status") return only(m, Method::Post, Route::TagStatus);
   if (p == "agent/entries") return only(m, Method::Get, Route::AgentEntries);
   if (p == "agent/type") return only(m, Method::Post, Route::AgentType);
   if (p == "agent/status") return only(m, Method::Get, Route::AgentStatus);
@@ -186,16 +199,20 @@ bool isAgent(Route r) {
          r == Route::AgentSave || r == Route::AgentGenerate;
 }
 
+bool isTagTap(Route r) { return r == Route::TagTap || r == Route::TagStatus; }
+
+bool isTapPage(std::string_view path) { return path.size() > 3 && path.substr(0, 3) == "/t/"; }
+
 bool needsSession(Route r) {
-  return !isAgent(r) && r != Route::State && r != Route::Setup && r != Route::Unlock && r != Route::UnlockRecovery &&
-         r != Route::FactoryReset && r != Route::PresenceCancel;
+  return !isAgent(r) && !isTagTap(r) && r != Route::State && r != Route::Setup && r != Route::Unlock &&
+         r != Route::UnlockRecovery && r != Route::FactoryReset && r != Route::PresenceCancel;
 }
 
 bool needsCsrf(Method m, Route r) {
   // setup/unlock/factory-reset have no session yet (or a forgotten passphrase);
   // setup and factory-reset are gated by the physical button instead.
-  return m != Method::Get && !isAgent(r) && r != Route::Unlock && r != Route::UnlockRecovery && r != Route::Setup &&
-         r != Route::FactoryReset && r != Route::PresenceCancel;
+  return m != Method::Get && !isAgent(r) && !isTagTap(r) && r != Route::Unlock && r != Route::UnlockRecovery &&
+         r != Route::Setup && r != Route::FactoryReset && r != Route::PresenceCancel;
 }
 
 bool isOwnHost(std::string_view host, std::string_view homeIp) {

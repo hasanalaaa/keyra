@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<title>Keyra</title>
+<style>
+:root{color-scheme:light dark;--bg:#f4f6fb;--card:#fff;--text:#121826;--sub:#5a6478;--accent:#0b57f0;--ok:#118a4e;--err:#c62828}
+@media (prefers-color-scheme:dark){:root{--bg:#0d1117;--card:#161b24;--text:#e8ecf4;--sub:#9aa4b8;--accent:#6e9bff;--ok:#4cc38a;--err:#ff6b6b}}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;padding:16px;background:var(--bg);color:var(--text);font:17px/1.45 -apple-system,system-ui,"Segoe UI",Tahoma,sans-serif}
+main{width:100%;max-width:360px;background:var(--card);border-radius:20px;padding:28px 22px;text-align:center;box-shadow:0 8px 30px #0000001a}
+#dot{width:56px;height:56px;margin:0 auto 18px;border-radius:50%;background:var(--accent);opacity:.9}
+.wait #dot{animation:b 1.6s ease-in-out infinite}
+.ok #dot{background:var(--ok)}.err #dot{background:var(--err)}
+@keyframes b{50%{transform:scale(.8);opacity:.45}}
+h1{font-size:21px;margin:0 0 6px}
+p{margin:0;color:var(--sub)}
+#acc{font-weight:600;color:var(--text);margin-top:12px;unicode-bidi:plaintext}
+[hidden]{display:none!important}
+a{display:inline-block;margin-top:18px;color:var(--accent);font-weight:600;text-decoration:none}
+</style>
+</head>
+<body>
+<main id="m" class="wait" aria-live="polite">
+<div id="dot" aria-hidden="true"></div>
+<h1 id="h"></h1>
+<p id="b"></p>
+<p id="acc"></p>
+<a id="open" href="/" hidden></a>
+</main>
+<script>
+(function () {
+  // NFC tap tags (SPEC §18): loading this page changes nothing; this script asks Keyra to arm.
+  var ar = /^ar/i.test(navigator.language || '');
+  var T = ar ? {
+    asking: ['لحظة…', 'نطلب من Keyra تجهيز الحساب.'],
+    press: ['اضغط زرّ Keyra', 'سيكتب Keyra في الحقل المحدَّد على حاسوبك.'],
+    typed: ['تمّت الكتابة', 'يمكنك إغلاق هذه الصفحة.'],
+    expired: ['انتهت المهلة', 'المس الوسم مرة أخرى.'],
+    cancelled: ['أُلغي الطلب', 'المس الوسم مرة أخرى إن أردت.'],
+    failed: ['تعذّرت الكتابة', 'افتح تطبيق Keyra لمعرفة السبب.'],
+    locked: ['افتح قفل Keyra أولاً', 'لا يستطيع Keyra التحقق من الوسم وهو مقفل. افتحه ثم المس الوسم مرة أخرى.'],
+    invalid_tag: ['وسم غير معروف', 'لا يعرف Keyra هذا الوسم، أو أُلغي.'],
+    replayed: ['استُخدمت هذه اللمسة من قبل', 'المس الوسم مرة أخرى.'],
+    busy: ['Keyra مشغول بطلب آخر', 'حاول بعد لحظة، أو ألغِ الطلب بضغطة طويلة على زرّه.'],
+    rate_limited: ['لمسات كثيرة', 'انتظر لحظة ثم حاول.'],
+    not_found: ['الحساب غير موجود', 'حُذف الحساب المرتبط بهذا الوسم.'],
+    no_time: ['ساعة Keyra غير مضبوطة', 'افتح تطبيق Keyra مرة ليضبطها.'],
+    offline: ['تعذّر الوصول إلى Keyra', 'هل هاتفك على شبكة Keyra أو على شبكة البيت نفسها؟'],
+    other: ['تعذّر تجهيز الحساب', 'افتح تطبيق Keyra.'],
+    open: 'افتح Keyra'
+  } : {
+    asking: ['One moment…', 'Asking Keyra to get the account ready.'],
+    press: ["Press Keyra's button", 'Keyra will type into the focused field on your computer.'],
+    typed: ['Typed', 'You can close this page.'],
+    expired: ['Timed out', 'Tap the tag again.'],
+    cancelled: ['Cancelled', 'Tap the tag again if you want.'],
+    failed: ["Couldn't type", 'Open the Keyra app to see why.'],
+    locked: ['Unlock Keyra first', "Keyra can't check the tag while it's locked. Unlock it, then tap the tag again."],
+    invalid_tag: ['Unknown tag', "Keyra doesn't know this tag, or it was revoked."],
+    replayed: ['This tap was already used', 'Tap the tag again.'],
+    busy: ['Keyra is busy with another request', 'Try again in a moment, or long-press its button to cancel that one.'],
+    rate_limited: ['Too many taps', 'Wait a moment, then try again.'],
+    not_found: ['Account not found', 'The account this tag types was deleted.'],
+    no_time: ["Keyra's clock isn't set", 'Open the Keyra app once to set it.'],
+    offline: ["Can't reach Keyra", "Is this phone on Keyra's Wi-Fi, or on the same home network?"],
+    other: ["Couldn't get the account ready", 'Open the Keyra app.'],
+    open: 'Open Keyra'
+  };
+  document.documentElement.lang = ar ? 'ar' : 'en';
+  document.documentElement.dir = ar ? 'rtl' : 'ltr';
+  var $ = function (id) { return document.getElementById(id); };
+  function show(key, cls) {
+    var t = T[key] || T.other;
+    $('m').className = cls;
+    $('h').textContent = t[0];
+    $('b').textContent = t[1];
+    var o = $('open');
+    o.textContent = T.open;
+    o.hidden = cls !== 'err' && key !== 'failed';
+  }
+  function post(path, body) {
+    return fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), cache: 'no-store' })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { j.status = r.status; return j; }); });
+  }
+  var m = /^\/t\/(\d{1,10})(?:\/([a-z2-7]{24}))?\/?$/.exec(location.pathname);
+  var q = new URLSearchParams(location.search);
+  if (!m) return show('invalid_tag', 'err');
+  var id = Number(m[1]);
+  var body = m[2] ? { id: id, secret: m[2] } : { id: id, p: q.get('p') || '', m: q.get('m') || '' };
+  // Keep the secret out of the address bar and history once read.
+  try { history.replaceState(null, '', '/t/' + id); } catch (e) {}
+  show('asking', 'wait');
+  post('/api/tag/tap', body).then(function (r) {
+    if (r.status !== 202) return show(r.error || 'other', 'err');
+    show('press', 'wait');
+    $('acc').textContent = r.title || '';
+    var until = Date.now() + (r.expiresIn || 60000) + 5000;
+    (function poll() {
+      setTimeout(function () {
+        post('/api/tag/status', { id: id, ticket: r.ticket }).then(function (s) {
+          if (s.state === 'armed' || s.state === 'waiting') return Date.now() < until ? poll() : show('expired', 'err');
+          if (s.state === 'typed') return show('typed', 'ok');
+          show(s.state === 'expired' || s.state === 'cancelled' ? s.state : 'failed', 'err');
+        }, function () { Date.now() < until ? poll() : show('offline', 'err'); });
+      }, 1500);
+    })();
+  }, function () { show('offline', 'err'); });
+})();
+</script>
+</body>
+</html>

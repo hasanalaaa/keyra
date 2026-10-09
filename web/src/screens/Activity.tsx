@@ -44,6 +44,10 @@ export function eventText(e: ActivityEvent, account: (id: number) => string | un
     case 'agent_armed': return t('actAgentArmed', { title, account: acc() });
     case 'agent_saved': return t('actAgentSaved', { title, account: acc() });
     case 'agent_generated': return t('actAgentGenerated', { title }) + times;
+    case 'tag_created': return t('actTagCreated', { title });
+    case 'tag_revoked': return t('actTagRevoked', { title });
+    case 'tag_tapped': return t('actTagTapped', { title, account: acc() });
+    case 'tag_refused': return t('actTagRefused', { title, why: t(e.detail === 1 ? 'tagWhyReplay' : e.detail === 2 ? 'tagWhyChip' : 'tagWhyWrong') }) + times;
     default: return t('actOther');
   }
 }
@@ -67,12 +71,16 @@ function iconOf(e: ActivityEvent): IconName {
     case 'ble_pairing': return 'bluetooth';
     case 'entry_deleted':
     case 'entry_burned': return 'trash-2';
-    case 'agent_armed': return 'keyboard';
+    case 'agent_armed':
+    case 'tag_tapped': return 'keyboard';
     case 'token_created':
     case 'token_revoked':
     case 'agent_listed':
     case 'agent_saved':
-    case 'agent_generated': return 'key-round';
+    case 'agent_generated':
+    case 'tag_created':
+    case 'tag_revoked':
+    case 'tag_refused': return 'key-round';
     default: return 'shield-check';
   }
 }

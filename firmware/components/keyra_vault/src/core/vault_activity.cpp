@@ -1,6 +1,6 @@
 // Small opaque records sealed with the DEK like an entry, so they can only be
-// read or changed while unlocked: the activity log (SPEC §15) and the access
-// tokens (SPEC §17). Their content is keyra_api's business; here it is bytes.
+// read or changed while unlocked: the activity log (SPEC §15), the access
+// tokens (SPEC §17) and the NFC tap tags (SPEC §18). Their content is keyra_api's business; here it is bytes.
 #include <cstring>
 
 #include "vault_core.hpp"
@@ -12,6 +12,7 @@ constexpr uint8_t kVersion = 1;
 constexpr size_t kOverhead = 1 + 12 + 16;
 constexpr char kActivityAad[] = "keyra/activity/v1";
 constexpr char kTokensAad[] = "keyra/tokens/v1";
+constexpr char kTagsAad[] = "keyra/tags/v1";
 
 const uint8_t* bytes(const char* s) { return reinterpret_cast<const uint8_t*>(s); }
 
@@ -63,5 +64,9 @@ Status Vault::tokensRead(std::vector<uint8_t>& out) { return sealedRead(kTokensP
 Status Vault::tokensWrite(const std::vector<uint8_t>& data) {
   return sealedWrite(kTokensPath, kTokensAad, kMaxTokensBytes, data);
 }
+
+Status Vault::tagsRead(std::vector<uint8_t>& out) { return sealedRead(kTagsPath, kTagsAad, out); }
+
+Status Vault::tagsWrite(const std::vector<uint8_t>& data) { return sealedWrite(kTagsPath, kTagsAad, kMaxTagsBytes, data); }
 
 }  // namespace keyra::vault

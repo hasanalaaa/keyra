@@ -269,6 +269,7 @@ void tokenTracksItsOwnRequest() {
   g_now += kExpiryMs;
   CHECK(m.track(a->serial).opCode == OpCode::Expired);
   CHECK(std::string(opName(Op::TokenCreate)) == "token_create" && parseOp("token_create") == Op::TokenCreate);
+  CHECK(std::string(opName(Op::TagCreate)) == "tag_create" && parseOp("tag_create") == Op::TagCreate);
   CHECK(std::string(opName(Op::AgentSave)) == "agent_save" && parseOp("agent_save") == Op::AgentSave);
 }
 

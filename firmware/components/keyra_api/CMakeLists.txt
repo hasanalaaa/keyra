@@ -6,6 +6,7 @@ idf_component_register(
          "src/handlers_gen.cpp" "src/generator.cpp" "src/handlers_kbd.cpp" "src/sequence_run.cpp" "src/host_os.cpp"
          "src/handlers_protect.cpp" "src/health.cpp" "src/activity.cpp" "src/activity_log.cpp"
          "src/version.cpp" "src/handlers_update.cpp" "src/tokens.cpp" "src/handlers_agent.cpp"
+         "src/tags.cpp" "src/handlers_tags.cpp"
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "src"
     REQUIRES esp_common keyra_net
@@ -13,6 +14,6 @@ idf_component_register(
                   log freertos keyra_vault keyra_hid keyra_io keyra_ble keyra_fido
     # Built by web/ (`npm run build`); committed so the firmware builds without Node.
     EMBED_FILES "www/index.html.gz" "www/manifest.webmanifest" "www/icon-192.png" "www/icon-512.png"
-                "www/apple-touch-icon.png" "www/favicon.svg"
+                "www/apple-touch-icon.png" "www/favicon.svg" "www/tap.html"
 )
 target_compile_options(${COMPONENT_LIB} PRIVATE -Wall -Wextra -Werror)

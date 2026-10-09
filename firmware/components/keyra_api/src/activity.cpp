@@ -111,6 +111,10 @@ const char* kindName(Kind k) {
     case Kind::AgentArmed: return "agent_armed";
     case Kind::AgentSaved: return "agent_saved";
     case Kind::AgentGenerated: return "agent_generated";
+    case Kind::TagCreated: return "tag_created";
+    case Kind::TagRevoked: return "tag_revoked";
+    case Kind::TagTapped: return "tag_tapped";
+    case Kind::TagRefused: return "tag_refused";
   }
   return "unknown";
 }

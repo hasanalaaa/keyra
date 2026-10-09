@@ -17,7 +17,7 @@ bool mayReveal(const std::string& token);
 // Whether this session may download a backup now: protection is off, or a
 // backup press is waiting to be used (used up here).
 bool mayBackup(const std::string& token);
-// Arms `op` (Reveal, Backup, Recovery or TokenCreate) for this session; the press grants
+// Arms `op` (Reveal, Backup, Recovery, TokenCreate or TagCreate) for this session; the press grants
 // that grace only. 202 {awaiting:"button", op, expiresIn, cancel}, or 409 busy
 // while another session's item waits for the button.
 esp_err_t requestPress(httpd_req_t* r, actions::Op op, const std::string& token);

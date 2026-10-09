@@ -209,6 +209,16 @@ To type something that isn't saved in Keyra, open **⋯ → Type text…**, ente
 
 **Keep Keyra's own Wi-Fi on** is on by default. Turn it off and Keyra's own Wi-Fi switches off about 15 seconds after Keyra joins your home network; it comes back if the home network has been unavailable for 60 seconds, or 30 seconds after power-up if Keyra has not joined by then, so Keyra stays reachable. Keyra has one radio: its own Wi-Fi moves to your home network's channel, and phones joined to it may reconnect once. While home Wi-Fi is connected, Keyra sets its clock from the internet (NTP), so 2FA codes work without a phone having set the time.
 
+### NFC tags
+
+Stick an NFC tag on your desk; tapping it with your phone gets one account ready to type, and you press Keyra's button. The phone must be on Keyra's network (its own Wi-Fi or your home network), and Keyra must be unlocked.
+
+1. In **Settings → NFC tags**, tap **New tag**, pick the account, what to type and **Any NFC tag**, tap **Create tag** and press Keyra's button.
+2. On iPhone, open **NFC Tools → Write → Add a record → URL**, paste the link Keyra shows (once), tap **Write** and hold the tag near the top of the phone. NXP TagWriter works too.
+3. Tap the tag: Safari opens a small Keyra page that says **Press Keyra's button**. Press it and Keyra types.
+
+Anyone who copies a simple tag's link can ask Keyra to type that account (never see it), so your press is still the check. An **NTAG 424 DNA** tag can't be copied: choose it in step 1 and set the keys and SDM offsets Keyra shows in NXP TagWriter. Details: [docs/research/NFC-TAGS.md](docs/research/NFC-TAGS.md).
+
 ## Project layout
 
 ```

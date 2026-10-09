@@ -1,4 +1,4 @@
-import type { AccessToken, BleInfo, DeviceState, Keyboard, Entry, HostOs, EntryInput, ActivityEvent, EntrySummary, Health, Network, PasskeyList, RestoreResult, UpdateCheck, RecoveryInfo, Settings, Totp, TrustedBrowser, TypeTextRequest, TypeWhat, Pending, PresenceOp } from './types';
+import type { AccessToken, NfcTag, NewNfcTag, BleInfo, DeviceState, Keyboard, Entry, HostOs, EntryInput, ActivityEvent, EntrySummary, Health, Network, PasskeyList, RestoreResult, UpdateCheck, RecoveryInfo, Settings, Totp, TrustedBrowser, TypeTextRequest, TypeWhat, Pending, PresenceOp } from './types';
 import { generateRequest, type GenSettings } from './generator';
 
 export class ApiError extends Error {
@@ -237,6 +237,10 @@ export const api = {
   createToken: (t: { name: string; kind: AccessToken['kind']; scope: AccessToken['scope'] }) =>
     json<(AccessToken & { token: string }) | Awaiting>('POST', '/tokens', t),
   revokeToken: (id: number) => json<void>('DELETE', `/tokens/${id}`),
+  tags: () => json<{ tags: NfcTag[]; max: number }>('GET', '/tags'),
+  /** 201 → the tag's URL (and keys), shown once; 202 → press Keyra's button, then call again (SPEC §18). */
+  createTag: (t: Pick<NfcTag, 'name' | 'kind' | 'entry' | 'what'> & { target?: string }) => json<NewNfcTag | Awaiting>('POST', '/tags', t),
+  revokeTag: (id: number) => json<void>('DELETE', `/tags/${id}`),
   passkeys: async () => await json<PasskeyList>('GET', '/fido'),
   deletePasskey: (id: number) => json<Awaiting>('DELETE', `/fido/${id}`),
 };

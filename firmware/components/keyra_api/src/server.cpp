@@ -27,6 +27,8 @@ extern const uint8_t touch_start[] asm("_binary_apple_touch_icon_png_start");
 extern const uint8_t touch_end[] asm("_binary_apple_touch_icon_png_end");
 extern const uint8_t favicon_start[] asm("_binary_favicon_svg_start");
 extern const uint8_t favicon_end[] asm("_binary_favicon_svg_end");
+extern const uint8_t tap_start[] asm("_binary_tap_html_start");
+extern const uint8_t tap_end[] asm("_binary_tap_html_end");
 
 namespace keyra::api {
 namespace {
@@ -120,6 +122,14 @@ esp_err_t handleAny(httpd_req_t* r) {
   if (method == Method::Get) {
     for (const Asset& a : kAssets) {
       if (path == a.path) return sendAsset(r, a);
+    }
+    // An NFC tag's URL (SPEC §18): a page that arms nothing by itself, so a
+    // link preview fetching it changes nothing; its script does the tap.
+    if (isTapPage(path)) {
+      httpd_resp_set_type(r, "text/html; charset=utf-8");
+      httpd_resp_set_hdr(r, "Cache-Control", "no-store");
+      http::securityHeaders(r);
+      return httpd_resp_send(r, reinterpret_cast<const char*>(tap_start), tap_end - tap_start);
     }
   }
   return http::sendError(r, http::k404, "not_found", "Not found");

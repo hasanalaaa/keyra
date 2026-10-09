@@ -10,7 +10,7 @@ const html = readFileSync(dist('index.html'));
 const gz = gzipSync(html, { level: 9 });
 writeFileSync(www('index.html.gz'), gz);
 
-for (const f of ['manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png', 'favicon.svg']) {
+for (const f of ['manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png', 'favicon.svg', 'tap.html']) {
   copyFileSync(dist(f), www(f));
 }
 

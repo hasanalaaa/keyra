@@ -39,6 +39,11 @@ enum class Kind : uint8_t {
   AgentArmed = 22,     // id: the entry; detail: 0 username, 1 password, 2 both, 3 2FA code
   AgentSaved = 23,     // id: the new entry
   AgentGenerated = 24, // id: the token's id; n: passwords in a row
+  // NFC tap tags (SPEC §18). title: the tag's name; never its secret or keys.
+  TagCreated = 25,     // detail: 0 simple, 1 secure
+  TagRevoked = 26,
+  TagTapped = 27,      // id: the entry; detail as AgentArmed
+  TagRefused = 28,     // id: the tag's id; detail: 0 wrong secret or MAC, 1 replayed, 2 another chip; n: in a row
 };
 
 enum class LockWhy : uint8_t { Manual = 0, Idle = 1, Usb = 2, Ble = 3, Button = 4 };

@@ -1382,6 +1382,108 @@ async function tokensFlow(base, opts) {
   await ctx.close();
 }
 
+// ---------- NFC tap tags (SPEC §18): a tag's URL arms one account, the press types; revoked or replayed → refused ----------
+
+async function tagsFlow(base, opts) {
+  const { ctx, page, tag } = await open(base, opts);
+  console.log(`nfc tags ${tag || '(phone, ar, light)'}`);
+  await unlockUi(page);
+  const github = (await pageApi(page, 'GET', '/api/entries')).body.entries.find((e) => e.title === 'GitHub');
+  const sheetRow = L(opts, 'NFC tags', 'وسوم NFC');
+
+  /** New tag in the sheet → press → the shown-once screen. */
+  const createTag = async (name, kind, shotName) => {
+    await page.locator('.sheet button', { hasText: L(opts, 'New tag', 'وسم جديد') }).click();
+    await page.locator('.tokens-new input').first().fill(name);
+    const create = page.locator('.tokens-new button', { hasText: L(opts, 'Create tag', 'أنشئ الوسم') });
+    check(await create.isDisabled(), 'no account picked yet: cannot create');
+    await page.locator('[data-testid=tag-entry]').selectOption(String(github.id));
+    await page.locator('[data-testid=tag-what]').selectOption('password');
+    if (kind === 'secure') await page.locator('.tokens-new .seg-item', { hasText: 'NTAG 424 DNA' }).click();
+    if (shotName) await shot(page, shotName);
+    await create.click();
+    await page.locator('.ready-ready').waitFor();
+    check((await button(base)) === 'approved tag_create', 'the press approves creating the tag');
+    const url = page.locator('[data-testid=tag-url]');
+    await url.waitFor({ timeout: 8000 });
+    return ((await url.textContent()) ?? '').trim();
+  };
+  /** Opens a tag's URL like the phone does after a tap; → the page, once it shows a result. */
+  const tap = async (path, heading) => {
+    const p = await ctx.newPage();
+    p.on('console', (m) => m.type() === 'error' && !/status of (401|409)/.test(m.text()) && errors.push(`[tap console] ${m.text()}`));
+    await p.goto(base + path);
+    await p.locator('h1', { hasText: heading }).waitFor({ timeout: 8000 });
+    return p;
+  };
+  const press = L(opts, "Press Keyra's button", 'اضغط زرّ Keyra');
+  const typed = L(opts, 'Typed', 'تمّت الكتابة');
+
+  // Simple tag: the URL carries a secret, shown once.
+  await settingsRow(page, sheetRow);
+  const url = await createTag('Desk', 'simple', `tags-new${tag}`);
+  const simple = /^http:\/\/keyra\.local\/t\/(\d+)\/([a-z2-7]{24})$/.exec(url);
+  check(simple, `simple tag URL (${url})`);
+  await shot(page, `tags-created${tag}`);
+  await page.locator('.kit button', { hasText: L(opts, 'Done', 'تم') }).click();
+  await page.locator('[data-testid=tag-list] .trusted-row', { hasText: 'Desk' }).waitFor();
+  check(!JSON.stringify((await pageApi(page, 'GET', '/api/tags')).body).includes(simple[2]), 'the list never returns the secret');
+
+  // A preview's GET changes nothing; the page's script arms, the press types.
+  const preview = await fetch(`${base}/t/${simple[1]}/${simple[2]}`);
+  check(preview.status === 200 && (await preview.text()).includes('/api/tag/tap'), 'GET serves the tap page');
+  check((await (await authed(ctx, `${base}/api/state`)).json()).pending === null, 'a plain GET arms nothing');
+  const t1 = await tap(`/t/${simple[1]}/${simple[2]}`, press);
+  check(new URL(t1.url()).pathname === `/t/${simple[1]}`, 'the secret leaves the address bar');
+  check(((await t1.locator('#acc').textContent()) ?? '').includes('GitHub'), 'the tap page names the account');
+  await shot(t1, `tap-armed${tag}`);
+  check((await button(base)) === 'typing password · GitHub', 'the press types it');
+  await t1.locator('h1', { hasText: typed }).waitFor({ timeout: 8000 });
+  await shot(t1, `tap-typed${tag}`);
+  await t1.close();
+
+  // Secure tag (NTAG 424 DNA): keys and SDM settings shown once; the mock plays the tag.
+  const tmpl = await createTag('Card', 'secure');
+  check(/^http:\/\/keyra\.local\/t\/\d+\?p=0{32}&m=0{16}$/.test(tmpl), `secure template (${tmpl})`);
+  for (const k of ['meta', 'file']) check(/^[0-9a-f]{32}$/.test(((await page.locator(`[data-testid=tag-key-${k}]`).textContent()) ?? '').trim()), `${k} key shown`);
+  check((await page.locator('[data-testid=tag-sdm] .row').count()) === 2, 'SDM offsets shown');
+  await shot(page, `tags-secure${tag}`);
+  await page.locator('.kit button', { hasText: L(opts, 'Done', 'تم') }).click();
+  const card = (await pageApi(page, 'GET', '/api/tags')).body.tags.find((x) => x.name === 'Card');
+  check(card.kind === 'secure' && card.bound === false && !('keys' in card), 'list: no keys, not bound yet');
+  const sun = async () => (await (await fetch(`${base}/__mock/sun`, { method: 'POST', body: JSON.stringify({ id: card.id }) })).json()).url;
+  const first = await sun();
+  const t2 = await tap(first, press);
+  check((await button(base)) === 'typing password · GitHub', 'the press types the secure tag');
+  await t2.locator('h1', { hasText: typed }).waitFor({ timeout: 8000 });
+  await t2.close();
+  const t3 = await tap(first, L(opts, 'This tap was already used', 'استُخدمت هذه اللمسة من قبل'));
+  await shot(t3, `tap-replayed${tag}`);
+  await t3.close();
+  const forged = first.replace(/m=[0-9A-F]{16}/, 'm=0000000000000000');
+  (await tap(forged, L(opts, 'Unknown tag', 'وسم غير معروف'))).close();
+  const bound = (await pageApi(page, 'GET', '/api/tags')).body.tags.find((x) => x.name === 'Card');
+  check(bound.bound === true && bound.counter === 1, `bound at counter 1 (${bound.counter})`);
+
+  // Revoke the simple tag (no press): its URL stops at once.
+  await page.locator('[data-testid=tag-list] .trusted-row', { hasText: 'Desk' }).locator('.icon-btn').click();
+  await page.locator('.alert .btn-danger-confirm').click();
+  await page.locator('[data-testid=tag-list] .trusted-row', { hasText: 'Desk' }).waitFor({ state: 'detached' });
+  (await tap(`/t/${simple[1]}/${simple[2]}`, L(opts, 'Unknown tag', 'وسم غير معروف'))).close();
+  const kinds = (await pageApi(page, 'GET', '/api/activity')).body.events.map((e) => e.kind);
+  for (const k of ['tag_created', 'tag_tapped', 'typed', 'tag_refused', 'tag_revoked']) check(kinds.includes(k), `activity has ${k}`);
+
+  // Locked: Keyra cannot check a tag, and says so.
+  await page.keyboard.press('Escape');
+  const before = errors.length;
+  check((await pageApi(page, 'POST', '/api/lock')).status === 204, 'locked');
+  const t4 = await tap(await sun(), L(opts, 'Unlock Keyra first', 'افتح قفل Keyra أولاً'));
+  await shot(t4, `tap-locked${tag}`);
+  expectErrors(before, 401); // the app's own polls after the lock
+  console.log('  ✓ nfc tags flow passed');
+  await ctx.close();
+}
+
 // ---------- Trusted browsers (SPEC §8.2): removing this browser signs it out; it must be trusted again ----------
 
 async function trustedFlow(base, opts) {
@@ -1489,6 +1591,8 @@ try {
   await trustedFlow(await startMock({ MOCK_VIA: 'home' }), { lang: 'en', dark: true });
   await tokensFlow(await startMock(), {});
   await tokensFlow(await startMock(), { lang: 'en', dark: true });
+  await tagsFlow(await startMock(), {});
+  await tagsFlow(await startMock(), { lang: 'en', dark: true });
 
   quantizeShots();
   if (errors.length) {

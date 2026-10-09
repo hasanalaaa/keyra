@@ -179,7 +179,7 @@ runs PBKDF2 elsewhere. Only passphrase strength does.
 Nothing is typed without a button press, and the press must happen within 60
 seconds of the request. Setup, Wi-Fi credential changes, joining, changing or
 leaving the home network, trusting a browser on the home network, opening the
-Bluetooth pairing window, creating an access token or saving an account an app sent,
+Bluetooth pairing window, creating an access token or an NFC tag, saving an account an app sent,
 a replacing restore, factory reset and every passkey or
 security-key registration and sign-in also need a button press. The button is GPIO0 (the BOOT button),
 and the firmware never restarts while it is held low, to avoid latching ROM download mode.
@@ -300,6 +300,27 @@ and cannot do:
 - **Abuse.** 10 requests per 10 s per token; unknown tokens share one more
   budget. Repeated listings are counted on one activity line so they cannot
   push the rest of the history out.
+
+## NFC tap tags
+
+Settings → NFC tags makes stickers whose URL arms one account (SPEC §18;
+design and threat model in [docs/research/NFC-TAGS.md](docs/research/NFC-TAGS.md)):
+
+- **Arm, never read.** Opening a tag's URL on Keyra's network gets one fixed
+  account ready to type; nothing a tag reaches returns a secret, and the press
+  is still required. A plain GET (a link preview) changes nothing.
+- **Simple tags can be copied.** Anyone who reads the sticker, photographs the
+  URL or sees it on the network can arm that account. Keyra keeps only a hash
+  of the tag's secret. Revoke a tag you doubt.
+- **Secure tags (NTAG 424 DNA)** carry a fresh AES-CMAC and counter on every
+  read (SUN, NXP AN12196). A cloned or recorded URL fails once it has been used
+  or a newer tap was seen (409 `replayed`); the same keys on a different chip
+  fail (UID bound on the first tap). The two AES keys are random per tag,
+  shown once, and stored only inside the vault sealed with the data key.
+- **Locked = inert.** Without the data key Keyra cannot check a tag; the tap
+  page says "Unlock Keyra first". Creating a tag needs a press; revoking needs
+  none and withdraws anything it armed. Taps are rate limited (10 per 10 s per
+  tag, plus one shared budget for unknown tags and wrong codes) and logged.
 
 ## Optional hardening (not enabled by default)
 

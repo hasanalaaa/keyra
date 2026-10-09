@@ -49,6 +49,8 @@
 //              "keyra/activity/v1"; the plaintext is keyra_api's encoding (vault_activity.cpp)
 //   tokens.bin access tokens (SPEC §17), same format with AAD "keyra/tokens/v1";
 //              the plaintext is keyra_api's encoding (tokens.cpp)
+//   tags.bin   NFC tap tags (SPEC §18), same format with AAD "keyra/tags/v1";
+//              the plaintext is keyra_api's encoding (tags.cpp)
 //   *.tmp      in-flight atomic writes (write tmp → close → rename); any found at
 //              init are leftovers of an interrupted write and are deleted.
 //
@@ -77,6 +79,7 @@ uint32_t unlockDelayMs(uint32_t failures);
 inline constexpr char kActivityPath[] = "activity.bin";
 inline constexpr size_t kMaxActivity = kMaxActivityBytes;
 inline constexpr char kTokensPath[] = "tokens.bin";
+inline constexpr char kTagsPath[] = "tags.bin";
 
 class Vault {
  public:
@@ -132,6 +135,9 @@ class Vault {
   // Access tokens (vault_activity.cpp): one opaque record, encrypted like an entry.
   Status tokensRead(std::vector<uint8_t>& out);
   Status tokensWrite(const std::vector<uint8_t>& data);
+  // NFC tap tags (vault_activity.cpp): one opaque record, encrypted like an entry.
+  Status tagsRead(std::vector<uint8_t>& out);
+  Status tagsWrite(const std::vector<uint8_t>& data);
   // Wrong passphrases / recovery keys tried before the last successful unlock.
   uint32_t failedBeforeUnlock() const { return failedBefore_; }
 

@@ -8,6 +8,19 @@ All notable changes to Keyra are documented here. The format follows
 
 ### Added
 
+- **NFC tap tags** (SPEC §18, [NFC-TAGS.md](docs/research/NFC-TAGS.md)):
+  Settings → **NFC tags** makes a sticker that gets one account ready to type
+  when your phone taps it on Keyra's network — you still press Keyra's button,
+  and the tag never shows a secret. *Simple* tags work with any NTAG213/215/216
+  (write the link with NFC Tools or NXP TagWriter; copyable by design, Keyra
+  keeps only a hash). *Secure* tags use an NTAG 424 DNA with SUN messages:
+  Keyra checks the AES-CMAC (NXP AN12196), binds the chip's UID and refuses
+  replayed counters; the keys and the SDM offsets for TagWriter are shown once.
+  Tags live in a new vault record sealed with the data key (`tags.bin`, at most
+  16), need a press to create, are revoked without one, are rate limited and
+  logged. The tag's link opens a small page that arms nothing by itself (link
+  previews are safe) and follows the press to "Typed".
+
 - **Security key PIN, hmac-secret and credProtect** (firmware + web,
   [FIDO.md](docs/FIDO.md#clientpin)): CTAP2 `authenticatorClientPIN` with PIN/UV
   auth protocols 2 and 1 (getPINRetries, getKeyAgreement, setPIN, changePIN,

@@ -63,6 +63,8 @@ Status activityRead(std::vector<uint8_t>& out) { return detail::instance().activ
 Status activityWrite(const std::vector<uint8_t>& data) { return detail::instance().activityWrite(data); }
 Status tokensRead(std::vector<uint8_t>& out) { return detail::instance().tokensRead(out); }
 Status tokensWrite(const std::vector<uint8_t>& data) { return detail::instance().tokensWrite(data); }
+Status tagsRead(std::vector<uint8_t>& out) { return detail::instance().tagsRead(out); }
+Status tagsWrite(const std::vector<uint8_t>& data) { return detail::instance().tagsWrite(data); }
 uint32_t failedBeforeUnlock() { return detail::instance().failedBeforeUnlock(); }
 
 const char* statusName(Status s) {

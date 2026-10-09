@@ -87,6 +87,8 @@ void coalesced() {
   append(log, ev(Kind::AgentArmed, 5, "Claude"));
   CHECK(log.size() == 6);
   CHECK(std::string(kindName(Kind::TokenCreated)) == "token_created");
+  CHECK(std::string(kindName(Kind::TagCreated)) == "tag_created" && std::string(kindName(Kind::TagTapped)) == "tag_tapped");
+  CHECK(std::string(kindName(Kind::TagRevoked)) == "tag_revoked" && std::string(kindName(Kind::TagRefused)) == "tag_refused");
   CHECK(std::string(kindName(Kind::AgentGenerated)) == "agent_generated");
   std::vector<Event> back;
   CHECK(decode(encode(log), back) && back.size() == 6 && back[1].n == 3 && back[4].kind == Kind::AgentArmed);

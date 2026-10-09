@@ -94,6 +94,29 @@ TEST(tokens_record_sealed_separately_and_survives_passphrase_change) {
   CHECK(r->storage.files.count("tokens.bin") == 0);
 }
 
+// NFC tap tags (SPEC §18): a third record under its own name and AAD.
+TEST(tags_record_sealed_separately) {
+  auto r = Rig::ready();
+  std::vector<uint8_t> out;
+  CHECK((*r)->tagsRead(out) == Status::Ok && out.empty());
+  CHECK((*r)->tagsWrite(blob("tag Desk GitHub")) == Status::Ok);
+  CHECK((*r)->tokensWrite(blob("token")) == Status::Ok);
+  const auto& file = r->storage.files["tags.bin"];
+  CHECK(std::search(file.begin(), file.end(), std::begin("Desk"), std::end("Desk") - 1) == file.end());
+  r->storage.files["tags.bin"] = r->storage.files["tokens.bin"];
+  CHECK((*r)->tagsRead(out) == Status::Corrupt);
+  CHECK((*r)->tagsWrite(blob("tag Desk GitHub")) == Status::Ok);
+  CHECK((*r)->changePassphrase(kPass, "another long passphrase") == Status::Ok);
+  (*r)->lock();
+  CHECK((*r)->tagsRead(out) == Status::Locked);
+  CHECK((*r)->tagsWrite(blob("x")) == Status::Locked);
+  CHECK((*r)->unlock("another long passphrase", nullptr) == Status::Ok);
+  CHECK((*r)->tagsRead(out) == Status::Ok && out == blob("tag Desk GitHub"));
+  CHECK((*r)->tagsWrite(std::vector<uint8_t>(kMaxTagsBytes + 1, 'a')) == Status::Invalid);
+  CHECK((*r)->factoryReset() == Status::Ok);
+  CHECK(r->storage.files.count("tags.bin") == 0);
+}
+
 TEST(tokens_gone_after_factory_reset) {
   auto r = Rig::ready();
   CHECK((*r)->tokensWrite(blob("t")) == Status::Ok);
