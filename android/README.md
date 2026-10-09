@@ -14,14 +14,18 @@ that returns one.
   The password is shown on a screen that blocks screenshots, and copying marks
   the clip sensitive and clears it after 60 s. It is not stored anywhere.
 - **Autofill (Mode A, button-gated typing)**: on a login form the suggestions
-  are "Keyra · *title*" for logins whose host matches the page's domain (same
-  registrable domain) or the app (its package contains the domain's name, e.g.
-  `com.github.android` ↔ `github.com`, or a login saved from that app), plus
+  are "Keyra · *title*" for logins whose host is the page's host or a
+  subdomain either way (`github.com` ↔ `gist.github.com`; page domains are
+  trusted only from known browsers, so an app cannot pose as a site), or, in
+  an app, logins saved from that very app (`androidapp://<package>`), plus
   "Keyra · Choose a login…". A suggestion holds **no value**: choosing it asks
   Keyra to arm (`both` from the username field, `password` from the password
   field, `username` on a username-only step), you return to the field and
   press Keyra's button, and Keyra types as a Bluetooth/USB keyboard. Choices
-  made with "Choose a login…" can be remembered for that app or site.
+  made with "Choose a login…" can be remembered for that app or site; the
+  picker shows the app's package next to its name, since any app can call
+  itself "GitHub". Package names are never used to guess a login, and fields
+  of a frame from another domain inside the page are ignored.
 - **Save**: after a sign-in or sign-up Android offers "Save to Keyra"; the app
   shows what will be saved and sends it once to `/api/agent/save`; Keyra stores
   it only when you press its button. The values live in that screen's memory
