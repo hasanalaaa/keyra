@@ -5,10 +5,12 @@
 #include <mutex>
 
 #include "activity.hpp"
+#include "companion.hpp"
 #include "esp_log.h"
 #include "esp_random.h"
 #include "handlers_gen.hpp"
 #include "handlers_protect.hpp"
+#include "host_match.hpp"
 #include "http.hpp"
 #include "keyra/vault.hpp"
 #include "psa/crypto.h"
@@ -145,6 +147,83 @@ esp_err_t listEntries(httpd_req_t* r, const Token& t) {
   return http::sendJson(r, http::k200, o.get());
 }
 
+// The page's host from a request body; false when refused (the 400 is sent).
+bool readHost(httpd_req_t* r, const cJSON* body, std::string& host, esp_err_t& err) {
+  if (json::getString(body, "host", host) != Field::Ok || !hostmatch::validHost(host)) {
+    err = badRequest(r, "\"host\" (the page's host name) is required");
+    return false;
+  }
+  host = hostmatch::normalize(host);
+  return true;
+}
+
+// Host binding for an extension (SPEC §9.4): it types only into a page the
+// login is for, unless the user chose another site's login ("anyHost"); then
+// `elsewhere` is the page's host. False when refused (the reply is sent).
+bool checkHost(httpd_req_t* r, const cJSON* body, uint32_t id, std::string& elsewhere, esp_err_t& err) {
+  std::string page;
+  if (!readHost(r, body, page, err)) return false;
+  bool anyHost = false;
+  if (json::getBool(body, "anyHost", anyHost) == Field::BadType) {
+    err = badRequest(r, "\"anyHost\" must be true or false");
+    return false;
+  }
+  vault::Entry e;
+  // An unknown entry is answered by entryRequest(), like for every other kind.
+  if (vault::get(id, e) != vault::Status::Ok) {
+    vault::wipe(e);
+    return true;
+  }
+  const companion::HostCheck check = companion::checkHost(e.url, page, anyHost);
+  vault::wipe(e);
+  switch (check) {
+    case companion::HostCheck::Same: return true;
+    case companion::HostCheck::Elsewhere: elsewhere = page; return true;
+    case companion::HostCheck::Refused: break;
+  }
+  err = http::sendError(r, http::k409, "host_mismatch", "This login is for another site");
+  return false;
+}
+
+// The logins offered on a page (SPEC §9.4). `sameUser` tells the extension
+// whether a login it is about to save already exists; passwords are never
+// compared, so this cannot be used to test a guess.
+esp_err_t postMatch(httpd_req_t* r, const Token& t, const cJSON* body) {
+  if (!tokens::isExtension(t))
+    return http::sendError(r, http::k403, "forbidden", "Only a browser extension's token can match logins");
+  std::string page;
+  esp_err_t err = ESP_OK;
+  if (!readHost(r, body, page, err)) return err;
+  json::Secret user;  // half a credential: wiped like one
+  const Field got = json::getString(body, "username", user.s);
+  if (got == Field::BadType || user.s.size() > vault::kMaxUsername)
+    return badRequest(r, "\"username\" must be a string within the vault's limits");
+  const bool withUser = got == Field::Ok;
+
+  std::vector<vault::Entry> all;
+  const vault::Status st = vault::list(all);
+  const std::vector<companion::Offer> offers =
+      st == vault::Status::Ok ? companion::match(t, all, page, withUser ? &user.s : nullptr)
+                              : std::vector<companion::Offer>{};
+  for (vault::Entry& e : all) vault::wipe(e);
+  if (st != vault::Status::Ok) {
+    return http::sendError(r, st == vault::Status::Locked ? http::k401 : http::k500,
+                           st == vault::Status::Locked ? "locked" : "storage", "Could not read the accounts");
+  }
+  json::Ptr o(cJSON_CreateObject());
+  cJSON* arr = cJSON_AddArrayToObject(o.get(), "entries");
+  for (const companion::Offer& m : offers) {
+    cJSON* j = cJSON_CreateObject();
+    cJSON_AddNumberToObject(j, "id", m.id);
+    cJSON_AddStringToObject(j, "title", m.title.c_str());
+    cJSON_AddStringToObject(j, "host", m.host.c_str());
+    if (withUser) cJSON_AddBoolToObject(j, "sameUser", m.sameUser);
+    cJSON_AddItemToArray(arr, j);
+  }
+  activity::log({activity::Kind::AgentListed, 0, t.id, 1, 0, t.name}, true);
+  return http::sendJson(r, http::k200, o.get());
+}
+
 esp_err_t postType(httpd_req_t* r, const Token& t, const cJSON* body) {
   int64_t id = 0;
   if (json::getInt(body, "id", 1, UINT32_MAX, id) != Field::Ok) return badRequest(r, "\"id\" (entry id) is required");
@@ -153,11 +232,17 @@ esp_err_t postType(httpd_req_t* r, const Token& t, const cJSON* body) {
   if (!what || *what == actions::What::Sequence) return badRequest(r, "\"what\" must be username, password, both or totp");
   // Outside the scope answers like an unknown id: no hint which ids exist.
   if (!tokens::inScope(t, static_cast<uint32_t>(id))) return http::sendError(r, http::k404, "not_found", "No such entry");
+  std::string elsewhere;  // the page's host, when the extension types a login for another site
+  if (tokens::isExtension(t)) {
+    esp_err_t err = ESP_OK;
+    if (!checkHost(r, body, static_cast<uint32_t>(id), elsewhere, err)) return err;
+  }
   Target target;
   actions::TypeRequest req;
   esp_err_t err = ESP_OK;
   if (!typereq::readTarget(r, body, target, err)) return err;
   if (!typereq::entryRequest(r, body, static_cast<uint32_t>(id), *what, target, req, err)) return err;
+  req.host = elsewhere;
   const std::string title = req.title;
   const auto pending = machine().arm(std::move(req), tokens::owner(t.id));
   if (!pending) {
@@ -168,7 +253,12 @@ esp_err_t postType(httpd_req_t* r, const Token& t, const cJSON* body) {
     std::lock_guard<std::mutex> lock(g_mu);
     g_last[t.id] = {pending->req.serial, false, pending->req.id, title, *what};
   }
-  activity::log(activity::Kind::AgentArmed, pending->req.id, t.name, whatDetail(*what));
+  if (elsewhere.empty()) {
+    activity::log(activity::Kind::AgentArmed, pending->req.id, t.name, whatDetail(*what));
+  } else {
+    activity::log(activity::Kind::AgentArmed, pending->req.id, activity::elsewhereTitle(t.name, elsewhere),
+                  whatDetail(*what) + activity::kArmedElsewhere);
+  }
   json::Ptr o(cJSON_CreateObject());
   typereq::addPending(cJSON_AddObjectToObject(o.get(), "pending"), *pending);
   cJSON_AddNumberToObject(o.get(), "expiresIn", static_cast<double>(pending->expiresInMs));
@@ -243,19 +333,32 @@ esp_err_t getStatus(httpd_req_t* r, const Token& t) {
   return http::sendJson(r, http::k200, o.get());
 }
 
-// The account an app sent, held (and wiped) until the press stores it or the op is dropped.
+// The account a token sent, held (and wiped) until the press stores it or the op is dropped.
 struct SaveJob {
   vault::Entry entry;
+  uint32_t replace = 0;  // update this entry instead of creating one
   uint32_t tokenId = 0;
   std::string tokenName;
   ~SaveJob() { vault::wipe(entry); }
 };
 
+// Create: a new entry. Update: the username (when one was sent) and the
+// password; the vault moves the old password into the entry's history (§9.3).
 bool commitSave(SaveJob& job, uint32_t serial) {
   if (!vault::unlocked()) return false;
-  vault::Entry e = job.entry;
-  e.id = 0;
-  e.created = e.updated = unixSecondsOrZero();
+  vault::Entry e;
+  if (job.replace != 0) {
+    // The account may have been deleted while the press was awaited.
+    if (vault::get(job.replace, e) != vault::Status::Ok) {
+      vault::wipe(e);
+      return false;
+    }
+    companion::applyReplace(e, job.entry, unixSecondsOrZero());
+  } else {
+    e = job.entry;
+    e.id = 0;
+    e.created = e.updated = unixSecondsOrZero();
+  }
   const vault::Status st = vault::put(e);
   const uint32_t id = e.id;
   vault::wipe(e);
@@ -268,10 +371,10 @@ bool commitSave(SaveJob& job, uint32_t serial) {
     const auto it = g_last.find(job.tokenId);
     if (it != g_last.end() && it->second.serial == serial) it->second.id = id;
     tokens::Store s;
-    // A scoped app token may type what it just saved (while its scope has room).
-    if (loadLocked(s) == vault::Status::Ok && s.addToScope(job.tokenId, id)) saveLocked(s);
+    // A scoped token may type what it just saved (while its scope has room).
+    if (job.replace == 0 && loadLocked(s) == vault::Status::Ok && s.addToScope(job.tokenId, id)) saveLocked(s);
   }
-  activity::log(activity::Kind::AgentSaved, id, job.tokenName);
+  activity::log(activity::Kind::AgentSaved, id, job.tokenName, job.replace != 0 ? 1 : 0);
   return true;
 }
 
@@ -295,7 +398,22 @@ esp_err_t postSave(httpd_req_t* r, const Token& t, const cJSON* body) {
       return badRequest(r, msg.c_str());
     }
   }
-  if (job->entry.title.empty()) return badRequest(r, "\"title\" (string) is required");
+  int64_t replace = 0;
+  if (json::getInt(body, "replace", 1, UINT32_MAX, replace) == Field::BadType)
+    return badRequest(r, "\"replace\" must be an entry id");
+  job->replace = static_cast<uint32_t>(replace);
+  if (job->replace != 0) {
+    // title and url are ignored: an update changes only the login itself.
+    if (job->entry.password.empty()) return badRequest(r, "\"password\" (string) is required to update an account");
+    // Outside the scope answers like an unknown id: no hint which ids exist.
+    vault::Entry e;
+    const vault::Status st = tokens::inScope(t, job->replace) ? vault::get(job->replace, e) : vault::Status::NotFound;
+    vault::wipe(e);
+    if (st == vault::Status::NotFound) return http::sendError(r, http::k404, "not_found", "No such entry");
+    if (st != vault::Status::Ok) return http::sendError(r, http::k500, "storage", "Could not read the account");
+  } else if (job->entry.title.empty()) {
+    return badRequest(r, "\"title\" (string) is required");
+  }
   // The serial is known only once armed; the commit reads it from this cell.
   auto serial = std::make_shared<uint32_t>(0);
   const auto armed = machine().awaitPresence(
@@ -312,6 +430,7 @@ esp_err_t postSave(httpd_req_t* r, const Token& t, const cJSON* body) {
   json::Ptr o(cJSON_CreateObject());
   cJSON_AddStringToObject(o.get(), "awaiting", "button");
   cJSON_AddStringToObject(o.get(), "op", actions::opName(actions::Op::AgentSave));
+  cJSON_AddStringToObject(o.get(), "mode", job->replace != 0 ? "update" : "create");
   cJSON_AddNumberToObject(o.get(), "expiresIn", static_cast<double>(armed->expiresIn));
   return http::sendJson(r, http::k202, o.get());
 }
@@ -419,6 +538,7 @@ esp_err_t dispatch(httpd_req_t* r, Route route, const Token& t, const cJSON* bod
     case Route::AgentCancel: return postCancel(r, t);
     case Route::AgentSave: return postSave(r, t, body);
     case Route::AgentGenerate: return postGenerate(r, t, body);
+    case Route::AgentMatch: return postMatch(r, t, body);
     default: break;
   }
   return http::sendError(r, http::k404, "not_found", "No such endpoint");

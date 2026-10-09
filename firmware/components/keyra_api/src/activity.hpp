@@ -36,8 +36,8 @@ enum class Kind : uint8_t {
   TokenCreated = 19,   // detail: 0 agent, 1 app, 2 extension
   TokenRevoked = 20,
   AgentListed = 21,    // id: the token's id; n: lists in a row (counted, not repeated)
-  AgentArmed = 22,     // id: the entry; detail: 0 username, 1 password, 2 both, 3 2FA code
-  AgentSaved = 23,     // id: the new entry
+  AgentArmed = 22,     // id: the entry; detail: 0 username, 1 password, 2 both, 3 2FA code (+ kArmedElsewhere)
+  AgentSaved = 23,     // id: the new entry (detail 0) or the updated one (detail 1)
   AgentGenerated = 24, // id: the token's id; n: passwords in a row
   // NFC tap tags (SPEC §18). title: the tag's name; never its secret or keys.
   TagCreated = 25,     // detail: 0 simple, 1 secure
@@ -71,6 +71,12 @@ bool decode(const std::vector<uint8_t>& bytes, std::vector<Event>& out);
 void append(std::vector<Event>& events, Event e, bool coalesce = false);
 
 const char* kindName(Kind k);  // stable API token, e.g. "typed"
+
+// AgentArmed for a page whose host does not match the login (an extension's
+// "anyHost", SPEC §9.4): kArmedElsewhere is added to the detail and the title
+// is "<token name> → <page host>", the name shortened first so the host fits.
+constexpr uint8_t kArmedElsewhere = 4;
+std::string elsewhereTitle(std::string_view tokenName, std::string_view pageHost);
 
 // activity_log.cpp (device only). log() stamps the time and appends while the
 // vault is unlocked; when it is locked the event is dropped (nothing can be

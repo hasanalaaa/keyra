@@ -1168,7 +1168,7 @@ bool takesBody(Route r) {
     case Route::HealthRotate:
     case Route::CreateToken:
     case Route::CreateTag: case Route::TagTap: case Route::TagStatus:
-    case Route::AgentType: case Route::AgentSave: case Route::AgentGenerate:
+    case Route::AgentType: case Route::AgentSave: case Route::AgentGenerate: case Route::AgentMatch:
       return true;
     default:
       return false;
@@ -1265,6 +1265,7 @@ esp_err_t dispatch(Ctx& c) {
     case Route::AgentStatus:
     case Route::AgentCancel:
     case Route::AgentSave:
+    case Route::AgentMatch:
     case Route::AgentGenerate: return agent::dispatch(c.r, c.match.route, *c.bearer, c.body.get());
     case Route::ListTags: return tagapi::listTags(c.r);
     case Route::CreateTag: return tagapi::createTag(c.r, c.body.get(), c.token);
@@ -1353,6 +1354,7 @@ void addPending(cJSON* po, const actions::Pending& p) {
   std::string by = agent::ownerName(p.owner);
   if (by.empty()) by = tagapi::ownerName(p.owner);
   if (!by.empty()) cJSON_AddStringToObject(po, "by", by.c_str());
+  if (!p.req.host.empty()) cJSON_AddStringToObject(po, "host", p.req.host.c_str());
 }
 
 }  // namespace typereq
@@ -1374,7 +1376,7 @@ esp_err_t handleApi(httpd_req_t* r, Method method, std::string_view path) {
 
   if (method != Method::Get) {
     const bool hasOrigin = httpd_req_get_hdr_value_len(r, "Origin") > 0;
-    if (!isAllowedOrigin(http::header(r, "Origin", 128), hasOrigin, net::homeIp()))
+    if (!isAllowedOriginFor(c.match.route, http::header(r, "Origin", 128), hasOrigin, net::homeIp()))
       return http::sendError(r, http::k403, "csrf", "Cross-origin request refused");
   }
 

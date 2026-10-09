@@ -89,6 +89,9 @@ struct TypeRequest {
   // macOS/iOS host currently in a non-Latin input language: Ctrl+Space
   // before typing and again after (SPEC §10.5).
   bool switchLang = false;
+  // An extension armed this for a page whose host does not match the login
+  // (SPEC §9.4): that page's host, shown with the pending item. Else empty.
+  std::string host{};
   uint32_t usbSession = 0;  // set by arm(): the USB connection a USB action is bound to (0 = none)
   uint32_t serial = 0;      // set by arm(): names this request in track()
 };

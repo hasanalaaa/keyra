@@ -161,6 +161,7 @@ Match matchDecoded(Method m, std::string_view path) {
   if (p == "agent/cancel") return only(m, Method::Post, Route::AgentCancel);
   if (p == "agent/save") return only(m, Method::Post, Route::AgentSave);
   if (p == "agent/generate") return only(m, Method::Post, Route::AgentGenerate);
+  if (p == "agent/match") return only(m, Method::Post, Route::AgentMatch);
   if (p == "wifi/scan") return only(m, Method::Get, Route::WifiScan);
   if (p == "wifi/home") return only(m, Method::Put, Route::WifiHome);
   if (p == "trusted") return only(m, Method::Get, Route::ListTrusted);
@@ -196,7 +197,7 @@ Match matchDecoded(Method m, std::string_view path) {
 
 bool isAgent(Route r) {
   return r == Route::AgentEntries || r == Route::AgentType || r == Route::AgentStatus || r == Route::AgentCancel ||
-         r == Route::AgentSave || r == Route::AgentGenerate;
+         r == Route::AgentSave || r == Route::AgentGenerate || r == Route::AgentMatch;
 }
 
 bool isTagTap(Route r) { return r == Route::TagTap || r == Route::TagStatus; }
@@ -232,6 +233,19 @@ bool isAllowedOrigin(std::string_view origin, bool present, std::string_view hom
   if (origin.substr(0, kScheme.size()) != kScheme) return false;  // includes "null"
   origin.remove_prefix(kScheme.size());
   return !origin.empty() && origin.find('/') == std::string_view::npos && isOwnHost(origin, homeIp);
+}
+
+bool isExtensionOrigin(std::string_view origin) {
+  for (std::string_view scheme : {"chrome-extension://", "moz-extension://", "safari-web-extension://"}) {
+    if (origin.substr(0, scheme.size()) != scheme) continue;
+    const std::string_view id = origin.substr(scheme.size());
+    return !id.empty() && id.find('/') == std::string_view::npos;
+  }
+  return false;
+}
+
+bool isAllowedOriginFor(Route r, std::string_view origin, bool present, std::string_view homeIp) {
+  return isAllowedOrigin(origin, present, homeIp) || (present && isAgent(r) && isExtensionOrigin(origin));
 }
 
 std::optional<Probe> probeFor(std::string_view path) {

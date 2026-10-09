@@ -18,9 +18,10 @@ uint64_t get(const uint8_t* p, int bytes) {
   return v;
 }
 
-std::string clip(std::string s) {
-  if (s.size() <= kMaxTitle) return s;
-  size_t n = kMaxTitle;
+// At most `max` bytes, cut on a UTF-8 boundary.
+std::string clip(std::string s, size_t max = kMaxTitle) {
+  if (s.size() <= max) return s;
+  size_t n = max;
   while (n > 0 && (static_cast<unsigned char>(s[n]) & 0xC0) == 0x80) --n;
   s.resize(n);
   return s;
@@ -83,6 +84,16 @@ void append(std::vector<Event>& events, Event e, bool coalesce) {
   }
   events.push_back(std::move(e));
   if (events.size() > kMaxEvents) events.erase(events.begin(), events.end() - kMaxEvents);
+}
+
+std::string elsewhereTitle(std::string_view tokenName, std::string_view pageHost) {
+  constexpr std::string_view kArrow = " \xE2\x86\x92 ";  // " → "
+  std::string host = clip(std::string(pageHost));
+  if (host.size() + kArrow.size() >= kMaxTitle) return host;  // no room for a name: the host matters more
+  std::string out = clip(std::string(tokenName), kMaxTitle - kArrow.size() - host.size());
+  out += kArrow;
+  out += host;
+  return out;
 }
 
 const char* kindName(Kind k) {

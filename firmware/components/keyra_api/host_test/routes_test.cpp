@@ -175,10 +175,12 @@ void tokenRoutes() {
   CHECK(is(matchApi(Method::Post, "/api/agent/cancel"), Route::AgentCancel));
   CHECK(is(matchApi(Method::Post, "/api/agent/save"), Route::AgentSave));
   CHECK(is(matchApi(Method::Post, "/api/agent/generate"), Route::AgentGenerate));
+  CHECK(is(matchApi(Method::Post, "/api/agent/match"), Route::AgentMatch));
+  CHECK(matchApi(Method::Get, "/api/agent/match").kind == K::MethodNotAllowed);
   CHECK(matchApi(Method::Get, "/api/agent/type").kind == K::MethodNotAllowed);
   CHECK(matchApi(Method::Get, "/api/agent/entries/1").kind == K::NotFound);
   for (Route r : {Route::AgentEntries, Route::AgentType, Route::AgentStatus, Route::AgentCancel, Route::AgentSave,
-                  Route::AgentGenerate}) {
+                  Route::AgentGenerate, Route::AgentMatch}) {
     CHECK(isAgent(r));
     CHECK(!needsSession(r));
     CHECK(!needsCsrf(Method::Post, r));
@@ -239,6 +241,35 @@ void origins() {
   CHECK(isAllowedOrigin("http://192.168.1.42", true, "192.168.1.42"));
   CHECK(!isAllowedOrigin("http://192.168.1.42", true));
   CHECK(!isAllowedOrigin("http://192.168.1.99", true, "192.168.1.42"));
+}
+
+// SPEC §9.4: a browser extension may call /api/agent/… (bearer token) but never
+// a session route, where the cookie would ride along.
+void extensionOrigins() {
+  const char* chrome = "chrome-extension://abcdefghijklmnopabcdefghijklmnop";
+  const char* firefox = "moz-extension://2f1e9a4c-6b1d-4c3e-9f0a-1b2c3d4e5f60";
+  const char* safari = "safari-web-extension://2F1E9A4C-6B1D-4C3E-9F0A-1B2C3D4E5F60";
+  for (const char* o : {chrome, firefox, safari}) {
+    CHECK(isExtensionOrigin(o));
+    CHECK(!isAllowedOrigin(o, true));  // the base rule is unchanged
+    for (Route r : {Route::AgentType, Route::AgentSave, Route::AgentGenerate, Route::AgentCancel, Route::AgentMatch})
+      CHECK(isAllowedOriginFor(r, o, true));
+    for (Route r : {Route::Type, Route::CreateEntry, Route::UpdateEntry, Route::Unlock, Route::Setup,
+                    Route::FactoryReset, Route::CreateToken, Route::DeleteToken, Route::TagTap, Route::PresenceCancel})
+      CHECK(!isAllowedOriginFor(r, o, true));
+  }
+  // Keyra's own origins and no Origin at all still work everywhere.
+  CHECK(isAllowedOriginFor(Route::AgentType, "http://keyra.local", true));
+  CHECK(isAllowedOriginFor(Route::Type, "http://keyra.local", true));
+  CHECK(isAllowedOriginFor(Route::AgentType, "", false) && isAllowedOriginFor(Route::Type, "", false));
+  CHECK(isAllowedOriginFor(Route::AgentType, "http://192.168.1.42", true, "192.168.1.42"));
+  // Web pages and look-alikes stay refused, agent routes included.
+  for (const char* o : {"https://evil.example", "null", "", "chrome-extension://", "chrome-extension://id/x",
+                        "Chrome-Extension://abc", "http://chrome-extension://abc", "chrome-extension:abc",
+                        "extension://abc", "moz-extension://", "safari-web-extension://"}) {
+    CHECK(!isExtensionOrigin(o));
+    CHECK(!isAllowedOriginFor(Route::AgentType, o, true));
+  }
 }
 
 void probes() {
@@ -311,6 +342,7 @@ int main() {
   policy();
   hosts();
   origins();
+  extensionOrigins();
   probes();
   clockAdoption();
   inputRules();

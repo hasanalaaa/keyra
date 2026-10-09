@@ -24,7 +24,7 @@ enum class Route {
   Update, UpdateCheck, UpdateDownload, UpdateApply,
   // Access tokens (SPEC §17): managed by a session, used with a bearer token.
   ListTokens, CreateToken, DeleteToken,
-  AgentEntries, AgentType, AgentStatus, AgentCancel, AgentSave, AgentGenerate,
+  AgentEntries, AgentType, AgentStatus, AgentCancel, AgentSave, AgentGenerate, AgentMatch,
   // NFC tap tags (SPEC §18): managed by a session; tapped by anyone holding the tag.
   ListTags, CreateTag, DeleteTag, TagTap, TagStatus,
 };
@@ -58,6 +58,12 @@ bool isOwnHost(std::string_view host, std::string_view homeIp = {});
 // Origin header of a state-changing request: absent, or this device over http.
 // Blocks cross-site form posts to the CSRF-exempt routes (setup/unlock/reset).
 bool isAllowedOrigin(std::string_view origin, bool present, std::string_view homeIp = {});
+// chrome-extension://…, moz-extension://… or safari-web-extension://… (SPEC §9.4).
+bool isExtensionOrigin(std::string_view origin);
+// The Origin rule for a state-changing request to `r`: isAllowedOrigin, and
+// for /api/agent/… (a bearer token, which a browser never attaches by itself)
+// also a browser extension. Session routes keep the stricter rule.
+bool isAllowedOriginFor(Route r, std::string_view origin, bool present, std::string_view homeIp = {});
 
 struct Probe {
   const char* status;

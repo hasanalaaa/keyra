@@ -84,9 +84,17 @@ void moreCases() {
   CHECK(!matches("github.com", "agithub.com"));
 }
 
+void pageHosts() {
+  CHECK(validHost("github.com") && validHost(" github.com ") && validHost("[::1]") && validHost("xn--mgbh0fb.example"));
+  CHECK(validHost(std::string(kMaxHost, 'a')) && !validHost(std::string(kMaxHost + 1, 'a')));
+  CHECK(!validHost("") && !validHost("   ") && !validHost("a b") && !validHost("a\tb") && !validHost("a\nb"));
+  CHECK(!validHost("\xD9\x88.example") && !validHost(std::string("a\0b", 3)) && !validHost("a\x7f"));
+}
+
 }  // namespace
 
 int main() {
+  pageHosts();
   sharedTable();
   normalising();
   moreCases();

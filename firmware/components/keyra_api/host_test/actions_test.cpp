@@ -210,6 +210,18 @@ void presenceOutcomesAreReported() {
 }
 
 // SPEC §17: a token follows its own request by serial, whatever came after it.
+// SPEC §9.4: an extension's login for another site shows that page's host
+// with the pending item (state.pending.host); others carry none.
+void pendingCarriesPageHost() {
+  auto m = make();
+  TypeRequest r = req(7);
+  r.host = "evil.example";
+  CHECK(m.arm(r, "token:1")->req.host == "evil.example");
+  CHECK(m.pending() && m.pending()->req.host == "evil.example");
+  m.cancelOwned("token:1");
+  CHECK(m.arm(req(7), "token:1") && m.pending()->req.host.empty());
+}
+
 void tokenTracksItsOwnRequest() {
   using Stage = Machine::Track::Stage;
   auto m = make();
@@ -579,6 +591,7 @@ void pressIsBoundToItsRequester() {
 
 int main() {
   tokenTracksItsOwnRequest();
+  pendingCarriesPageHost();
   sequencePartStaysTracked();
   pressIsBoundToItsRequester();
   testCancelPresence();

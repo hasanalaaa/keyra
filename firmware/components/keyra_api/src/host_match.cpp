@@ -68,4 +68,14 @@ bool matches(std::string_view login, std::string_view page) {
   return longer[at - 1] == '.' && longer.compare(at, shorter.size(), shorter) == 0;
 }
 
+bool validHost(std::string_view host) {
+  while (!host.empty() && host.front() == ' ') host.remove_prefix(1);
+  while (!host.empty() && host.back() == ' ') host.remove_suffix(1);
+  if (host.empty() || host.size() > kMaxHost) return false;
+  return std::all_of(host.begin(), host.end(), [](char c) {
+    const auto u = static_cast<unsigned char>(c);
+    return u > 0x20 && u < 0x7f;
+  });
+}
+
 }  // namespace keyra::api::hostmatch

@@ -94,10 +94,34 @@ void coalesced() {
   CHECK(decode(encode(log), back) && back.size() == 6 && back[1].n == 3 && back[4].kind == Kind::AgentArmed);
 }
 
+// An extension's typing for another site keeps the token's name and the page's
+// host in the one title the record has; the host is never the part cut off.
+void armedElsewhere() {
+  const std::string arrow = " \xE2\x86\x92 ";
+  CHECK(elsewhereTitle("Chrome", "evil.example") == "Chrome" + arrow + "evil.example");
+  const std::string longName(48, 'n');
+  const std::string t = elsewhereTitle(longName, "accounts.example.com");
+  CHECK(t.size() == kMaxTitle && t.substr(t.size() - 20) == "accounts.example.com");
+  CHECK(t.substr(0, 39) == std::string(39, 'n'));
+  // A name cut on a UTF-8 boundary, never mid-character.
+  std::string arabic;
+  for (int i = 0; i < 24; ++i) arabic += "\xD9\x88";  // 48 bytes of و
+  const std::string a = elsewhereTitle(arabic, "x.example.com");  // room 64 - 5 - 13 = 46
+  CHECK(a == arabic.substr(0, 46) + arrow + "x.example.com");
+  const std::string b = elsewhereTitle(arabic, "xy.example.com");  // room 45 → 44
+  CHECK(b == arabic.substr(0, 44) + arrow + "xy.example.com");
+  // A host too long for both: the host alone, clipped like any title.
+  CHECK(elsewhereTitle("Chrome", std::string(70, 'h')) == std::string(kMaxTitle, 'h'));
+  CHECK(elsewhereTitle("Chrome", std::string(59, 'h')) == std::string(59, 'h'));
+  CHECK(elsewhereTitle("Chrome", std::string(58, 'h')) == "C" + arrow + std::string(58, 'h'));
+  CHECK(kArmedElsewhere > 3);  // never collides with a "what" detail
+}
+
 }  // namespace
 
 int main() {
   coalesced();
+  armedElsewhere();
   roundTrip();
   ringAndClip();
   damaged();
