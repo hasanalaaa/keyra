@@ -25,3 +25,6 @@ foreach(dir ${KEYRA_COMPONENTS})
     add_subdirectory(${dir}/host_test ${CMAKE_CURRENT_BINARY_DIR}/${name})
   endif()
 endforeach()
+
+# Updating from the firmware on devices (3ce814a): reads data that version wrote.
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../upgrade ${CMAKE_CURRENT_BINARY_DIR}/upgrade)

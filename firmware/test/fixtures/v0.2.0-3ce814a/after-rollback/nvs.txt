@@ -1,0 +1,2 @@
+vault.failures 0
+fido.counter 1013
