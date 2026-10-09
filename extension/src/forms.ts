@@ -10,6 +10,8 @@ export interface LoginForm {
   /** The <form>, or the nearest container that holds the fields when the page uses none. */
   root: Element;
   username?: HTMLInputElement;
+  /** An invisible `autocomplete="username"` field that pages add for password managers (change-password forms). */
+  hiddenUsername?: HTMLInputElement;
   current?: HTMLInputElement;
   newPassword?: HTMLInputElement;
   confirm?: HTMLInputElement;
@@ -171,6 +173,7 @@ function classify(root: Element, pws: HTMLInputElement[], visible: Visible): Log
     }
   }
   if (pick) form.username = pick;
+  else form.hiddenUsername = inputsIn(root).find((x) => autocompleteOf(x).includes('username') && x.value.trim() && !isPasswordField(x));
   return form;
 }
 
@@ -236,5 +239,5 @@ export function snapshot(form: LoginForm): { username: string; password: string;
   const fresh = form.newPassword?.value ?? '';
   const password = fresh || form.current?.value || '';
   if (!password) return null;
-  return { username: form.username?.value.trim() ?? '', password, isNew: !!fresh };
+  return { username: (form.username ?? form.hiddenUsername)?.value.trim() ?? '', password, isNew: !!fresh };
 }

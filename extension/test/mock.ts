@@ -25,7 +25,6 @@ export interface Mock {
   lock(): Promise<void>;
   press(kind?: 'short' | 'long'): Promise<string>;
   createToken(kind: string, scope?: 'all' | number[]): Promise<string>;
-  entries(): Promise<{ id: number; title: string; url: string; username: string }[]>;
 }
 
 export async function startMock(): Promise<Mock> {
@@ -81,12 +80,6 @@ export async function startMock(): Promise<Mock> {
         await new Promise((r) => setTimeout(r, 100));
       }
       throw new Error('token was not created');
-    },
-    async entries() {
-      const list = (await session('GET', '/api/entries')).body.entries as { id: number }[];
-      const out = [];
-      for (const e of list) out.push((await session('GET', `/api/entries/${e.id}`)).body as never);
-      return out;
     },
   };
 }

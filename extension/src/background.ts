@@ -66,6 +66,7 @@ interface SaveRecord {
   loads: number;
 }
 const saveKey = (tabId: number) => `save:${tabId}`;
+const offering = new Map<number, Promise<SaveCard | null>>();
 
 async function dropSave(tabId: number): Promise<void> {
   held.delete(tabId);
@@ -165,18 +166,40 @@ async function finishPairing(sender: chrome.runtime.MessageSender, n: string, to
   await ext.storage.local.set({ address: p.address, token });
   await ext.storage.session.remove('pairing');
   matchCache.clear();
+  entriesCache = null;
   void ext.tabs.remove(p.tabId).catch(() => undefined);
   return { ok: true };
+}
+
+/** A request Keyra refused for its rate limit (10 in 10 s) did nothing, so it can wait and go again once. */
+async function patient<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    if (!(e instanceof KeyraError) || e.code !== 'rate_limited' || e.retryAfterMs > 10_000) throw e;
+    await new Promise((r) => setTimeout(r, e.retryAfterMs + 50));
+    return fn();
+  }
 }
 
 // ---------- matching (cached briefly: Keyra allows 10 requests per 10 s) ----------
 
 const matchCache = new Map<string, { at: number; entries: Login[] }>();
+let entriesCache: { at: number; entries: Login[] } | null = null;
+async function allEntries(): Promise<Login[]> {
+  if (entriesCache && Date.now() - entriesCache.at < 15_000) return entriesCache.entries;
+  const c = await client();
+  const entries = await patient(() => c.entries());
+  entriesCache = { at: Date.now(), entries };
+  return entries;
+}
+
 async function match(host: string, username?: string): Promise<Login[]> {
   const key = `${host}\u0000${username ?? '\u0001'}`;
   const hit = matchCache.get(key);
   if (hit && Date.now() - hit.at < 15_000) return hit.entries;
-  const entries = await (await client()).match(host, username);
+  const c = await client();
+  const entries = await patient(() => c.match(host, username));
   matchCache.set(key, { at: Date.now(), entries });
   if (matchCache.size > 50) matchCache.delete(matchCache.keys().next().value!);
   return entries;
@@ -196,9 +219,10 @@ async function onPage(msg: PageMsg, sender: chrome.runtime.MessageSender): Promi
       case 'match':
         return { ok: true, host, entries: await match(host, msg.username) };
       case 'entries':
-        return { ok: true, host, entries: await (await client()).entries() };
+        return { ok: true, host, entries: await allEntries() };
       case 'type': {
-        const r = await (await client()).type({ id: msg.id, what: msg.what, host, anyHost: msg.anyHost === true });
+        const c = await client();
+        const r = await patient(() => c.type({ id: msg.id, what: msg.what, host, anyHost: msg.anyHost === true }));
         owner = { tabId, kind: 'type', host };
         return { ok: true, ...r };
       }
@@ -207,15 +231,26 @@ async function onPage(msg: PageMsg, sender: chrome.runtime.MessageSender): Promi
         const status = await (await client()).status();
         if (status.state === 'typed' && owner?.kind === 'type') typedIn.set(tabId, { host: owner.host, at: Date.now() });
         if (status.state === 'saved') matchCache.clear();
+  entriesCache = null;
         return { ok: true, status };
       }
       case 'cancel':
         if (owner?.tabId === tabId) await (await client()).cancel().catch((e) => (e instanceof KeyraError && e.status === 409 ? undefined : Promise.reject(e)));
         return { ok: true };
-      case 'generate':
-        return { ok: true, ...(await (await client()).generate(s.settings.gen)) };
-      case 'offer':
-        return { ok: true, card: await offer(tabId, sender.url ?? '', host, msg, s.settings) };
+      case 'generate': {
+        const c = await client();
+        return { ok: true, ...(await patient(() => c.generate(s.settings.gen))) };
+      }
+      case 'offer': {
+        // The page usually navigates while this runs; the next page's "pending" waits for it.
+        const work = offer(tabId, sender.url ?? '', host, msg, s.settings);
+        offering.set(tabId, work);
+        try {
+          return { ok: true, card: await work };
+        } finally {
+          if (offering.get(tabId) === work) offering.delete(tabId);
+        }
+      }
       case 'pending':
         return { ok: true, card: await pendingCard(tabId) };
       case 'decide':
@@ -271,6 +306,7 @@ async function offer(
 }
 
 async function pendingCard(tabId: number): Promise<SaveCard | null> {
+  await offering.get(tabId)?.catch(() => null);
   const rec = (await ext.storage.session.get(saveKey(tabId)))[saveKey(tabId)] as SaveRecord | undefined;
   if (!rec) return null;
   // Shown on the page that sent the form and on one page after it, within two minutes.
@@ -297,7 +333,8 @@ async function decide(tabId: number, decision: 'save' | 'later' | 'never', setti
     return { ok: false, code: 'not_found' };
   }
   const { card } = rec;
-  const r = await (await client()).save({ title: card.title, url: rec.url, username: card.username || undefined, password: pw.password, replace: card.replace });
+  const c = await client();
+  const r = await patient(() => c.save({ title: card.title, url: rec.url, username: card.username || undefined, password: pw.password, replace: card.replace }));
   owner = { tabId, kind: 'save', host: card.host };
   await dropSave(tabId); // sent once; Keyra holds it until the press
   return { ok: true, ...r };
@@ -337,21 +374,25 @@ async function onPopup(msg: PopupMsg): Promise<unknown> {
         await createClient({ address, token }).match('keyra.invalid');
         await ext.storage.local.set({ address, token });
         matchCache.clear();
+  entriesCache = null;
         return { ok: true };
       }
       case 'popupMatch':
         return { ok: true, entries: await match(normalizeHost(msg.host)) };
       case 'popupEntries':
-        return { ok: true, entries: await (await client()).entries() };
-      case 'popupGenerate':
+        return { ok: true, entries: await allEntries() };
+      case 'popupGenerate': {
         await ext.storage.local.set({ settings: { ...s.settings, gen: msg.gen } });
-        return { ok: true, ...(await (await client()).generate(msg.gen)) };
+        const c = await client();
+        return { ok: true, ...(await patient(() => c.generate(msg.gen))) };
+      }
       case 'settings':
         await ext.storage.local.set({ settings: { ...s.settings, ...msg.patch } });
         return { ok: true };
       case 'disconnect':
         await ext.storage.local.remove('token');
         matchCache.clear();
+  entriesCache = null;
         owner = null;
         return { ok: true };
     }

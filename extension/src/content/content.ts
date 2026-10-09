@@ -9,6 +9,8 @@ import { t, uiDir, uiLang, type Key } from '../i18n';
 import { h, icon, logo, monogram, svgEl, type IconName } from '../ui/dom';
 import { CSS } from './style';
 
+declare const __SHADOW__: ShadowRootMode;
+
 type Reply<T> = ({ ok: true } & T) | Failure;
 
 async function send<T>(msg: object): Promise<Reply<T>> {
@@ -34,7 +36,8 @@ function ensureLayer(): HTMLDivElement {
   if (!host) {
     host = document.createElement('div');
     host.style.cssText = 'all:initial;position:fixed;inset:0;width:100%;height:100%;margin:0;padding:0;border:0;background:transparent;overflow:visible;pointer-events:none;z-index:2147483647;display:block';
-    const root = host.attachShadow({ mode: 'closed' });
+    // Closed, so pages cannot read or drive it; the e2e build opens it for the test runner.
+    const root = host.attachShadow({ mode: __SHADOW__ });
     try {
       const sheet = new CSSStyleSheet();
       sheet.replaceSync(CSS);
@@ -142,14 +145,15 @@ function placeMenu(): void {
   menuEl.style.top = `${y}px`;
 }
 
-function setItems(list: HTMLElement, items: { el: HTMLElement; run: () => void }[]): void {
+/** Wires the keyboard and pointer to `items`; `list` shows them unless the caller lays them out. */
+function setItems(list: HTMLElement | null, items: { el: HTMLElement; run: () => void }[]): void {
   menuItems = items;
   menuOn = -1;
   for (const [i, it] of items.entries()) {
-    it.el.addEventListener('click', it.run);
-    it.el.addEventListener('mousemove', () => highlight(i));
+    it.el.onclick = it.run;
+    it.el.onmousemove = () => highlight(i);
   }
-  list.replaceChildren(...items.map((i) => i.el));
+  list?.replaceChildren(...items.map((i) => i.el));
 }
 
 function highlight(i: number): void {
@@ -213,10 +217,10 @@ async function openMenu(ctx: Ctx): Promise<void> {
   const genBox = h('div', {});
   if (isNew) {
     const g = specialItem('sparkles', t('menuGenerate'), t('menuGenerateSub'), () => void fillGenerated(ctx));
-    g.el.addEventListener('click', g.run);
     genBox.append(g.el, h('div', { class: 'sep' }));
     top.push(g);
   }
+  setItems(null, top);
   menuEl = menuShell(menuHead(), genBox, list, h('div', { class: 'sep' }), h('div', { class: 'foot' }, t('menuFoot')));
   ensureLayer().append(menuEl);
   raise();
@@ -231,9 +235,8 @@ async function openMenu(ctx: Ctx): Promise<void> {
   } else {
     const items = r.entries.map((l) => loginItem(l, () => choose(l, ctx)));
     const empty = r.entries.length === 0 ? h('div', { class: 'empty' }, t('menuEmpty', { host: pageHost() })) : null;
-    setItems(list, [...top, ...items, other]);
+    setItems(null, [...top, ...items, other]);
     list.replaceChildren(...(empty ? [empty] : []), ...items.map((i) => i.el), h('div', { class: 'sep' }), other.el);
-    if (top.length) menuItems = [...top, ...items, other];
   }
   placeMenu();
 }
@@ -621,7 +624,7 @@ function errorView(f: Failure): ErrorViewT {
     case 'busy':
       return { icon: 'clock', tone: 'warn', title: t('errBusyTitle'), body: t('errBusyBody') };
     case 'rate_limited':
-      return { icon: 'clock', tone: 'warn', title: t('errRateTitle'), body: t('errRateBody', { s: Math.max(1, Math.ceil((f.retryAfterMs ?? 1000) / 1000)) }) };
+      return { icon: 'clock', tone: 'warn', title: t('errRateTitle'), body: t('errRateBody') };
     case 'not_found':
       return { icon: 'alert', tone: 'err', title: t('errNotFoundTitle'), body: t('errNotFoundBody') };
     case 'not_connected':
@@ -749,6 +752,7 @@ function watch(): void {
   document.addEventListener(
     'focusin',
     (e) => {
+      if (ours(e.target)) return; // the search box in our own menu
       const ctx = ctxFor(e.target);
       if (menuCtx && e.target !== menuCtx.field) closeMenu();
       if (ctx) showKey(ctx);

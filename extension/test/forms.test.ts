@@ -134,6 +134,10 @@ describe('new passwords', () => {
     expect(f.current).toBe($('#o'));
     expect(f.newPassword).toBe($('#n'));
     expect(f.confirm).toBe($('#c'));
+    // The invisible username the page keeps for password managers names the login to update.
+    expect(f.username).toBeUndefined();
+    $('#n').value = 'new-one';
+    expect(snapshot(f)).toEqual({ username: 'hasanalaaa', password: 'new-one', isNew: true });
   });
 
   it('three unlabeled password fields are current, new, confirm by position', () => {

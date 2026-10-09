@@ -64,6 +64,7 @@ bdi{unicode-bidi:isolate}
 .item .t2{font-size:12.5px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .item .chev{color:var(--text-3)}
 .root[dir=rtl] .chev{transform:scaleX(-1)}
+.item.special .t2{white-space:normal}
 .item.special .badge{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent);flex:none}
 .sep{height:1px;background:var(--line);margin:4px 10px}
 .empty{padding:14px 12px;color:var(--text-2);font-size:13.5px}

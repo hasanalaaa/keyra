@@ -124,7 +124,7 @@ function NewToken({ onCreated, onCancel, fixed }: { onCreated: (tok: AccessToken
   const app = useApp();
   const [name, setName] = useState(fixed?.name ?? '');
   const [kind, setKind] = useState<AccessToken['kind']>(fixed?.kind ?? 'agent');
-  const [all, setAll] = useState(false);
+  const [all, setAll] = useState(!!fixed);
   const [picked, setPicked] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
   const gate = usePressGate('token_create');

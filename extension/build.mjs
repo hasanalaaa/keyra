@@ -1,6 +1,7 @@
 // Builds the extension for each browser: dist/chrome (Chrome, Edge, Brave, Opera, Vivaldi) and
 // dist/firefox. Same code, one manifest per browser. `node build.mjs --e2e` also writes
-// dist/chrome-e2e, whose manifest already grants the test hosts (no permission prompt in a test).
+// dist/chrome-e2e and dist/chrome-e2e-ar: the test host already granted (no permission prompt),
+// the shadow root open for the test runner, and the UI language pinned.
 import { build } from 'esbuild';
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -8,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const here = (p) => fileURLToPath(new URL(p, import.meta.url));
 const pkg = JSON.parse(readFileSync(here('package.json'), 'utf8'));
 const e2e = process.argv.includes('--e2e');
+const LANG = { 'chrome-e2e': 'en', 'chrome-e2e-ar': 'ar' };
 
 // Locales come from src/strings.ts (one source for both languages).
 const tmp = here('dist/.strings.mjs');
@@ -39,11 +41,11 @@ function manifest(target) {
     m.background = { service_worker: 'background.js' };
     m.minimum_chrome_version = '116';
   }
-  if (target === 'chrome-e2e') m.host_permissions = ['http://keyra.test/*'];
+  if (target.includes('e2e')) m.host_permissions = ['http://keyra.test/*'];
   return m;
 }
 
-const targets = ['chrome', 'firefox', ...(e2e ? ['chrome-e2e'] : [])];
+const targets = ['chrome', 'firefox', ...(e2e ? ['chrome-e2e', 'chrome-e2e-ar'] : [])];
 for (const target of targets) {
   const out = here(`dist/${target}/`);
   rmSync(out, { recursive: true, force: true });
@@ -56,6 +58,7 @@ for (const target of targets) {
     target: ['chrome116', 'firefox128'],
     minify: true,
     legalComments: 'none',
+    define: { __SHADOW__: JSON.stringify(target.includes('e2e') ? 'open' : 'closed'), __LANG__: JSON.stringify(LANG[target] ?? '') },
     logLevel: 'warning',
   });
   cpSync(here('src/popup/popup.html'), `${out}popup.html`);

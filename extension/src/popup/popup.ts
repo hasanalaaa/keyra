@@ -34,6 +34,17 @@ async function currentPage(): Promise<typeof page> {
   }
 }
 
+const ERR: Partial<Record<Failure['code'], Key>> = {
+  locked: 'errLockedTitle',
+  unreachable: 'errUnreachableTitle',
+  timeout: 'errUnreachableTitle',
+  invalid_token: 'invalidTitle',
+  forbidden: 'errForbiddenTitle',
+  rate_limited: 'errRateTitle',
+  busy: 'errBusyTitle',
+};
+const errText = (f: Failure) => t(ERR[f.code] ?? 'errTitle');
+
 // ---------- shell ----------
 
 const STATUS: Record<Reach, [Key, string]> = {
@@ -262,7 +273,7 @@ function loginsView(): HTMLElement {
   if (!page) here.replaceChildren(h('li', { class: 'empty' }, t('noPage')));
   else
     void send<Reply<{ entries: Login[] }>>({ t: 'popupMatch', host: page.host }).then((r) => {
-      if (!r.ok) return here.replaceChildren(h('li', { class: 'empty' }, r.message ?? r.code));
+      if (!r.ok) return here.replaceChildren(h('li', { class: 'empty' }, errText(r)));
       here.replaceChildren(...(r.entries.length ? r.entries.map(row) : [h('li', { class: 'empty' }, t('noLoginsHere'))]));
     });
 
@@ -316,7 +327,7 @@ function genView(): HTMLElement {
     const r = await send<Reply<{ password: string; entropyBits: number }>>({ t: 'popupGenerate', gen });
     preview.classList.remove('dim');
     if (!r.ok) {
-      preview.replaceChildren(h('span', { class: 'help err' }, r.message ?? r.code));
+      preview.replaceChildren(h('span', { class: 'help err' }, errText(r)));
       return;
     }
     lastGen = { password: r.password, entropyBits: r.entropyBits };
