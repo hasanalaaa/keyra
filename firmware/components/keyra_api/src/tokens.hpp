@@ -25,7 +25,8 @@ constexpr int64_t kTouchEverySec = 60;
 using Digest = std::array<uint8_t, 32>;
 
 // Stored values: append only.
-enum class Kind : uint8_t { Agent = 0, App = 1 };
+// Extension: Keyra Companion (SPEC §9.4), app rights plus POST /api/agent/match.
+enum class Kind : uint8_t { Agent = 0, App = 1, Extension = 2 };
 
 struct Token {
   uint32_t id = 0;  // random, non-zero; the {id} of DELETE /api/tokens/{id}
@@ -44,14 +45,16 @@ bool wellFormed(std::string_view token);
 // The token of an `Authorization: Bearer <token>` header value, or empty.
 std::string_view bearer(std::string_view header);
 
-const char* kindName(Kind k);  // "agent" | "app"
+const char* kindName(Kind k);  // "agent" | "app" | "extension"
 std::optional<Kind> parseKind(std::string_view s);
 // 1–kMaxName bytes of well-formed UTF-8 without control characters.
 bool validName(std::string_view s);
 
 bool inScope(const Token& t, uint32_t entryId);
-// Saving a new account and generating a password are for apps only.
-inline bool mayWrite(const Token& t) { return t.kind == Kind::App; }
+// Saving an account and generating a password are for apps and the extension.
+inline bool mayWrite(const Token& t) { return t.kind == Kind::App || t.kind == Kind::Extension; }
+// Matching logins to a page's host, and the host check on typing, are the extension's.
+inline bool isExtension(const Token& t) { return t.kind == Kind::Extension; }
 // Who owns an item this token armed in the pending machine (never a session token).
 std::string owner(uint32_t tokenId);
 // The token id of such an owner; 0 for anything else (a session, nobody).

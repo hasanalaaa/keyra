@@ -4,6 +4,10 @@ add_executable(keyra_api_routes_test routes_test.cpp ../src/routes.cpp ../src/cl
                ../../keyra_ble/src/policy.cpp)
 add_executable(keyra_api_trust_test trust_test.cpp ../src/trust.cpp)
 add_executable(keyra_api_tokens_test tokens_test.cpp ../src/tokens.cpp ../src/validate.cpp)
+add_executable(keyra_api_host_match_test host_match_test.cpp ../src/host_match.cpp)
+# The shared host-rule table (SPEC §9.4) is read from the doc itself.
+target_compile_definitions(keyra_api_host_match_test PRIVATE
+                           KEYRA_HOST_MATCH_MD="${CMAKE_CURRENT_SOURCE_DIR}/../../../../docs/research/HOST-MATCH.md")
 add_executable(keyra_api_tags_test tags_test.cpp ../src/tags.cpp ../src/tokens.cpp ../src/validate.cpp)
 add_executable(keyra_api_target_test target_test.cpp ../src/target.cpp ../../keyra_ble/src/policy.cpp)
 add_executable(keyra_api_host_os_test host_os_test.cpp ../src/host_os.cpp ../../keyra_ble/src/policy.cpp)
@@ -20,7 +24,7 @@ foreach(t actions routes target typetext sequence host_os tokens tags)
   target_include_directories(keyra_api_${t}_test PRIVATE ../include ../../keyra_net/include ../../keyra_ble/include
                              ../../keyra_ble/host_test/stub)
 endforeach()
-foreach(t actions sessions routes trust tokens tags target generator health activity version typetext sequence host_os)
+foreach(t actions sessions routes trust tokens host_match tags target generator health activity version typetext sequence host_os)
   target_include_directories(keyra_api_${t}_test PRIVATE ../src)
   add_test(NAME keyra_api_${t} COMMAND keyra_api_${t}_test)
 endforeach()

@@ -5,7 +5,7 @@ idf_component_register(
          "src/trust.cpp" "src/trusted.cpp" "src/handlers_net.cpp" "src/handlers_fido.cpp"
          "src/handlers_gen.cpp" "src/generator.cpp" "src/handlers_kbd.cpp" "src/sequence_run.cpp" "src/host_os.cpp"
          "src/handlers_protect.cpp" "src/health.cpp" "src/activity.cpp" "src/activity_log.cpp"
-         "src/version.cpp" "src/handlers_update.cpp" "src/tokens.cpp" "src/handlers_agent.cpp"
+         "src/version.cpp" "src/handlers_update.cpp" "src/tokens.cpp" "src/handlers_agent.cpp" "src/host_match.cpp"
          "src/tags.cpp" "src/handlers_tags.cpp"
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "src"

@@ -10,6 +10,8 @@ namespace {
 // tokens.bin plaintext, version 1 (little-endian):
 //   u8 1 | u8 n | n × { u32 id | hash[32] | u8 kind | u8 all | i64 created | i64 lastUsed
 //                       | u8 nameLen | name | u8 m | m × u32 entry id }
+// kind: 0 agent, 1 app, 2 extension (added without a version change: records
+// written before it hold only 0 and 1).
 constexpr uint8_t kVersion = 1;
 constexpr char kBase32[] = "abcdefghijklmnopqrstuvwxyz234567";
 
@@ -82,11 +84,19 @@ std::string_view bearer(std::string_view header) {
   return t;
 }
 
-const char* kindName(Kind k) { return k == Kind::App ? "app" : "agent"; }
+const char* kindName(Kind k) {
+  switch (k) {
+    case Kind::App: return "app";
+    case Kind::Extension: return "extension";
+    case Kind::Agent: break;
+  }
+  return "agent";
+}
 
 std::optional<Kind> parseKind(std::string_view s) {
   if (s == "agent") return Kind::Agent;
   if (s == "app") return Kind::App;
+  if (s == "extension") return Kind::Extension;
   return std::nullopt;
 }
 
@@ -214,7 +224,7 @@ std::optional<Store> Store::parse(const uint8_t* data, size_t len) {
     std::copy(r.p, r.p + t.hash.size(), t.hash.begin());
     r.p += t.hash.size();
     const uint8_t kind = r.u8(), all = r.u8();
-    if (kind > static_cast<uint8_t>(Kind::App) || all > 1) return std::nullopt;
+    if (kind > static_cast<uint8_t>(Kind::Extension) || all > 1) return std::nullopt;
     t.kind = static_cast<Kind>(kind);
     t.all = all == 1;
     t.created = static_cast<int64_t>(r.le(8));

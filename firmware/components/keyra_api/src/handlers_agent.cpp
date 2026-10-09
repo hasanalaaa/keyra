@@ -337,7 +337,7 @@ bool readNew(httpd_req_t* r, const cJSON* body, Token& t, esp_err_t& err) {
   }
   const auto k = json::getString(body, "kind", kind) == Field::Ok ? tokens::parseKind(kind) : std::nullopt;
   if (!k) {
-    err = badRequest(r, "\"kind\" must be \"agent\" or \"app\"");
+    err = badRequest(r, "\"kind\" must be \"agent\", \"app\" or \"extension\"");
     return false;
   }
   t.kind = *k;
@@ -469,7 +469,7 @@ esp_err_t createToken(httpd_req_t* r, const cJSON* body, const std::string& sess
   t.created = unixSecondsOrZero();
   if (!s.add(t)) return badRequest(r, "Invalid token");
   if (saveLocked(s) != vault::Status::Ok) return http::sendError(r, http::k500, "storage", "Could not save");
-  activity::log(activity::Kind::TokenCreated, 0, t.name, t.kind == tokens::Kind::App ? 1 : 0);
+  activity::log(activity::Kind::TokenCreated, 0, t.name, static_cast<uint8_t>(t.kind));  // detail = the stored kind
   ESP_LOGI(TAG, "access token %u created (%s)", unsigned(t.id), tokens::kindName(t.kind));
   json::Ptr o(cJSON_CreateObject());
   cJSON_AddStringToObject(o.get(), "token", secret.s.c_str());

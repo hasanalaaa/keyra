@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "keyra_test.hpp"
 #include "tokens.hpp"
@@ -74,7 +75,12 @@ void namesAndKinds() {
   CHECK(!validName("tab\there"));
   CHECK(!validName("\xC3"));  // cut UTF-8
   CHECK(parseKind("agent") == Kind::Agent && parseKind("app") == Kind::App && !parseKind("admin"));
-  CHECK(std::string(kindName(Kind::App)) == "app");
+  CHECK(parseKind("extension") == Kind::Extension && !parseKind("Extension") && !parseKind(""));
+  CHECK(std::string(kindName(Kind::App)) == "app" && std::string(kindName(Kind::Agent)) == "agent");
+  CHECK(std::string(kindName(Kind::Extension)) == "extension");
+  // Stored values never move: older records hold 0 and 1.
+  CHECK(static_cast<int>(Kind::Agent) == 0 && static_cast<int>(Kind::App) == 1 &&
+        static_cast<int>(Kind::Extension) == 2);
   CHECK(owner(42) == "token:42");
   CHECK(owner(42).size() != 64);  // can never equal a session token (64 hex)
   CHECK(ownerId(owner(42)) == 42 && ownerId(owner(4294967295u)) == 4294967295u);
@@ -120,9 +126,12 @@ void scopeRules() {
   some.scope = {7, 9};
   CHECK(inScope(some, 7) && inScope(some, 9));
   CHECK(!inScope(some, 8));
-  CHECK(!mayWrite(some));
+  CHECK(!mayWrite(some) && !isExtension(some));
   some.kind = Kind::App;
-  CHECK(mayWrite(some));
+  CHECK(mayWrite(some) && !isExtension(some));
+  some.kind = Kind::Extension;  // the app's rights, plus match and the host check
+  CHECK(mayWrite(some) && isExtension(some));
+  some.kind = Kind::App;
 
   Store s;
   CHECK(s.add(some));
@@ -211,11 +220,57 @@ void recordRoundTrip() {
   bad.push_back(0);  // trailing byte
   CHECK(!Store::parse(bad.data(), bad.size()));
   bad = blob;
-  bad[2 + 4 + 32] = 7;  // unknown kind
+  bad[2 + 4 + 32] = 3;  // unknown kind
+  CHECK(!Store::parse(bad.data(), bad.size()));
+  bad = blob;
+  bad[2 + 4 + 32] = 7;
   CHECK(!Store::parse(bad.data(), bad.size()));
   bad = blob;
   bad[1] = kMaxTokens + 1;
   CHECK(!Store::parse(bad.data(), bad.size()));
+}
+
+// A record as firmware before the extension kind wrote it (one agent token,
+// one scoped app token) still reads exactly as it did, and an extension token
+// round-trips in the same version-1 format.
+void olderRecordsAndExtension() {
+  std::vector<uint8_t> old = {1, 2};
+  auto put = [&old](uint64_t v, int bytes) {
+    for (int i = 0; i < bytes; ++i) old.push_back(static_cast<uint8_t>(v >> (8 * i)));
+  };
+  auto rec = [&](uint32_t id, uint8_t hashByte, uint8_t kind, bool all, const std::string& name,
+                 const std::vector<uint32_t>& scope) {
+    put(id, 4);
+    old.insert(old.end(), 32, hashByte);
+    old.push_back(kind);
+    old.push_back(all ? 1 : 0);
+    put(1790000000, 8);
+    put(1790000600, 8);
+    old.push_back(static_cast<uint8_t>(name.size()));
+    old.insert(old.end(), name.begin(), name.end());
+    old.push_back(static_cast<uint8_t>(scope.size()));
+    for (uint32_t e : scope) put(e, 4);
+  };
+  rec(21, 0xAA, 0, true, "Claude", {});
+  rec(22, 0xBB, 1, false, "Phone", {5, 6});
+  const auto s = Store::parse(old.data(), old.size());
+  CHECK(s.has_value());
+  if (s) {
+    CHECK(s->all().size() == 2);
+    const Token& a = s->all()[0];
+    CHECK(a.id == 21 && a.kind == Kind::Agent && a.all && a.name == "Claude" && a.hash[31] == 0xAA);
+    CHECK(a.created == 1790000000 && a.lastUsed == 1790000600);
+    const Token& b = s->all()[1];
+    CHECK(b.id == 22 && b.kind == Kind::App && !b.all && b.scope == std::vector<uint32_t>({5, 6}));
+    CHECK(s->serialize() == old);  // rewritten byte for byte
+  }
+
+  Store e;
+  CHECK(e.add(token(30, "ext", Kind::Extension)));
+  const auto blob = e.serialize();
+  CHECK(blob[0] == 1 && blob[2 + 4 + 32] == 2);
+  const auto back = Store::parse(blob.data(), blob.size());
+  CHECK(back && back->all().size() == 1 && back->all()[0].kind == Kind::Extension);
 }
 
 void rateLimit() {
@@ -253,6 +308,7 @@ int main() {
   limitsAndRevoke();
   touchIsThrottled();
   recordRoundTrip();
+  olderRecordsAndExtension();
   rateLimit();
   return KEYRA_TEST_RESULT();
 }

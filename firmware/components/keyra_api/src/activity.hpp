@@ -33,7 +33,7 @@ enum class Kind : uint8_t {
   RotateEnded = 17,    // ... and ended
   EntryBurned = 18,    // id + title: deleted after its last allowed typing (SPEC §16)
   // Access tokens (SPEC §17). title: the token's name; never the token itself.
-  TokenCreated = 19,   // detail: 0 agent, 1 app
+  TokenCreated = 19,   // detail: 0 agent, 1 app, 2 extension
   TokenRevoked = 20,
   AgentListed = 21,    // id: the token's id; n: lists in a row (counted, not repeated)
   AgentArmed = 22,     // id: the entry; detail: 0 username, 1 password, 2 both, 3 2FA code
