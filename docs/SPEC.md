@@ -917,7 +917,9 @@ NFC tags build on.
   - `DELETE /api/tokens/{id}` → 204 (no press; 404 `not_found`). Whatever the
     token has waiting for the button is withdrawn with it.
 - **Using** — `/api/agent/…` with `Authorization: Bearer <token>`; no session
-  cookie, no CSRF header (the `Origin` rule of §5 still applies to non-GET).
+  cookie, no CSRF header. The `Origin` rule of §5 still applies to non-GET,
+  widened for these routes only to browser extensions (`chrome-extension://…`,
+  `moz-extension://…`, `safari-web-extension://…`, §9.4).
   Every call first answers:
   - 401 `locked` while the vault is locked (the hashes cannot be read);
   - 401 `invalid_token` (+ `WWW-Authenticate: Bearer`) for a malformed,
@@ -929,23 +931,28 @@ NFC tags build on.
 
 | Method & path | Kinds | Body → Response |
 |---|---|---|
-| GET `/api/agent/entries` | agent, app | → `{entries:[{id, title, host}]}` for the entries in scope; `host` = the URL's host name only (lowercase, no scheme, user, port or path). Never usernames or secrets. |
-| POST `/api/agent/type` | agent, app | `{id, what:"username"\|"password"\|"both"\|"totp", target?, submit?, switchLang?}` → 202 `{pending:Pending, expiresIn}`. Arms exactly like `POST /api/type` (same 60 s, press, targets §8.1, layout and Caps Lock rules, 409 `no_time` for a code without a clock); an id outside the scope → 404 `not_found` like an unknown one; 409 `busy` while anyone else's item waits; the token's own waiting item is replaced (ends `cancelled`). No sequences, test, probe or free text. |
-| GET `/api/agent/status` | agent, app | → this token's last request: `{state, request:"type"\|"save", id?, title?, what?, code?, expiresIn?}`. `state`: `none` (nothing, or too long ago), `armed` (waits for the press), `waiting` (a Bluetooth target still connecting, or typing/saving now), `typed`, `saved` (`id` = the new entry), `cancelled` (long press, replaced, lock, revoke), `expired`, `failed` (`code` = the §5 Result code, e.g. `no_usb`). |
-| POST `/api/agent/cancel` | agent, app | → 204, or 409 `not_cancelled` when nothing of this token waits. |
-| POST `/api/agent/save` | app | `{title, url?, username?, password?}` (vault limits) → 202 `{awaiting:"button", op:"agent_save", expiresIn}`; the press creates the entry (status `saved` with its `id`); a scoped token gets the new id added to its scope while there is room. 403 `forbidden` for an agent token. |
-| POST `/api/agent/generate` | app | Same body and answer as `POST /api/generate` (§9.1). The password is not stored: the app needs it for a sign-up form, and keeping it needs `/api/agent/save` (a press). 403 `forbidden` for an agent token. |
+| GET `/api/agent/entries` | all | → `{entries:[{id, title, host}]}` for the entries in scope; `host` = the URL's host name only (lowercase, no scheme, user, port or path). Never usernames or secrets. |
+| POST `/api/agent/type` | all | `{id, what:"username"\|"password"\|"both"\|"totp", target?, submit?, switchLang?, host?, anyHost?}` → 202 `{pending:Pending, expiresIn}`. Arms exactly like `POST /api/type` (same 60 s, press, targets §8.1, layout and Caps Lock rules, 409 `no_time` for a code without a clock); an id outside the scope → 404 `not_found` like an unknown one; 409 `busy` while anyone else's item waits; the token's own waiting item is replaced (ends `cancelled`). No sequences, test, probe or free text. **Extension tokens** must send `host` (the tab's host name, 1–253 visible ASCII characters; else 400 `invalid`); when the entry's URL host does not match it by the §9.4 host rule → 409 `host_mismatch`, unless `anyHost: true` — then the item is armed with `pending.host` = the page's host (normalised) and the activity entry names it. `host`/`anyHost` are ignored for other kinds. |
+| GET `/api/agent/status` | all | → this token's last request: `{state, request:"type"\|"save", id?, title?, what?, code?, expiresIn?}`. `state`: `none` (nothing, or too long ago), `armed` (waits for the press), `waiting` (a Bluetooth target still connecting, or typing/saving now), `typed`, `saved` (`id` = the new or updated entry), `cancelled` (long press, replaced, lock, revoke), `expired`, `failed` (`code` = the §5 Result code, e.g. `no_usb`). |
+| POST `/api/agent/cancel` | all | → 204, or 409 `not_cancelled` when nothing of this token waits. |
+| POST `/api/agent/save` | app, extension | `{title, url?, username?, password?, replace?}` (vault limits) → 202 `{awaiting:"button", op:"agent_save", mode:"create"\|"update", expiresIn}`. Without `replace` the press creates the entry (status `saved` with its `id`); a scoped token gets the new id added to its scope while there is room. With `replace: <entry id>` (`password` required, `title`/`url` ignored) the press sets that entry's password and, when a non-empty `username` was sent, its username; the old password goes to the entry's history (§9.3) and status is `saved` with that `id`. A `replace` id outside the scope or unknown → 404 `not_found`; an entry deleted before the press → status `failed`. 403 `forbidden` for an agent token. |
+| POST `/api/agent/generate` | app, extension | Same body and answer as `POST /api/generate` (§9.1). The password is not stored: the app needs it for a sign-up form, and keeping it needs `/api/agent/save` (a press). 403 `forbidden` for an agent token. |
+| POST `/api/agent/match` | extension | `{host, username?}` (`host` as for type) → `{entries:[{id, title, host, sameUser?}]}`: the entries in scope whose URL host matches `host` by the §9.4 host rule, in vault order, at most 20. `sameUser` only when `username` was sent: true when the entry's username equals it exactly (case-sensitive). Never usernames or secrets; passwords are never compared. Logged like a list (`agent_listed`). 403 `forbidden` for other kinds. |
 
 - **The phone sees who asked.** `state.pending` (and the 202 above) carries
-  `by: <token name>` when a token armed the action.
+  `by: <token name>` when a token armed the action, and `host: <page host>`
+  when an extension armed a login for a page it does not match (`anyHost`).
 - **Owner.** Items a token arms belong to `token:<id>` in the §12.5a sense:
   never replaced by a browser and never replacing one; a long press, the
   phone's cancel, a lock or revoking the token ends them.
 - **Activity log** (§15) kinds: `token_created` (title = name, detail 0
-  agent / 1 app), `token_revoked` (title), `agent_listed` (id = token id,
-  title = name, `n` = lists in a row, counted on one line), `agent_armed`
-  (id = entry, title = token name, detail 0 username / 1 password / 2 both /
-  3 code), `agent_saved` (id = new entry, title = token name),
+  agent / 1 app / 2 extension), `token_revoked` (title), `agent_listed` (id =
+  token id, title = name, `n` = lists and matches in a row, counted on one
+  line), `agent_armed` (id = entry, title = token name, detail 0 username /
+  1 password / 2 both / 3 code; for an extension's `anyHost` typing detail
+  + 4 and title = `<token name> → <page host>`, the name shortened first so
+  the host fits the 64-byte title), `agent_saved` (id = the new or updated
+  entry, title = token name, detail 0 created / 1 updated),
   `agent_generated` (id = token id, `n` as for lists). The typing itself is
   the usual `typed`. Status and cancel calls are not logged; the token is
   never logged anywhere.

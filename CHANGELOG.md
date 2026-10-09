@@ -8,6 +8,22 @@ All notable changes to Keyra are documented here. The format follows
 
 ### Added
 
+- **Keyra Companion on the device** (firmware, SPEC §9.4 and §17,
+  [HOST-MATCH.md](docs/research/HOST-MATCH.md)): a third access-token kind,
+  `extension` (kind byte 2 in `tokens.bin`; existing agent and app tokens read
+  unchanged), with the app's rights plus `POST /api/agent/match`, which offers
+  the logins in scope for a page's host (at most 20; titles and hosts only,
+  `sameUser` by exact username, never a password comparison). `/api/agent/*`
+  accepts `chrome-extension://`, `moz-extension://` and
+  `safari-web-extension://` origins; session routes still refuse them. An
+  extension must name the page's host when it arms typing: a login for another
+  site is refused (409 `host_mismatch`) unless the user chose it (`anyHost`),
+  and then the page's host is shown with the pending item and logged.
+  `POST /api/agent/save` can update an existing login (`replace`, any token
+  that may save): after the press the old password moves to the entry's
+  history; the answer says `mode: "create"|"update"`. The host rule is one
+  table shared with the extension and the Android app; the firmware's host
+  test reads it straight from the doc.
 - **NFC tap tags** (SPEC §18, [NFC-TAGS.md](docs/research/NFC-TAGS.md)):
   Settings → **NFC tags** makes a sticker that gets one account ready to type
   when your phone taps it on Keyra's network — you still press Keyra's button,
