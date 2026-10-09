@@ -449,36 +449,111 @@ the vault ignores any `history` a client sends. Entry plaintext format 2
 carries it (format 1 is still read and rewritten on the next write). Backup
 files are version 2 with `history` per entry; version 1 files still import.
 
-### 9.4 Keyra Companion (browser extension) — DEFERRED
+### 9.4 Keyra Companion (browser extension)
 
-> Not being built. Kept here as a design note; work resumes only when the
-> owner asks for it (branch `feat/companion` holds an unfinished start).
+A Manifest V3 extension in `extension/` for Chromium browsers (Chrome, Edge,
+Brave, Opera, Vivaldi) and Firefox; Safari through
+`xcrun safari-web-extension-converter` (documented, not shipped). It needs
+Keyra reachable from the computer (home Wi-Fi mode, §11, or the computer on
+Keyra's own Wi-Fi). It is built on access tokens (§17) — the earlier
+`feat/companion` start with its own token store is superseded and not merged.
+Like every token client it never receives a stored password, username or 2FA
+secret.
 
+**Token kind `extension`.** §17 gains a third kind, `extension`, with the
+rights of `app` (entries, type, status, cancel, save, generate) plus
+`POST /api/agent/match`. Stored as kind byte 2 in `tokens.bin` (no format
+change: older records hold 0 or 1). Activity `token_created` detail 2.
 
-A Manifest V3 extension (`extension/`, Chrome/Edge/Firefox; Safari via
-`xcrun safari-web-extension-converter`). Needs Keyra reachable from the computer
-(home Wi-Fi mode, or the computer on Keyra's own Wi-Fi).
+**Origin.** Requests that carry a bearer token to `/api/agent/*` accept an
+`Origin` of `chrome-extension://…`, `moz-extension://…` or
+`safari-web-extension://…` in addition to Keyra's own origins (§5). The
+session routes keep the §5 rule unchanged. (CSRF rides on cookies; a bearer
+token is never attached by the browser on its own, so this widens nothing for
+session routes.)
 
-- **Pairing:** in the extension, enter `keyra.local` (or IP) → `POST /api/ext/pair {name}`
-  → 202 presence op `ext_pair` → after the press the extension receives a
-  bearer token (shown once, stored in `chrome.storage.local`; device keeps a
-  SHA-256 hash; up to 8; listed/revoked in Settings → Companion). Requests
-  carry `Authorization: Bearer <token>`; CORS allows `chrome-extension://*`,
-  `moz-extension://*`, `safari-web-extension://*` origins **only** with a valid
-  token. The vault must be unlocked (else 401 `locked` → the extension links
-  to the web app).
-- **Save prompt (Apple-style):** the content script watches login/sign-up form
-  submissions (password fields, including new-password + confirm), and shows a
-  small in-page card: "Save to Keyra?" — **Save** / **Not now** / **Never for
-  this site**. Save → `POST /api/ext/save {url, username, password}`: creates
-  an entry, or if one matches (same host + username) offers **Update
-  password** (old → history). Never-list is stored in the extension only.
-- **Fill by typing:** a small Keyra badge in username/password fields; click →
-  list of matching entries for the page's host (`POST /api/ext/match {host}` →
-  `{entries:[{id,title,username}]}`, no secrets) → pick one → Keyra arms
-  username/password/both → the user presses the button → Keyra types. The
-  extension never receives stored passwords.
-- Privacy: only the hostname is sent for matching; full URL only on Save.
+**Host rule** (shared by the extension, the device and the Android app, one
+table of test cases in `docs/research/HOST-MATCH.md`): a login's host *h* is
+offered on a page host *p* when, after lowercasing, trimming a trailing dot
+and one leading `www.`, `h == p`, or the shorter one has at least two labels,
+is not a two-label country second level (`co.uk`, `gov.iq`, … list in the
+note), and the longer one ends with `.` + the shorter one. IP addresses match
+only exactly. No public-suffix guessing, no sibling matching
+(`mail.google.com` ≠ `accounts.google.com`).
+
+**`POST /api/agent/match`** (kind `extension` only) `{host, username?}` →
+`{entries:[{id, title, host, sameUser?}]}`: entries in scope whose host
+matches `host` by the rule above, at most 20; `sameUser` (only when
+`username` was sent) is true when the entry's username equals it exactly.
+Usernames and secrets are never returned, passwords are never compared (no
+password oracle). Not logged per call; counted like `agent_listed`.
+
+**Host binding on type.** For `extension` tokens `POST /api/agent/type`
+requires `host` (the tab's host). When the entry does not match it by the host
+rule the request also needs `"anyHost": true` (the user chose a login for
+another site after a warning); otherwise 409 `host_mismatch`. A mismatch that
+is allowed is logged (`agent_armed` with the page host in the activity entry)
+and `state.pending` carries `host` so the phone shows the page the login is
+for.
+
+**Save or update.** `POST /api/agent/save` keeps its body and gains, for every
+kind, `replace?: id`: the press then sets that entry's username (if given)
+and password, the old password goes to its history (§12) and status becomes
+`saved` with that `id`; `title`/`url` are ignored on replace. A `replace` id
+outside the scope → 404. The 202 answer carries `mode:"create"|"update"`.
+
+**Pairing (one press, no copy-paste).**
+1. The extension asks for Keyra's address (default `http://keyra.local`),
+   requests host permission for that origin only, and checks `GET /api/state`.
+2. It opens `<address>/#/connect?ext=<name>&n=<nonce>` in a new tab (nonce =
+   128 random bits, base64url) and injects its pairing listener into that tab
+   only.
+3. The web app (unlocking first if needed) shows "Connect browser extension
+   *name*?" with a scope choice (all logins, or selected ones) → `POST
+   /api/tokens {kind:"extension", name, scope}` → press → 201.
+4. The web app hands the token to the page with
+   `window.postMessage({type:"keyra:token", n, token}, location.origin)`;
+   the listener accepts it only with the same nonce and only from the address
+   the user entered, passes it to the extension and the tab closes. The token
+   is not kept in the web app.
+   Fallback: the token screen in Settings → Apps and agents can be copied and
+   pasted into the extension.
+
+**In the page.**
+- **Fill by typing.** Login fields get a small Keyra key icon (closed shadow
+  root, never covering the site's own icons). Clicking it lists matching
+  logins (`/api/agent/match`) and "Other login…"; picking one arms
+  `username`/`password`/`both` (from the field it was opened on), focuses the
+  field Keyra will type into, and shows a card "Press Keyra's button" with the
+  60 s countdown, then "Typed ✓", "Cancelled" or the failure with a fix.
+- **New password.** In a sign-up or change-password form the icon also offers
+  "Strong password from Keyra" (`/api/agent/generate`, the user's generator
+  defaults); it fills the new-password and confirm fields and prepares the
+  save card.
+- **Save prompt.** After a form with a filled password is submitted (submit
+  event, Enter, a click on its submit button, or a single-page navigation
+  right after), a card asks "Save to Keyra?" — **Save** / **Not now** /
+  **Never for this site** — or, when `/api/agent/match` reports `sameUser`
+  and the form held a new password, "Update the password for *title*?". A
+  plain sign-in with an existing `sameUser` login asks nothing. Save → press
+  card → "Saved ✓". The card survives one navigation (kept in the extension's
+  session storage for that tab, dropped after 2 minutes). The never-list and
+  settings live in the extension only.
+- **Phishing guard.** The list shows only host-rule matches; "Other login…"
+  on a page whose host is not the login's shows a warning naming both hosts
+  before it sends `anyHost`.
+
+**Toolbar popup.** Connection state (unreachable / locked → "Open Keyra" /
+ready), logins for the current site, search over all logins in scope with
+"Type into this page", the generator, and settings (address, show icons in
+fields, offer to save, never-list, disconnect). Arabic and English (from the
+browser language), light and dark, Quiet Glass (DESIGN.md).
+
+**Privacy.** The extension stores the address, the token and its own
+settings (`storage.local`). A password typed into a page is held only in the
+service worker's memory between submit and Save/Not now (at most 2 minutes)
+and sent once to `/api/agent/save`. Matching sends only the host; Save sends
+the URL's origin, not its path or query.
 
 ## 10. v1.3 — Keyboard layouts and input languages
 
@@ -830,7 +905,7 @@ NFC tags build on.
   format in `keyra_api/src/tokens.cpp`). Not part of backups; kept across
   passphrase changes and restores (scoped ids that no longer exist simply
   match nothing); gone with a new setup or factory reset. At most **8**.
-- **Metadata.** `{id, name (1–48 bytes UTF-8), kind:"agent"|"app",
+- **Metadata.** `{id, name (1–48 bytes UTF-8), kind:"agent"|"app"|"extension" (§9.4),
   scope:"all"|[entry id…] (1–32), created, lastUsed}` (unix seconds, 0 =
   unknown/never; `lastUsed` is written at most once a minute).
 - **Managing** (session + CSRF, like every other session route):

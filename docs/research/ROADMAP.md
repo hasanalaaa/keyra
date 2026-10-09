@@ -7,7 +7,7 @@ Every finding below was checked against the code before it was fixed or listed.
 
 Fixed constraints: every action that types or reveals a secret stays behind the
 button; no cloud or account; no eFuse burning unless the owner opts in; the browser
-extension (SPEC §9.4) stays deferred; Arabic-first UI within 190 KB gzip; persisted
+extension (SPEC §9.4) is built on access tokens (resumed 2026-10-09); Arabic-first UI within 190 KB gzip; persisted
 formats and the REST API are contracts (changes need a migration).
 
 ## Wave 1 — security fixes (done)
