@@ -19,7 +19,7 @@ export type ErrorCode =
 export class KeyraError extends Error {
   constructor(
     readonly code: ErrorCode,
-    message = code,
+    message: string = code,
     readonly status = 0,
     readonly retryAfterMs = 0,
   ) {

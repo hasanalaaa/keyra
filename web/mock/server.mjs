@@ -264,11 +264,10 @@ function dropSessionItems() {
 
 const ACTIVITY_MAX = 200;
 /** Appends while unlocked (the firmware cannot write the encrypted log when locked). */
-function logEvent(kind, { id = 0, title = '', detail = 0, n = 0, host } = {}) {
+function logEvent(kind, { id = 0, title = '', detail = 0, n = 0 } = {}) {
   if (!unlocked || !vault) return;
   vault.activity ??= [];
-  // host: SPEC §9.4, the page an extension typed another site's login into.
-  vault.activity.push({ kind, at: timeValid ? nowSec() : 0, id, n, detail, title: [...title].join('').slice(0, 64), ...(host ? { host } : {}) });
+  vault.activity.push({ kind, at: timeValid ? nowSec() : 0, id, n, detail, title: [...title].join('').slice(0, 64) });
   if (vault.activity.length > ACTIVITY_MAX) vault.activity.splice(0, vault.activity.length - ACTIVITY_MAX);
 }
 
@@ -1492,6 +1491,8 @@ function urlHost(url = '') {
 // SPEC §9.4 host rule (docs/research/HOST-MATCH.md; extension/src/host.ts runs the same table).
 const COUNTRY_SLD = new Set(['ac', 'co', 'com', 'edu', 'gob', 'gov', 'go', 'mil', 'ne', 'net', 'or', 'org', 'sch']);
 const normHost = (h) => String(h ?? '').trim().toLowerCase().replace(/\.$/, '').replace(/^www\./, '');
+/** handlers_agent.cpp: a page host is 1-253 visible ASCII characters, stored normalised; '' = invalid. */
+const pageHost = (h) => (typeof h === 'string' && /^[\x21-\x7e]{1,253}$/.test(h) ? normHost(h) : '');
 const isIp = (h) => h.includes(':') || /^\d{1,3}(\.\d{1,3}){3}$/.test(h);
 function siteLike(h) {
   const l = h.split('.');
@@ -2182,17 +2183,20 @@ async function api(req, res, path) {
       if (!inScope(bearer, b.id)) fail(404, 'not_found', 'No such entry');
       if (b.submit !== undefined && typeof b.submit !== 'boolean') bad('"submit" must be a boolean');
       // SPEC §9.4: an extension says which page it types into; another site's login needs anyHost.
-      let host;
+      let host = '';
+      let anyHost = false;
       if (bearer.kind === 'extension') {
-        if (typeof b.host !== 'string' || !normHost(b.host) || b.host.length > 253) bad('"host" (the page\'s host) is required');
+        host = pageHost(b.host);
+        if (!host) bad('"host" (the page\'s host, 1-253 visible ASCII characters) is required');
         if (b.anyHost !== undefined && typeof b.anyHost !== 'boolean') bad('"anyHost" must be a boolean');
-        host = normHost(b.host);
-        if (!hostMatch(urlHost(getEntry(b.id).url), host) && b.anyHost !== true) fail(409, 'host_mismatch', 'This login is for another site');
+        anyHost = b.anyHost === true;
+        if (!anyHost && !hostMatch(urlHost(getEntry(b.id).url), host)) fail(409, 'host_mismatch', 'This login is for another site');
       }
-      const { e, p } = armEntry(b.id, b.what, b.target, b.submit, host);
+      // Only a login typed on another site's page carries the page host (phone pill, activity log).
+      const { e, p } = armEntry(b.id, b.what, b.target, b.submit, anyHost ? host : undefined);
       tokenLast.set(bearer.id, { serial: machine.slot.req.serial, save: false, id: e.id, title: e.title, what: b.what });
-      const other = host && !hostMatch(urlHost(e.url), host);
-      logEvent('agent_armed', { id: e.id, title: bearer.name, detail: ['username', 'password', 'both', 'totp'].indexOf(b.what), ...(other ? { host } : {}) });
+      const what = ['username', 'password', 'both', 'totp'].indexOf(b.what);
+      logEvent('agent_armed', anyHost ? { id: e.id, title: `${bearer.name} → ${host}`, detail: what + 4 } : { id: e.id, title: bearer.name, detail: what });
       return send(res, 202, { pending: { kind: 'type', ...p, by: bearer.name }, expiresIn: p.expiresIn });
     }
 
@@ -2226,12 +2230,12 @@ async function api(req, res, path) {
           const old = unlocked && vault?.entries.get(id);
           if (!old) return false;
           const now = nowSec();
-          const e = { ...old, username: b.username ?? old.username, password: b.password, updated: now };
+          const e = { ...old, username: b.username || old.username, password: b.password, updated: now };
           if (old.password && old.password !== b.password) e.history = [{ password: old.password, changedAt: now }, ...old.history].slice(0, MAX_HISTORY);
           vault.entries.set(id, e);
           const last = tokenLast.get(tokenId);
           if (last?.serial === serial) last.id = id;
-          logEvent('agent_saved', { id, title: name });
+          logEvent('agent_saved', { id, title: name, detail: 1 });
         });
         const serial = machine.slot.serial;
         tokenLast.set(tokenId, { serial, save: true, id: 0 });
@@ -2256,10 +2260,11 @@ async function api(req, res, path) {
 
     case 'agentMatch': {
       if (bearer.kind !== 'extension') fail(403, 'forbidden', 'Only a browser extension token can match pages');
-      if (typeof b.host !== 'string' || b.host.length > 253) bad('"host" (string) is required');
+      const host = pageHost(b.host);
+      if (!host) bad('"host" (1-253 visible ASCII characters) is required');
       if (b.username !== undefined && typeof b.username !== 'string') bad('"username" must be a string');
       const list = [...vault.entries.values()]
-        .filter((e) => inScope(bearer, e.id) && hostMatch(urlHost(e.url), b.host))
+        .filter((e) => inScope(bearer, e.id) && hostMatch(urlHost(e.url), host))
         .slice(0, 20)
         .map((e) => ({ id: e.id, title: e.title, host: urlHost(e.url), ...(b.username !== undefined ? { sameUser: e.username === b.username } : {}) }));
       logCoalesced('agent_listed', { id: bearer.id, title: bearer.name });

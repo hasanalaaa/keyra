@@ -117,7 +117,9 @@ async function inject(tabId: number, p: Pairing): Promise<void> {
 
 ext.tabs.onUpdated.addListener((tabId, info) => {
   if (info.status !== 'complete') return;
-  void pairing().then((p) => p && p.tabId === tabId && inject(tabId, p));
+  void pairing().then((p) => {
+    if (p && p.tabId === tabId) void inject(tabId, p);
+  });
 });
 
 ext.tabs.onRemoved.addListener((tabId) => {
@@ -125,7 +127,9 @@ ext.tabs.onRemoved.addListener((tabId) => {
   typedIn.delete(tabId);
   lastUser.delete(tabId);
   if (owner?.tabId === tabId) owner = null;
-  void pairing().then((p) => p?.tabId === tabId && ext.storage.session.remove('pairing'));
+  void pairing().then((p) => {
+    if (p?.tabId === tabId) void ext.storage.session.remove('pairing');
+  });
 });
 
 async function startPairing(input: string): Promise<{ ok: true } | Failure> {
@@ -217,6 +221,10 @@ async function onPage(msg: PageMsg, sender: chrome.runtime.MessageSender): Promi
       case 'decide':
         return await decide(tabId, msg.decision, s.settings);
       case 'keepalive':
+        return { ok: true };
+      case 'username':
+        // A page that asks for the username first passes it on to its password step.
+        if (typeof msg.username === 'string') lastUser.set(tabId, { host, username: msg.username.slice(0, 256), at: Date.now() });
         return { ok: true };
       case 'openKeyra':
         if (s.address) await ext.tabs.create({ url: `${s.address}/`, index: (sender.tab?.index ?? 0) + 1 });
@@ -361,11 +369,4 @@ ext.runtime.onMessage.addListener((msg: { t?: string }, sender, sendResponse) =>
   const work = extPage(sender.url) ? onPopup(msg as PopupMsg) : onPage(msg as PageMsg, sender);
   void work.then(sendResponse, async (e) => sendResponse(await failure(e)));
   return true;
-});
-
-// A page that asks for the username first passes it on to its password step.
-ext.runtime.onMessage.addListener((msg: { t?: string; username?: string }, sender) => {
-  if (sender.id !== ext.runtime.id || msg?.t !== 'username' || typeof msg.username !== 'string' || sender.tab?.id === undefined) return false;
-  lastUser.set(sender.tab.id, { host: hostOf(sender.url), username: msg.username.slice(0, 256), at: Date.now() });
-  return false;
 });

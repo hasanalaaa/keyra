@@ -44,6 +44,7 @@ export type PageMsg =
   | { t: 'pending' }
   | { t: 'decide'; decision: 'save' | 'later' | 'never' }
   | { t: 'keepalive' }
+  | { t: 'username'; username: string }
   | { t: 'openKeyra' }
   | { t: 'paired'; n: string; token: string };
 
