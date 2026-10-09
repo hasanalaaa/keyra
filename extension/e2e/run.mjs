@@ -7,7 +7,7 @@
 //   npm run e2e            HEADED=1 npm run e2e (watch it)            SHOTS=0 (skip screenshots)
 import { chromium } from 'playwright';
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -400,7 +400,7 @@ async function screenshots(lang) {
     await evil.close();
 
     const ns = await openSite(b, at('newsite.example', '/signup'), theme);
-    await ns.locator('#email').fill('me@newsite.example');
+    await ns.locator('#email').fill(`${lang === 'ar' ? 'hasan' : 'alex'}${theme === 'dark' ? '.night' : ''}@newsite.example`);
     await ns.locator('#new').click();
     await keyIcon(ns).click();
     await menu(ns).locator('.item.special').first().waitFor();
@@ -461,6 +461,13 @@ try {
     await screenshots('en');
     for (const tok of (await api('GET', '/api/tokens')).body.tokens ?? []) await api('DELETE', `/api/tokens/${tok.id}`);
     await screenshots('ar');
+    // Smaller PNGs for the repository when pngquant is installed (same as web/scripts/icons.mjs).
+    try {
+      const files = readdirSync(SHOTS).filter((f) => f.endsWith('.png')).map((f) => join(SHOTS, f));
+      execFileSync('pngquant', ['--quality=75-95', '--speed=1', '--strip', '--force', '--ext', '.png', ...files], { stdio: 'ignore' });
+    } catch (e) {
+      if (e.code !== 'ENOENT') throw e;
+    }
   }
 } catch (e) {
   console.error(e);

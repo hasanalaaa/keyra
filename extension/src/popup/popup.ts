@@ -321,7 +321,13 @@ function genView(): HTMLElement {
   }
   const gen: GenOptions = { ...state.settings.gen };
   const preview = h('div', { class: 'preview card' }, lastGen ? colored(lastGen.password) : h('span', { class: 'spin' }));
-  const bits = h('p', { class: 'bits' }, lastGen ? t('genBits', { bits: lastGen.entropyBits }) : '');
+  const bits = h('p', { class: 'bits' });
+  // DESIGN §4.7: 80 bits and up is "Strong"; below that, say so in the warning colour.
+  const showBits = (n: number) => {
+    bits.textContent = t(n >= 80 ? 'genBits' : 'genBitsWeak', { bits: n });
+    bits.classList.toggle('weak', n < 80);
+  };
+  if (lastGen) showBits(lastGen.entropyBits);
   const run = async () => {
     preview.classList.add('dim');
     const r = await send<Reply<{ password: string; entropyBits: number }>>({ t: 'popupGenerate', gen });
@@ -333,7 +339,7 @@ function genView(): HTMLElement {
     lastGen = { password: r.password, entropyBits: r.entropyBits };
     state.settings.gen = { ...gen };
     preview.replaceChildren(colored(r.password));
-    bits.textContent = t('genBits', { bits: r.entropyBits });
+    showBits(r.entropyBits);
   };
   const copyBtn = button(t('genCopy'), 'secondary', async () => {
     if (!lastGen) return;

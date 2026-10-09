@@ -319,9 +319,9 @@ function showWarning(login: Login, ctx: Ctx): void {
         'div',
         { class: 'hosts' },
         h('span', {}, t('saveSite')),
-        h('b', { class: 'ltr', dir: 'ltr' }, page),
-        h('span', {}, login.title),
-        h('b', { class: 'ltr', dir: 'ltr' }, login.host || '—'),
+        h('b', {}, h('bdi', {}, page)),
+        h('span', {}, h('bdi', {}, login.title)),
+        h('b', {}, h('bdi', {}, login.host || '—')),
       ),
     ],
     actions: [
@@ -395,7 +395,7 @@ interface CardOpts {
   badge: Node;
   title: string;
   body?: string;
-  extra?: Node[];
+  extra?: (Node | null)[];
   actions?: { label: string; cls: string; run: () => void; ic?: IconName }[];
   stack?: boolean;
   closable?: boolean;
@@ -411,8 +411,8 @@ function showCard(o: CardOpts): HTMLElement {
   const el = h(
     'section',
     { class: 'card', role: o.role ?? 'dialog', 'aria-live': o.role === 'dialog' ? null : 'polite', 'aria-label': o.title },
-    h('div', { class: 'card-top' }, o.badge, h('div', { class: 'card-body' }, h('h2', { dir: 'auto' }, o.title), o.body ? h('p', { dir: 'auto' }, o.body) : null), o.closable === false ? null : close),
-    ...(o.extra ?? []),
+    h('div', { class: 'card-top' }, o.badge, h('div', { class: 'card-body' }, h('h2', {}, o.title), o.body ? h('p', {}, o.body) : null), o.closable === false ? null : close),
+    ...(o.extra ?? []).filter((n): n is Node => n !== null),
   );
   if (o.actions?.length) {
     const row = h('div', { class: `actions${o.stack ? ' stack' : ''}` });
@@ -483,7 +483,6 @@ function pressCard(o: PressOpts): void {
   const rg = ring(o.expiresIn, total);
   const count = h('span', { class: 'count', 'aria-hidden': 'true' }, fmt(o.expiresIn));
   const sr = h('span', { class: 'sr', 'aria-live': 'polite' });
-  const titleRow = h('div', { style: 'display:flex;gap:8px;align-items:baseline' });
   showCard({
     badge: rg,
     title: t('pressTitle'),
@@ -492,7 +491,7 @@ function pressCard(o: PressOpts): void {
     role: 'status',
     extra: [
       h('div', { style: 'display:flex;align-items:center;gap:8px' }, h('span', { class: 'chip' }, h('bdi', { dir: 'auto' }, o.chip)), count),
-      o.anyHost ? h('div', { class: 'notice' }, icon('alert', 16), h('span', {}, t('pressFor', { host: pageHost() }))) : titleRow,
+      o.anyHost ? h('div', { class: 'notice' }, icon('alert', 16), h('span', {}, t('pressFor', { host: pageHost() }))) : null,
       h('p', { class: 'hint' }, t('pressHold')),
       sr,
     ],
@@ -694,8 +693,8 @@ function showSave(card: SaveCard): void {
       h(
         'div',
         { class: 'kv' },
-        h('div', {}, h('span', { class: 'k', title: t('saveSite') }, icon('globe', 16)), h('span', { class: 'v ltr', dir: 'ltr' }, card.host)),
-        h('div', {}, h('span', { class: 'k', title: t('saveUser') }, icon('user', 16)), card.username ? h('span', { class: 'v ltr', dir: 'ltr' }, card.username) : h('span', { class: 'v none' }, t('saveNoUser'))),
+        h('div', {}, h('span', { class: 'k', title: t('saveSite') }, icon('globe', 16)), h('span', { class: 'v' }, h('bdi', {}, card.host))),
+        h('div', {}, h('span', { class: 'k', title: t('saveUser') }, icon('user', 16)), card.username ? h('span', { class: 'v' }, h('bdi', {}, card.username)) : h('span', { class: 'v none' }, t('saveNoUser'))),
       ),
     ],
     actions: [
