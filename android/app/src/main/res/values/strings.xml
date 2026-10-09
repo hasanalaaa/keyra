@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Keyra</string>
+
+    <!-- Setup / settings -->
+    <string name="setup_title">Connect to Keyra</string>
+    <string name="settings_title">Settings</string>
+    <string name="setup_intro">This app asks Keyra to type a login after you press Keyra\'s button. It never sees or keeps your passwords.</string>
+    <string name="address_label">Keyra address</string>
+    <string name="token_label">Access token</string>
+    <string name="token_hint">keyra_…</string>
+    <string name="token_help">In Keyra\'s web app open Settings → Apps and agents, create a token of the kind \"App\" and paste it here. To scan its QR code, use your camera app, copy the text and paste it.</string>
+    <string name="token_kept">A token is saved. Leave the field empty to keep it.</string>
+    <string name="paste">Paste</string>
+    <string name="test_connection">Test connection</string>
+    <string name="save">Save</string>
+    <string name="testing">Checking…</string>
+    <plurals name="connection_ok">
+        <item quantity="one">Connected. This token can use %1$d login.</item>
+        <item quantity="other">Connected. This token can use %1$d logins.</item>
+    </plurals>
+    <string name="saved_settings">Saved.</string>
+    <string name="err_address">Enter an address such as http://keyra.local or http://192.168.4.1. Plain HTTP is allowed only for addresses on your local network.</string>
+    <string name="err_token_format">A token starts with keyra_ followed by 32 letters and digits.</string>
+    <string name="err_token_unreadable">The saved token can no longer be read on this phone. Paste the token again.</string>
+    <string name="enable_autofill">Use Keyra for autofill</string>
+    <string name="autofill_on">Keyra is your autofill service.</string>
+    <string name="pins_title">Remembered apps and sites</string>
+    <string name="pins_none">None yet. When you pick a login for an app or site, you can remember the choice.</string>
+    <string name="pin_row">%1$s → %2$s</string>
+    <string name="remove">Remove</string>
+    <string name="privacy_note">This app keeps only Keyra\'s address, the access token (encrypted with a key in the Android Keystore) and the apps and sites you chose. No passwords, usernames or codes are ever stored on the phone.</string>
+    <string name="disconnect">Disconnect from Keyra</string>
+
+    <!-- Main -->
+    <string name="search_hint">Search logins</string>
+    <string name="loading">Loading…</string>
+    <string name="empty_list">No logins are available to this token.</string>
+    <string name="no_results">No logins match.</string>
+    <string name="menu_refresh">Refresh</string>
+    <string name="menu_generate">Generate password</string>
+    <string name="menu_settings">Settings</string>
+    <string name="retry">Try again</string>
+
+    <!-- Arming and waiting -->
+    <string name="type_dialog_title">Type %1$s with Keyra</string>
+    <string name="type_username">Type username</string>
+    <string name="type_password">Type password</string>
+    <string name="type_both">Type username and password</string>
+    <string name="type_totp">Type 2FA code</string>
+    <string name="arming">Asking Keyra…</string>
+    <string name="press_title">Press Keyra\'s button</string>
+    <string name="press_body_type">Put the cursor in the field on the device Keyra types into, then press the button.</string>
+    <string name="press_body_save">Keyra saves this login when you press its button.</string>
+    <string name="seconds_left">%1$d s left</string>
+    <string name="state_waiting">Keyra is connecting or working…</string>
+    <string name="state_typed">Typed.</string>
+    <string name="state_saved">Saved to Keyra.</string>
+    <string name="state_cancelled">Cancelled. Nothing was typed or saved.</string>
+    <string name="state_expired">Time ran out. Nothing was typed or saved.</string>
+    <string name="state_failed">Keyra could not finish (%1$s).</string>
+    <string name="state_unknown">Lost contact with Keyra. Check Keyra itself for the result.</string>
+    <string name="cancel">Cancel</string>
+    <string name="close">Close</string>
+
+    <!-- Errors -->
+    <string name="err_unreachable">Can\'t reach Keyra. Check that the phone is on Keyra\'s Wi-Fi or the same home network, and the address in Settings.</string>
+    <string name="err_locked">Keyra is locked. Unlock it in its web app, then try again.</string>
+    <string name="err_invalid_token">Keyra does not accept this token. It may have been revoked: create a new one in Keyra\'s web app.</string>
+    <string name="err_busy">Keyra is waiting for another request. Long-press its button to cancel that request.</string>
+    <string name="err_rate_limited">Too many requests. Try again in %1$d s.</string>
+    <string name="err_not_found">This login is not available to this token.</string>
+    <string name="err_forbidden">This token cannot do that. Create a token of the kind \"App\".</string>
+    <string name="err_no_time">Keyra\'s clock is not set, so it cannot make a 2FA code yet.</string>
+    <string name="err_not_cancelled">Nothing was waiting.</string>
+    <string name="err_other">Keyra answered: %1$s</string>
+    <string name="not_set_up">Set up the connection to Keyra first.</string>
+
+    <!-- Generate -->
+    <string name="gen_title">Generate password</string>
+    <string name="gen_length">Length: %1$d</string>
+    <string name="gen_lower">Lowercase letters (a–z)</string>
+    <string name="gen_upper">Capital letters (A–Z)</string>
+    <string name="gen_digits">Digits (0–9)</string>
+    <string name="gen_symbols">Symbols</string>
+    <string name="gen_avoid">Avoid look-alike characters</string>
+    <string name="gen_button">Generate</string>
+    <string name="gen_note">Made by Keyra\'s hardware random generator and not stored anywhere. To keep it, save the login to Keyra.</string>
+    <string name="copy">Copy</string>
+    <string name="copied">Copied. The clipboard is cleared in 60 seconds.</string>
+    <string name="clip_label">Generated password</string>
+
+    <!-- Autofill -->
+    <string name="af_dataset">Keyra · %1$s</string>
+    <string name="af_pick">Keyra · Choose a login…</string>
+    <string name="af_armed">Keyra is ready (%1$s): tap the field if needed, then press Keyra\'s button.</string>
+    <string name="af_remember">Offer this login first for %1$s</string>
+    <string name="pick_title">Choose a login</string>
+
+    <!-- Save -->
+    <string name="save_title">Save to Keyra?</string>
+    <string name="save_body">Keyra adds this login after you press its button. Nothing is kept on the phone.</string>
+    <string name="field_title">Title</string>
+    <string name="field_url">Address</string>
+    <string name="field_username">Username</string>
+    <plurals name="field_password">
+        <item quantity="one">Password: %1$d character</item>
+        <item quantity="other">Password: %1$d characters</item>
+    </plurals>
+    <string name="save_button">Save to Keyra</string>
+    <string name="err_title_required">Enter a title.</string>
+</resources>

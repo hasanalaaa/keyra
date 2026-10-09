@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Framework themes only (no AppCompat): DayNight follows the system light/dark setting. -->
+    <style name="Theme.Keyra" parent="android:Theme.DeviceDefault.DayNight">
+        <item name="android:colorAccent">@color/accent</item>
+        <item name="android:windowLightStatusBar">@bool/light_bars</item>
+        <item name="android:windowLightNavigationBar">@bool/light_bars</item>
+    </style>
+
+    <style name="Theme.Keyra.Dialog" parent="android:Theme.DeviceDefault.Light.Dialog">
+        <item name="android:colorAccent">@color/accent</item>
+        <item name="android:windowCloseOnTouchOutside">false</item>
+        <item name="android:windowMinWidthMajor">90%</item>
+        <item name="android:windowMinWidthMinor">90%</item>
+    </style>
+
+    <style name="Keyra.Muted" parent="">
+        <item name="android:textColor">@color/muted</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <style name="Keyra.Label" parent="">
+        <item name="android:textSize">14sp</item>
+        <item name="android:layout_marginTop">16dp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+</resources>

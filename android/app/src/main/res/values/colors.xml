@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Keyra's web accent (web/src/styles/tokens.css). -->
+    <color name="accent">#0B57F0</color>
+    <color name="muted">#5F6673</color>
+    <color name="danger">#C1251C</color>
+    <color name="icon_background">#0B57F0</color>
+    <color name="icon_foreground">#FFFFFF</color>
+</resources>

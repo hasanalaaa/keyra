@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Keyra speaks plain HTTP on the local network (SPEC §6).
+  domain-config cannot express IP ranges (192.168.*, 10.*, 172.16-31.*), and Keyra is
+  usually reached by IP, so cleartext is permitted here and the app enforces "local only"
+  itself: KeyraAddress.normalize() refuses http:// to any host that is not localhost,
+  *.local, *.home.arpa, a private/link-local IPv4 or a link-local/unique-local IPv6 address,
+  and the app connects to nothing but the configured Keyra address.
+  No user-added CAs are trusted.
+-->
+<network-security-config xmlns:tools="http://schemas.android.com/tools">
+    <base-config cleartextTrafficPermitted="true" tools:ignore="InsecureBaseConfiguration">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

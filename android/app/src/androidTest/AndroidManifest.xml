@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- A stand-in "other app" login form (package app.keyra.android.test) for autofill checks. -->
+        <activity
+            android:name="app.keyra.android.LoginFormActivity"
+            android:exported="true"
+            android:label="Test login"
+            android:theme="@android:style/Theme.DeviceDefault.Light" />
+    </application>
+</manifest>

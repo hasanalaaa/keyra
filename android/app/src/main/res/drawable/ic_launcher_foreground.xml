@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A key, inside the 72 dp safe zone of the 108 dp adaptive icon. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="@color/icon_foreground"
+        android:fillType="evenOdd"
+        android:pathData="M26,54a14,14 0,1 0,28 0a14,14 0,1 0,-28 0ZM34,54a6,6 0,1 0,12 0a6,6 0,1 0,-12 0Z" />
+    <path
+        android:fillColor="@color/icon_foreground"
+        android:pathData="M52,50H84V58H52ZM70,58H76V66H70ZM78,58H84V64H78Z" />
+</vector>

@@ -21,6 +21,14 @@ All notable changes to Keyra are documented here. The format follows
   logged. The tag's link opens a small page that arms nothing by itself (link
   previews are safe) and follows the press to "Typed".
 
+- **Android app** ([android/README.md](android/README.md)): uses an "app" access
+  token (SPEC §17) to list logins, arm typing (username, password, both, 2FA
+  code) with a countdown and the result, generate passwords on Keyra, and an
+  autofill service whose suggestions hold no value (choosing one arms Keyra,
+  the button press types) plus "Save to Keyra" (the press saves). Stores only
+  the address, the Keystore-encrypted token and remembered app/site choices;
+  English and Arabic, light and dark; no accessibility service, no Play
+  Services.
 - **Security key PIN, hmac-secret and credProtect** (firmware + web,
   [FIDO.md](docs/FIDO.md#clientpin)): CTAP2 `authenticatorClientPIN` with PIN/UV
   auth protocols 2 and 1 (getPINRetries, getKeyAgreement, setPIN, changePIN,

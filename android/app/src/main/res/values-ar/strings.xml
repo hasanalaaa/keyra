@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Keyra</string>
+
+    <!-- الإعداد والإعدادات -->
+    <string name="setup_title">الاتصال بـ Keyra</string>
+    <string name="settings_title">الإعدادات</string>
+    <string name="setup_intro">هذا التطبيق يطلب من Keyra أن يكتب بيانات الدخول بعد أن تضغط زرّه. التطبيق لا يرى كلمات مرورك ولا يحتفظ بها.</string>
+    <string name="address_label">عنوان Keyra</string>
+    <string name="token_label">رمز الوصول</string>
+    <string name="token_hint">keyra_…</string>
+    <string name="token_help">افتح تطبيق Keyra على الويب، ثم الإعدادات ← التطبيقات والوكلاء، وأنشئ رمزًا من نوع \"تطبيق\" والصقه هنا. لمسح رمز QR استعمل تطبيق الكاميرا، وانسخ النص ثم الصقه.</string>
+    <string name="token_kept">يوجد رمز محفوظ. اترك الحقل فارغًا للإبقاء عليه.</string>
+    <string name="paste">لصق</string>
+    <string name="test_connection">اختبار الاتصال</string>
+    <string name="save">حفظ</string>
+    <string name="testing">جارٍ التحقق…</string>
+    <plurals name="connection_ok">
+        <item quantity="zero">تم الاتصال، لكن لا توجد بيانات دخول متاحة لهذا الرمز.</item>
+        <item quantity="one">تم الاتصال. يستطيع هذا الرمز استعمال حساب واحد.</item>
+        <item quantity="two">تم الاتصال. يستطيع هذا الرمز استعمال حسابين.</item>
+        <item quantity="few">تم الاتصال. يستطيع هذا الرمز استعمال %1$d حسابات.</item>
+        <item quantity="many">تم الاتصال. يستطيع هذا الرمز استعمال %1$d حسابًا.</item>
+        <item quantity="other">تم الاتصال. يستطيع هذا الرمز استعمال %1$d حساب.</item>
+    </plurals>
+    <string name="saved_settings">تم الحفظ.</string>
+    <string name="err_address">أدخل عنوانًا مثل http://keyra.local أو http://192.168.4.1. يُسمح بـ HTTP العادي فقط للعناوين داخل شبكتك المحلية.</string>
+    <string name="err_token_format">يبدأ الرمز بـ keyra_ وبعده 32 حرفًا ورقمًا.</string>
+    <string name="err_token_unreadable">لم يعد ممكنًا قراءة الرمز المحفوظ على هذا الهاتف. الصق الرمز مرة أخرى.</string>
+    <string name="enable_autofill">استعمال Keyra للملء التلقائي</string>
+    <string name="autofill_on">Keyra هو خدمة الملء التلقائي لديك.</string>
+    <string name="pins_title">التطبيقات والمواقع المحفوظة</string>
+    <string name="pins_none">لا شيء بعد. عندما تختار بيانات دخول لتطبيق أو موقع يمكنك أن تحفظ اختيارك.</string>
+    <string name="pin_row">%1$s ← %2$s</string>
+    <string name="remove">إزالة</string>
+    <string name="privacy_note">يحتفظ هذا التطبيق فقط بعنوان Keyra، ورمز الوصول (مشفّرًا بمفتاح في Android Keystore)، والتطبيقات والمواقع التي اخترتها. لا تُحفظ على الهاتف أي كلمة مرور أو اسم مستخدم أو رمز تحقق.</string>
+    <string name="disconnect">قطع الاتصال بـ Keyra</string>
+
+    <!-- الشاشة الرئيسية -->
+    <string name="search_hint">ابحث في بيانات الدخول</string>
+    <string name="loading">جارٍ التحميل…</string>
+    <string name="empty_list">لا توجد بيانات دخول متاحة لهذا الرمز.</string>
+    <string name="no_results">لا توجد نتائج مطابقة.</string>
+    <string name="menu_refresh">تحديث</string>
+    <string name="menu_generate">توليد كلمة مرور</string>
+    <string name="menu_settings">الإعدادات</string>
+    <string name="retry">إعادة المحاولة</string>
+
+    <!-- التجهيز والانتظار -->
+    <string name="type_dialog_title">كتابة %1$s بواسطة Keyra</string>
+    <string name="type_username">اكتب اسم المستخدم</string>
+    <string name="type_password">اكتب كلمة المرور</string>
+    <string name="type_both">اكتب اسم المستخدم وكلمة المرور</string>
+    <string name="type_totp">اكتب رمز التحقق بخطوتين</string>
+    <string name="arming">جارٍ إرسال الطلب إلى Keyra…</string>
+    <string name="press_title">اضغط زر Keyra</string>
+    <string name="press_body_type">ضع المؤشر في الحقل على الجهاز الذي يكتب فيه Keyra، ثم اضغط الزر.</string>
+    <string name="press_body_save">يحفظ Keyra بيانات الدخول هذه عندما تضغط زرّه.</string>
+    <string name="seconds_left">متبقٍّ %1$d ث</string>
+    <string name="state_waiting">Keyra يتصل أو يعمل الآن…</string>
+    <string name="state_typed">تمت الكتابة.</string>
+    <string name="state_saved">تم الحفظ في Keyra.</string>
+    <string name="state_cancelled">أُلغي الطلب. لم يُكتب أو يُحفظ شيء.</string>
+    <string name="state_expired">انتهى الوقت. لم يُكتب أو يُحفظ شيء.</string>
+    <string name="state_failed">تعذّر على Keyra إكمال الطلب (%1$s).</string>
+    <string name="state_unknown">انقطع الاتصال بـ Keyra. تحقّق من النتيجة على Keyra نفسه.</string>
+    <string name="cancel">إلغاء</string>
+    <string name="close">إغلاق</string>
+
+    <!-- الأخطاء -->
+    <string name="err_unreachable">لا يمكن الوصول إلى Keyra. تأكد أن الهاتف متصل بشبكة Keyra أو بشبكة المنزل نفسها، وتحقّق من العنوان في الإعدادات.</string>
+    <string name="err_locked">Keyra مقفل. افتحه من تطبيق الويب ثم حاول مرة أخرى.</string>
+    <string name="err_invalid_token">Keyra لا يقبل هذا الرمز، وربما أُلغي. أنشئ رمزًا جديدًا من تطبيق Keyra على الويب.</string>
+    <string name="err_busy">Keyra ينتظر طلبًا آخر. اضغط زرّه ضغطة طويلة لإلغاء ذلك الطلب.</string>
+    <string name="err_rate_limited">طلبات كثيرة جدًا. حاول بعد %1$d ث.</string>
+    <string name="err_not_found">بيانات الدخول هذه غير متاحة لهذا الرمز.</string>
+    <string name="err_forbidden">هذا الرمز لا يسمح بذلك. أنشئ رمزًا من نوع \"تطبيق\".</string>
+    <string name="err_no_time">ساعة Keyra غير مضبوطة، لذلك لا يستطيع توليد رمز التحقق بعد.</string>
+    <string name="err_not_cancelled">لم يكن هناك طلب منتظر.</string>
+    <string name="err_other">ردّ Keyra: %1$s</string>
+    <string name="not_set_up">اضبط الاتصال بـ Keyra أولًا.</string>
+
+    <!-- التوليد -->
+    <string name="gen_title">توليد كلمة مرور</string>
+    <string name="gen_length">الطول: %1$d</string>
+    <string name="gen_lower">أحرف صغيرة (a–z)</string>
+    <string name="gen_upper">أحرف كبيرة (A–Z)</string>
+    <string name="gen_digits">أرقام (0–9)</string>
+    <string name="gen_symbols">رموز</string>
+    <string name="gen_avoid">تجنّب الأحرف المتشابهة</string>
+    <string name="gen_button">توليد</string>
+    <string name="gen_note">يولّدها مولّد الأرقام العشوائية في عتاد Keyra، ولا تُحفظ في أي مكان. للاحتفاظ بها احفظ بيانات الدخول في Keyra.</string>
+    <string name="copy">نسخ</string>
+    <string name="copied">تم النسخ. ستُمسح الحافظة بعد 60 ثانية.</string>
+    <string name="clip_label">كلمة مرور مولّدة</string>
+
+    <!-- الملء التلقائي -->
+    <string name="af_dataset">Keyra · %1$s</string>
+    <string name="af_pick">Keyra · اختر بيانات دخول…</string>
+    <string name="af_armed">Keyra جاهز (%1$s): المس الحقل إن لزم، ثم اضغط زر Keyra.</string>
+    <string name="af_remember">اعرض بيانات الدخول هذه أولًا لـ %1$s</string>
+    <string name="pick_title">اختر بيانات دخول</string>
+
+    <!-- الحفظ -->
+    <string name="save_title">الحفظ في Keyra؟</string>
+    <string name="save_body">يضيف Keyra بيانات الدخول هذه بعد أن تضغط زرّه. لا يُحفظ شيء على الهاتف.</string>
+    <string name="field_title">العنوان</string>
+    <string name="field_url">الرابط</string>
+    <string name="field_username">اسم المستخدم</string>
+    <plurals name="field_password">
+        <item quantity="zero">كلمة المرور: فارغة</item>
+        <item quantity="one">كلمة المرور: محرف واحد</item>
+        <item quantity="two">كلمة المرور: محرفان</item>
+        <item quantity="few">كلمة المرور: %1$d محارف</item>
+        <item quantity="many">كلمة المرور: %1$d محرفًا</item>
+        <item quantity="other">كلمة المرور: %1$d محرف</item>
+    </plurals>
+    <string name="save_button">احفظ في Keyra</string>
+    <string name="err_title_required">أدخل عنوانًا.</string>
+</resources>
