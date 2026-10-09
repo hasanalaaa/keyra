@@ -179,7 +179,8 @@ runs PBKDF2 elsewhere. Only passphrase strength does.
 Nothing is typed without a button press, and the press must happen within 60
 seconds of the request. Setup, Wi-Fi credential changes, joining, changing or
 leaving the home network, trusting a browser on the home network, opening the
-Bluetooth pairing window, a replacing restore, factory reset and every passkey or
+Bluetooth pairing window, creating an access token or saving an account an app sent,
+a replacing restore, factory reset and every passkey or
 security-key registration and sign-in also need a button press. The button is GPIO0 (the BOOT button),
 and the firmware never restarts while it is held low, to avoid latching ROM download mode.
 
@@ -271,6 +272,34 @@ exact key formats and the list of what is implemented are in
   destroys everything.
 - **Backups.** Passkeys are not in encrypted backups (yet). Losing or resetting
   Keyra loses them: keep a second sign-in method on every account.
+
+## Access tokens for apps and AI agents
+
+Settings → Apps and agents creates bearer tokens (SPEC §17; design and threat
+model in [docs/research/TOKENS.md](docs/research/TOKENS.md)). What they can
+and cannot do:
+
+- **Arm, never read.** A token lists account titles and website hosts in its
+  scope and asks Keyra to type; no endpoint it can reach returns a password, a
+  username or a 2FA secret. Every typing still needs the physical press. App
+  tokens can also save a new account (after a press) and get a freshly
+  generated password that was never stored.
+- **At rest.** Keyra keeps only SHA-256 of each token, inside the vault and
+  sealed with the data key, so tokens work only while unlocked (401 `locked`
+  otherwise). Creating one needs a press; revoking needs none and withdraws
+  anything it armed. Comparison is constant-time; tokens are never logged.
+- **Plain HTTP.** On the home network a token can be sniffed. The thief gets
+  the same arm-only power — and the owner's press is still required, the
+  phone shows which token asked, and the activity log records it. Revoke a
+  token you doubt; give each one only the accounts it needs.
+- **Approval hijack ("Loopjacking").** Someone who holds a token could arm a
+  login right before the owner expects one. One item waits at a time and
+  nobody can replace another's (409 `busy`), the phone names the account and
+  the token, and the press types into whatever is focused. Press only for a
+  login you asked for.
+- **Abuse.** 10 requests per 10 s per token; unknown tokens share one more
+  budget. Repeated listings are counted on one activity line so they cannot
+  push the rest of the history out.
 
 ## Optional hardening (not enabled by default)
 

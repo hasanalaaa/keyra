@@ -248,7 +248,16 @@ function ListPane({ selected, desktop }: { selected: number | null; desktop: boo
       {showPill && pending && (
         <button type="button" class="ready-pill glass" onClick={() => go(pending.what === 'text' ? '/type' : pending.what === 'probe' || pending.what === 'test' ? '/settings' : `/a/${pending.id}`)}>
           <span class="pill-dot" aria-hidden="true" />
-          <span>{t('readyPill', { title: '' })}<bdi>{pending.title ?? t('chipText')}</bdi></span>
+          <span class="pill-text">
+            {t('readyPill', { title: '' })}
+            <bdi>{pending.title ?? t('chipText')}</bdi>
+            {pending.by && (
+              <>
+                {' '}
+                <bdi>{t('readyBy', { name: pending.by })}</bdi>
+              </>
+            )}
+          </span>
         </button>
       )}
       {menu && <VaultMenu onClose={() => setMenu(false)} />}

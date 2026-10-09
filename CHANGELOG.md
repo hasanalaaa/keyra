@@ -8,6 +8,21 @@ All notable changes to Keyra are documented here. The format follows
 
 ### Added
 
+- **Access tokens and the Agent Gate** (SPEC §17, [TOKENS.md](docs/research/TOKENS.md)):
+  Settings → **Apps and agents** creates bearer tokens for AI agents and apps
+  (name, kind, the accounts it may use; a button press to create, shown once
+  with copy and QR, revoked without a press). With a token, `/api/agent/…`
+  lists titles and hosts in scope and arms typing through the same pending
+  machine and button press as the web app — it can never read a password,
+  username or 2FA secret. App tokens may also save a new account (after a
+  press) and generate a password. Keyra keeps only SHA-256 of each token, in a
+  new vault record sealed with the data key (`tokens.bin`); tokens work only
+  while unlocked, are rate limited (10 requests per 10 s), and every use is in
+  the activity log. The phone's "Ready" pill names the token that asked.
+- **keyra-mcp** (`tools/keyra-mcp/`): a dependency-free MCP server (stdio) with
+  `keyra_list_logins` and `keyra_type_login` for Claude Desktop, Claude Code and
+  other agents; it answers only `typed`, `denied` or `expired`.
+
 - **Passkeys in backups** (firmware, [PASSKEY-BACKUP.md](docs/research/PASSKEY-BACKUP.md)):
   backups (format v3) carry the passkey wrapping keys, the passkey records and
   the signature counter while the new setting `passkeysInBackup` is on

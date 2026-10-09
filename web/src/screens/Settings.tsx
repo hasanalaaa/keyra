@@ -24,6 +24,7 @@ import { HealthSheet } from './Health';
 import { ActivitySheet } from './Activity';
 import { UpdateSheet } from './Update';
 import { TrustedSheet } from './Trusted';
+import { TokensSheet } from './Tokens';
 import { RecoverySheet } from './Recovery';
 import { BothSequenceSheet } from './BothSequence';
 import { shortDate } from '../lib/wifi';
@@ -37,7 +38,7 @@ const SPEEDS = [
 ] as const;
 const AUTOLOCK = [1, 5, 15, 30, 60, 120];
 
-type Sub = LayoutOutput | 'wifi' | 'home' | 'trusted' | 'health' | 'activity' | 'update' | 'passkeys' | 'autolock' | 'passphrase' | 'test' | 'erase' | 'recovery' | 'unprotect' | 'bothseq' | null;
+type Sub = LayoutOutput | 'wifi' | 'home' | 'trusted' | 'apps' | 'health' | 'activity' | 'update' | 'passkeys' | 'autolock' | 'passphrase' | 'test' | 'erase' | 'recovery' | 'unprotect' | 'bothseq' | null;
 
 export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void }) {
   const app = useApp();
@@ -170,6 +171,7 @@ export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void 
               onClick={() => setSub('recovery')}
             />
             {s.homeWifi && <NavRow label={t('trustedRow')} onClick={() => setSub('trusted')} />}
+            <NavRow label={t('appsRow')} onClick={() => setSub('apps')} />
             <button type="button" class="row nav-row" onClick={() => void lockNow()}>
               <span class="row-label accent">{t('lockNow')}</span>
               <Icon name="lock" size={20} class="row-chev" />
@@ -304,6 +306,7 @@ export function Settings({ page, onA2hs }: { page?: boolean; onA2hs: () => void 
       )}
       {sub === 'home' && s && <HomeWifiSheet settings={s} onChange={() => void load()} onClose={() => setSub(null)} />}
       {sub === 'trusted' && <TrustedSheet onClose={() => setSub(null)} />}
+      {sub === 'apps' && <TokensSheet onClose={() => setSub(null)} />}
       {sub === 'health' && <HealthSheet onClose={() => setSub(null)} />}
       {sub === 'activity' && <ActivitySheet onClose={() => setSub(null)} />}
       {sub === 'update' && <UpdateSheet onClose={() => setSub(null)} />}
