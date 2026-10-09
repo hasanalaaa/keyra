@@ -123,8 +123,12 @@ class AutofillAuthActivity : Activity() {
 
         fun pickIntent(context: Context, target: Target, what: What): Intent = Intent(context, AutofillAuthActivity::class.java)
             .putExtra(EXTRA_KEY, target.key)
-            .putExtra(EXTRA_LABEL, label(context, target))
+            .putExtra(EXTRA_LABEL, pickLabel(context, target))
             .putExtra(EXTRA_WHAT, what.name)
+
+        /** For apps the package follows the name: any app can call itself "GitHub", not reuse its package. */
+        private fun pickLabel(context: Context, target: Target): String = target.webDomain
+            ?: label(context, target).let { if (it == target.packageName) it else "$it (${target.packageName})" }
 
         /** The site's domain, or the app's name when this app may see it, else its package. */
         fun label(context: Context, target: Target): String = target.webDomain ?: try {

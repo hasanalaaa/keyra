@@ -23,6 +23,11 @@ npm --prefix web run build
 git diff --exit-code -- firmware/components/keyra_api/www \
   || { echo "firmware/components/keyra_api/www is out of date: commit the rebuilt assets"; exit 1; }
 
+step "Android app (unit tests, builds, lint)"
+(cd android && ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}" JAVA_HOME="${JAVA_HOME:-/Applications/Android Studio.app/Contents/jbr/Contents/Home}" \
+  ./gradlew --console=plain --rerun-tasks testDebugUnitTest assembleDebug assembleRelease lint \
+  | grep -E "BUILD|FAIL")
+
 step "Firmware (dev, release)"
 # shellcheck disable=SC1091
 source "${IDF_PATH:-$HOME/esp/esp-idf-v6.0.2}/export.sh" >/dev/null

@@ -2,7 +2,11 @@ package app.keyra.android.match
 
 import app.keyra.android.api.Entry
 
-/** What a form belongs to: a web page (browser with webDomain) or an app. */
+/**
+ * What a form belongs to: a web page or an app. [webDomain] is set only when the form is in a
+ * known browser (see [Browsers]); any other app's web content counts as that app, so an app
+ * cannot claim to be a site by putting it in a WebView.
+ */
 data class Target(val webDomain: String?, val packageName: String) {
     /** Key for a remembered choice: "web:<domain>" for pages, "app:<package>" for apps. */
     val key: String
@@ -10,50 +14,46 @@ data class Target(val webDomain: String?, val packageName: String) {
 }
 
 /**
- * Which logins to offer for a form. A wrong offer cannot leak anything (the dataset holds no
- * value and typing still waits for the button), so this favours simple, predictable rules:
- * - web pages: same registrable domain ("accounts.google.com" ↔ "google.com");
- * - apps: a package label equals the domain's name ("com.github.android" ↔ "github.com"),
- *   or the entry's host is the package itself (logins saved from an app use androidapp://);
+ * Browsers whose reported page domain is trusted. Android package names are unique on a device,
+ * and these come preinstalled or from the store, so another app cannot reuse them alongside.
+ */
+object Browsers {
+    val PACKAGES = setOf(
+        "com.android.chrome", "com.chrome.beta", "com.chrome.dev", "com.chrome.canary",
+        "org.chromium.chrome", "com.google.android.apps.chrome",
+        "org.mozilla.firefox", "org.mozilla.firefox_beta", "org.mozilla.fenix", "org.mozilla.focus",
+        "org.mozilla.klar", "com.microsoft.emmx", "com.brave.browser", "com.brave.browser_beta",
+        "com.sec.android.app.sbrowser", "com.sec.android.app.sbrowser.beta",
+        "com.opera.browser", "com.opera.mini.native", "com.opera.gx", "com.vivaldi.browser",
+        "com.duckduckgo.mobile.android", "com.kiwibrowser.browser", "com.mi.globalbrowser",
+        "com.huawei.browser", "com.ecosia.android", "org.torproject.torbrowser",
+    )
+
+    fun isBrowser(packageName: String) = packageName in PACKAGES
+}
+
+/**
+ * Which logins to offer for a form. Choosing an offer and pressing Keyra's button types the
+ * login into whatever has focus, so an offer must never be made to the wrong app or site:
+ * - web pages (known browsers only): the same host, or one is a subdomain of the other
+ *   ("github.com" ↔ "gist.github.com"); siblings such as "mail.google.com" ↔
+ *   "accounts.google.com" are left to "Choose a login…", which can remember the choice;
+ * - apps: only logins saved from that very app (host = package, from androidapp://…) —
+ *   no guessing from package names, which any app can choose;
  * - remembered choices first.
  */
 object HostMatcher {
     /** Second-level labels under a two-letter country code that are not names ("gov.iq", "co.uk"). */
     private val COUNTRY_SLD = setOf("ac", "co", "com", "edu", "gob", "gov", "go", "mil", "ne", "net", "or", "org", "sch")
 
-    /** Shared hosting where every subdomain is a different owner: never match across them. */
-    private val SHARED_SUFFIXES = listOf(
-        "github.io", "gitlab.io", "blogspot.com", "appspot.com", "herokuapp.com", "netlify.app",
-        "vercel.app", "pages.dev", "workers.dev", "web.app", "firebaseapp.com", "azurewebsites.net",
-        "cloudfront.net", "glitch.me", "onrender.com", "fly.dev", "ngrok.io", "ngrok-free.app",
-    )
-
-    /** Package labels that say nothing about the owner. */
-    private val NOISE = setOf(
-        "com", "org", "net", "io", "app", "apps", "android", "mobile", "client", "www", "co", "de", "uk",
-        "us", "lite", "main", "free", "pro", "official",
-    )
-
-    /** First labels of package names that no web host starts with. */
-    private val PACKAGE_ROOTS = setOf("com", "org", "net", "io", "edu", "gov")
-
     fun normalize(host: String): String = host.trim().lowercase().trimEnd('.').removePrefix("www.")
 
     private fun isIp(host: String) = host.contains(':') || host.split('.').let { p -> p.size == 4 && p.all { it.isNotEmpty() && it.all(Char::isDigit) } }
 
-    /** The registrable domain, approximately (no full public-suffix list on purpose). */
-    fun baseDomain(rawHost: String): String {
-        val host = normalize(rawHost)
-        if (host.isEmpty() || isIp(host)) return host
-        SHARED_SUFFIXES.firstOrNull { host == it || host.endsWith(".$it") }?.let { suffix ->
-            val rest = host.removeSuffix(suffix).trimEnd('.')
-            return if (rest.isEmpty()) host else rest.substringAfterLast('.') + "." + suffix
-        }
+    /** "com", "co.uk", "gov.iq": never treated as a site of its own. */
+    private fun isPublicSuffixLike(host: String): Boolean {
         val labels = host.split('.')
-        if (labels.size <= 2) return host
-        val n = labels.size
-        val keep = if (labels[n - 1].length == 2 && labels[n - 2] in COUNTRY_SLD) 3 else 2
-        return labels.takeLast(keep).joinToString(".")
+        return labels.size < 2 || (labels.size == 2 && labels[1].length == 2 && labels[0] in COUNTRY_SLD)
     }
 
     fun matchesWeb(entryHost: String, webDomain: String): Boolean {
@@ -62,21 +62,13 @@ object HostMatcher {
         if (a.isEmpty() || b.isEmpty()) return false
         if (a == b) return true
         if (isIp(a) || isIp(b)) return false
-        return baseDomain(a) == baseDomain(b)
+        val (short, long) = if (a.length < b.length) a to b else b to a
+        return !isPublicSuffixLike(short) && long.endsWith(".$short")
     }
 
     fun matchesApp(entryHost: String, packageName: String): Boolean {
         val host = normalize(entryHost)
-        val pkg = packageName.lowercase()
-        if (host.isEmpty() || pkg.isEmpty()) return false
-        if (host == pkg) return true
-        // A package name saved as androidapp://… ("com.example.notes") matches only that app.
-        if (isIp(host) || host.substringBefore('.') in PACKAGE_ROOTS) return false
-        val name = baseDomain(host).substringBefore('.').replace("-", "")
-        if (name.length < 2 || name in NOISE) return false
-        return pkg.split('.').any { label ->
-            label !in NOISE && (label == name || (name.length >= 4 && label.startsWith(name)))
-        }
+        return host.isNotEmpty() && host == packageName.lowercase()
     }
 
     /** Matching entries, remembered choices first, at most [limit]. */

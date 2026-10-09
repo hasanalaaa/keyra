@@ -43,6 +43,23 @@ jobs:
       - run: npm --prefix web test
       - run: npm --prefix web run build
 
+  android:
+    name: Android app (unit tests, builds, lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      # The API tests start web/mock/server.mjs, so Node is needed too.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test, build and lint
+        working-directory: android
+        run: ./gradlew --no-daemon testDebugUnitTest assembleDebug assembleRelease lint
+
   firmware:
     name: Firmware build (${{ matrix.profile }})
     runs-on: ubuntu-latest

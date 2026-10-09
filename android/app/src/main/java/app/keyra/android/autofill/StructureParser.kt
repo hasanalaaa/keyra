@@ -3,6 +3,7 @@ package app.keyra.android.autofill
 import android.app.assist.AssistStructure
 import android.view.View
 import android.view.autofill.AutofillId
+import app.keyra.android.match.Browsers
 import app.keyra.android.match.Target
 
 /** The text fields of a screen, in traversal order, with what the form belongs to. */
@@ -23,12 +24,18 @@ object StructureParser {
     fun parse(structure: AssistStructure, withValues: Boolean): ParsedStructure {
         val fields = mutableListOf<FieldInfo>()
         val ids = mutableMapOf<Int, AutofillId>()
-        var webDomain: String? = null
+        val packageName = structure.activityComponent.packageName
+        val browser = Browsers.isBrowser(packageName)
+        // The page's domain is the first one met; fields of a frame from another domain
+        // (an embedded ad or widget) are left out so nothing is offered or saved for them.
+        var pageDomain: String? = null
 
-        fun visit(node: AssistStructure.ViewNode) {
-            if (webDomain == null && !node.webDomain.isNullOrEmpty()) webDomain = node.webDomain
+        fun visit(node: AssistStructure.ViewNode, inherited: String?) {
+            val domain = node.webDomain?.takeIf { it.isNotEmpty() } ?: inherited
+            if (pageDomain == null && domain != null) pageDomain = domain
             val id = node.autofillId
-            if (id != null && node.autofillType == View.AUTOFILL_TYPE_TEXT && node.visibility == View.VISIBLE) {
+            val samePage = !browser || domain == null || domain == pageDomain
+            if (id != null && samePage && node.autofillType == View.AUTOFILL_TYPE_TEXT && node.visibility == View.VISIBLE) {
                 val html = node.htmlInfo
                 val attrs = html?.attributes.orEmpty().associate { (it.first ?: "").lowercase() to (it.second ?: "") }
                 if (html == null || html.tag.equals("input", ignoreCase = true)) {
@@ -47,10 +54,10 @@ object StructureParser {
                     )
                 }
             }
-            for (i in 0 until node.childCount) visit(node.getChildAt(i))
+            for (i in 0 until node.childCount) visit(node.getChildAt(i), domain)
         }
 
-        for (w in 0 until structure.windowNodeCount) visit(structure.getWindowNodeAt(w).rootViewNode)
-        return ParsedStructure(fields, ids, Target(webDomain, structure.activityComponent.packageName))
+        for (w in 0 until structure.windowNodeCount) visit(structure.getWindowNodeAt(w).rootViewNode, null)
+        return ParsedStructure(fields, ids, Target(pageDomain.takeIf { browser }, packageName))
     }
 }
