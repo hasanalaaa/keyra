@@ -18,6 +18,8 @@ export interface Pending {
   parts?: number;
   /** The access token that armed it (SPEC §17); absent when a browser did. */
   by?: string;
+  /** SPEC §9.4: the page a browser extension types another site's login into. */
+  host?: string;
 }
 
 export interface TypeResult {
@@ -200,7 +202,7 @@ export interface RestoreResult {
 export interface AccessToken {
   id: number;
   name: string;
-  kind: 'agent' | 'app';
+  kind: 'agent' | 'app' | 'extension';
   scope: 'all' | number[];
   created: number; // unix seconds, 0 = unknown
   lastUsed: number; // 0 = never

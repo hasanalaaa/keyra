@@ -17,6 +17,7 @@ import { Settings } from './Settings';
 import { A2hsSheet, shouldOfferA2hs } from './A2hs';
 import { GenerateSheet } from './Generate';
 import { TypeTextSheet } from './TypeText';
+import { ConnectSheet } from './Tokens';
 
 let a2hsChecked = false;
 
@@ -67,6 +68,7 @@ export function Vault({ route }: { route: Route }) {
       {route.name === 'backup' && <BackupSheet />}
       {route.name === 'generate' && <GenerateSheet />}
       {route.name === 'typeText' && <TypeTextSheet />}
+      {route.name === 'connect' && <ConnectSheet ext={route.ext} n={route.n} />}
       {desktop && route.name === 'settings' && <Settings onA2hs={() => setA2hs(true)} />}
       {a2hs && <A2hsSheet onClose={() => setA2hs(false)} />}
     </div>
@@ -255,6 +257,12 @@ function ListPane({ selected, desktop }: { selected: number | null; desktop: boo
               <>
                 {' '}
                 <bdi>{t('readyBy', { name: pending.by })}</bdi>
+              </>
+            )}
+            {pending.host && (
+              <>
+                {' · '}
+                <bdi dir="ltr">{pending.host}</bdi>
               </>
             )}
           </span>

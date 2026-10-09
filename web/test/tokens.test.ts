@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { eventText } from '../src/screens/Activity';
 import { nameOk } from '../src/screens/Tokens';
 import { setLang } from '../src/lib/i18n';
+import { parseRoute } from '../src/lib/router';
 
 // SPEC §17: access tokens in the activity log and the create form.
 describe('access tokens', () => {
@@ -35,5 +36,17 @@ describe('access tokens', () => {
     expect(nameOk('a'.repeat(49))).toBe(false);
     expect(nameOk('و'.repeat(24))).toBe(true); // 2 bytes each
     expect(nameOk('و'.repeat(25))).toBe(false);
+  });
+
+  it('names the other site when an extension typed there (SPEC §9.4: detail + 4)', () => {
+    setLang('en');
+    expect(eventText({ kind: 'agent_armed', at: 1, detail: 5, id: 5, title: 'Chrome on Mac → evil.example' }, names)).toBe('Chrome on Mac asked to type GitHub on another site: evil.example');
+    expect(eventText({ kind: 'agent_armed', at: 1, detail: 1, id: 5, title: 'A → B' }, names)).toBe('A → B asked to type GitHub');
+  });
+
+  it('opens the pairing screen from the extension’s link', () => {
+    expect(parseRoute('#/connect?ext=Chrome%20on%20Mac&n=AAAAAAAAAAAAAAAAAAAAAA')).toEqual({ name: 'connect', ext: 'Chrome on Mac', n: 'AAAAAAAAAAAAAAAAAAAAAA' });
+    expect(parseRoute('#/connect')).toEqual({ name: 'connect', ext: '', n: '' });
+    expect(parseRoute('#/a/5?x=1')).toEqual({ name: 'account', id: 5 });
   });
 });

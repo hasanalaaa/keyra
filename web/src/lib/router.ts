@@ -14,10 +14,12 @@ export type Route =
   | { name: 'backup' }
   | { name: 'settings' }
   | { name: 'generate' }
-  | { name: 'typeText' };
+  | { name: 'typeText' }
+  | { name: 'connect'; ext: string; n: string };
 
 export function parseRoute(hash: string): Route {
-  const parts = hash.replace(/^#\/?/, '').split('/').filter(Boolean);
+  const [path, query = ''] = hash.replace(/^#\/?/, '').split('?');
+  const parts = path.split('/').filter(Boolean);
   const [a, b, c] = parts;
   const id = Number(b);
   switch (a) {
@@ -42,6 +44,11 @@ export function parseRoute(hash: string): Route {
       return { name: 'generate' };
     case 'type':
       return { name: 'typeText' };
+    case 'connect': {
+      // SPEC §9.4 pairing: #/connect?ext=<name>&n=<nonce> (128-bit nonce, base64url).
+      const q = new URLSearchParams(query);
+      return { name: 'connect', ext: q.get('ext') ?? '', n: q.get('n') ?? '' };
+    }
     default:
       return { name: 'list' };
   }

@@ -9,12 +9,15 @@ import { ApiError, api } from '../lib/api';
 import { usePressGate } from '../lib/actions';
 import { errorText, isLockedError } from '../lib/errors';
 import { accountCount, t } from '../lib/i18n';
+import { replace } from '../lib/router';
 import { loadEntries, toast, useApp } from '../lib/store';
 import type { AccessToken } from '../lib/types';
 import { shortDate } from '../lib/wifi';
 import { Qr } from './Recovery';
 
 const MAX_SCOPE = 32;
+const KIND = { agent: 'appsKindAgent', app: 'appsKindApp', extension: 'appsKindExt' } as const;
+const KIND_HELP = { agent: 'appsKindAgentHelp', app: 'appsKindAppHelp', extension: 'appsKindExtHelp' } as const;
 export const nameOk = (s: string) => s.trim().length > 0 && new TextEncoder().encode(s).length <= 48;
 
 export function TokensSheet({ onClose }: { onClose: () => void }) {
@@ -82,7 +85,7 @@ export function TokensSheet({ onClose }: { onClose: () => void }) {
                   <span class="row-label">
                     <bdi dir="auto">{tok.name}</bdi>
                     <span class="caption">
-                      {tok.kind === 'app' ? t('appsKindApp') : t('appsKindAgent')} · {tok.scope === 'all' ? t('appsAll') : accountCount(tok.scope.length)} ·{' '}
+                      {t(KIND[tok.kind])} · {tok.scope === 'all' ? t('appsAll') : accountCount(tok.scope.length)} ·{' '}
                       {tok.lastUsed ? t('appsUsed', { date: shortDate(tok.lastUsed, app.lang) }) : t('appsNeverUsed')}
                     </span>
                   </span>
@@ -115,10 +118,12 @@ export function TokensSheet({ onClose }: { onClose: () => void }) {
   );
 }
 
-function NewToken({ onCreated, onCancel }: { onCreated: (tok: AccessToken & { token: string }) => void; onCancel: () => void }) {
+type Fixed = { name: string; kind: AccessToken['kind'] };
+
+function NewToken({ onCreated, onCancel, fixed }: { onCreated: (tok: AccessToken & { token: string }) => void; onCancel: () => void; fixed?: Fixed }) {
   const app = useApp();
-  const [name, setName] = useState('');
-  const [kind, setKind] = useState<AccessToken['kind']>('agent');
+  const [name, setName] = useState(fixed?.name ?? '');
+  const [kind, setKind] = useState<AccessToken['kind']>(fixed?.kind ?? 'agent');
   const [all, setAll] = useState(false);
   const [picked, setPicked] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
@@ -150,20 +155,16 @@ function NewToken({ onCreated, onCancel }: { onCreated: (tok: AccessToken & { to
   const entries = [...(app.entries ?? [])].sort((a, b) => a.title.localeCompare(b.title));
   return (
     <div class="form tokens-new">
-      <TextField label={t('appsName')} value={name} onValue={setName} helper={t('appsNameHelp')} maxLength={48} autocomplete="off" />
-      <div class="row stack-row">
-        <span class="row-label">{t('appsKind')}</span>
-        <Segmented
-          label={t('appsKind')}
-          options={[
-            { value: 'agent', label: t('appsKindAgent') },
-            { value: 'app', label: t('appsKindApp') },
-          ]}
-          value={kind}
-          onChange={setKind}
-        />
-      </div>
-      <p class="field-help">{kind === 'app' ? t('appsKindAppHelp') : t('appsKindAgentHelp')}</p>
+      {!fixed && (
+        <>
+          <TextField label={t('appsName')} value={name} onValue={setName} helper={t('appsNameHelp')} maxLength={48} autocomplete="off" />
+          <div class="row stack-row">
+            <span class="row-label">{t('appsKind')}</span>
+            <Segmented label={t('appsKind')} options={(['agent', 'app', 'extension'] as const).map((value) => ({ value, label: t(value === 'extension' ? 'appsKindExtShort' : KIND[value]) }))} value={kind} onChange={setKind} />
+          </div>
+          <p class="field-help">{t(KIND_HELP[kind])}</p>
+        </>
+      )}
       <div class="row stack-row">
         <span class="row-label">{t('appsScope')}</span>
         <Segmented
@@ -225,5 +226,40 @@ function ShownOnce({ tok, onDone }: { tok: AccessToken & { token: string }; onDo
         {t('done')}
       </Button>
     </div>
+  );
+}
+
+const NONCE = /^[A-Za-z0-9_-]{22}$/;
+
+/**
+ * SPEC §9.4 pairing, step 3–4: #/connect?ext=<name>&n=<nonce>, opened by Keyra Companion. After the
+ * press the token goes to the page by postMessage (the extension listens in this tab only) and is
+ * not kept here.
+ */
+export function ConnectSheet({ ext, n }: { ext: string; n: string }) {
+  const [done, setDone] = useState(false);
+  const name = ext.trim();
+  const close = () => replace('/');
+  let body;
+  if (!NONCE.test(n) || !nameOk(name) || /[\x00-\x1f\x7f]/.test(name)) body = <Notice tone="warn">{t('connectBad')}</Notice>;
+  else if (done) body = <Notice tone="accent">{t('connectDone')}</Notice>;
+  else
+    body = (
+      <>
+        <p class="callout">{t('connectAsk', { name })}</p>
+        <NewToken
+          fixed={{ name, kind: 'extension' }}
+          onCreated={(tok) => {
+            window.postMessage({ type: 'keyra:token', n, token: tok.token }, location.origin);
+            setDone(true);
+          }}
+          onCancel={close}
+        />
+      </>
+    );
+  return (
+    <Sheet title={t('connectTitle')} size="md" onClose={close}>
+      <div class="form">{body}</div>
+    </Sheet>
   );
 }
