@@ -34,7 +34,7 @@
 
 Most password managers live in the same computer and browser that attackers target. Keyra moves the secret somewhere else.
 
-- **Your vault never lives on the computer.** Nothing is stored or synced there: the computer only sees a keyboard typing the one credential you chose, at the moment you chose. No browser extension, no clipboard, no app to install.
+- **Your vault never lives on the computer.** Nothing is stored or synced there: the computer only sees a keyboard typing the one credential you chose, at the moment you chose. No clipboard, no app to install. (The optional browser extension only *asks* Keyra to type; it never holds a password.)
 - **Malware cannot make it type.** Every action needs a physical press of the button on the device. No press, no typing.
 - **No cloud, no account, no subscription.** The vault is encrypted on the device and managed over the device's own Wi-Fi. Nothing leaves your desk.
 - **Works on any computer.** If it accepts a USB keyboard (a work laptop, a locked-down kiosk, a TV, a console), Keyra works there. Phones, tablets and computers without a free port can pair with it over Bluetooth. Nothing to install.
@@ -70,6 +70,7 @@ A long press (1.5 seconds) cancels a pending action, or locks the vault if nothi
 | **Password health** | **Settings → Password health** lists reused, weak and year-old passwords. Keyra checks them itself; only the list of accounts reaches the phone, never a password. |
 | **Passkeys and security key (USB)** | Keyra is also a FIDO2/U2F security key: create and use passkeys, or use it as a second factor, on sites that support security keys. Press the button when the light double-blinks white. Up to 50 passkeys, listed in **Settings → Passkeys**. Not FIDO certified; see [docs/FIDO.md](docs/FIDO.md). |
 | **Bluetooth keyboard** | Bluetooth LE (HID over GATT) for phones, tablets and computers, with the same typing engine. Pairing only opens for 2 minutes after a button press; up to 4 devices; forget any of them from the app. |
+| **Browser extension (optional)** | Keyra Companion for Chrome, Edge, Brave and Firefox: a Keyra key in login fields lists the logins for that site, warns before typing a login on another site, fills a strong password from Keyra in sign-up forms and offers **Save to Keyra?** afterwards. Connects with one press; never sees a stored password. See [extension/README.md](extension/README.md). |
 | **Phone-first web app** | Installable to the home screen. Search, favorites, recents and a strength meter. |
 | **Password generator** | Keyra makes new passwords with its hardware random generator: 8 to 128 characters, choose a–z / A–Z / 0–9 / symbols, minimum numbers and symbols, avoid look-alikes. Shows the exact strength in bits. Type it, type it twice (for "confirm password" fields), copy it, or save it. |
 | **Password history** | Changing a password keeps the old one: the last 10, with dates, inside the encrypted account. Reveal or copy any of them. |
@@ -219,6 +220,16 @@ Stick an NFC tag on your desk; tapping it with your phone gets one account ready
 
 Anyone who copies a simple tag's link can ask Keyra to type that account (never see it), so your press is still the check. An **NTAG 424 DNA** tag can't be copied: choose it in step 1 and set the keys and SDM offsets Keyra shows in NXP TagWriter. Details: [docs/research/NFC-TAGS.md](docs/research/NFC-TAGS.md).
 
+### Browser extension
+
+<p align="center"><img src="extension/screenshots/menu-en.png" width="49%" alt="Keyra key in a login field with the site's logins"> <img src="extension/screenshots/press-en-dark.png" width="49%" alt="Press Keyra's button card"></p>
+
+1. Build it (`npm --prefix extension ci && npm --prefix extension run build`) and load `extension/dist/chrome` in `chrome://extensions` (Developer mode → **Load unpacked**), or `extension/dist/firefox` in Firefox's `about:debugging`.
+2. Click the Keyra button in the toolbar, enter Keyra's address and click **Connect**. A Keyra tab opens: unlock, tap **Create token** and **press Keyra's button**. The tab closes by itself.
+3. On a website, click into the login field and then the small Keyra key: pick the login and **press Keyra's button**. After a sign-up or a password change, the extension asks **Save to Keyra?** or **Update the password?** — again a press.
+
+Only logins for the page's own site are offered; choosing one for another site shows a warning that names both. Install, privacy and permissions: [extension/README.md](extension/README.md).
+
 ## Project layout
 
 ```
@@ -237,6 +248,7 @@ keyra/
 │   ├── partitions.csv         8 MB layout: 2 app slots + LittleFS vault
 │   └── sdkconfig.defaults / sdkconfig.release   dev and release profiles
 ├── web/                       Preact + TypeScript app, built into one gzipped file
+├── extension/                 Keyra Companion: browser extension (Manifest V3, Chrome and Firefox)
 ├── tools/                     devctl.py (flash, reset, log), fido_harness.py (python-fido2 vs. the FIDO core)
 ├── docs/                      SPEC.md, DESIGN.md, HARDWARE.md, FIDO.md, IMAGE_PROMPTS.md, images/
 └── .github/                   CI, issue and PR templates
@@ -265,6 +277,11 @@ npm --prefix web run mock
 
 # End-to-end run in a headless browser (Playwright); regenerates the screenshots
 npm --prefix web run e2e
+
+# Browser extension: typecheck, unit tests, build, and an end-to-end run in Chromium
+npm --prefix extension ci
+npm --prefix extension run typecheck && npm --prefix extension test && npm --prefix extension run build
+npm --prefix extension run e2e
 ```
 
 CI runs the host tests, the web checks and both firmware profiles on every push and pull request; `tools/ci_local.sh` runs the same jobs locally. See [CONTRIBUTING.md](CONTRIBUTING.md).
