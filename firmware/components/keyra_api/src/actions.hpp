@@ -199,7 +199,13 @@ class Machine {
   // re-plug). Armed with nothing plugged in, it stays unbound (no_usb at the press).
   void setUsbMounted(bool mounted);
   // Effect::Run moves the request (with any free text) out to the caller.
-  Decision onButton(Button b, bool unlocked);
+  // `pressedAt`: when the button reported the press (now_()'s clock). A press
+  // older than the item in the slot, or than the end of the last commit, does
+  // nothing (Effect::None): it was queued while the actions task was busy, and
+  // must not approve what somebody armed after it was made.
+  Decision onButton(Button b, bool unlocked, int64_t pressedAt);
+  // The same test for a press routed elsewhere (a FIDO request's touch).
+  bool stale(int64_t pressedAt);
   // A sequence part typed fine with more to come: the action is armed again
   // for its next part (fresh 60 s), unless something else was armed meanwhile.
   void typingFinished(const TypeRequest& req, Code code);
@@ -237,6 +243,7 @@ class Machine {
   std::string cancelToken_;  // of the waiting presence op
   std::string owner_;        // session that armed the waiting item; empty = none
   int64_t deadline_ = 0;
+  int64_t freshFrom_ = 0;  // presses made before this are stale (see onButton)
   bool typing_ = false;
   bool linkReady_ = false;
   bool usbMounted_ = false;

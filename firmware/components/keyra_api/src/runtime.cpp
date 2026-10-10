@@ -246,16 +246,17 @@ void typeTask(void*) {
   }
 }
 
-void onButton(io::Button b) {
+void onButton(io::Button b, int64_t pressedAt) {
   sessions().activity(monoMs());
   // A website waiting for the security-key touch owns the button (its LED
   // pattern is showing); an armed type action stays armed for the next press.
+  // A press that waited in the queue through a commit is not a touch either.
   if (fido::awaitingTouch()) {
-    fido::press(b == io::Button::Short);
+    if (!machine().stale(pressedAt)) fido::press(b == io::Button::Short);
     return;
   }
   const auto press = b == io::Button::Short ? actions::Button::Short : actions::Button::Long;
-  actions::Decision d = machine().onButton(press, vault::unlocked());
+  actions::Decision d = machine().onButton(press, vault::unlocked(), pressedAt);
   switch (d.effect) {
     case actions::Effect::Run:
       g_job = std::move(d.run);
@@ -338,11 +339,12 @@ void actionsTask(void*) {
   io::Led shown = io::Led::Off;
   for (;;) {
     io::Button b;
+    int64_t pressedAt = 0;
     syncBleDemand();
-    const bool pressed = io::nextButton(b, pdMS_TO_TICKS(100));
+    const bool pressed = io::nextButton(b, pressedAt, pdMS_TO_TICKS(100));
     if (pressed) {
       syncBleDemand();  // the link may have come up while we waited
-      onButton(b);
+      onButton(b, pressedAt);
     }
     maybeAutoLock();
     maybeReconfigureNet();

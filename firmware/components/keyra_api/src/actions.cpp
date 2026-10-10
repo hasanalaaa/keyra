@@ -58,6 +58,7 @@ std::optional<Pending> Machine::arm(TypeRequest req, const std::string& owner) {
   req_.usbSession = req_.target.kind == Target::Kind::Usb && usbMounted_ ? usbSession_ : 0;
   req_.serial = serial_ = nextSerialLocked();
   deadline_ = now + kExpiryMs;
+  freshFrom_ = now;
   return view(req_, kExpiryMs, owner_);
 }
 
@@ -109,6 +110,7 @@ std::optional<Machine::Armed> Machine::awaitPresence(Op op, Commit commit, const
   cancelToken_ = token_ ? token_() : std::string();
   serial_ = nextSerialLocked();
   deadline_ = now + kExpiryMs;
+  freshFrom_ = now;
   return Armed{kExpiryMs, cancelToken_, serial_};
 }
 
@@ -168,11 +170,17 @@ bool HostWatch::bleLost(const BtAddr& addr, bool unlocked, bool enabled) {
   return hit;
 }
 
-Decision Machine::onButton(Button b, bool unlocked) {
+bool Machine::stale(int64_t pressedAt) {
+  std::lock_guard<std::mutex> lock(mu_);
+  return pressedAt < freshFrom_;
+}
+
+Decision Machine::onButton(Button b, bool unlocked, int64_t pressedAt) {
   std::lock_guard<std::mutex> lock(mu_);
   const int64_t now = now_();
   expireLocked(now);
   Decision d;
+  if (pressedAt < freshFrom_) return d;  // Effect::None: queued before what is armed now
   if (b == Button::Short) {
     if (kind_ == Kind::Presence) {
       d.effect = Effect::Approve;
@@ -225,6 +233,7 @@ void Machine::typingFinished(const TypeRequest& req, Code code) {
       ++req_.part;
       serial_ = req_.serial;
       deadline_ = now + kExpiryMs;
+      freshFrom_ = now;  // {PRESS} means a new press, not one made while typing
       return;
     }
     code = Code::Cancelled;  // another item replaced it while this part was typing
@@ -242,6 +251,7 @@ void Machine::commitFinished(bool ok) {
   }
   running_.reset();
   runningSerial_ = 0;
+  freshFrom_ = now;  // presses queued during the commit are dropped
   flashLocked(ok ? Indicator::Success : Indicator::Error, now, kFlashMs);
 }
 

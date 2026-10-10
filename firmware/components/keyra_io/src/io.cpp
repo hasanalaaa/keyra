@@ -23,6 +23,11 @@ constexpr uint32_t kTickMs = 10;        // button sampling period
 constexpr uint32_t kLedEveryTicks = 2;  // LED frame every 20 ms (50 Hz)
 constexpr UBaseType_t kQueueDepth = 8;
 
+struct ButtonEvent {
+  Button button;
+  int64_t atMs;
+};
+
 QueueHandle_t s_buttons = nullptr;
 led_strip_handle_t s_strip = nullptr;
 
@@ -91,7 +96,7 @@ void ioTask(void*) {
 
     const Press p = button.update(gpio_get_level(kButtonGpio) == 0, now);
     if (p != Press::None) {
-      const Button ev = p == Press::Short ? Button::Short : Button::Long;
+      const ButtonEvent ev{p == Press::Short ? Button::Short : Button::Long, esp_timer_get_time() / 1000};
       if (xQueueSend(s_buttons, &ev, 0) != pdTRUE) ESP_LOGW(TAG, "button queue full, press dropped");
     }
 
@@ -127,7 +132,7 @@ void init() {
   io.intr_type = GPIO_INTR_DISABLE;
   ESP_ERROR_CHECK(gpio_config(&io));
 
-  s_buttons = xQueueCreate(kQueueDepth, sizeof(Button));
+  s_buttons = xQueueCreate(kQueueDepth, sizeof(ButtonEvent));
   if (s_buttons == nullptr) {
     ESP_LOGE(TAG, "no memory for button queue");
     abort();
@@ -139,9 +144,13 @@ void init() {
   }
 }
 
-bool nextButton(Button& out, TickType_t wait) {
+bool nextButton(Button& out, int64_t& atMs, TickType_t wait) {
   if (s_buttons == nullptr) return false;
-  return xQueueReceive(s_buttons, &out, wait) == pdTRUE;
+  ButtonEvent ev{};
+  if (xQueueReceive(s_buttons, &ev, wait) != pdTRUE) return false;
+  out = ev.button;
+  atMs = ev.atMs;
+  return true;
 }
 
 void led(Led state) {

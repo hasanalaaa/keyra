@@ -137,13 +137,13 @@ void wipedOnEveryPath() {
     CHECK(!m.pending().has_value());
     CHECK(m.last() && m.last()->code == Code::Expired && m.last()->what == What::Text);
   });
-  wipedAfter("long press", [](Machine& m) { CHECK(m.onButton(Button::Long, true).effect == Effect::Cancelled); });
+  wipedAfter("long press", [](Machine& m) { CHECK(m.onButton(Button::Long, true, g_now).effect == Effect::Cancelled); });
   wipedAfter("lock", [](Machine& m) { m.dropSessionItems(); });
   wipedAfter("another action", [](Machine& m) { m.arm({7, "Mail", What::Password, false, {}, nullptr, nullptr, 0}, "s"); });
   wipedAfter("a presence op", [](Machine& m) { m.awaitPresence(Op::Wifi, [] { return true; }, "s"); });
   wipedAfter("typing", [](Machine& m) {
     {
-      Decision d = m.onButton(Button::Short, true);
+      Decision d = m.onButton(Button::Short, true, g_now);
       CHECK(d.effect == Effect::Run && d.run.what == What::Text);
       CHECK(d.run.text && d.run.text->text == kMarker && d.run.text->twice);
       CHECK(!m.pending().has_value());

@@ -17,13 +17,13 @@ void shortPressRunsPendingOnce() {
   m.arm(req(7), "s");
   CHECK(m.pending().has_value());
   CHECK(m.indicator(true, true, false) == Indicator::Pending);
-  Decision d = m.onButton(Button::Short, true);
+  Decision d = m.onButton(Button::Short, true, g_now);
   CHECK(d.effect == Effect::Run);
   CHECK_EQ(d.run.id, 7u);
   CHECK(!m.pending().has_value());
   CHECK(m.indicator(true, true, false) == Indicator::Typing);
   // A second press while typing must not start another run.
-  CHECK(m.onButton(Button::Short, true).effect == Effect::None);
+  CHECK(m.onButton(Button::Short, true, g_now).effect == Effect::None);
   m.typingFinished(d.run, Code::Typed);
   auto last = m.last();
   CHECK(last && last->ok && last->code == Code::Typed && last->title == "Mail");
@@ -31,7 +31,7 @@ void shortPressRunsPendingOnce() {
   g_now += kFlashMs;
   CHECK(m.indicator(true, true, false) == Indicator::Idle);
   // One-shot: nothing left to run.
-  CHECK(m.onButton(Button::Short, true).effect == Effect::Blink);
+  CHECK(m.onButton(Button::Short, true, g_now).effect == Effect::Blink);
 }
 
 void armReplacesPending() {
@@ -52,16 +52,16 @@ void pendingExpiresAfter60s() {
   CHECK(!m.pending().has_value());
   auto last = m.last();
   CHECK(last && !last->ok && last->code == Code::Expired);
-  CHECK(m.onButton(Button::Short, true).effect == Effect::Blink);
+  CHECK(m.onButton(Button::Short, true, g_now).effect == Effect::Blink);
 }
 
 void longPressCancelsThenLocks() {
   auto m = make();
   m.arm(req(4), "s");
-  CHECK(m.onButton(Button::Long, true).effect == Effect::Cancelled);
+  CHECK(m.onButton(Button::Long, true, g_now).effect == Effect::Cancelled);
   CHECK(m.last()->code == Code::Cancelled);
-  CHECK(m.onButton(Button::Long, true).effect == Effect::Lock);
-  CHECK(m.onButton(Button::Long, false).effect == Effect::Blink);
+  CHECK(m.onButton(Button::Long, true, g_now).effect == Effect::Lock);
+  CHECK(m.onButton(Button::Long, false, g_now).effect == Effect::Blink);
 }
 
 void cancelEndpoint() {
@@ -80,16 +80,16 @@ void presenceApproveRunsCommitOnce() {
   auto pr = m.presence();
   CHECK(pr && pr->awaiting && pr->op == Op::Setup && pr->expiresInMs == kExpiryMs);
   CHECK(m.indicator(false, false, false) == Indicator::AwaitPresence);
-  Decision d = m.onButton(Button::Short, false);
+  Decision d = m.onButton(Button::Short, false, g_now);
   CHECK(d.effect == Effect::Approve && d.op == Op::Setup && d.commit);
   pr = m.presence();
   CHECK(pr && !pr->awaiting && pr->op == Op::Setup);  // running: op stays visible
-  CHECK(m.onButton(Button::Long, false).effect == Effect::None);
+  CHECK(m.onButton(Button::Long, false, g_now).effect == Effect::None);
   CHECK(d.commit());
   m.commitFinished(true);
   CHECK(!m.presence().has_value());
   CHECK_EQ(runs, 1);
-  CHECK(m.onButton(Button::Short, false).effect == Effect::Blink);
+  CHECK(m.onButton(Button::Short, false, g_now).effect == Effect::Blink);
 }
 
 // Secrets captured by a dropped op must be destroyed, not kept around.
@@ -100,7 +100,7 @@ void droppedPresenceReleasesCapturedState() {
   m.awaitPresence(Op::FactoryReset, [secret] { return *secret == 42; }, "s");
   secret.reset();
   CHECK(!watch.expired());
-  CHECK(m.onButton(Button::Long, true).effect == Effect::Cancelled);
+  CHECK(m.onButton(Button::Long, true, g_now).effect == Effect::Cancelled);
   CHECK(watch.expired());
   CHECK(!m.last().has_value());  // presence cancel is not a typing result
 
@@ -132,7 +132,7 @@ void unauthenticatedOpsNeverDisplace() {
   m.cancel();
   CHECK(m.tryAwaitPresence(Op::Setup, [] { return true; })->expiresIn == kExpiryMs);
   CHECK(!m.tryAwaitPresence(Op::Setup, [] { return true; }).has_value());
-  Decision d = m.onButton(Button::Short, false);
+  Decision d = m.onButton(Button::Short, false, g_now);
   CHECK(!m.tryAwaitPresence(Op::FactoryReset, [] { return true; }).has_value());  // still committing
   m.commitFinished(d.commit());
   g_now += kExpiryMs;
@@ -158,7 +158,7 @@ void lockDropsSessionItemsOnly() {
 void failureFlashesError() {
   auto m = make();
   m.arm(req(11), "s");
-  Decision d = m.onButton(Button::Short, true);
+  Decision d = m.onButton(Button::Short, true, g_now);
   m.typingFinished(d.run, Code::NoUsb);
   CHECK(m.indicator(true, true, false) == Indicator::Error);
   CHECK(!m.last()->ok);
@@ -173,7 +173,7 @@ void baseIndicators() {
   CHECK(m.indicator(false, false, false) == Indicator::Setup);
   CHECK(m.indicator(true, false, false) == Indicator::Locked);
   CHECK(m.indicator(true, true, false) == Indicator::Idle);
-  m.onButton(Button::Short, true);
+  m.onButton(Button::Short, true, g_now);
   CHECK(m.indicator(true, true, false) == Indicator::Off);  // blink
 }
 
@@ -182,13 +182,13 @@ void presenceOutcomesAreReported() {
   CHECK(!m.opResult().has_value());
 
   m.awaitPresence(Op::Wifi, [] { return false; }, "s");
-  Decision d = m.onButton(Button::Short, true);
+  Decision d = m.onButton(Button::Short, true, g_now);
   m.commitFinished(d.commit());
   auto r = m.opResult();
   CHECK(r && r->op == Op::Wifi && r->code == OpCode::Failed);
 
   m.awaitPresence(Op::Setup, [] { return true; }, "s");
-  d = m.onButton(Button::Short, false);
+  d = m.onButton(Button::Short, false, g_now);
   m.commitFinished(d.commit());
   CHECK(m.opResult()->code == OpCode::Done);
   g_now += 250;
@@ -200,7 +200,7 @@ void presenceOutcomesAreReported() {
   CHECK(r && r->op == Op::RestoreReplace && r->code == OpCode::Expired && r->agoMs == 0);
 
   m.awaitPresence(Op::FactoryReset, [] { return true; }, "s");
-  m.onButton(Button::Long, true);
+  m.onButton(Button::Long, true, g_now);
   CHECK(m.opResult()->code == OpCode::Cancelled);
 
   m.awaitPresence(Op::Wifi, [] { return true; }, "s");
@@ -234,7 +234,7 @@ void tokenTracksItsOwnRequest() {
   // Another owner cannot replace or cancel it.
   CHECK(!m.arm(req(8), "sessionA").has_value());
   CHECK(!m.cancelOwned("token:2") && !m.cancelOwned("sessionA") && !m.cancelOwned(""));
-  Decision d = m.onButton(Button::Short, true);
+  Decision d = m.onButton(Button::Short, true, g_now);
   CHECK(d.run.serial == s1);
   CHECK(m.track(s1).stage == Stage::Running);
   m.typingFinished(d.run, Code::NoUsb);
@@ -266,7 +266,7 @@ void tokenTracksItsOwnRequest() {
   // Presence ops (an app token's save): armed, done, or cancelled by its owner.
   auto a = m.awaitPresence(Op::AgentSave, [] { return true; }, "token:3");
   CHECK(a && a->serial != 0 && m.track(a->serial).presence && m.track(a->serial).stage == Stage::Armed);
-  d = m.onButton(Button::Short, true);
+  d = m.onButton(Button::Short, true, g_now);
   CHECK(m.track(a->serial).stage == Stage::Running);
   m.commitFinished(d.commit());
   t = m.track(a->serial);
@@ -293,10 +293,10 @@ void sequencePartStaysTracked() {
   TypeRequest r = req(5, What::Sequence);
   r.seq = job;
   const uint32_t s = m.arm(r, "token:1")->req.serial;
-  Decision d = m.onButton(Button::Short, true);
+  Decision d = m.onButton(Button::Short, true, g_now);
   m.typingFinished(d.run, Code::Typed);
   CHECK(m.track(s).stage == Stage::Armed);  // waits for the next {PRESS}
-  d = m.onButton(Button::Short, true);
+  d = m.onButton(Button::Short, true, g_now);
   m.typingFinished(d.run, Code::Typed);
   CHECK(m.track(s).stage == Stage::Finished && m.track(s).code == Code::Typed);
 }
@@ -307,7 +307,7 @@ void blePairOp() {
   m.awaitPresence(Op::BlePair, [&opened] { ++opened; return true; }, "s");
   CHECK(m.presence()->op == Op::BlePair);
   CHECK(m.indicator(true, true, false) == Indicator::AwaitPresence);
-  Decision d = m.onButton(Button::Short, true);
+  Decision d = m.onButton(Button::Short, true, g_now);
   CHECK(d.effect == Effect::Approve && d.op == Op::BlePair);
   m.commitFinished(d.commit());
   CHECK_EQ(opened, 1);
@@ -327,7 +327,7 @@ void pairingIndicatorYields() {
   CHECK(m.indicator(false, false, true) == Indicator::Pairing);
   m.arm(req(3), "s");
   CHECK(m.indicator(true, true, true) == Indicator::Pending);  // a ready action wins
-  Decision d = m.onButton(Button::Short, true);
+  Decision d = m.onButton(Button::Short, true, g_now);
   CHECK(m.indicator(true, true, true) == Indicator::Typing);
   m.typingFinished(d.run, Code::NoHost);
   CHECK(m.indicator(true, true, true) == Indicator::Error);    // the result flash wins
@@ -362,10 +362,10 @@ void bluetoothTargetWaitsForLink() {
   TypeRequest r = req(21);
   r.target = {Target::Kind::Ble, {0xA4, 0xC1, 0x38, 0x0B, 0x7F, 0x3A}};
   m.arm(r, "s");
-  CHECK(m.onButton(Button::Short, true).effect == Effect::Blink);  // connecting: press ignored
+  CHECK(m.onButton(Button::Short, true, g_now).effect == Effect::Blink);  // connecting: press ignored
   CHECK(m.pending().has_value());                                  // ... and still armed
   m.setLinkReady(true);
-  Decision d = m.onButton(Button::Short, true);
+  Decision d = m.onButton(Button::Short, true, g_now);
   CHECK(d.effect == Effect::Run && d.run.target == r.target);
   m.typingFinished(d.run, Code::Typed);
 
@@ -388,7 +388,7 @@ void bluetoothTargetWaitsForLink() {
   TypeRequest u = req(22);
   u.target = {Target::Kind::Usb, {}};
   m.arm(u, "s");
-  CHECK(m.onButton(Button::Short, true).effect == Effect::Run);
+  CHECK(m.onButton(Button::Short, true, g_now).effect == Effect::Run);
 }
 
 void names() {
@@ -422,12 +422,12 @@ void usbActionIsBoundToItsHost() {
   CHECK(last && !last->ok && last->code == Code::HostChanged && last->title == "Mail");
   CHECK(m.indicator(true, true, false) == Indicator::Error);
   m.setUsbMounted(true);  // another (or the same) computer: still nothing to type
-  CHECK(m.onButton(Button::Short, true).effect == Effect::Blink);
+  CHECK(m.onButton(Button::Short, true, g_now).effect == Effect::Blink);
   CHECK(std::string(codeName(Code::HostChanged)) == "host_changed");
 
   // Armed on the new connection, it types there.
   m.arm(usbReq(2), "s");
-  CHECK(m.onButton(Button::Short, true).effect == Effect::Run);
+  CHECK(m.onButton(Button::Short, true, g_now).effect == Effect::Run);
 }
 
 void unboundActionsIgnoreUsbChanges() {
@@ -544,7 +544,7 @@ void testCancelPresence() {
   CHECK(m.presence().has_value());
   CHECK(m.cancelPresence(Op::FactoryReset, tok));
   CHECK(!m.presence().has_value());
-  const Decision d = m.onButton(Button::Short, true);
+  const Decision d = m.onButton(Button::Short, true, g_now);
   CHECK(d.effect != Effect::Approve);
   CHECK(!ran);
   // A new op gets a new token; the old one cancels nothing.
@@ -567,7 +567,7 @@ void pressIsBoundToItsRequester() {
   CHECK(!m.arm(req(1), "mallory"));  // nor with a type action
   CHECK(!m.tryAwaitPresence(Op::FactoryReset, [&] { ++theirs; return true; }));
   CHECK(m.presence() && m.presence()->op == Op::Reveal);
-  Decision d = m.onButton(Button::Short, true);
+  Decision d = m.onButton(Button::Short, true, g_now);
   CHECK(d.effect == Effect::Approve && d.op == Op::Reveal);
   CHECK(d.commit());
   m.commitFinished(true);
@@ -589,7 +589,51 @@ void pressIsBoundToItsRequester() {
   CHECK(m.presence()->op == Op::Setup);
 }
 
+// The actions task runs a commit (a restore: seconds of PBKDF2) before it reads
+// the next press. A press made meanwhile, or before something was armed, must
+// not approve what was armed after it (nor cancel it, nor lock).
+void stalePressesDoNothing() {
+  auto m = make();
+  const int64_t early = g_now;
+  g_now += 5;
+  m.awaitPresence(Op::Backup, [] { return true; }, "s");
+  CHECK(m.stale(early) && !m.stale(g_now));
+  CHECK(m.onButton(Button::Short, true, early).effect == Effect::None);
+  CHECK(m.onButton(Button::Long, true, early).effect == Effect::None);
+  CHECK(m.presence().has_value());  // still waiting for a real press
+  Decision d = m.onButton(Button::Short, true, g_now);
+  CHECK(d.effect == Effect::Approve);
+  // Pressed while the commit ran; read only after it finished.
+  const int64_t during = ++g_now;
+  g_now += 3000;
+  CHECK(d.commit());
+  m.commitFinished(true);
+  CHECK(m.stale(during));
+  CHECK(m.onButton(Button::Long, true, during).effect == Effect::None);  // no lock
+  g_now += 10;
+  m.arm(req(9), "other");
+  CHECK(m.onButton(Button::Short, true, during).effect == Effect::None);
+  CHECK(m.pending().has_value());
+  CHECK(m.onButton(Button::Short, true, g_now).effect == Effect::Run);
+  // A sequence's next part waits for a press made after the part was typed.
+  auto s = make();
+  auto job = std::make_shared<SeqJob>();
+  job->parts = 2;
+  TypeRequest r = req(3, What::Sequence);
+  r.seq = job;
+  s.arm(r, "s");
+  Decision run = s.onButton(Button::Short, true, g_now);
+  CHECK(run.effect == Effect::Run);
+  const int64_t whileTyping = ++g_now;
+  g_now += 500;
+  s.typingFinished(run.run, Code::Typed);
+  CHECK(s.pending().has_value());
+  CHECK(s.onButton(Button::Short, true, whileTyping).effect == Effect::None);
+  CHECK(s.onButton(Button::Short, true, g_now).effect == Effect::Run);
+}
+
 int main() {
+  stalePressesDoNothing();
   tokenTracksItsOwnRequest();
   pendingCarriesPageHost();
   sequencePartStaysTracked();

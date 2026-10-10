@@ -85,7 +85,11 @@ without Node.
 
 Single ESP-IDF app, FreeRTOS tasks:
 - `httpd` (esp_http_server task) — API + static files.
-- `keyra_io` task — debounced button events (queue) + LED animations.
+- `keyra_io` task — debounced button events (queue, each stamped with the
+  time it was recognised) + LED animations. A press older than the item now
+  waiting for the button, or than the end of the last commit, does nothing:
+  it waited in the queue while the actions task was busy (a restore runs
+  seconds of PBKDF2 there) and must not approve what was armed after it.
 - `dns` task — tiny UDP DNS responder.
 - Typing runs in a dedicated `type` task so HTTP stays responsive.
 
@@ -147,7 +151,7 @@ namespace keyra::io {
 enum class Button { Short, Long };
 enum class Led { Off, Locked, Idle, Pending, Typing, Success, Error, AwaitPresence, Setup, Pairing, Fido };
 void init();                                   // LED + button task
-bool nextButton(Button& out, TickType_t wait); // event queue
+bool nextButton(Button& out, int64_t& atMs, TickType_t wait); // event queue, stamped
 void led(Led state);
 bool bootPinHigh();                            // for safe restarts
 }

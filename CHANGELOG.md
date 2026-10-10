@@ -221,6 +221,12 @@ All notable changes to Keyra are documented here. The format follows
   events are now counted on one line within the newest 16 (not only the
   newest one), keep at most 40 lines, and are the first dropped when room
   is needed. `activity.bin` keeps its format.
+- **A queued press approves nothing armed after it.** Presses made while the
+  button task was busy with a long confirmed action (a replacing restore) or
+  while a sequence part was typing waited in the queue and could approve,
+  cancel or lock whatever was armed next — also a security-key touch. Each
+  press now carries its time and is ignored when it is older than what waits
+  for it or than the end of the last confirmed action.
 
 ## [0.2.0] - 2026-10-08
 
