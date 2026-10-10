@@ -13,6 +13,8 @@ where it does not. If you find a problem, see [Reporting a vulnerability](#repor
 | Can other devices on my home network reach Keyra? | Only if you turn on home Wi-Fi. They can load the page, but unlocking from a new browser there also needs a press of Keyra's button. |
 | Can malware on the computer make Keyra type? | No. Every typing action needs a physical button press. |
 | Can malware on the computer read the vault? | Not through Keyra. It sees only what is typed into it, like any keyboard input. |
+| Can someone who steals my phone's browser session read my passwords? | Not by default. With **Protect reveal with Keyra's button** on (the default), passwords, 2FA secrets and backups reach the phone only after a press. See [Physical confirmation](#physical-confirmation). |
+| What if I forget my passphrase? | Without a recovery key the vault cannot be opened; erase the device and restore a backup. If you made a **recovery key**, it opens the vault again. See [Forgotten passphrase](#forgotten-passphrase-and-the-recovery-key). |
 | Can malware on the computer use my passkeys? | Only with your button press while Keyra is unlocked and its light double-blinks white. It can start a request and hope you press for it. See [Passkeys and security key](#passkeys-and-security-key-usb). |
 | Can a stranger pair with Keyra over Bluetooth? | Only during a 2-minute window you open with a button press, and only Just Works pairing (no code). See [Bluetooth](#bluetooth). |
 | Is there a secure element? | No. |
@@ -116,12 +118,31 @@ off needs a button press, because it changes who can reach the device.
   factory reset, which waits for a button press that you can refuse with a long
   press.
 
-### Factory reset is deliberately possible without the passphrase
+### Forgotten passphrase and the recovery key
 
-If you forget the passphrase the data is unrecoverable by design. The
-factory-reset endpoint therefore needs no session, but it only does anything
-after a **physical button press** and it erases the vault. Someone who holds
-the device can always wipe it; they cannot read it.
+Without the passphrase there is no way into the vault, and there is no
+backdoor: nobody, including the maker, can read it from a flash dump. What
+differs is whether you made a **recovery key** beforehand.
+
+- **No recovery key: no recovery.** The only way forward is a factory reset
+  (**Forgot passphrase?** on the unlock screen), which erases the vault; restore
+  from a backup if you have one. The factory-reset endpoint needs no session,
+  because a forgotten passphrase means no session, but it only does anything
+  after a **physical button press**. Someone who holds the device can always
+  wipe it; they cannot read it.
+- **With a recovery key, the vault opens again** (SPEC §12.2). Settings →
+  Recovery kit makes a random 20-byte (160-bit) key from the hardware RNG, shown
+  once; Keyra stores a second wrap of the data key under
+  HKDF-SHA-256 of that key (AES-256-GCM), never the key itself. On the unlock
+  screen, **Use recovery key** accepts the key and sets a new passphrase; the
+  key stays valid. Wrong keys count and are throttled like wrong passphrases.
+  Creating, replacing or removing the key each need a button press, so a
+  stolen session cannot plant a key of its own.
+- **The recovery key is as powerful as the passphrase.** Anyone who has the key
+  and the device can open the vault, so keep the printed kit (or the split
+  shares the app can make in the browser) somewhere safe, never in a photo or
+  online. Removing the key makes printed kits useless. A flash dump alone does
+  not weaken anything: 160 random bits cannot be guessed.
 
 ## Cryptographic design
 
@@ -138,7 +159,8 @@ by host tests in `firmware/components/keyra_vault/host_test/`.
 | Password history | Up to 10 previous passwords and the time each was replaced live **inside** the entry's encrypted plaintext (format 2), so flash holds no history metadata in the clear. Only the vault adds to it, when an update changes the password; clients cannot write or erase it. Entries written by earlier firmware (format 1) are read as-is and rewritten as format 2 on their next change. |
 | Storage | LittleFS on a dedicated `vault` partition. Mount failure never auto-formats. |
 | Firmware updates | Secure Boot V2 RSA-3072 signatures checked by the running firmware before an image can be booted; older versions refused; installed only after a button press; rolled back if the new image fails its first boot (SPEC §14). No eFuses: someone holding the board can still flash it by USB. The signing key stays with the owner, outside the repository. |
-| Backup | Separate backup passphrase (at least 12 characters), PBKDF2-HMAC-SHA256 with a fresh salt and AES-256-GCM, written as JSON (`keyra-backup`, version 2, which includes password history; version 1 files still import). Treat the file as sensitive. |
+| Backup | Separate backup passphrase (at least 12 characters), PBKDF2-HMAC-SHA256 with a fresh salt and AES-256-GCM, written as JSON (`keyra-backup`, version 3: accounts with password history and, unless you turned it off, the passkeys; versions 1 and 2 files still import). Treat the file as sensitive. |
+| Recovery key | Optional. 20 random bytes; the data key is wrapped a second time under HKDF-SHA-256 of it (AES-256-GCM, AAD `keyra/wrap/recovery/v1`). See [Forgotten passphrase](#forgotten-passphrase-and-the-recovery-key). |
 | Randomness | `psa_generate_random`, which ESP-IDF backs with the ESP32-S3 hardware RNG. |
 | Password generator | `POST /api/generate` draws from `esp_fill_random` (the hardware RNG, a true random source while the radio is on; Keyra's radio is always on). Each character is uniform over the enabled character classes by rejection sampling (no modulo bias); class minimums are met by discarding whole candidates, so every password that fits the settings is equally likely and no position is favoured. Settings where fewer than 1 candidate in 1,000 would qualify are refused. The reported entropy is exact (log2 of the number of possible passwords). Generated passwords are never logged and are not stored unless you save them. |
 | Crypto library | mbedTLS through the PSA Crypto API, shipped with ESP-IDF. No custom primitives. |
@@ -180,9 +202,36 @@ Nothing is typed without a button press, and the press must happen within 60
 seconds of the request. Setup, Wi-Fi credential changes, joining, changing or
 leaving the home network, trusting a browser on the home network, opening the
 Bluetooth pairing window, creating an access token or an NFC tag, saving an account an app sent,
-a replacing restore, factory reset and every passkey or
-security-key registration and sign-in also need a button press. The button is GPIO0 (the BOOT button),
-and the firmware never restarts while it is held low, to avoid latching ROM download mode.
+a replacing restore, installing a firmware update, factory reset and every
+passkey or security-key registration and sign-in also need a button press. The
+button is GPIO0 (the BOOT button), and the firmware never restarts while it is
+held low, to avoid latching ROM download mode.
+
+**Secrets reach the phone only after a press (`protectReveal`, on by default).**
+Without it, anyone who steals your phone's browser session after you unlocked
+could read every password from the app. With it, the account screen shows no
+password, 2FA secret or old password until you press Keyra's button; that press
+opens one minute of reading for the session that asked, and only for it. The
+same press is needed, outside that grace, for:
+
+- **downloading a backup** (single use, while `protectReveal` is on),
+- **creating, replacing or removing the recovery key** (always, single use),
+- **deleting an account or a passkey** (always; the press runs the deletion),
+- **turning `protectReveal` off**, and **turning "Passkeys in backups" on**.
+
+Typing itself needs no extra step: the press that types is already the
+confirmation. The one deliberate exception is the current 2FA code, which needs
+a session but no press (a code lives 30 s and is useless without the password;
+SPEC §12.5a). Every pending press belongs to the session that armed it, so a
+second browser or a stolen session cannot swap what you are about to approve
+(409 `busy`).
+
+**Lock when the computer goes away (`lockOnUsb`, on by default).** The vault
+locks about a second after the USB computer it was used with is unplugged or
+goes to sleep (never on charger-only power), and a type action armed for one
+computer fails if that computer leaves before the press. Optionally
+(`lockOnBle`, off by default) it also locks when the Bluetooth device Keyra
+typed into drops the link by itself (SPEC §12.4).
 
 ## Bluetooth
 
@@ -200,9 +249,13 @@ same button rule applies: nothing is typed over Bluetooth without a press.
   device alone), with a filter accept list in the radio controller, so only
   those devices can scan or connect. Their identity keys are in the
   controller's resolving list, so phones with rotating private addresses still match.
-  The firmware checks the same rule again in software when a link comes up, refuses
-  a paired device asking for new keys (re-pairing) outside the window, and removes
-  any bond that appears outside the window.
+  The firmware checks the same rule again in software when a link comes up and
+  removes any bond that appears outside the window. A paired device asking for
+  new keys (re-pairing) is refused outside the window **unless its link is
+  already encrypted with that bond's own keys**: iOS renews its keys after
+  every reconnection, and holding the old keys proves it is the bonded host. If
+  such a renewal does not finish, the old bond is restored, so a dropped link
+  does not cost you the pairing. A stranger without the old keys is refused.
 - Pairing uses **LE Secure Connections only** (legacy pairing is refused) with
   bonding. Keys are stored in NVS. At most **4** devices; when full, Keyra refuses
   new pairings instead of silently forgetting an old device, and you forget one in
@@ -250,11 +303,19 @@ exact key formats and the list of what is implemented are in
   it, so malware that starts a request just before you press for typing could
   get that press: if the light shows the FIDO pattern when you did not ask for
   a passkey, long-press.
-- **User verification is "unlocked".** Keyra reports built-in user verification
-  and sets the UV flag because it never signs while locked, but the check is the
-  master passphrase entered on the phone up to the auto-lock time earlier, not a
-  PIN or fingerprint for each sign-in. Anyone holding an unlocked Keyra can use
-  your passkeys. There is no ClientPIN yet.
+- **User verification is "unlocked", or the security key PIN.** By default
+  Keyra reports built-in user verification and sets the UV flag because it
+  never signs while locked, but the check is the master passphrase entered on
+  the phone up to the auto-lock time earlier, not a PIN or fingerprint for each
+  sign-in. Anyone holding an unlocked Keyra can use your passkeys. For sites
+  that want more, Keyra supports **ClientPIN**: a security key PIN that you set
+  from the computer (your browser's or OS's security-key settings). It is a
+  separate secret from the master passphrase on purpose (a PIN hash next to the
+  vault would give a flash dump a fast way to test passphrases), has 8 tries
+  (counted before each check, so pulling the plug buys no guess; three wrong in
+  a row block it until power-up), and once set it is the only thing that
+  verifies the user. The vault must still be unlocked and the button pressed.
+  `hmac-secret` and `credProtect` are supported too. Details: [docs/FIDO.md](docs/FIDO.md#clientpin).
 - **Not certified, self attestation.** CTAP2 registrations use self attestation.
   U2F registration requires a certificate, so each Keyra generates its own
   P-256 attestation key on first use and self-signs a certificate for it (both
@@ -268,10 +329,16 @@ exact key formats and the list of what is implemented are in
 - **Counter.** One global signature counter in NVS, written before each
   signature, never reset.
 - **Reset.** `authenticatorReset` (within 10 s of power-up, with a press and the
-  vault unlocked) deletes passkeys and changes the wrapping key; factory reset
-  destroys everything.
-- **Backups.** Passkeys are not in encrypted backups (yet). Losing or resetting
-  Keyra loses them: keep a second sign-in method on every account.
+  vault unlocked) deletes passkeys, removes the security key PIN and changes the
+  wrapping key; factory reset destroys everything.
+- **Backups.** Encrypted backups carry the passkeys by default (Settings →
+  Passkeys in backups; turning it back on needs a press), so a Keyra restored
+  from a backup signs in where the old one did ([docs/research/PASSKEY-BACKUP.md](docs/research/PASSKEY-BACKUP.md)). That makes
+  the backup file as sensitive as the vault: anyone with the file and its
+  passphrase gets your passkeys. Turn the setting off and the passkeys stay on
+  this Keyra only. The security key PIN is never in a backup. Losing or
+  resetting a Keyra without a backup loses its passkeys: keep a second sign-in
+  method on every account.
 
 ## Access tokens for apps and AI agents
 
@@ -279,15 +346,35 @@ Settings → Apps and agents creates bearer tokens (SPEC §17; design and threat
 model in [docs/research/TOKENS.md](docs/research/TOKENS.md)). What they can
 and cannot do:
 
+- **Three kinds.** *Agent* (an AI agent through `tools/keyra-mcp`): lists
+  accounts and asks Keyra to type. *App* (the Android app): the same, plus
+  saving an account and getting a generated password. *Extension* (Keyra
+  Companion in a browser): the app's rights plus `POST /api/agent/match`, which
+  offers the logins whose host matches the page.
 - **Arm, never read.** A token lists account titles and website hosts in its
   scope and asks Keyra to type; no endpoint it can reach returns a password, a
   username or a 2FA secret. Every typing still needs the physical press. App
-  tokens can also save a new account (after a press) and get a freshly
-  generated password that was never stored.
+  and extension tokens can also save a new account or replace an existing
+  account's password (`replace`; the old password goes to its history) and get
+  a freshly generated password that was never stored. **Saving and updating
+  need a press too**, so a stolen app or extension token can propose a save but
+  cannot make one happen unseen; the phone shows which token asked.
+- **Extension tokens are bound to the page's host.** An extension must name the
+  host of the tab it types into; a login for another site is refused
+  (409 `host_mismatch`) unless the user picked it from "Other login…"
+  (`anyHost`), and then the page's host is shown on the phone and logged. The
+  rule is one shared table (no public-suffix list; the same host or a
+  subdomain either way; see [docs/research/HOST-MATCH.md](docs/research/HOST-MATCH.md)).
+- **Origins.** `/api/agent/*` accepts `chrome-extension://`, `moz-extension://`
+  and `safari-web-extension://` origins (a bearer token is required either way).
+  The session routes, which use the cookie, refuse them: an extension can never
+  use your browser session, only its own token.
 - **At rest.** Keyra keeps only SHA-256 of each token, inside the vault and
   sealed with the data key, so tokens work only while unlocked (401 `locked`
   otherwise). Creating one needs a press; revoking needs none and withdraws
-  anything it armed. Comparison is constant-time; tokens are never logged.
+  anything it armed. Comparison is constant-time; tokens are never logged. The
+  Android app keeps its token under a non-exportable Android Keystore key; the
+  extension keeps it in its own extension storage.
 - **Plain HTTP.** On the home network a token can be sniffed. The thief gets
   the same arm-only power — and the owner's press is still required, the
   phone shows which token asked, and the activity log records it. Revoke a
@@ -354,6 +441,7 @@ You can expect an acknowledgement within a few days. This is a volunteer
 project; please allow reasonable time for a fix before public disclosure and
 we will credit you in the advisory unless you prefer otherwise.
 
-In scope: the firmware, the web app, the build and release pipeline, and the
-documentation in this repository. Out of scope: attacks needing a modified device,
+In scope: the firmware, the web app, the Android app, the browser extension,
+`tools/keyra-mcp`, the build and release pipeline, and the documentation in this
+repository. Out of scope: attacks needing a modified device,
 vulnerabilities in ESP-IDF or third-party components themselves (report those upstream, but tell us if Keyra's use of them makes it worse), and the limits listed above.
