@@ -30,12 +30,52 @@ const pageHost = () => normalizeHost(location.hostname.replace(/^\[|\]$/g, ''));
 
 let host: HTMLDivElement | null = null;
 let layer: HTMLDivElement;
+/** Announces the highlighted menu item: focus stays in the page's field while arrows move. */
+let live: HTMLElement;
+let hostWatch: MutationObserver | null = null;
+
+// Inline and !important, so no page style sheet can make the layer see-through or move it
+// (clickjacking); only rewriting the attribute could, and that closes the layer (below).
+const HOST_CSS = [
+  'all:initial',
+  'position:fixed',
+  'inset:0',
+  'width:100%',
+  'height:100%',
+  'margin:0',
+  'padding:0',
+  'border:0',
+  'background:transparent',
+  'overflow:visible',
+  'pointer-events:none',
+  'z-index:2147483647',
+  'display:block',
+  'opacity:1',
+  'visibility:visible',
+  'filter:none',
+  'transform:none',
+  'clip-path:none',
+  'mask:none',
+]
+  .map((d) => `${d} !important`)
+  .join(';');
+
+/** The page changed our host element: drop everything on it and build a fresh one when next needed. */
+function dropLayer(): void {
+  hostWatch?.disconnect();
+  hostWatch = null;
+  closeMenu();
+  closeCard();
+  hideKey();
+  host?.remove();
+  host = null;
+}
 
 function ensureLayer(): HTMLDivElement {
   if (host?.isConnected) return layer;
   if (!host) {
     host = document.createElement('div');
-    host.style.cssText = 'all:initial;position:fixed;inset:0;width:100%;height:100%;margin:0;padding:0;border:0;background:transparent;overflow:visible;pointer-events:none;z-index:2147483647;display:block';
+    host.style.cssText = HOST_CSS;
     // Closed, so pages cannot read or drive it; the e2e build opens it for the test runner.
     const root = host.attachShadow({ mode: __SHADOW__ });
     try {
@@ -45,9 +85,12 @@ function ensureLayer(): HTMLDivElement {
     } catch {
       root.append(h('style', {}, CSS));
     }
-    layer = h('div', { class: 'root', dir: uiDir(), lang: uiLang() });
+    live = h('div', { class: 'sr', 'aria-live': 'polite' });
+    layer = h('div', { class: 'root', dir: uiDir(), lang: uiLang() }, live);
     root.append(layer);
     if ('showPopover' in host) host.setAttribute('popover', 'manual');
+    hostWatch = new MutationObserver(dropLayer);
+    hostWatch.observe(host, { attributes: true });
   }
   document.documentElement.append(host);
   raise();
@@ -66,6 +109,36 @@ function raise(): void {
 }
 
 const ours = (n: unknown) => !!host && n === host;
+
+// ---------- clicks a page cannot steal ----------
+
+/** A menu or card ignores clicks this long after it appears, so a page cannot slip it under a click. */
+const CLICK_DELAY_MS = 500;
+const shownAt = new WeakMap<Element, { at: number; timer: number }>();
+
+/** `box` just appeared or changed under the pointer. aria-disabled for the delay, which also tells assistive tech (and test runners) to wait. */
+function fresh(box: HTMLElement): void {
+  clearTimeout(shownAt.get(box)?.timer);
+  box.setAttribute('aria-disabled', 'true');
+  shownAt.set(box, { at: performance.now(), timer: window.setTimeout(() => box.removeAttribute('aria-disabled'), CLICK_DELAY_MS) });
+}
+
+/** True only for a person's click on our layer while it is open and fully visible. */
+function genuine(e: MouseEvent, box: Element | null): boolean {
+  if (!e.isTrusted || !host || !box?.isConnected) return false;
+  if (performance.now() - (shownAt.get(box)?.at ?? -Infinity) < CLICK_DELAY_MS) return false;
+  const cs = getComputedStyle(host);
+  const seen = cs.opacity === '1' && cs.visibility === 'visible' && cs.display !== 'none' && cs.filter === 'none' && cs.transform === 'none' && cs.clipPath === 'none' && cs.getPropertyValue('mask-image') === 'none';
+  if (!seen || ('showPopover' in host && !host.matches(':popover-open'))) return false;
+  // A pointer click must land on the layer itself, not on something the page laid over it;
+  // a keyboard one (detail 0) needs the focus inside the layer.
+  return e.detail === 0 ? document.activeElement === host : document.elementFromPoint(e.clientX, e.clientY) === host;
+}
+
+/** A click handler that runs `run` only for a genuine click inside `box()`. */
+const tap = (box: () => Element | null, run: () => void) => (e: Event) => {
+  if (e instanceof MouseEvent && genuine(e, box())) run();
+};
 
 // ---------- the key in the field ----------
 
@@ -109,14 +182,23 @@ function showKey(ctx: Ctx): void {
   if (!spot) return hideKey();
   ensureLayer();
   if (!keyBtn) {
-    keyBtn = h('button', { class: 'key', type: 'button', 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-label': t('iconLabel'), title: t('iconLabel') }, logo(22));
+    keyBtn = h('button', { class: 'key', type: 'button', 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-label': t('iconAria'), title: t('iconLabel') }, logo(22));
     keyBtn.addEventListener('mousedown', (e) => e.preventDefault()); // the field keeps focus
-    keyBtn.addEventListener('click', () => (menuEl ? closeMenu() : keyCtx && openMenu(keyCtx)));
+    keyBtn.addEventListener(
+      'click',
+      tap(
+        () => keyBtn,
+        () => (menuEl ? closeMenu() : keyCtx && void openMenu(keyCtx)),
+      ),
+    );
   }
   keyCtx = ctx;
   keyBtn.style.left = `${spot.x}px`;
   keyBtn.style.top = `${spot.y}px`;
-  if (!keyBtn.isConnected) layer.append(keyBtn);
+  if (!keyBtn.isConnected) {
+    layer.append(keyBtn);
+    fresh(keyBtn);
+  }
 }
 
 function hideKey(): void {
@@ -150,7 +232,7 @@ function setItems(list: HTMLElement | null, items: { el: HTMLElement; run: () =>
   menuItems = items;
   menuOn = -1;
   for (const [i, it] of items.entries()) {
-    it.el.onclick = it.run;
+    it.el.onclick = tap(() => menuEl, it.run);
     it.el.onmousemove = () => highlight(i);
   }
   list?.replaceChildren(...items.map((i) => i.el));
@@ -204,7 +286,7 @@ function inlineError(f: Failure): HTMLElement {
     'div',
     { class: 'empty', role: 'alert' },
     h('div', { style: 'display:flex;gap:10px;align-items:flex-start' }, h('span', { class: `badge-round tone-${v.tone}`, style: 'width:32px;height:32px' }, icon(v.icon, 18)), h('div', {}, h('div', { style: 'font-weight:600;color:var(--text)' }, v.title), h('div', {}, v.body))),
-    v.action ? h('div', { class: 'actions' }, h('button', { class: 'btn secondary', type: 'button', onclick: v.action.run }, v.action.label)) : null,
+    v.action ? h('div', { class: 'actions' }, h('button', { class: 'btn secondary', type: 'button', onclick: tap(() => menuEl, v.action.run) }, v.action.label)) : null,
   );
 }
 
@@ -223,12 +305,14 @@ async function openMenu(ctx: Ctx): Promise<void> {
   setItems(null, top);
   menuEl = menuShell(menuHead(), genBox, list, h('div', { class: 'sep' }), h('div', { class: 'foot' }, t('menuFoot')));
   ensureLayer().append(menuEl);
+  fresh(menuEl);
   raise();
   keyBtn?.setAttribute('aria-expanded', 'true');
   placeMenu();
 
   const r = await send<{ entries: Login[] }>({ t: 'match' });
   if (menuCtx !== ctx || !menuEl) return;
+  fresh(menuEl); // the list moves under the pointer now
   const other = specialItem('search', t('menuOther'), '', () => void openSearch(ctx));
   if (!r.ok) {
     list.replaceChildren(inlineError(r));
@@ -246,13 +330,21 @@ async function openSearch(ctx: Ctx): Promise<void> {
   const input = h('input', { type: 'search', placeholder: t('menuSearch'), 'aria-label': t('menuSearch'), autocomplete: 'off', spellcheck: 'false' });
   const list = h('div', { class: 'list' }, h('div', { class: 'loading' }, h('span', { class: 'spin' }), t('menuLoading')));
   const backBtn = h('button', { class: 'x', type: 'button', 'aria-label': t('back'), style: 'width:28px;height:28px;border-radius:8px;display:grid;place-items:center' }, icon('back', 18, 'chev'));
-  backBtn.addEventListener('click', () => void openMenu(ctx));
+  backBtn.addEventListener(
+    'click',
+    tap(
+      () => menuEl,
+      () => void openMenu(ctx),
+    ),
+  );
   const head = h('div', { class: 'menu-head' }, backBtn, t('menuOther'));
   menuEl.replaceChildren(head, h('label', { class: 'search' }, icon('search', 18), input), list);
+  fresh(menuEl);
   input.focus();
   placeMenu();
   const r = await send<{ entries: Login[] }>({ t: 'entries' });
   if (!menuEl || menuCtx !== ctx) return;
+  fresh(menuEl);
   if (!r.ok) {
     list.replaceChildren(inlineError(r));
     return;
@@ -269,7 +361,7 @@ async function openSearch(ctx: Ctx): Promise<void> {
     placeMenu();
   };
   input.addEventListener('input', render);
-  input.addEventListener('keydown', menuKeys);
+  input.addEventListener('keydown', (e) => e.isTrusted && menuKeys(e));
   render();
 }
 
@@ -287,6 +379,8 @@ function menuKeys(e: KeyboardEvent): boolean {
     if (!menuItems.length) return true;
     const d = e.key === 'ArrowDown' ? 1 : -1;
     highlight((menuOn + d + menuItems.length) % menuItems.length);
+    const it = menuItems[menuOn]?.el;
+    live.textContent = it ? Array.from(it.querySelectorAll('.t1, .t2'), (n) => n.textContent).join(', ') : '';
   } else if (e.key === 'Enter' && menuOn >= 0) menuItems[menuOn]?.run();
   else if (e.key === 'Escape') {
     const f = menuCtx?.field;
@@ -407,8 +501,11 @@ interface CardOpts {
 function showCard(o: CardOpts): HTMLElement {
   clearTimers();
   const close = h('button', { class: 'x', type: 'button', 'aria-label': t('close') }, icon('x', 18));
-  close.addEventListener('click', o.onClose ?? closeCard);
-  const el = h(
+  close.addEventListener(
+    'click',
+    tap(() => el, o.onClose ?? closeCard),
+  );
+  const el: HTMLElement = h(
     'section',
     { class: 'card', role: o.role ?? 'dialog', 'aria-live': o.role === 'dialog' ? null : 'polite', 'aria-label': o.title },
     h('div', { class: 'card-top' }, o.badge, h('div', { class: 'card-body' }, h('h2', {}, o.title), o.body ? h('p', {}, o.body) : null), o.closable === false ? null : close),
@@ -419,7 +516,10 @@ function showCard(o: CardOpts): HTMLElement {
     for (const a of o.actions) {
       const b = h('button', { class: `btn ${a.cls}`, type: 'button' }, a.ic ? icon(a.ic, 18) : null, a.label);
       b.addEventListener('mousedown', (e) => e.preventDefault());
-      b.addEventListener('click', a.run);
+      b.addEventListener(
+        'click',
+        tap(() => el, a.run),
+      );
       row.append(b);
     }
     el.append(row);
@@ -430,6 +530,7 @@ function showCard(o: CardOpts): HTMLElement {
   if (cardEl) cardEl.replaceWith(el);
   else ensureLayer().append(el);
   cardEl = el;
+  fresh(el);
   raise();
   if (o.autoClose) timers.push(window.setTimeout(closeCard, o.autoClose));
   return el;
@@ -786,6 +887,7 @@ function watch(): void {
   document.addEventListener(
     'keydown',
     (e) => {
+      if (!e.isTrusted) return; // a page's own key events cannot pick a login
       if (menuEl && menuCtx && e.target === menuCtx.field && menuKeys(e)) return;
       if (e.key === 'ArrowDown' && e.altKey && keyCtx && e.target === keyCtx.field) {
         e.preventDefault();

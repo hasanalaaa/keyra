@@ -289,6 +289,25 @@ async function functional() {
   await sleep(1500);
   check((await card(gh).count()) === 0, 'a sign-in with an existing login asks nothing');
 
+  // Clickjacking: a page cannot get a click onto a layer it hid, nor one that just appeared.
+  const cj = await openSite(b, at('evil.example', '/login'));
+  await cj.locator('#password').click();
+  await keyIcon(cj).click();
+  const otherItem = menu(cj).locator('.item', { hasText: 'Other login…' });
+  await otherItem.waitFor();
+  const ob = await otherItem.boundingBox();
+  await cj.mouse.click(ob.x + ob.width / 2, ob.y + ob.height / 2); // within 500 ms of the list appearing
+  check((await menu(cj).locator('input[type=search]').count()) === 0, 'a click right after the menu appears does nothing');
+  await cj.addStyleTag({ content: 'html > div[popover] { opacity: 0 !important; transform: scale(0.01) !important }' });
+  check(await cj.evaluate(() => getComputedStyle(document.querySelector('html > div[popover]')).opacity === '1'), "a page's style sheet cannot make the layer see-through");
+  await cj.evaluate(() => document.querySelector('html > div[popover]').style.setProperty('opacity', '0', 'important'));
+  await sleep(100);
+  check((await menu(cj).count()) === 0, 'rewriting the layer’s style closes it');
+  await cj.mouse.click(ob.x + ob.width / 2, ob.y + ob.height / 2);
+  await sleep(600);
+  check((await menu(cj).locator('input[type=search]').count()) === 0 && (await card(cj).count()) === 0, 'and a click where its item was does nothing');
+  await cj.close();
+
   // 3. Phishing guard: GitHub's login on another site only after a warning naming both hosts.
   const evil = await openSite(b, at('evil.example', '/login'));
   await evil.locator('#password').click();

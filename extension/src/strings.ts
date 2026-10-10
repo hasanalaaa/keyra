@@ -8,6 +8,7 @@ export const en = {
 
   // In the page
   iconLabel: 'Keyra: logins for this site',
+  iconAria: 'Keyra: logins for this site (Alt+Down arrow in the field)',
   menuFor: 'Logins for {host}',
   menuEmpty: 'No login saved for {host}.',
   menuOther: 'Other login…',
@@ -152,6 +153,7 @@ export const ar: Record<Key, string> = {
   extDescription: 'يكتب حساباتك في المواقع من Keyra بعد ضغطة زرّه. لا يرى أي كلمة مرور مخزّنة.',
 
   iconLabel: 'Keyra: حسابات هذا الموقع',
+  iconAria: 'Keyra: حسابات هذا الموقع (Alt+السهم للأسفل في الخانة)',
   menuFor: 'حسابات {host}',
   menuEmpty: 'لا يوجد حساب محفوظ لـ {host}.',
   menuOther: 'حساب آخر…',
