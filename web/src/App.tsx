@@ -19,6 +19,7 @@ const TITLES: Partial<Record<Route['name'], Key>> = {
   settings: 'settings',
   generate: 'genTitle',
   typeText: 'typeTextTitle',
+  connect: 'connectTitle',
 };
 
 export function App() {

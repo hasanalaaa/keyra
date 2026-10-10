@@ -23,6 +23,13 @@ npm --prefix web run build
 git diff --exit-code -- firmware/components/keyra_api/www \
   || { echo "firmware/components/keyra_api/www is out of date: commit the rebuilt assets"; exit 1; }
 
+step "Browser extension (clean install, typecheck, unit tests, build, e2e)"
+npm --prefix extension ci --no-audit --no-fund >/dev/null
+npm --prefix extension run typecheck
+npm --prefix extension test
+npm --prefix extension run build
+SHOTS=0 npm --prefix extension run e2e
+
 step "Android app (unit tests, builds, lint)"
 (cd android && ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}" JAVA_HOME="${JAVA_HOME:-/Applications/Android Studio.app/Contents/jbr/Contents/Home}" \
   ./gradlew --console=plain --rerun-tasks testDebugUnitTest assembleDebug assembleRelease lint \
@@ -40,7 +47,7 @@ python3 - "$root" <<'EOF'
 import pathlib, re, sys
 root = pathlib.Path(sys.argv[1])
 bad = []
-for md in [*root.glob("*.md"), *root.glob("docs/*.md")]:
+for md in [*root.glob("*.md"), *root.glob("docs/*.md"), root / "extension/README.md"]:
     for link in re.findall(r'(?:\]\(|src=")([^)"#\s]+)', md.read_text()):
         if link.startswith(("http://", "https://", "mailto:")):
             continue

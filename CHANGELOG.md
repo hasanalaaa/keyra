@@ -8,6 +8,27 @@ All notable changes to Keyra are documented here. The format follows
 
 ### Added
 
+- **Keyra Companion, the browser extension** (SPEC §9.4, [extension/README.md](extension/README.md)):
+  Manifest V3 for Chrome, Edge, Brave, Opera, Vivaldi and Firefox. A Keyra key
+  in login fields lists the logins for that site (`POST /api/agent/match`, the
+  shared host rule of [HOST-MATCH.md](docs/research/HOST-MATCH.md)), focuses
+  the right field and shows the press card with the countdown and the result;
+  "Other login…" on another site warns with both hosts and sends `anyHost`.
+  Sign-up and change-password forms get a strong password from Keyra; after a
+  form is sent it offers **Save to Keyra?** or **Update the password for …?**
+  (a press each; a plain sign-in with a known login asks nothing). Toolbar
+  popup with connection state, the site's logins, search with "Type into this
+  page", the generator and settings. Connects with one press: `#/connect` in
+  the web app creates a token of the new kind **extension** and hands it to
+  the extension's tab by `postMessage` (nonce-checked, not kept by the web
+  app). Arabic and English, light and dark; unit tests and a Chromium
+  end-to-end run against the mock.
+- Web app: **#/connect** pairing screen; **Browser** kind in Settings → Apps and
+  agents; the activity log and the Ready pill name the other site when a login
+  was typed there.
+- Mock: kind `extension`, `/api/agent/match`, `host`/`anyHost`/`host_mismatch`
+  on type, `replace` and `mode` on save, extension origins on agent routes —
+  matching the firmware's rules.
 - **Keyra Companion on the device** (firmware, SPEC §9.4 and §17,
   [HOST-MATCH.md](docs/research/HOST-MATCH.md)): a third access-token kind,
   `extension` (kind byte 2 in `tokens.bin`; existing agent and app tokens read

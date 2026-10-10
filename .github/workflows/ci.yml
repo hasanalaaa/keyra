@@ -43,6 +43,35 @@ jobs:
       - run: npm --prefix web test
       - run: npm --prefix web run build
 
+  extension:
+    name: Browser extension (typecheck, unit tests, build, e2e)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            extension/package-lock.json
+      # The API tests and the e2e run start web/mock/server.mjs, which serves the built web app.
+      - run: npm --prefix web ci
+      - run: npm --prefix web run build
+      - run: npm --prefix extension ci
+      - run: npm --prefix extension run typecheck
+      - run: npm --prefix extension test
+      - run: npm --prefix extension run build
+      - run: npm --prefix extension exec -- playwright install --with-deps chromium
+      - run: SHOTS=0 npm --prefix extension run e2e
+      - uses: actions/upload-artifact@v4
+        with:
+          name: keyra-companion
+          if-no-files-found: error
+          path: |
+            extension/dist/chrome
+            extension/dist/firefox
+
   android:
     name: Android app (unit tests, builds, lint)
     runs-on: ubuntu-latest

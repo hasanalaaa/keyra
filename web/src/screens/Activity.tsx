@@ -41,7 +41,11 @@ export function eventText(e: ActivityEvent, account: (id: number) => string | un
     case 'token_created': return t('actTokenCreated', { title });
     case 'token_revoked': return t('actTokenRevoked', { title });
     case 'agent_listed': return t('actAgentListed', { title }) + times;
-    case 'agent_armed': return t('actAgentArmed', { title, account: acc() });
+    case 'agent_armed': {
+      // SPEC §9.4: detail + 4 = typed on another site's page, title "<token> → <page host>".
+      const [name, host] = e.detail >= 4 ? title.split(' → ') : [title];
+      return host ? t('actAgentArmedHost', { title: name, account: acc(), host }) : t('actAgentArmed', { title, account: acc() });
+    }
     case 'agent_saved': return t('actAgentSaved', { title, account: acc() });
     case 'agent_generated': return t('actAgentGenerated', { title }) + times;
     case 'tag_created': return t('actTagCreated', { title });
