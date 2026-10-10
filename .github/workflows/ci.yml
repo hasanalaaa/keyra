@@ -64,7 +64,7 @@ jobs:
       - run: npm --prefix extension run build
       - run: npm --prefix extension exec -- playwright install --with-deps chromium
       - run: SHOTS=0 npm --prefix extension run e2e
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: keyra-companion
           if-no-files-found: error
@@ -112,7 +112,7 @@ jobs:
           path: firmware
           command: ${{ matrix.command }}
       - name: Upload firmware images
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: keyra-firmware-${{ matrix.profile }}
           if-no-files-found: error
