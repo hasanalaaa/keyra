@@ -1492,7 +1492,11 @@ function urlHost(url = '') {
 const COUNTRY_SLD = new Set(['ac', 'co', 'com', 'edu', 'gob', 'gov', 'go', 'mil', 'ne', 'net', 'or', 'org', 'sch']);
 const normHost = (h) => String(h ?? '').trim().toLowerCase().replace(/\.$/, '').replace(/^www\./, '');
 /** handlers_agent.cpp: a page host is 1-253 visible ASCII characters, stored normalised; '' = invalid. */
-const pageHost = (h) => (typeof h === 'string' && /^[\x21-\x7e]{1,253}$/.test(h) ? normHost(h) : '');
+const pageHost = (h) => {
+  // host_match.cpp validHost(): spaces around it are trimmed before the check.
+  const s = typeof h === 'string' ? h.replace(/^ +| +$/g, '') : '';
+  return /^[\x21-\x7e]{1,253}$/.test(s) ? normHost(s) : '';
+};
 const isIp = (h) => h.includes(':') || /^\d{1,3}(\.\d{1,3}){3}$/.test(h);
 function siteLike(h) {
   const l = h.split('.');
@@ -2262,7 +2266,9 @@ async function api(req, res, path) {
       if (bearer.kind !== 'extension') fail(403, 'forbidden', 'Only a browser extension token can match pages');
       const host = pageHost(b.host);
       if (!host) bad('"host" (1-253 visible ASCII characters) is required');
-      if (b.username !== undefined && typeof b.username !== 'string') bad('"username" must be a string');
+      if (b.username !== undefined && (typeof b.username !== 'string' || Buffer.byteLength(b.username) > LIMITS.username)) {
+        bad('"username" must be a string within the vault\'s limits');
+      }
       const list = [...vault.entries.values()]
         .filter((e) => inScope(bearer, e.id) && hostMatch(urlHost(e.url), host))
         .slice(0, 20)

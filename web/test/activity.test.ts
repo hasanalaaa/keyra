@@ -12,6 +12,12 @@ describe('activity event text', () => {
     expect(eventText({ kind: 'lock', at: 1, detail: 9 })).toBe('Locked'); // a reason this app does not know yet
     expect(eventText({ kind: 'unknown', at: 1, detail: 0 })).toBe('Other activity');
   });
+  it('splits an extension typing elsewhere at the last arrow (the token name may hold one)', () => {
+    setLang('en');
+    expect(eventText({ kind: 'agent_armed', at: 1, detail: 5, id: 2, title: 'Chrome → Mac → evil.example' }, () => 'GitHub')).toBe(
+      'Chrome → Mac asked to type GitHub on another site: evil.example',
+    );
+  });
   it('speaks Arabic', () => {
     setLang('ar');
     expect(eventText({ kind: 'revealed', at: 1, detail: 0, id: 2, title: 'بنك' })).toBe('أظهر كلمة سر «بنك»');

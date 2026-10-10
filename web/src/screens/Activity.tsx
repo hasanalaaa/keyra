@@ -43,7 +43,9 @@ export function eventText(e: ActivityEvent, account: (id: number) => string | un
     case 'agent_listed': return t('actAgentListed', { title }) + times;
     case 'agent_armed': {
       // SPEC §9.4: detail + 4 = typed on another site's page, title "<token> → <page host>".
-      const [name, host] = e.detail >= 4 ? title.split(' → ') : [title];
+      // A host never holds " → "; a token name might, so split at the last one.
+      const cut = e.detail >= 4 ? title.lastIndexOf(' → ') : -1;
+      const [name, host] = cut < 0 ? [title] : [title.slice(0, cut), title.slice(cut + 3)];
       return host ? t('actAgentArmedHost', { title: name, account: acc(), host }) : t('actAgentArmed', { title, account: acc() });
     }
     case 'agent_saved': return t('actAgentSaved', { title, account: acc() });
