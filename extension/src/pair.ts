@@ -10,6 +10,11 @@ export function pairListener(nonce: string, origin: string): void {
     if (e.source !== window || e.origin !== origin) return;
     const d = e.data as { type?: unknown; n?: unknown; token?: unknown } | null;
     if (!d || d.type !== 'keyra:token' || d.n !== nonce || typeof d.token !== 'string') return;
-    void api.runtime.sendMessage({ t: 'paired', n: nonce, token: d.token });
+    // The web app waits for this answer: without ok it revokes the token it just made.
+    const reply = (ok: boolean) => window.postMessage({ type: 'keyra:paired', n: nonce, ok }, origin);
+    api.runtime.sendMessage({ t: 'paired', n: nonce, token: d.token }).then(
+      (r: { ok?: boolean } | undefined) => reply(r?.ok === true),
+      () => reply(false),
+    );
   });
 }

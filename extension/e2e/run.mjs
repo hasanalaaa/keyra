@@ -210,6 +210,23 @@ async function functional() {
   await phoneUnlock();
   const toks = (await api('GET', '/api/tokens')).body.tokens;
   check(toks.some((t) => t.kind === 'extension' && t.scope === 'all' && /^Chrome on/.test(t.name)), 'Keyra lists it as a browser extension token');
+
+  // A connect link the extension did not open: nobody confirms the token, so the web app revokes it.
+  const orphan = await b.ctx.newPage();
+  await orphan.goto(`${ADDRESS}/#/connect?ext=Orphan&n=AAAAAAAAAAAAAAAAAAAAAA`);
+  const orphanPass = orphan.locator('input[type=password]').first();
+  await orphanPass.or(orphan.locator('.sheet button', { hasText: 'Create token' })).first().waitFor();
+  if (await orphanPass.isVisible()) {
+    await orphanPass.fill(PASS);
+    await orphanPass.press('Enter');
+  }
+  await orphan.locator('.sheet button', { hasText: 'Create token' }).click();
+  await orphan.locator('.ready-ready').waitFor();
+  await button();
+  await orphan.getByText('The extension did not confirm').waitFor({ timeout: 10000 });
+  await sleep(500);
+  check(!(await api('GET', '/api/tokens')).body.tokens.some((t) => t.name === 'Orphan'), 'an unconfirmed pairing says so and revokes the token');
+  await orphan.close();
   await pop.reload();
   await waitFor(async () => (await pop.locator('[data-testid=reach]').textContent()).includes('Ready'), 'popup shows "Ready"');
   await pop.close();

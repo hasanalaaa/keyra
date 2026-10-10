@@ -237,24 +237,41 @@ const NONCE = /^[A-Za-z0-9_-]{22}$/;
  * not kept here.
  */
 export function ConnectSheet({ ext, n }: { ext: string; n: string }) {
-  const [done, setDone] = useState(false);
+  const [step, setStep] = useState<'ask' | 'wait' | 'done' | 'failed'>('ask');
   const name = ext.trim();
   const close = () => replace('/');
+
+  // The extension answers {type:'keyra:paired', n, ok} once it has checked and stored the token.
+  // No answer within 5 s, or ok false: the token reached no one we know, so it is revoked.
+  const handOver = (tok: AccessToken & { token: string }) => {
+    setStep('wait');
+    let timer = 0;
+    const finish = (ok: boolean) => {
+      window.removeEventListener('message', onMsg);
+      clearTimeout(timer);
+      if (ok) return setStep('done');
+      setStep('failed');
+      api.revokeToken(tok.id).catch((e) => toast(errorText(e), 'error'));
+    };
+    const onMsg = (e: MessageEvent) => {
+      const d = e.data as { type?: unknown; n?: unknown; ok?: unknown } | null;
+      if (e.source === window && e.origin === location.origin && d?.type === 'keyra:paired' && d.n === n) finish(d.ok === true);
+    };
+    window.addEventListener('message', onMsg);
+    timer = window.setTimeout(() => finish(false), 5000);
+    window.postMessage({ type: 'keyra:token', n, token: tok.token }, location.origin);
+  };
+
   let body;
   if (!NONCE.test(n) || !nameOk(name) || /[\x00-\x1f\x7f]/.test(name)) body = <Notice tone="warn">{t('connectBad')}</Notice>;
-  else if (done) body = <Notice tone="accent">{t('connectDone')}</Notice>;
+  else if (step === 'done') body = <Notice tone="accent">{t('connectDone')}</Notice>;
+  else if (step === 'failed') body = <Notice tone="warn">{t('connectFail')}</Notice>;
+  else if (step === 'wait') body = <Spinner />;
   else
     body = (
       <>
         <p class="callout">{t('connectAsk', { name })}</p>
-        <NewToken
-          fixed={{ name, kind: 'extension' }}
-          onCreated={(tok) => {
-            window.postMessage({ type: 'keyra:token', n, token: tok.token }, location.origin);
-            setDone(true);
-          }}
-          onCancel={close}
-        />
+        <NewToken fixed={{ name, kind: 'extension' }} onCreated={handOver} onCancel={close} />
       </>
     );
   return (

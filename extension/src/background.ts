@@ -167,7 +167,9 @@ async function finishPairing(sender: chrome.runtime.MessageSender, n: string, to
   await ext.storage.session.remove('pairing');
   matchCache.clear();
   entriesCache = null;
-  void ext.tabs.remove(p.tabId).catch(() => undefined);
+  // After the answer reached the tab: closing it first could fail the answer, and the web app
+  // revokes a token whose pairing it cannot confirm.
+  setTimeout(() => void ext.tabs.remove(p.tabId).catch(() => undefined), 1000);
   return { ok: true };
 }
 
