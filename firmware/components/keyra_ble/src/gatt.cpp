@@ -39,6 +39,10 @@ std::atomic<bool> s_ledsKnown{false};  // the host wrote its LED report on this 
 // A host that was just handed off (ignoreWrites()): its last LED or protocol
 // writes must not land on the state of the host that took over.
 std::atomic<uint16_t> s_ignored{BLE_HS_CONN_HANDLE_NONE};
+// The linked host (setOwner()): a host pairing in the second slot must not
+// change its LED or protocol state. None yet: a bonded host may write its LED
+// report before CONNECT is reported.
+std::atomic<uint16_t> s_owner{BLE_HS_CONN_HANDLE_NONE};
 
 uint16_t s_hInput = 0, s_hBootInput = 0;
 
@@ -72,7 +76,8 @@ int readByte(ble_gatt_access_ctxt* ctxt, uint8_t& out) {
 int access(uint16_t conn, uint16_t, ble_gatt_access_ctxt* ctxt, void* arg) {
   const auto what = static_cast<Attr>(reinterpret_cast<uintptr_t>(arg));
   const bool write = ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR || ctxt->op == BLE_GATT_ACCESS_OP_WRITE_DSC;
-  const bool keep = conn != s_ignored.load();
+  const uint16_t owner = s_owner.load();
+  const bool keep = conn != s_ignored.load() && (owner == BLE_HS_CONN_HANDLE_NONE || conn == owner);
   static constexpr uint8_t kZeroReport[kInputReportLen] = {};
   uint8_t b = 0;
   int rc = 0;
@@ -194,6 +199,8 @@ uint8_t leds() { return s_leds.load(); }
 bool ledsKnown() { return s_ledsKnown.load(); }
 
 void ignoreWrites(uint16_t conn) { s_ignored.store(conn); }
+
+void setOwner(uint16_t conn) { s_owner.store(conn); }
 
 void resetLink() {
   s_protocol.store(kProtoReport);

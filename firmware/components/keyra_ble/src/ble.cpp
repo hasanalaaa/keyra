@@ -6,6 +6,7 @@
 
 #include <sys/time.h>
 
+#include <algorithm>
 #include <mutex>
 
 #include "esp_log.h"
@@ -117,6 +118,8 @@ struct BondBackup {
   std::vector<ble_store_value_cccd> cccd;
 };
 BondBackup t_bondBackup;
+bool t_renewal = false;  // the re-pairing on t_repairing is a proven host renewing its own keys
+ble_npl_callout t_advRetry;
 uint16_t t_handedOff = BLE_HS_CONN_HANDLE_NONE;  // linked host being let go after a guest took over
 ble_npl_event t_kickEv;
 ble_npl_event t_forgetEv;
@@ -222,7 +225,11 @@ void restoreBondIfLost() {
 int onGap(ble_gap_event* ev, void* arg);
 
 int startAdvertising(Adv mode, const std::string& name, const std::vector<peers::Key>& keys) {
-  const std::string_view advName = fitName(name, kAdvNameMax);
+  // NimBLE keeps these field pointers to re-advertise after a failed connection
+  // attempt, so the name must outlive this call.
+  static std::string s_name;
+  s_name = name;
+  const std::string_view advName = fitName(s_name, kAdvNameMax);
   ble_hs_adv_fields f{};
   f.flags = BLE_HS_ADV_F_BREDR_UNSUP | (mode == Adv::Open ? BLE_HS_ADV_F_DISC_GEN : 0);
   f.appearance = kAppearanceKeyboard;
@@ -232,14 +239,14 @@ int startAdvertising(Adv mode, const std::string& name, const std::vector<peers:
   f.uuids16_is_complete = 1;
   f.name = reinterpret_cast<const uint8_t*>(advName.data());
   f.name_len = static_cast<uint8_t>(advName.size());
-  f.name_is_complete = advName.size() == name.size();
+  f.name_is_complete = advName.size() == s_name.size();
   int rc = ble_gap_adv_set_fields(&f);
 
-  const std::string_view rspName = fitName(name, kRspNameMax);
+  const std::string_view rspName = fitName(s_name, kRspNameMax);
   ble_hs_adv_fields r{};
   r.name = reinterpret_cast<const uint8_t*>(rspName.data());
   r.name_len = static_cast<uint8_t>(rspName.size());
-  r.name_is_complete = rspName.size() == name.size();
+  r.name_is_complete = rspName.size() == s_name.size();
   if (rc == 0) rc = ble_gap_adv_rsp_set_fields(&r);
 
   ble_gap_adv_params p{};
@@ -269,6 +276,7 @@ int startAdvertising(Adv mode, const std::string& name, const std::vector<peers:
 // Brings the radio in line with the shared state. Idempotent; runs after
 // every event that could change what Keyra should be doing.
 void reconcile() {
+  if (!ble_hs_synced()) return;  // a host reset is under way: onSync() reconciles
   bool enabled, pairing, trusted;
   uint16_t conn, guest;
   int64_t leftMs, lingerMs;
@@ -297,6 +305,11 @@ void reconcile() {
     keys = g_bondKeys;
     mode = g_mode;
     wanted = g_demand.target(now);
+  }
+  // A host renewing its keys has no stored bond for a moment; it is still bonded.
+  if (t_bondBackup.conn != BLE_HS_CONN_HANDLE_NONE) {
+    const peers::Key k = keyOf(t_bondBackup.id);
+    if (std::find(keys.begin(), keys.end(), k) == keys.end()) keys.push_back(k);
   }
   // A wanted host that is no longer bonded (forgotten meanwhile) is nobody.
   std::vector<peers::Key> accept;
@@ -349,12 +362,17 @@ void reconcile() {
     t_adv = want;
     t_advName = name;
     t_advKeys = accept;
+  } else {
+    // A transient controller error must not leave Keyra invisible until the next event.
+    ble_npl_callout_reset(&t_advRetry, ble_npl_time_ms_to_ticks32(500));
   }
 }
 
 void onKick(ble_npl_event*) { reconcile(); }
 
 void onLingerEnd(ble_npl_event*) { reconcile(); }
+
+void onAdvRetry(ble_npl_event*) { reconcile(); }
 
 void onWindowEnd(ble_npl_event*) {
   ESP_LOGI(TAG, "pairing window closed");
@@ -375,6 +393,13 @@ void onForget(ble_npl_event*) {
   // The controller's resolving list cannot change while advertising.
   if (ble_gap_adv_active()) ble_gap_adv_stop();
   t_adv = Adv::Off;
+
+  // A renewal in progress for a host being forgotten must not restore its keys.
+  if (t_bondBackup.conn != BLE_HS_CONN_HANDLE_NONE && (req.all || keyOf(t_bondBackup.id).addr == req.addr)) {
+    t_bondBackup = BondBackup{};
+    t_repairing = BLE_HS_CONN_HANDLE_NONE;
+    t_renewal = false;
+  }
 
   esp_err_t result = ESP_OK;
   if (req.all) {
@@ -419,6 +444,9 @@ void onConnect(int status, uint16_t conn) {
       linked = g_link.conn != BLE_HS_CONN_HANDLE_NONE;
     }
     if (!linked) gatt::resetLink();  // a failed second connection leaves the linked host's state alone
+    // No DISCONNECT follows, so a renewal on this handle ends here.
+    if (t_repairing == conn) t_repairing = BLE_HS_CONN_HANDLE_NONE;
+    if (t_bondBackup.conn == conn) restoreBondIfLost();
     ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &t_kickEv);
     return;
   }
@@ -442,6 +470,7 @@ void onConnect(int status, uint16_t conn) {
       l = Link{};
       l.conn = conn;
       l.peer = k;
+      if (!asGuest) gatt::setOwner(conn);
       if (g_early.conn == conn) {
         l.subInput = g_early.input;
         l.subBoot = g_early.boot;
@@ -485,6 +514,7 @@ void onDisconnect(uint16_t conn, int reason) {
       // written any report yet (that needs encryption).
       g_link = g_guest;
       g_guest = Link{};
+      gatt::setOwner(g_link.conn);
     } else if (g_guest.conn == conn) {
       g_guest = Link{};
     }
@@ -538,7 +568,11 @@ void onEncrypted(uint16_t conn, int status) {
   }
   const peers::Key k = keyOf(d.peer_id_addr);  // identity, now that keys were exchanged
   const bool repaired = t_repairing == conn;
+  // A proven host renewing its own keys is the same host reconnecting: it neither
+  // uses up the pairing window nor takes the keyboard from the linked host.
+  const bool renewal = repaired && t_renewal && t_bondBackup.conn == conn && keyOf(t_bondBackup.id) == k;
   t_repairing = BLE_HS_CONN_HANDLE_NONE;
+  t_renewal = false;
   if (repaired && d.sec_state.bonded) t_bondBackup = BondBackup{};  // the new bond is stored
   bool known, window;
   {
@@ -553,7 +587,7 @@ void onEncrypted(uint16_t conn, int status) {
     ble_gap_unpair(&d.peer_id_addr);
     return;
   }
-  const bool fresh = d.sec_state.bonded && (!known || repaired);
+  const bool fresh = d.sec_state.bonded && (!known || repaired) && !renewal;
   bool takeOver = true;
   uint16_t replaced = BLE_HS_CONN_HANDLE_NONE;
   {
@@ -569,6 +603,7 @@ void onEncrypted(uint16_t conn, int status) {
       if (takeOver) {
         replaced = g_link.conn;
         g_link = g_guest;
+        gatt::setOwner(g_link.conn);
       }
       g_guest = Link{};
     }
@@ -598,7 +633,7 @@ void onEncrypted(uint16_t conn, int status) {
     ble_gap_terminate(replaced, BLE_ERR_REM_USER_CONN_TERM);
   }
   if (!d.sec_state.bonded) return;
-  ESP_LOGI(TAG, "%s %s", known && !repaired ? "reconnected" : "paired", formatAddr(k.addr).c_str());
+  ESP_LOGI(TAG, "%s %s", fresh ? "paired" : renewal ? "renewed keys of" : "reconnected", formatAddr(k.addr).c_str());
   peers::seen(k, unixNow());
   refreshBonds();
   // The host's own name ("Hasan's iPad") for the device list in the app.
@@ -626,9 +661,16 @@ int onRepeatPairing(uint16_t conn) {
     return BLE_GAP_REPEAT_PAIRING_IGNORE;
   }
   backUpBond(conn, d.peer_id_addr);
-  ble_store_util_delete_peer(&d.peer_id_addr);
+  const int rc = ble_store_util_delete_peer(&d.peer_id_addr);
+  if (rc != 0) {
+    // NimBLE asks again for as long as the old bond exists: refuse instead of looping.
+    ESP_LOGE(TAG, "dropping the old bond for re-pairing failed: %d", rc);
+    restoreBondIfLost();
+    return BLE_GAP_REPEAT_PAIRING_IGNORE;
+  }
   refreshBonds();
   t_repairing = conn;
+  t_renewal = proven;
   return BLE_GAP_REPEAT_PAIRING_RETRY;
 }
 
@@ -721,6 +763,7 @@ void onReset(int reason) {
   gatt::resetLink();
   t_handedOff = BLE_HS_CONN_HANDLE_NONE;
   gatt::ignoreWrites(BLE_HS_CONN_HANDLE_NONE);
+  gatt::setOwner(BLE_HS_CONN_HANDLE_NONE);
 }
 
 void hostTask(void*) {
@@ -765,6 +808,14 @@ esp_err_t runForget(const ForgetReq& req) {
     result = g_forgetResult;
   }
   xSemaphoreGive(g_forgetMu);
+  if (req.all && result != ESP_OK) {
+    // The host task did not answer: wipe the stored bonds directly so none
+    // outlives a factory reset (the caller restarts next).
+    ESP_LOGE(TAG, "forgetting all hosts: %s; erasing the bond store", esp_err_to_name(result));
+    const esp_err_t err = eraseNamespace("nimble_bond");
+    const esp_err_t err2 = eraseNamespace("keyra_ble");
+    if (err == ESP_OK && err2 == ESP_OK) result = ESP_OK;
+  }
   return result;
 }
 
@@ -797,7 +848,11 @@ esp_err_t init(const std::string& deviceName, bool enabled, Connect mode) {
   ble_hs_cfg.sm_bonding = 1;
   ble_hs_cfg.sm_mitm = 0;
   ble_hs_cfg.sm_sc = 1;
-  ble_hs_cfg.sm_sc_only = 1;
+  // Not "SC only": NimBLE then demands an authenticated (MITM) link for every
+  // protected attribute, which Just Works never gives — every LED and protocol
+  // mode write was refused and iOS kept asking to pair again. Legacy pairing is
+  // compiled out (CONFIG_BT_NIMBLE_SM_LEGACY=n), so pairing is still SC only.
+  ble_hs_cfg.sm_sc_only = 0;
   ble_hs_cfg.sm_our_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
   ble_hs_cfg.sm_their_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
 
@@ -816,6 +871,7 @@ esp_err_t init(const std::string& deviceName, bool enabled, Connect mode) {
   ble_npl_event_init(&t_forgetEv, onForget, nullptr);
   ble_npl_callout_init(&t_windowEnd, nimble_port_get_dflt_eventq(), onWindowEnd, nullptr);
   ble_npl_callout_init(&t_lingerEnd, nimble_port_get_dflt_eventq(), onLingerEnd, nullptr);
+  ble_npl_callout_init(&t_advRetry, nimble_port_get_dflt_eventq(), onAdvRetry, nullptr);
   {
     std::lock_guard<std::mutex> lock(g_mu);
     g_started = true;
