@@ -17,7 +17,7 @@ jobs:
     name: Host tests (vault, HID keymap, API state machine)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # keyra_vault host tests link OpenSSL 3 for the reference crypto backend.
       - name: Install OpenSSL 3 headers
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libssl-dev
@@ -32,7 +32,7 @@ jobs:
     name: Web app (typecheck, unit tests, build)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -47,7 +47,7 @@ jobs:
     name: Browser extension (typecheck, unit tests, build, e2e)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -76,7 +76,7 @@ jobs:
     name: Android app (unit tests, builds, lint)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -103,7 +103,7 @@ jobs:
             command: idf.py -B build-release -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.release" build
             build_dir: build-release
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build with ESP-IDF v6.0.2
         uses: espressif/esp-idf-ci-action@v1
         with:
