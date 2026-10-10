@@ -13,6 +13,8 @@
 #include <string_view>
 #include <vector>
 
+#include "tokens.hpp"
+
 namespace keyra::api::tags {
 
 constexpr size_t kMaxTags = 16;
@@ -83,7 +85,7 @@ struct Sun {
   uint8_t picc[16];  // encrypted PICCData (the URL's p=)
   uint8_t mac[8];    // SDMMAC (the URL's m=)
 };
-enum class Verdict { Ok, BadMac, WrongUid, Replayed, Crypto };
+enum class Verdict { Ok, BadMac, WrongUid, Replayed, Crypto, RateLimited };
 // Decrypts PICCData with the meta-read key (tag byte 0xC7: UID and counter
 // mirrored, 7-byte UID), derives the session MAC key from SV2 with the
 // file-read key, checks SDMMAC over empty input (SDMMACInputOffset =
@@ -93,6 +95,17 @@ Verdict verifySun(const Tag& t, const Cipher& c, const Sun& sun, Uid& uid, uint3
 void accept(Tag& t, const Uid& uid, uint32_t counter);
 // Constant-time check of a simple tag's secret digest.
 bool secretMatches(const Tag& t, const Digest& hash);
+
+// A tap of a known tag, as POST /api/tag/tap checks it: `sun` for a secure
+// tag, else `digest` (of the URL's secret). The tag's budget is spent first,
+// so right, wrong and replayed taps all count, and past the budget a tap
+// costs no crypto and no activity-log write (RateLimited, `retryAfterMs`).
+struct Tap {
+  Digest digest{};
+  Sun sun{};
+};
+Verdict checkTap(const Tag& t, const Cipher& c, const Tap& tap, tokens::RateLimit& rate, int64_t nowMs,
+                 int64_t& retryAfterMs, Uid& uid, uint32_t& counter);
 
 class Store {
  public:

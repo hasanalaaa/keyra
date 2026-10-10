@@ -418,7 +418,8 @@ design and threat model in [docs/research/NFC-TAGS.md](docs/research/NFC-TAGS.md
 - **Locked = inert.** Without the data key Keyra cannot check a tag; the tap
   page says "Unlock Keyra first". Creating a tag needs a press; revoking needs
   none and withdraws anything it armed. Taps are rate limited (10 per 10 s per
-  tag, plus one shared budget for unknown tags and wrong codes) and logged.
+  tag, counted before the check, so wrong and replayed taps count too, plus
+  one shared budget for unknown tags and wrong codes) and logged.
 
 ## Optional hardening (not enabled by default)
 

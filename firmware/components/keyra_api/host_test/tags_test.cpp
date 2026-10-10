@@ -294,10 +294,47 @@ void recordRoundTrip() {
   CHECK(!Store::parse(what.data(), what.size()).has_value());
 }
 
+// SPEC §18: a known tag's budget is spent before any check, so wrong and
+// replayed taps are limited like right ones (no crypto, no log line past it).
+void tapBudgetFirst() {
+  keyra::api::tokens::RateLimit rate;
+  const std::string secret(kSecretChars, 'b');
+  const Tag t = simpleTag(5, secret);
+  Tap right, wrong;
+  SHA256(reinterpret_cast<const unsigned char*>(secret.data()), secret.size(), right.digest.data());
+  wrong.digest = right.digest;
+  wrong.digest[0] ^= 1;
+  Uid uid{};
+  uint32_t ctr = 0;
+  int64_t retry = 0, now = 1000;
+  CHECK(checkTap(t, kAes, right, rate, now, retry, uid, ctr) == Verdict::Ok);
+  for (size_t i = 1; i < keyra::api::tokens::RateLimit::kMax; ++i)
+    CHECK(checkTap(t, kAes, wrong, rate, now, retry, uid, ctr) == Verdict::BadMac);
+  CHECK(checkTap(t, kAes, wrong, rate, now, retry, uid, ctr) == Verdict::RateLimited && retry > 0);
+  CHECK(checkTap(t, kAes, right, rate, now, retry, uid, ctr) == Verdict::RateLimited);
+  now += keyra::api::tokens::RateLimit::kWindowMs;
+  CHECK(checkTap(t, kAes, right, rate, now, retry, uid, ctr) == Verdict::Ok);
+
+  // A replayed SUN counts too.
+  Tag s = secureTag(8);
+  const Uid chip = {0x04, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66};
+  Tap first;
+  first.sun = simulate(s.metaKey, s.fileKey, chip, 1);
+  CHECK(checkTap(s, kAes, first, rate, now, retry, uid, ctr) == Verdict::Ok);
+  accept(s, uid, ctr);
+  for (size_t i = 1; i < keyra::api::tokens::RateLimit::kMax; ++i)
+    CHECK(checkTap(s, kAes, first, rate, now, retry, uid, ctr) == Verdict::Replayed);
+  CHECK(checkTap(s, kAes, first, rate, now, retry, uid, ctr) == Verdict::RateLimited);
+  Tap fresh;
+  fresh.sun = simulate(s.metaKey, s.fileKey, chip, 2);
+  CHECK(checkTap(s, kAes, fresh, rate, now, retry, uid, ctr) == Verdict::RateLimited);
+}
+
 }  // namespace
 
 int main() {
   rfc4493();
+  tapBudgetFirst();
   nxpExample();
   replayAndUid();
   secretsAndUrls();

@@ -226,6 +226,13 @@ bool secretMatches(const Tag& t, const Digest& hash) {
   return t.kind == Kind::Simple && constantEqual(t.hash.data(), hash.data(), hash.size());
 }
 
+Verdict checkTap(const Tag& t, const Cipher& c, const Tap& tap, tokens::RateLimit& rate, int64_t nowMs,
+                 int64_t& retryAfterMs, Uid& uid, uint32_t& counter) {
+  if (!rate.allow(t.id, nowMs, retryAfterMs)) return Verdict::RateLimited;
+  if (t.kind == Kind::Secure) return verifySun(t, c, tap.sun, uid, counter);
+  return secretMatches(t, tap.digest) ? Verdict::Ok : Verdict::BadMac;
+}
+
 Tag* Store::find(uint32_t id) {
   for (Tag& t : list_) {
     if (t.id == id) return &t;

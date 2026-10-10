@@ -302,12 +302,11 @@ esp_err_t tap(httpd_req_t* r, const cJSON* body) {
   json::Secret secret;
   std::string p, m;
   const bool simple = json::getString(body, "secret", secret.s) == Field::Ok;
-  tags::Sun sun{};
+  tags::Tap tap;
   const bool secure = !simple && json::getString(body, "p", p) == Field::Ok &&
-                      json::getString(body, "m", m) == Field::Ok && tags::parseHex(p, sun.picc, 16) &&
-                      tags::parseHex(m, sun.mac, 8);
-  tags::Digest digest{};
-  if (simple && (!tags::wellFormedSecret(secret.s) || !sha256(secret.s, digest))) return refuseTag(r);
+                      json::getString(body, "m", m) == Field::Ok && tags::parseHex(p, tap.sun.picc, 16) &&
+                      tags::parseHex(m, tap.sun.mac, 8);
+  if (simple && (!tags::wellFormedSecret(secret.s) || !sha256(secret.s, tap.digest))) return refuseTag(r);
   if (!simple && !secure) return refuseTag(r);
 
   Tag t;
@@ -319,14 +318,12 @@ esp_err_t tap(httpd_req_t* r, const cJSON* body) {
     if (!stored || stored->kind != (simple ? tags::Kind::Simple : tags::Kind::Secure)) {
       // fall through to the shared refusal below, outside the lock
     } else {
-      tags::Verdict v = tags::Verdict::Ok;
       tags::Uid uid{};
       uint32_t counter = 0;
-      if (simple) {
-        v = tags::secretMatches(*stored, digest) ? tags::Verdict::Ok : tags::Verdict::BadMac;
-      } else {
-        v = tags::verifySun(*stored, kAes, sun, uid, counter);
-      }
+      int64_t retry = 0;
+      // The budget comes before the check and the log line (tags::checkTap).
+      const tags::Verdict v = tags::checkTap(*stored, kAes, tap, g_rate, monoMs(), retry, uid, counter);
+      if (v == tags::Verdict::RateLimited) return sendRateLimited(r, retry);
       if (v == tags::Verdict::Crypto) return http::sendError(r, http::k500, "crypto", "Could not check the tag");
       if (v != tags::Verdict::Ok) {
         const uint8_t why = v == tags::Verdict::Replayed ? 1 : v == tags::Verdict::WrongUid ? 2 : 0;
@@ -336,8 +333,6 @@ esp_err_t tap(httpd_req_t* r, const cJSON* body) {
         }
         stored = nullptr;  // a wrong secret or MAC answers like an unknown tag
       } else {
-        int64_t retry = 0;
-        if (!g_rate.allow(stored->id, monoMs(), retry)) return sendRateLimited(r, retry);
         // The counter is used up even when arming fails below: an old URL never works twice.
         const int64_t now = unixSecondsOrZero();
         bool dirty = !simple;

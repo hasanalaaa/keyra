@@ -1059,7 +1059,9 @@ Keyra's network that arms **one account** for typing — exactly like
     chip), 409 `replayed` (a counter not above the last one), 429
     `rate_limited` `{retryAfterMs}` + `Retry-After` beyond **10 taps in any
     10 s** per tag (unknown tags and wrong secrets/MACs share one more such
-    budget), 409 `busy`, 404 `not_found` (the account is gone), 400 `invalid`
+    budget). A known tag's budget is spent before its secret or MAC is
+    checked and before anything is logged, so right, wrong and replayed taps
+    all count and a flood past it costs no crypto and no log write. 409 `busy`, 404 `not_found` (the account is gone), 400 `invalid`
     (it lost the field), 409 `no_time` (a code without a clock), 409
     `ble_disabled`.
   - `POST /api/tag/status {id, ticket}` → `{state, code?, expiresIn?}` for that

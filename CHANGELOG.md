@@ -227,6 +227,11 @@ All notable changes to Keyra are documented here. The format follows
   cancel or lock whatever was armed next — also a security-key touch. Each
   press now carries its time and is ignored when it is older than what waits
   for it or than the end of the last confirmed action.
+- **NFC tag taps are limited before they are checked** (SPEC §18). A wrong
+  secret or MAC for a known tag was verified and written to the activity log
+  before any limit, and a replayed tap was never limited, so anyone on the
+  network could make Keyra check and write to flash without end. The
+  per-tag budget is now spent first, for every tap.
 
 ## [0.2.0] - 2026-10-08
 
