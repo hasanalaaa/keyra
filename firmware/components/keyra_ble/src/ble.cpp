@@ -105,6 +105,18 @@ std::string t_advName;
 std::vector<peers::Key> t_advKeys;
 std::string t_gapName;
 uint16_t t_repairing = BLE_HS_CONN_HANDLE_NONE;  // link whose old bond was dropped to re-pair
+
+// A bond's stored records, kept while its host renews its keys (NimBLE needs
+// the old bond gone before it re-pairs). If that pairing never completes —
+// Bluetooth switched off, out of range, the host gave up — the records go
+// back, so the host stays paired and can reconnect through the accept list.
+struct BondBackup {
+  uint16_t conn = BLE_HS_CONN_HANDLE_NONE;
+  ble_addr_t id{};
+  std::vector<ble_store_value_sec> our, peer;
+  std::vector<ble_store_value_cccd> cccd;
+};
+BondBackup t_bondBackup;
 uint16_t t_handedOff = BLE_HS_CONN_HANDLE_NONE;  // linked host being let go after a guest took over
 ble_npl_event t_kickEv;
 ble_npl_event t_forgetEv;
@@ -169,6 +181,42 @@ void refreshBonds() {
   std::lock_guard<std::mutex> lock(g_mu);
   g_bondKeys = std::move(keys);
   g_bonds = std::move(list);
+}
+
+void backUpBond(uint16_t conn, const ble_addr_t& id) {
+  BondBackup b;
+  b.conn = conn;
+  b.id = id;
+  ble_store_key_sec ks{};
+  ks.peer_addr = id;
+  ble_store_value_sec v{};
+  for (ks.idx = 0; ble_store_read_our_sec(&ks, &v) == 0; ++ks.idx) b.our.push_back(v);
+  for (ks.idx = 0; ble_store_read_peer_sec(&ks, &v) == 0; ++ks.idx) b.peer.push_back(v);
+  ble_store_key_cccd kc{};
+  kc.peer_addr = id;
+  ble_store_value_cccd c{};
+  for (kc.idx = 0; ble_store_read_cccd(&kc, &c) == 0; ++kc.idx) b.cccd.push_back(c);
+  t_bondBackup = std::move(b);
+}
+
+// Called when a re-pairing link ends or the host stack resets; a no-op once the
+// new pairing has stored its own bond.
+void restoreBondIfLost() {
+  BondBackup b = std::move(t_bondBackup);
+  t_bondBackup = BondBackup{};
+  if (b.conn == BLE_HS_CONN_HANDLE_NONE || b.peer.empty()) return;
+  ble_store_key_sec ks{};
+  ks.peer_addr = b.id;
+  ble_store_value_sec now{};
+  if (ble_store_read_peer_sec(&ks, &now) == 0) return;  // re-paired after all
+  int rc = 0;
+  for (const auto& v : b.our) rc |= ble_store_write_our_sec(&v);
+  // Also puts the host's IRK back in the controller's resolving list.
+  for (const auto& v : b.peer) rc |= ble_store_write_peer_sec(&v);
+  for (const auto& c : b.cccd) rc |= ble_store_write_cccd(&c);
+  if (rc != 0) ESP_LOGE(TAG, "restoring the bond of %s failed: %d", formatAddr(keyOf(b.id).addr).c_str(), rc);
+  else ESP_LOGW(TAG, "key renewal of %s did not finish: old bond restored", formatAddr(keyOf(b.id).addr).c_str());
+  refreshBonds();
 }
 
 int onGap(ble_gap_event* ev, void* arg);
@@ -445,6 +493,7 @@ void onDisconnect(uint16_t conn, int reason) {
     resetGatt = !g_link.encrypted;
   }
   if (t_repairing == conn) t_repairing = BLE_HS_CONN_HANDLE_NONE;
+  if (t_bondBackup.conn == conn) restoreBondIfLost();
   if (t_handedOff == conn) {
     t_handedOff = BLE_HS_CONN_HANDLE_NONE;
     gatt::ignoreWrites(BLE_HS_CONN_HANDLE_NONE);
@@ -490,6 +539,7 @@ void onEncrypted(uint16_t conn, int status) {
   const peers::Key k = keyOf(d.peer_id_addr);  // identity, now that keys were exchanged
   const bool repaired = t_repairing == conn;
   t_repairing = BLE_HS_CONN_HANDLE_NONE;
+  if (repaired && d.sec_state.bonded) t_bondBackup = BondBackup{};  // the new bond is stored
   bool known, window;
   {
     std::lock_guard<std::mutex> lock(g_mu);
@@ -575,8 +625,9 @@ int onRepeatPairing(uint16_t conn) {
     ESP_LOGW(TAG, "re-pairing refused outside the pairing window");
     return BLE_GAP_REPEAT_PAIRING_IGNORE;
   }
+  backUpBond(conn, d.peer_id_addr);
   ble_store_util_delete_peer(&d.peer_id_addr);
-  refreshBonds();  // the old keys are gone even if this pairing fails
+  refreshBonds();
   t_repairing = conn;
   return BLE_GAP_REPEAT_PAIRING_RETRY;
 }
@@ -658,6 +709,9 @@ void onSync() {
 
 void onReset(int reason) {
   ESP_LOGE(TAG, "NimBLE host reset (reason %d)", reason);
+  // Store writes need no link; the resolving list is rebuilt from the store on sync.
+  t_repairing = BLE_HS_CONN_HANDLE_NONE;
+  restoreBondIfLost();
   std::lock_guard<std::mutex> lock(g_mu);
   g_synced = false;
   g_link = Link{};
