@@ -93,17 +93,22 @@ computer on Keyra's own Wi‑Fi.
 
 - Stored by the extension (`storage.local`): Keyra's address, the access token
   and its own settings (show the key, offer to save, the never-save list,
-  generator length and character sets). Nothing is synced.
+  generator length and character sets). Nothing is synced. The token is sealed
+  (AES-GCM, with a key that cannot be exported, kept in the extension's own
+  IndexedDB); content scripts never read storage, and in Chrome `storage.local`
+  is closed to them.
 - A password you type into a website's form is held only in the service
   worker's memory between sending the form and your answer to the save card (at
   most two minutes), and sent once to Keyra when you choose **Save**. The card
   itself (site, title, username, no password) waits in `storage.session` for that
   tab, which the browser clears when it closes.
-- Matching sends Keyra only the page's host name (`github.com`), never the path
-  or query. Saving sends the page's origin (`https://github.com`).
+- Matching sends Keyra the page's host name (`github.com`), never the path or
+  query, and, after you send a login form, its username (to tell a new login
+  from one Keyra has). Saving sends the page's origin (`https://github.com`).
 - No analytics, no remote code, no other servers: the extension talks only to
   the Keyra address you entered.
-- The extension stays out of Keyra's own web app.
+- The extension stays out of Keyra's own web app, at any address (it carries
+  `<meta name="keyra-app">`; `keyra.local`, `keyra` and `192.168.4.1` too).
 
 ## Permissions, and why
 
@@ -127,7 +132,12 @@ computer on Keyra's own Wi‑Fi.
   and still not without your press. Scope the token to the logins it needs and
   revoke it if in doubt.
 - The in-page UI lives in a closed shadow root, so pages cannot read or click
-  it. Only the e2e build opens it for the test runner.
+  it. Only the e2e build opens it for the test runner. Against clickjacking its
+  buttons act only on a trusted click that lands on the layer while it is open
+  and fully visible, not within 500 ms of it appearing; a page that rewrites
+  the layer's style closes it. A page could still cover it with its own
+  element that lets clicks through (`pointer-events: none`): check the card
+  before you press Keyra's button, which shows the login on its phone screen.
 
 ## Development
 

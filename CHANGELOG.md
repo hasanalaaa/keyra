@@ -144,6 +144,11 @@ All notable changes to Keyra are documented here. The format follows
 
 ### Fixed
 
+- **Keyra Companion security review:** stays out of Keyra's own web app at any address (it
+  offered to save the passphrase); clickjacking guards on its in-page buttons; the token is
+  sealed and out of content scripts' reach; save is offered only after a real submit; a failed
+  cancel or an unconfirmed pairing says so (the web app revokes the unconfirmed token); `$` in
+  "Symbols !@#$"; accurate privacy note. Web: activity titles split at the last arrow.
 - **iPhone / phones over USB:** Keyra caps its Wi‑Fi transmit power at 13 dBm.
   At 20 dBm its current peaks were more than a phone's USB port supplies; the
   supply dipped, the brownout detector restarted Keyra, and the phone saw the
