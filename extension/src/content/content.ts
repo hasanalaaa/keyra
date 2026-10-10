@@ -3,7 +3,7 @@
 // "Save to Keyra?" card after a form is sent. Everything lives in one closed shadow root.
 import type { Failure, Hello, Login, PageConfig, SaveCard, Status, TabMsg, What } from '../messages';
 import { ext } from '../ext';
-import { findForms, roleOf, snapshot, whatFor, type FieldRole, type LoginForm } from '../forms';
+import { findForms, roleOf, snapshot, submitterOf, whatFor, type FieldRole, type LoginForm } from '../forms';
 import { hostMatches, isKeyraHost, normalizeHost } from '../host';
 import { t, uiDir, uiLang, type Key } from '../i18n';
 import { h, icon, logo, monogram, svgEl, type IconName } from '../ui/dom';
@@ -796,7 +796,7 @@ function watch(): void {
   document.addEventListener(
     'click',
     (e) => {
-      const el = (e.target as Element | null)?.closest?.('button, input[type=submit], input[type=button], input[type=image], [role=button], a');
+      const el = submitterOf(e.target instanceof Element ? e.target : null);
       if (!el) return;
       const f = forms.find((x) => x.root.contains(el));
       if (f) void trigger(f.root);

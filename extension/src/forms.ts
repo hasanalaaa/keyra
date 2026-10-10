@@ -241,3 +241,20 @@ export function snapshot(form: LoginForm): { username: string; password: string;
   if (!password) return null;
   return { username: (form.username ?? form.hiddenUsername)?.value.trim() ?? '', password, isNew: !!fresh };
 }
+
+/**
+ * The control a click sends the form with, or null. Inside a <form> only real submit controls
+ * count (so "show password" or "Generate" buttons do not offer to save a half-typed password);
+ * outside one, a button, role=button or link counts only when its text says sign in or sign up.
+ */
+export function submitterOf(target: Element | null): Element | null {
+  const el = target?.closest('button, input[type=submit], input[type=image], input[type=button], [role=button], a');
+  if (!el) return null;
+  const inForm = !!el.closest('form');
+  if (el instanceof HTMLButtonElement || el instanceof HTMLInputElement) {
+    if (inForm) return el.type === 'submit' || el.type === 'image' ? el : null;
+    if (el.type === 'reset') return null;
+  } else if (inForm) return null;
+  const text = `${el.textContent ?? ''} ${el instanceof HTMLInputElement ? el.value : ''} ${el.getAttribute('aria-label') ?? ''}`;
+  return LOGIN_HINT.test(text) || SIGNUP_HINT.test(text) ? el : null;
+}

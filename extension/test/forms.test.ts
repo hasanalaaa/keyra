@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from 'vitest';
-import { findForms, roleOf, snapshot, whatFor, type LoginForm } from '../src/forms';
+import { findForms, roleOf, snapshot, submitterOf, whatFor, type LoginForm } from '../src/forms';
 
 // happy-dom has no layout, so visibility comes from a data attribute in these fixtures.
 const visible = (el: HTMLElement) => !el.closest('[data-hidden]');
@@ -174,5 +174,35 @@ describe('save snapshot', () => {
     expect(snapshot(f)).toBeNull();
     $('#p').value = 'secret';
     expect(snapshot(f)).toEqual({ username: 'me', password: 'secret', isNew: false });
+  });
+});
+
+describe('what counts as sending the form', () => {
+  const at = (html: string, sel: string) => {
+    document.body.innerHTML = html;
+    return submitterOf(document.querySelector(sel));
+  };
+  it('a submit button, a button without a type, input submit and image inside a form', () => {
+    for (const b of ['<button id="x">Go</button>', '<button id="x" type="submit">Go</button>', '<input id="x" type="submit" value="Go">', '<input id="x" type="image" alt="Go">']) {
+      expect(at(`<form><input type="password">${b}</form>`, '#x')).not.toBeNull();
+    }
+  });
+  it('a click on the icon inside the submit button still counts', () => {
+    expect(at('<form><input type="password"><button><span id="x">→</span></button></form>', '#x')).not.toBeNull();
+  });
+  it('a "show password" toggle or other non-submit control inside a form does not', () => {
+    expect(at('<form><input type="password"><button id="x" type="button" aria-label="Show password">👁</button></form>', '#x')).toBeNull();
+    expect(at('<form><input type="password"><input id="x" type="button" value="Sign in"></form>', '#x')).toBeNull();
+    expect(at('<form><input type="password"><a id="x" href="#">Sign in with a code</a></form>', '#x')).toBeNull();
+    expect(at('<form><input type="password"><span id="x" role="button">Show</span></form>', '#x')).toBeNull();
+    expect(at('<form><input type="password"><button id="x" type="reset">Clear</button></form>', '#x')).toBeNull();
+  });
+  it('outside a form only a control whose text signs in or up', () => {
+    expect(at('<div><input type="password"><div id="x" role="button">Sign in</div></div>', '#x')).not.toBeNull();
+    expect(at('<div><input type="password"><a id="x" href="#">Create account</a></div>', '#x')).not.toBeNull();
+    expect(at('<div><input type="password"><button id="x" type="button">Log in</button></div>', '#x')).not.toBeNull();
+    expect(at('<div><input type="password"><div id="x" role="button">Show password</div></div>', '#x')).toBeNull();
+    expect(at('<div><input type="password"><a id="x" href="#">Forgot password?</a></div>', '#x')).toBeNull();
+    expect(at('<div><span id="x">text</span></div>', '#x')).toBeNull();
   });
 });
