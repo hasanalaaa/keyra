@@ -141,7 +141,7 @@ export const en = {
   setRemove: 'Remove {host}',
   setDisconnect: 'Disconnect this browser',
   setDisconnectNote: 'Also revoke its token in Keyra → Settings → Apps and agents.',
-  setPrivacy: 'Keyra Companion sends Keyra only the host of the page you are on. Passwords stay on Keyra.',
+  setPrivacy: 'Keyra Companion sends Keyra the host of the page you are on and, after you send a login form, its username to find the login. A password you typed goes to Keyra only when you choose Save. Saved passwords never leave Keyra.',
   version: 'Version {v}',
 };
 
@@ -284,6 +284,6 @@ export const ar: Record<Key, string> = {
   setRemove: 'أزل {host}',
   setDisconnect: 'افصل هذا المتصفح',
   setDisconnectNote: 'وألغِ رمزه أيضاً في Keyra ← الإعدادات ← التطبيقات والوكلاء.',
-  setPrivacy: 'يرسل Keyra Companion إلى Keyra اسم مضيف الصفحة فقط. كلمات المرور تبقى في Keyra.',
+  setPrivacy: 'يرسل Keyra Companion إلى Keyra اسم مضيف الصفحة، وبعد إرسالك نموذج دخول يرسل اسم المستخدم فيه للبحث عن حسابه. كلمة المرور التي كتبتها لا تصل إلى Keyra إلا إذا اخترت «حفظ». كلمات المرور المحفوظة لا تغادر Keyra أبداً.',
   version: 'الإصدار {v}',
 };

@@ -69,7 +69,8 @@ for (const target of targets) {
   cpSync(here('../web/src/fonts/keyra-sans.woff2'), `${out}fonts/keyra-sans.woff2`);
   for (const [lang, strings] of [['en', en], ['ar', ar]]) {
     mkdirSync(`${out}_locales/${lang}`, { recursive: true });
-    const messages = Object.fromEntries(Object.entries(strings).map(([k, v]) => [k, { message: v }]));
+    // `$` starts a placeholder in i18n messages (Chrome dropped the one in "Symbols !@#$"); `$$` is a literal `$`.
+    const messages = Object.fromEntries(Object.entries(strings).map(([k, v]) => [k, { message: v.replaceAll('$', '$$$$') }]));
     writeFileSync(`${out}_locales/${lang}/messages.json`, JSON.stringify(messages, null, 1));
   }
   writeFileSync(`${out}manifest.json`, JSON.stringify(manifest(target), null, 2));
