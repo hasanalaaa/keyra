@@ -46,6 +46,12 @@ bool needsSession(Route r);
 bool needsCsrf(Method m, Route r);
 // /api/agent/…: authorised by `Authorization: Bearer <token>`, never by a session.
 bool isAgent(Route r);
+// Whether a request's X-Keyra-Time may set the clock (SPEC §5): only from a
+// browser holding a live session (`session`: cookie valid, vault unlocked), or
+// setup (nothing to protect yet). Unlock adopts it only once the passphrase
+// was right (in its handler). Never a token, a tag or a stranger: the clock
+// decides the 2FA codes Keyra shows and types and every activity time.
+bool adoptsClientClock(Route r, bool session);
 // /api/tag/…: the tap page's calls, authorised by the tag's secret or SUN message.
 bool isTagTap(Route r);
 // GET /t/<id>/<secret> and /t/<id>?p=…&m=…: the tap page (SPEC §18), which changes nothing.

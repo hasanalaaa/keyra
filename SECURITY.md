@@ -111,7 +111,10 @@ off needs a button press, because it changes who can reach the device.
   never returns it and it is never logged.
 - **Clock.** While home Wi-Fi is connected, the clock comes from NTP
   (`pool.ntp.org`, `time.google.com`); once NTP has set it, browsers' clocks are
-  ignored (for 3 hours after each sync). NTP is
+  ignored (for 3 hours after each sync). Otherwise a browser's clock is taken
+  only from a request with a live session, from setup, or from an unlock with
+  the right passphrase, never from a stranger on the network, a token or a
+  tag. NTP is
   unauthenticated, so a network attacker could shift the clock and with it the
   2FA codes Keyra shows or types.
 - **Denial of service from the home network.** Any device there can request a

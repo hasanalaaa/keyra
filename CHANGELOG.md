@@ -232,6 +232,11 @@ All notable changes to Keyra are documented here. The format follows
   before any limit, and a replayed tap was never limited, so anyone on the
   network could make Keyra check and write to flash without end. The
   per-tag budget is now spent first, for every tap.
+- **Only a signed-in browser sets the clock** (SPEC §5). Any request,
+  including a page load from any device on the network, could set Keyra's
+  clock through `X-Keyra-Time` while NTP had not set it, shifting 2FA codes
+  and activity times. The header is now taken only with a live session, at
+  setup, or from an unlock whose passphrase was right.
 
 ## [0.2.0] - 2026-10-08
 

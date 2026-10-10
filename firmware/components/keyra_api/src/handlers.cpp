@@ -36,6 +36,10 @@
 #include "trusted.hpp"
 #include "type_request.hpp"
 #include "validate.hpp"
+#include "clock.hpp"
+#include "keyra/net.hpp"
+
+#include <sys/time.h>
 
 namespace keyra::api {
 namespace {
@@ -59,6 +63,19 @@ struct Ctx {
 };
 
 // ---------- small helpers ----------
+
+// X-Keyra-Time (SPEC §5): the device has no RTC. Callers decide whether this
+// request may set it (adoptsClientClock, or a right passphrase).
+void adoptClientClock(httpd_req_t* r) {
+  const auto client = clock::parse(http::header(r, "X-Keyra-Time", 20));
+  if (!client || !clock::shouldAdopt(unixMs(), *client, net::timeSynced())) return;
+  const timeval tv{static_cast<time_t>(*client / 1000), static_cast<suseconds_t>((*client % 1000) * 1000)};
+  if (settimeofday(&tv, nullptr) == 0) {
+    ESP_LOGI(TAG, "clock set from client");
+  } else {
+    ESP_LOGW(TAG, "settimeofday failed");
+  }
+}
 
 esp_err_t badRequest(httpd_req_t* r, const char* message) {
   return http::sendError(r, http::k400, "invalid", message);
@@ -496,6 +513,7 @@ esp_err_t postUnlock(Ctx& c) {
     return trust::requestApproval(c.r);
   }
 
+  adoptClientClock(c.r);  // the right passphrase: before the unlock is logged
   return sendSession(c.r, trustId, ktToken, logUnlock(0));
 }
 
@@ -524,6 +542,7 @@ esp_err_t postUnlockRecovery(Ctx& c) {
   if (st == Status::RateLimited) return sendRetry(c.r, http::k429, "rate_limited", "Too many attempts", retryMs);
   if (st != Status::Ok) return sendVaultError(c.r, st);
   ESP_LOGI(TAG, "unlocked with the recovery key; passphrase replaced");
+  adoptClientClock(c.r);
   return sendSession(c.r, trustId, ktToken, logUnlock(1));
 }
 
@@ -1419,6 +1438,7 @@ esp_err_t handleApi(httpd_req_t* r, Method method, std::string_view path) {
     // open account from ever auto-locking.
     if (c.match.route != Route::EntryTotp && c.match.route != Route::GetBle) sessions().activity(monoMs());
   }
+  if (adoptsClientClock(c.match.route, c.session)) adoptClientClock(r);
 
   if (takesBody(c.match.route)) {
     json::Secret raw;

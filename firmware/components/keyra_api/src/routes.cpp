@@ -203,6 +203,10 @@ bool isAgent(Route r) {
 
 bool isTagTap(Route r) { return r == Route::TagTap || r == Route::TagStatus; }
 
+bool adoptsClientClock(Route r, bool session) {
+  return !isAgent(r) && !isTagTap(r) && (session || r == Route::Setup);
+}
+
 bool isTapPage(std::string_view path) { return path.size() > 3 && path.substr(0, 3) == "/t/"; }
 
 bool needsSession(Route r) {

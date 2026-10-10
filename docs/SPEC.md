@@ -177,7 +177,11 @@ Conventions
   Missing/invalid → 403 `csrf`.
 - Locked vault or missing session on a protected route → 401 `locked`.
 - Clock: clients send `X-Keyra-Time: <unix ms>` on every request; the device
-  adopts it if it has no time or drifts > 5 s (device has no RTC).
+  adopts it if it has no time or drifts > 5 s (device has no RTC), but only
+  from a request with a live session, from `POST /api/setup`, and from
+  `POST /api/unlock` / `/api/unlock/recovery` once the passphrase or key was
+  right (before the unlock is logged). Requests without a session, access
+  tokens and tag taps never set it (`routes.cpp` `adoptsClientClock`).
 - Max 4 concurrent sessions; `lock` (or auto-lock) ends all.
 - Request bodies > 64 KiB → 413 `too_large` (import uses batches). Exception:
   `/api/restore` accepts up to 2 MiB when PSRAM is present (128 KiB without).
