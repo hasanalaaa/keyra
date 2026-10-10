@@ -200,10 +200,22 @@ void roundTripAllowList() {
   bad[20] ^= 1;
   CHECK(r.call(ctap::kGetAssertion, getReq("example.com", cdh(1), {bad}), v) == ctap::kNoCredentials);
 
-  // Silent assertion (up=false): no press asked, UP flag clear.
+  // Silent probe (up=false, Chromium's pre-flight): no press asked, and it
+  // still finds the credential, but the credential key signs nothing without a
+  // press (SECURITY.md). Earlier firmware returned a real signature with UV set
+  // and UP clear, usable at any relying party that skips the UP check.
   const int before = r.user.presenceCalls;
+  const uint32_t counterBefore = r.counter.value;
   CHECK(r.call(ctap::kGetAssertion, getReq("example.com", cdh(3), {ad.credId}, 0), v) == ctap::kOk);
-  CHECK(r.user.presenceCalls == before && v.find(2)->str[32] == 0x04);
+  CHECK(r.user.presenceCalls == before);
+  CHECK(v.find(1) && v.find(1)->find("id") && v.find(1)->find("id")->str == ad.credId);
+  AuthData probe;
+  CHECK(v.find(2) && parseAuthData(v.find(2)->str, probe) && probe.flags == 0x00 && probe.counter == 0);
+  CHECK(v.find(3) && !v.find(3)->str.empty());
+  CHECK(!verifyEs256(ad.pub, cat(v.find(2)->str, cdh(3)), v.find(3)->str));
+  CHECK(r.counter.value == counterBefore);
+  // An unknown credential is still "no credentials", so the probe stays useful.
+  CHECK(r.call(ctap::kGetAssertion, getReq("example.com", cdh(3), {Bytes(62, 0)}, 0), v) == ctap::kNoCredentials);
 }
 
 void excludeList() {
@@ -531,12 +543,21 @@ void u2fFlows() {
   CHECK(ctr == r.counter.value);
   const Bytes signedAuth = cat(cat(app, Bytes(auth.begin(), auth.begin() + 5)), chal);
   CHECK(verifyEs256(pub.data(), signedAuth, Bytes(auth.begin() + 5, auth.end())));
+  // "Don't enforce presence" (0x08) is treated as enforce: no signature without a
+  // press (earlier firmware signed with UP = 0 and never asked).
   a = apdu(0x02, 0x08, body);
   auth = r.auth.msg(a.data(), a.size(), r.user);
-  CHECK(sw(auth) == 0x9000 && auth[0] == 0x00);
+  CHECK(sw(auth) == 0x9000 && auth[0] == 0x01);
+  auth.resize(auth.size() - 2);
+  CHECK(verifyEs256(pub.data(), cat(cat(app, Bytes(auth.begin(), auth.begin() + 5)), chal),
+                    Bytes(auth.begin() + 5, auth.end())));
   r.user.latched = false;
+  const uint32_t ctrBefore = r.counter.value;
   a = apdu(0x02, 0x03, body);
   CHECK(r.auth.msg(a.data(), a.size(), r.user) == Bytes({0x69, 0x85}));
+  a = apdu(0x02, 0x08, body);
+  CHECK(r.auth.msg(a.data(), a.size(), r.user) == Bytes({0x69, 0x85}));
+  CHECK(r.counter.value == ctrBefore);
   r.user.latched = true;
 
   // Wrong application / handle → wrong data. Short-form Lc works too.

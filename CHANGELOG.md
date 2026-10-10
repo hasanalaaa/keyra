@@ -196,6 +196,19 @@ All notable changes to Keyra are documented here. The format follows
   reused by a different account is kept as a separate entry. A wrong backup
   passphrase or bad file is reported before the button press is requested.
 
+### Security
+
+- **Security key: no signature without a press** ([docs/FIDO.md](docs/FIDO.md#user-presence-and-user-verification)).
+  A CTAP2 GetAssertion with `up: false` used to be signed by the credential
+  (UP clear, UV set) and could return `hmac-secret` outputs, and U2F
+  AUTHENTICATE with "don't enforce presence" (`0x08`) signed without asking:
+  software on the computer could get signatures from an unlocked Keyra
+  without the owner. Now `up: false` with `hmac-secret` is refused
+  (`CTAP2_ERR_UNSUPPORTED_OPTION`); `up: false` alone (the browsers' silent
+  "pre-flight") still finds the credential but the answer is signed by a
+  throwaway key, with no flags and counter 0, so no site can accept it; U2F
+  `0x08` needs a press like `0x03`.
+
 ## [0.2.0] - 2026-10-08
 
 Highlights:

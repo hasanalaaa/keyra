@@ -176,7 +176,14 @@ def main(path):
         rp_hash = sha256(b"example.com").digest()
         a = ctap2.get_assertion("example.com", b"\x01" * 32, [{"type": "public-key", "id": cred.credential_id}],
                                 options={"up": False})
-        check("silent assertion: UP clear, UV set", a.auth_data.flags & 0x01 == 0 and a.auth_data.flags & 0x04)
+        # A silent probe finds the credential but is never signed by it (no press).
+        check("silent probe: credential found, no flags, counter 0",
+              a.credential["id"] == cred.credential_id and a.auth_data.flags == 0 and a.auth_data.counter == 0)
+        try:
+            a.verify(b"\x01" * 32, cred.public_key)
+            check("silent probe not signed by the credential", False)
+        except Exception:
+            check("silent probe not signed by the credential", True)
         check("rpIdHash", a.auth_data.rp_id_hash == rp_hash)
         try:
             ctap2.get_assertion("evil.example", b"\x01" * 32, [{"type": "public-key", "id": cred.credential_id}])

@@ -27,9 +27,9 @@ answered "conditions not satisfied" so the browser keeps retrying.
 | Area | Support |
 |---|---|
 | Transport | USB HID (CTAPHID): INIT, PING, MSG, CBOR, CANCEL, WINK (blinks the LED), KEEPALIVE (`PROCESSING` / `UP_NEEDED` every 100 ms), ERROR. Channel allocation, message reassembly up to 7609 bytes, 750 ms continuation timeout, `CHANNEL_BUSY` for other channels while one request runs. No LOCK. |
-| CTAP2 | `authenticatorGetInfo`, `MakeCredential`, `GetAssertion`, `GetNextAssertion`, `ClientPIN` (0x06), `Reset`, `Selection` (0x0B). ES256 (P-256) only. Options `rk`, `up`, `uv` (only while no PIN is set), `clientPin`. `excludeList`, `allowList`. Zero-length `pinAuth` (the "touch to pick this key" probe) is answered after a touch: `PIN_NOT_SET`, or `PIN_INVALID` when a PIN is set. |
+| CTAP2 | `authenticatorGetInfo`, `MakeCredential`, `GetAssertion`, `GetNextAssertion`, `ClientPIN` (0x06), `Reset`, `Selection` (0x0B). ES256 (P-256) only. Options `rk`, `up` (`false` = probe only, see below), `uv` (only while no PIN is set), `clientPin`. `excludeList`, `allowList`. Zero-length `pinAuth` (the "touch to pick this key" probe) is answered after a touch: `PIN_NOT_SET`, or `PIN_INVALID` when a PIN is set. |
 | ClientPIN | Subcommands `getPINRetries`, `getKeyAgreement`, `setPIN`, `changePIN`, `getPINToken` with PIN/UV auth protocols **2 and 1** (`pinUvAuthProtocols: [2, 1]`). `pinAuth`/`pinUvAuthParam` on MakeCredential and GetAssertion. The 2.1 subcommands (`getPinUvAuthTokenUsing…WithPermissions`) answer `INVALID_SUBCOMMAND`. See [ClientPIN](#clientpin). |
-| CTAP1 / U2F | `REGISTER`, `AUTHENTICATE` (check-only, enforce, don't-enforce), `VERSION`. U2F credentials also work through CTAP2 (the WebAuthn `appid` extension). |
+| CTAP1 / U2F | `REGISTER`, `AUTHENTICATE` (check-only, enforce; don't-enforce is treated as enforce), `VERSION`. U2F credentials also work through CTAP2 (the WebAuthn `appid` extension). |
 | Versions advertised | `U2F_V2`, `FIDO_2_0`. `FIDO_2_1` is not claimed: 2.1 also requires PIN token permissions and RP binding (subcommand 9), credential management and more that Keyra does not have. The 2.1 getInfo fields `maxCredentialCountInList` (8) and `maxCredentialIdLength` (64) are sent; 2.0 platforms ignore them. |
 | Extensions | `hmac-secret` and `credProtect` (levels 1-3). `largeBlob`, `credBlob`, `minPinLength` are not offered. |
 | Attestation | **Self attestation** (`packed`, no certificate) for CTAP2. U2F registration needs a certificate, so each Keyra makes its own P-256 attestation key on first use (hardware RNG) and a self-signed X.509 certificate for it, both kept in NVS and replaced by a factory reset. It identifies only "this Keyra" and is not certified. |
@@ -44,6 +44,20 @@ answered "conditions not satisfied" so the browser keeps retrying.
   (a type action stays armed and runs on the next press). 30 s timeout →
   `CTAP2_ERR_USER_ACTION_TIMEOUT`. A browser cancel stops the wait at once
   (`CTAP2_ERR_KEEPALIVE_CANCEL`).
+- **`up: false` is a probe, never a signature.** Platforms send GetAssertion
+  with `up: false` to learn, without bothering the user, whether a credential
+  is on this key (Chromium does it for allow lists longer than
+  `maxCredentialCountInList`, for the `appid` fallback and for per-credential
+  PRF inputs, then asks again with `up: true`). Keyra answers such a probe
+  without a press — the credential ID, whether it exists — but the credential
+  key does not sign it: the signature comes from a throwaway key, the flags
+  byte is 0 (no UP, so no UV either) and the counter is 0 and does not move.
+  No relying party can accept it. CTAP 2.1 §6.2.2 expects a real UP = 0
+  signature; Keyra deliberately gives none, so tools that sign without
+  presence (`fido2-assert` without `-p`, pam-u2f with `userpresence=0`) fail.
+  `up: false` with `hmac-secret` is refused (`CTAP2_ERR_UNSUPPORTED_OPTION`):
+  those secrets unlock disks and password stores. U2F AUTHENTICATE
+  "don't enforce presence" (`0x08`) is handled as "enforce" (`0x03`).
 - **User verification (UV)** is "Keyra is unlocked": somebody entered the
   master passphrase on the phone within the auto-lock window (default 15 min).
   Keyra reports `uv: true` in `getInfo` and sets the UV flag on every signature,
@@ -197,7 +211,7 @@ unlocked. A flash dump without the passphrase reveals no credential key.
 | Threat | Result |
 |---|---|
 | Phishing site asks for a credential of another site | The browser sends the phishing site's RP ID; the credential ID does not decrypt under its hash. Same protection as any security key. |
-| Malware on the computer triggers requests | Nothing is signed without a button press; the LED shows the FIDO pattern so a press meant for typing can be told apart. Malware can still race a press the user makes for a FIDO prompt it caused. |
+| Malware on the computer triggers requests | Nothing is signed without a button press (an `up: false` probe gets a throwaway-key answer); the LED shows the FIDO pattern so a press meant for typing can be told apart. Malware can still race a press the user makes for a FIDO prompt it caused. |
 | Lost Keyra, locked | No signature possible; credential keys are encrypted under the DEK. |
 | Lost Keyra, unlocked | Whoever holds it can sign in where you have passkeys, until auto-lock. With a security key PIN set, sites that require user verification also need the PIN (8 tries, then blocked). |
 | Flash dump | Offline passphrase guessing (PBKDF2, ≈1.2 s per guess on the device); same as the password vault. |

@@ -299,7 +299,11 @@ exact key formats and the list of what is implemented are in
 - **Locked means no signatures.** While locked, requests wait up to 30 s for you
   to unlock from the phone, then fail.
 - **Presence.** A short press while the light double-blinks white approves one
-  request; a long press refuses it. While a request waits the button belongs to
+  request; a long press refuses it. Nothing is signed by a credential without
+  that press: a browser's silent `up: false` probe learns only whether the
+  credential is there (its answer is signed by a throwaway key), `hmac-secret`
+  is refused without presence, and U2F "don't enforce presence" still waits
+  for the press. While a request waits the button belongs to
   it, so malware that starts a request just before you press for typing could
   get that press: if the light shows the FIDO pattern when you did not ask for
   a passkey, long-press.
