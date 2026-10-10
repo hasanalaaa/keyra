@@ -501,7 +501,8 @@ only exactly. No public-suffix guessing, no sibling matching
 matches `host` by the rule above, at most 20; `sameUser` (only when
 `username` was sent) is true when the entry's username equals it exactly.
 Usernames and secrets are never returned, passwords are never compared (no
-password oracle). Not logged per call; counted like `agent_listed`.
+password oracle). Logged as the token's `agent_listed` (§17), counted on
+the same line as its listings rather than one line per call.
 
 **Host binding on type.** For `extension` tokens `POST /api/agent/type`
 requires `host` (the tab's host). When the entry does not match it by the host
@@ -881,6 +882,19 @@ removed, accounts deleted. Never a password, a code or typed text.
   starts it empty.
 - The last 200 events (oldest dropped; the record is capped at 16 KiB).
   Encoding: `keyra_api/src/activity.cpp` (host-tested).
+- **Floods cannot erase it.** *Noise* is what a session, a token or a tag's
+  URL can repeat without a press or the passphrase: `rotate_started`,
+  `rotate_ended`, `agent_listed`, `agent_armed`, `agent_generated`,
+  `tag_tapped`, `tag_refused`. At most 40 noise events are kept, and when
+  room is needed (the 41st noise event, the 201st event, or the 16 KiB cap)
+  the oldest noise goes first. `rotate_*`, `agent_listed`, `agent_generated`
+  and `tag_refused` are also counted: one with the same kind, id, title and
+  detail as one of the newest 16 events adds to that event's `n` (an event
+  without one counts as 1), which moves to the end with the new time. So
+  turning "change every password" on and off, listing or generating with a
+  token, or tapping with a wrong secret cannot push an unlock, a reveal, a
+  typing or a token's creation out of the log. The stored format is
+  unchanged; this is only which events are kept.
 - `GET /api/activity` (session) →
   `{events:[{kind, at, id?, n?, detail, title?}], max}`; `at` unix seconds
   (0 = clock unknown). Kinds: `unlock` (detail 0 passphrase, 1 recovery key),
@@ -961,7 +975,7 @@ NFC tags build on.
 | POST `/api/agent/cancel` | all | → 204, or 409 `not_cancelled` when nothing of this token waits. |
 | POST `/api/agent/save` | app, extension | `{title, url?, username?, password?, replace?}` (vault limits) → 202 `{awaiting:"button", op:"agent_save", mode:"create"\|"update", expiresIn}`. Without `replace` the press creates the entry (status `saved` with its `id`); a scoped token gets the new id added to its scope while there is room. With `replace: <entry id>` (`password` required, `title`/`url` ignored) the press sets that entry's password and, when a non-empty `username` was sent, its username; the old password goes to the entry's history (§9.3) and status is `saved` with that `id`. A `replace` id outside the scope or unknown → 404 `not_found`; an entry deleted before the press → status `failed`. 403 `forbidden` for an agent token. |
 | POST `/api/agent/generate` | app, extension | Same body and answer as `POST /api/generate` (§9.1). The password is not stored: the app needs it for a sign-up form, and keeping it needs `/api/agent/save` (a press). 403 `forbidden` for an agent token. |
-| POST `/api/agent/match` | extension | `{host, username?}` (`host` as for type) → `{entries:[{id, title, host, sameUser?}]}`: the entries in scope whose URL host matches `host` by the §9.4 host rule, in vault order, at most 20. `sameUser` only when `username` was sent: true when the entry's username equals it exactly (case-sensitive). Never usernames or secrets; passwords are never compared. Logged like a list (`agent_listed`). 403 `forbidden` for other kinds. |
+| POST `/api/agent/match` | extension | `{host, username?}` (`host` as for type) → `{entries:[{id, title, host, sameUser?}]}`: the entries in scope whose URL host matches `host` by the §9.4 host rule, in vault order, at most 20. `sameUser` only when `username` was sent: true when the entry's username equals it exactly (case-sensitive). Never usernames or secrets; passwords are never compared. Logged as the token's `agent_listed`, counted with its listings (§15), not one line per call. 403 `forbidden` for other kinds. |
 
 - **The phone sees who asked.** `state.pending` (and the 202 above) carries
   `by: <token name>` when a token armed the action, and `host: <page host>`
@@ -971,8 +985,8 @@ NFC tags build on.
   phone's cancel, a lock or revoking the token ends them.
 - **Activity log** (§15) kinds: `token_created` (title = name, detail 0
   agent / 1 app / 2 extension), `token_revoked` (title), `agent_listed` (id =
-  token id, title = name, `n` = lists and matches in a row, counted on one
-  line), `agent_armed` (id = entry, title = token name, detail 0 username /
+  token id, title = name, `n` = lists and matches, counted on one line as in
+  §15), `agent_armed` (id = entry, title = token name, detail 0 username /
   1 password / 2 both / 3 code; for an extension's `anyHost` typing detail
   + 4 and title = `<token name> → <page host>`, the name shortened first so
   the host fits the 64-byte title), `agent_saved` (id = the new or updated
@@ -1052,6 +1066,6 @@ Keyra's network that arms **one account** for typing — exactly like
 - **Activity log** (§15) kinds: `tag_created` (title = name, detail 0 simple /
   1 secure), `tag_revoked` (title), `tag_tapped` (id = entry, title = tag
   name, detail as `agent_armed`), `tag_refused` (id = tag id, title, detail 0
-  wrong secret or MAC / 1 replayed / 2 another chip; `n` = in a row, counted on
-  one line). The typing itself is the usual `typed`. Secrets, keys and URLs are
+  wrong secret or MAC / 1 replayed / 2 another chip; `n` = how many, counted on
+  one line per tag and reason as in §15). The typing itself is the usual `typed`. Secrets, keys and URLs are
   never logged.

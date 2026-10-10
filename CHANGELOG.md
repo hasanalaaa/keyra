@@ -214,6 +214,13 @@ All notable changes to Keyra are documented here. The format follows
   weak and reused lists now need the reveal press (`revealed: false` and
   empty lists outside the grace); `POST /api/health/reveal` asks for it.
   Counts, old passwords and "change every password" are unchanged.
+- **The activity log cannot be flushed** (SPEC §15). A stolen session turning
+  "change every password" on and off, a token alternating list and generate
+  or arming and cancelling, or wrong tag taps could push every earlier event
+  (unlocks, reveals, token creation) out of the 200. Those repeatable
+  events are now counted on one line within the newest 16 (not only the
+  newest one), keep at most 40 lines, and are the first dropped when room
+  is needed. `activity.bin` keeps its format.
 
 ## [0.2.0] - 2026-10-08
 

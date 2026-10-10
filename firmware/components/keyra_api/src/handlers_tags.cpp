@@ -330,7 +330,7 @@ esp_err_t tap(httpd_req_t* r, const cJSON* body) {
       if (v == tags::Verdict::Crypto) return http::sendError(r, http::k500, "crypto", "Could not check the tag");
       if (v != tags::Verdict::Ok) {
         const uint8_t why = v == tags::Verdict::Replayed ? 1 : v == tags::Verdict::WrongUid ? 2 : 0;
-        activity::log({activity::Kind::TagRefused, 0, stored->id, 1, why, stored->name}, true);
+        activity::log({activity::Kind::TagRefused, 0, stored->id, 1, why, stored->name});
         if (v == tags::Verdict::Replayed) {
           return http::sendError(r, http::k409, "replayed", "This tap was already used; tap the tag again");
         }

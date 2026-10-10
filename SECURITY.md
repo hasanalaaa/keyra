@@ -392,8 +392,12 @@ and cannot do:
   the token, and the press types into whatever is focused. Press only for a
   login you asked for.
 - **Abuse.** 10 requests per 10 s per token; unknown tokens share one more
-  budget. Repeated listings are counted on one activity line so they cannot
-  push the rest of the history out.
+  budget. What a token, a session or a tag's URL can repeat without a press
+  (listings, generated passwords, arming and cancelling, rotate on/off, tag
+  taps and refusals) is counted on one line where it repeats and keeps at
+  most 40 of the 200 activity lines, dropped first, so it cannot push an
+  unlock, a reveal, a typing or a token's creation out of the history
+  (SPEC §15).
 
 ## NFC tap tags
 
