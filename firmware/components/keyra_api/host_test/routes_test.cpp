@@ -61,6 +61,9 @@ void apiRoutes() {
   CHECK(matchApi(Method::Post, "/api/health").kind == K::MethodNotAllowed);
   CHECK(needsSession(Route::Health));
   CHECK(is(matchApi(Method::Post, "/api/health/rotate"), Route::HealthRotate));
+  CHECK(is(matchApi(Method::Post, "/api/health/reveal"), Route::HealthReveal));
+  CHECK(matchApi(Method::Get, "/api/health/reveal").kind == K::MethodNotAllowed);
+  CHECK(needsSession(Route::HealthReveal) && needsCsrf(Method::Post, Route::HealthReveal));
   CHECK(needsCsrf(Method::Post, Route::HealthRotate));
   CHECK(is(matchApi(Method::Get, "/api/activity"), Route::Activity));
   CHECK(matchApi(Method::Delete, "/api/activity").kind == K::MethodNotAllowed);  // the log cannot be wiped

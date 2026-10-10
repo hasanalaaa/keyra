@@ -40,7 +40,7 @@ void reuseAndAge() {
       {5, c, kNow - 366 * kDay},
       {2, a, kNow - kDay},
   };
-  const Report r = check(items, kNow);
+  const Report r = check(items, kNow, true);
   CHECK(r.checked == 5);
   CHECK(r.reused.size() == 1);
   CHECK((r.reused[0] == std::vector<uint32_t>{2, 7, 9}));
@@ -49,13 +49,27 @@ void reuseAndAge() {
   CHECK(r.old.size() == 2);
   CHECK(r.old[0].first == 3 && r.old[1].first == 5);
   // Exactly a year is not old yet; unknown dates never are.
-  CHECK(check({{1, b, kNow - kOldAfterSec}}, kNow).old.empty());
+  CHECK(check({{1, b, kNow - kOldAfterSec}}, kNow, true).old.empty());
   // No clock: nothing is old, the rest still works.
-  const Report noClock = check(items, 0);
+  const Report noClock = check(items, 0, true);
   CHECK(noClock.old.empty() && noClock.reused.size() == 1);
   // Passwords that differ only in case are different passwords.
-  CHECK(check({{1, "Abcdefgh1!xy", 0}, {2, "abcdefgh1!xy", 0}}, kNow).reused.empty());
-  CHECK(check({}, kNow).checked == 0);
+  CHECK(check({{1, "Abcdefgh1!xy", 0}, {2, "abcdefgh1!xy", 0}}, kNow, true).reused.empty());
+  CHECK(check({}, kNow, true).checked == 0);
+}
+
+// Without the reveal press (protectReveal), weak and reused stay empty: they
+// would let a session that can write one entry test a guess against every
+// stored password ("does it now reuse one?"). Counts and dates still come.
+void withoutReveal() {
+  const std::string a = "Hasan2019!", weak = "hasan2000";
+  const std::vector<Item> items = {{1, a, kNow - 400 * kDay}, {2, a, kNow}, {3, weak, kNow}, {4, "", 0}};
+  const Report full = check(items, kNow, true);
+  CHECK(full.reused.size() == 1 && full.weak.size() == 1);
+  const Report blind = check(items, kNow, false);
+  CHECK(blind.checked == 3);
+  CHECK(blind.reused.empty() && blind.weak.empty());
+  CHECK(blind.old.size() == 1 && blind.old[0].first == 1);
 }
 
 void rotation() {
@@ -77,5 +91,6 @@ int main() {
   rotation();
   levels();
   reuseAndAge();
+  withoutReveal();
   return KEYRA_TEST_RESULT();
 }

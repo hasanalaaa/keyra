@@ -211,7 +211,7 @@ Routes added after v1.0, described in their sections: `/api/ble`, `/api/ble/pair
 `/api/ble/bonds/{addr}` (§8.1); `/api/wifi/scan`, `/api/wifi/home`,
 `/api/trusted[/{id}]` (§8.2); `/api/generate` (§9.1); `/api/keyboard` (§10.1);
 `/api/fido[/{id}]` (§11); `/api/recovery`, `/api/unlock/recovery`,
-`/api/presence/cancel` (§12); `/api/health`, `/api/health/rotate` (§13);
+`/api/presence/cancel` (§12); `/api/health`, `/api/health/reveal`, `/api/health/rotate` (§13);
 `/api/update`, `/api/update/check|download|apply` (§14); `/api/activity` (§15);
 `/api/tokens[/{id}]`, `/api/agent/…` (§17); `/api/tags[/{id}]`, `/api/tag/tap|status`
 and the page `GET /t/…` (§18).
@@ -774,8 +774,16 @@ itself while unlocked; the phone receives entry ids and flags, never a
 password (`keyra_api/src/health.cpp`, host-tested).
 
 - `GET /api/health` (session) →
-  `{checked, clock, weak:[{id, level}], reused:[[id…]], old:[{id, since}]}`.
+  `{checked, clock, revealed, weak:[{id, level}], reused:[[id…]], old:[{id, since}]}`.
   `checked` = entries with a password (notes-only entries are skipped).
+- **Weak and reused follow the reveal press** (§12.3). They are answers about
+  the passwords themselves: a session that can write one entry could set a
+  guess and ask whether it now "reuses" another account's password. So with
+  `protectReveal` on and no reveal grace for this session, `revealed` is false
+  and `weak` and `reused` are empty; `checked`, `old` and `rotate` are always
+  given. `POST /api/health/reveal` (session) answers like `GET /api/health`
+  inside the grace (or with protection off), else 202 and the same press as
+  `POST /api/entries/{id}/reveal`, which opens the grace for the whole session.
 - **Weak**: strength level 1 or 2 by the same estimate as the app's meter
   (`web/src/lib/strength.ts`: character pool × length, −8 bits per run of 3
   equal characters or 3-step sequence, a short common-password list forces
@@ -795,7 +803,8 @@ For when a backup, the phone or the passphrase may have leaked. `POST
 with a password whose current one was set before `since` (unknown dates
 count as not changed). Nothing per entry is stored — changing a password
 moves the old one into its history with the change time, and that is what
-takes it off the list. Starting and ending are logged (`rotate_started`,
+takes it off the list. Its answer follows the same reveal rule as `GET
+/api/health` (it never asks for the press itself). Starting and ending are logged (`rotate_started`,
 `rotate_ended`). The app asks before ending while accounts are left.
 
 ## 14. Firmware updates over the network

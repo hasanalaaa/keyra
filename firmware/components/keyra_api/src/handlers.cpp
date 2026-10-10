@@ -557,7 +557,11 @@ esp_err_t getActivity(Ctx& c) {
 }
 
 // SPEC §13: ids and flags only; the passwords never leave this function.
-esp_err_t getHealth(Ctx& c) {
+// Weak and reused speak about the passwords, so with protectReveal they follow
+// the reveal grace like the secrets themselves; POST …/reveal asks for it.
+esp_err_t getHealth(Ctx& c, bool ask) {
+  const bool revealed = protect::mayReveal(c.token);
+  if (ask && !revealed) return protect::requestPress(c.r, actions::Op::Reveal, c.token);
   std::vector<vault::Entry> all;
   const Status st = vault::list(all);
   if (st != Status::Ok) return sendVaultError(c.r, st);
@@ -568,7 +572,7 @@ esp_err_t getHealth(Ctx& c) {
     items.push_back({e.id, e.password, e.history.empty() ? e.created : e.history.front().changedAt});
   }
   const int64_t now = unixSecondsOrZero();
-  const health::Report rep = health::check(items, now);
+  const health::Report rep = health::check(items, now, revealed);
   const int64_t rotateSince = settings::get().rotateSince;
   const std::vector<uint32_t> toChange = rotateSince > 0 ? health::notChangedSince(items, rotateSince)
                                                           : std::vector<uint32_t>{};
@@ -578,6 +582,7 @@ esp_err_t getHealth(Ctx& c) {
   json::Ptr o(cJSON_CreateObject());
   cJSON_AddNumberToObject(o.get(), "checked", static_cast<double>(rep.checked));
   cJSON_AddBoolToObject(o.get(), "clock", now != 0);
+  cJSON_AddBoolToObject(o.get(), "revealed", revealed);
   cJSON* weak = cJSON_AddArrayToObject(o.get(), "weak");
   for (const auto& [id, lv] : rep.weak) {
     cJSON* j = cJSON_CreateObject();
@@ -618,7 +623,7 @@ esp_err_t postHealthRotate(Ctx& c) {
     return http::sendError(c.r, http::k500, "storage", "Could not save settings");
   if (on) activity::log(activity::Kind::RotateStarted);
   else if (was > 0) activity::log(activity::Kind::RotateEnded);
-  return getHealth(c);
+  return getHealth(c, false);
 }
 
 esp_err_t listEntries(Ctx& c) {
@@ -1218,7 +1223,8 @@ esp_err_t dispatch(Ctx& c) {
     case Route::Unlock: return postUnlock(c);
     case Route::Lock: return postLock(c);
     case Route::ListEntries: return listEntries(c);
-    case Route::Health: return getHealth(c);
+    case Route::Health: return getHealth(c, false);
+    case Route::HealthReveal: return getHealth(c, true);
     case Route::HealthRotate: return postHealthRotate(c);
     case Route::Activity: return getActivity(c);
     case Route::CreateEntry: return createEntry(c);

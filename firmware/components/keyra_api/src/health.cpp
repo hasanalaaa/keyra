@@ -90,17 +90,20 @@ int level(std::string_view password) {
   return 4;
 }
 
-Report check(const std::vector<Item>& items, int64_t now) {
+Report check(const std::vector<Item>& items, int64_t now, bool compare) {
   Report r;
   std::vector<const Item*> with;
   for (const Item& it : items) {
     if (it.password.empty()) continue;
     with.push_back(&it);
-    const int lv = level(it.password);
-    if (lv < kWeakBelow) r.weak.emplace_back(it.id, lv);
+    if (compare) {
+      const int lv = level(it.password);
+      if (lv < kWeakBelow) r.weak.emplace_back(it.id, lv);
+    }
     if (now > 0 && it.setAt > 0 && now - it.setAt > kOldAfterSec) r.old.emplace_back(it.id, it.setAt);
   }
   r.checked = with.size();
+  if (!compare) return r;
   // Sorting pointers groups equal passwords without copying any of them.
   std::sort(with.begin(), with.end(), [](const Item* a, const Item* b) {
     return a->password != b->password ? a->password < b->password : a->id < b->id;

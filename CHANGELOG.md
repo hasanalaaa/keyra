@@ -208,6 +208,12 @@ All notable changes to Keyra are documented here. The format follows
   "pre-flight") still finds the credential but the answer is signed by a
   throwaway key, with no flags and counter 0, so no site can accept it; U2F
   `0x08` needs a press like `0x03`.
+- **Password health is no longer a password oracle** (SPEC §13). With
+  `protectReveal` on, a stolen session could save a guess in one entry and ask
+  `GET /api/health` whether it now "reuses" another account's password. The
+  weak and reused lists now need the reveal press (`revealed: false` and
+  empty lists outside the grace); `POST /api/health/reveal` asks for it.
+  Counts, old passwords and "change every password" are unchanged.
 
 ## [0.2.0] - 2026-10-08
 

@@ -217,6 +217,9 @@ same press is needed, outside that grace, for:
 - **downloading a backup** (single use, while `protectReveal` is on),
 - **creating, replacing or removing the recovery key** (always, single use),
 - **deleting an account or a passkey** (always; the press runs the deletion),
+- **seeing which accounts share a password or have a weak one** in Password
+  health (the same one-minute grace; otherwise a stolen session could save a
+  guess and ask whether it matches another account's password),
 - **turning `protectReveal` off**, and **turning "Passkeys in backups" on**.
 
 Typing itself needs no extra step: the press that types is already the

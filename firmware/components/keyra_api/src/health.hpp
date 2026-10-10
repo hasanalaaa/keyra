@@ -33,7 +33,12 @@ struct Report {
 };
 
 // `now`: unix seconds, or 0 when the clock is unknown (nothing is then "old").
-Report check(const std::vector<Item>& items, int64_t now);
+// `compare`: whether to work out `weak` and `reused`. They are answers about the
+// passwords themselves — a session that may write an entry can test a guess
+// against every stored password by asking whether it now "reuses" one — so
+// with `protectReveal` they need the reveal press (SPEC §13); `checked` and
+// `old` say nothing about content and are always filled in.
+Report check(const std::vector<Item>& items, int64_t now, bool compare);
 
 // "Change every password" (SPEC §13.1): entries with a password not set since
 // `since` (an unknown set date counts as not changed), in input order.
