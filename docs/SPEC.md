@@ -56,17 +56,24 @@ Keyra/
     main/                   app_main + wiring only
     components/
       keyra_vault/          crypto, encrypted storage, TOTP, backup (+ host tests)
-      keyra_hid/            TinyUSB HID keyboard + dev CDC, typing engine (+ host tests for keymap)
+      keyra_hid/            TinyUSB HID keyboard + FIDO interface + dev CDC, typing engine over USB or Bluetooth (+ host tests for keymap)
+      keyra_ble/            Bluetooth LE keyboard (NimBLE, HID over GATT), pairing window, bonds (§8.1)
       keyra_io/             button (GPIO0) + RGB LED status
-      keyra_net/            SoftAP, DNS, mDNS, captive-probe answers
+      keyra_net/            SoftAP, home Wi-Fi station, DNS, mDNS, captive-probe answers
       keyra_api/            HTTP server, REST API, sessions, pending-action state machine, static web assets
-      keyra_fido/           USB FIDO2/U2F security key (CTAPHID, CTAP2, passkeys; §10)
+      keyra_fido/           USB FIDO2/U2F security key (CTAPHID, CTAP2, passkeys; §11)
     test/host/              host test runner (CMake + ctest, plain C++)
   web/                      Vite + Preact + TypeScript single-page app
     mock/                   Node mock of the device API (for UI dev, screenshots, e2e)
-  tools/                    devctl.py (flash/reset/log over native USB), helper scripts
-  docs/                     SPEC.md, DESIGN.md, SECURITY.md, HARDWARE.md, images/
-  README.md  LICENSE  .github/
+  android/                  Keyra for Android: access-token client with autofill (§17)
+  extension/                Keyra Companion: browser extension, Manifest V3 (§9.4)
+  tools/                    devctl.py (flash/reset/log over native USB), fido_harness.py,
+                            keyra-mcp/ (MCP server for AI agents, §17), release.sh and
+                            sign_release.sh (§14), ci_local.sh
+  docs/                     SPEC.md, DESIGN.md, HARDWARE.md, FIDO.md, IMAGE_PROMPTS.md,
+                            research/ (design notes: TOKENS, NFC-TAGS, HOST-MATCH,
+                            PASSKEY-BACKUP, ROADMAP, ...), images/
+  README.md  README.ar.md  SECURITY.md  CHANGELOG.md  CONTRIBUTING.md  LICENSE  .github/
 ```
 
 Build: `web` builds to a single gzipped `index.html` (+ icons/manifest) that the
@@ -284,6 +291,14 @@ the same "prepare → press the button" flow. USB stays the default.
   that window it advertises only to bonded hosts (filter accept list) and
   rejects new pairings. LE Secure Connections, bonding, "Just Works" (no
   display/keypad); max 4 bonds stored in NVS.
+- **Re-pairing by a bonded host.** A bonded host asking for new keys is a new
+  pairing, accepted only inside the window, **except** when its link is already
+  encrypted with that bond's own keys (`onRepeatPairing` in `ble.cpp`): iOS
+  renews its keys after every reconnection, and refusing it made it drop and
+  reconnect forever. Holding the old keys proves it is the bonded host, so it
+  may renew them without a press. The old bond is saved first and restored if
+  the link ends before the renewal stores a new one (`restoreBondIfLost`). A
+  host without the old keys is refused outside the window.
 - **Connect on demand (default).** Setting `bleConnect` `"on_demand"|"always"`.
   An iPhone/iPad hides its on-screen keyboard while any Bluetooth keyboard is
   connected, so by default Keyra neither advertises nor holds a link while idle:
@@ -497,7 +512,7 @@ and `state.pending` carries `host` so the phone shows the page the login is
 for.
 
 **Save or update.** `POST /api/agent/save` keeps its body and gains, for every
-kind, `replace?: id`: the press then sets that entry's username (if given)
+kind that may save (`app`, `extension`), `replace?: id`: the press then sets that entry's username (if given)
 and password, the old password goes to its history (§12) and status becomes
 `saved` with that `id`; `title`/`url` are ignored on replace. A `replace` id
 outside the scope → 404. The 202 answer carries `mode:"create"|"update"`.

@@ -104,9 +104,12 @@ If the app is already running a dev-profile build, you can skip the button dance
 
 ### Prebuilt images
 
-Release assets (when published) include the bootloader, partition table, OTA data and
-app image with offsets in `flasher_args.json`. Flash them with `esptool.py` (or
-Espressif's web flasher) at those offsets.
+Each GitHub release (made by `tools/release.sh`) carries `bootloader.bin`,
+`partition-table.bin`, `ota_data_initial.bin`, the signed app image `keyra-firmware.bin`,
+`SHA256SUMS` and `flash-offsets.txt`, which lists the offsets (`0x0`, `0x8000`, `0xf000`,
+`0x20000`). Flash them with `esptool.py` at those offsets. This is needed once; after it,
+**Settings → Firmware update** installs new versions (`keyra-firmware.bin` is the file it
+uses).
 
 ## Dev hook: 1200-baud reboot to ROM
 
