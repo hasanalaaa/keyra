@@ -4,7 +4,7 @@
 import type { Failure, Hello, Login, PageConfig, SaveCard, Status, TabMsg, What } from '../messages';
 import { ext } from '../ext';
 import { findForms, roleOf, snapshot, whatFor, type FieldRole, type LoginForm } from '../forms';
-import { hostMatches, normalizeHost } from '../host';
+import { hostMatches, isKeyraHost, normalizeHost } from '../host';
 import { t, uiDir, uiLang, type Key } from '../i18n';
 import { h, icon, logo, monogram, svgEl, type IconName } from '../ui/dom';
 import { CSS } from './style';
@@ -814,28 +814,31 @@ function watch(): void {
   }).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['type', 'autocomplete', 'style', 'class', 'hidden'] });
 }
 
-ext.runtime.onMessage.addListener((msg: TabMsg, sender, sendResponse) => {
-  if (sender.id !== ext.runtime.id || config.self) return false;
-  if (msg.t === 'hello') {
-    forms = findForms(document);
-    sendResponse({ host: pageHost(), hasField: forms.some((f) => f.username || f.current || f.newPassword) } satisfies Hello);
-    return false;
-  }
-  if (msg.t === 'arm') {
-    forms = findForms(document);
-    const focused = ctxFor(document.activeElement);
-    const form = focused?.form ?? forms.find((f) => f.current) ?? forms.find((f) => f.username) ?? forms.find((f) => f.newPassword);
-    if (!form) {
-      sendResponse({ ok: false });
+/** The popup asks this tab what it has, or to arm a login here. */
+function listen(): void {
+  ext.runtime.onMessage.addListener((msg: TabMsg, sender, sendResponse) => {
+    if (sender.id !== ext.runtime.id || config.self) return false;
+    if (msg.t === 'hello') {
+      forms = findForms(document);
+      sendResponse({ host: pageHost(), hasField: forms.some((f) => f.username || f.current || f.newPassword) } satisfies Hello);
       return false;
     }
-    const ctx: Ctx = focused ?? (form.username ? { field: form.username, form, role: 'username' } : form.current ? { field: form.current, form, role: 'current' } : { field: form.newPassword!, form, role: 'new' });
-    choose(msg.login, ctx);
-    sendResponse({ ok: true });
+    if (msg.t === 'arm') {
+      forms = findForms(document);
+      const focused = ctxFor(document.activeElement);
+      const form = focused?.form ?? forms.find((f) => f.current) ?? forms.find((f) => f.username) ?? forms.find((f) => f.newPassword);
+      if (!form) {
+        sendResponse({ ok: false });
+        return false;
+      }
+      const ctx: Ctx = focused ?? (form.username ? { field: form.username, form, role: 'username' } : form.current ? { field: form.current, form, role: 'current' } : { field: form.newPassword!, form, role: 'new' });
+      choose(msg.login, ctx);
+      sendResponse({ ok: true });
+      return false;
+    }
     return false;
-  }
-  return false;
-});
+  });
+}
 
 async function loadConfig(): Promise<void> {
   const c = (await ext.runtime.sendMessage({ t: 'config' }).catch(() => null)) as PageConfig | null;
@@ -846,6 +849,7 @@ async function loadConfig(): Promise<void> {
 async function start(): Promise<void> {
   await loadConfig();
   if (config.self) return; // Keyra's own web app
+  listen();
   ext.storage.onChanged.addListener((_c, area) => area === 'local' && void loadConfig());
   forms = findForms(document);
   watch();
@@ -857,4 +861,7 @@ async function start(): Promise<void> {
   }
 }
 
-if (window.top === window && document.documentElement instanceof HTMLHtmlElement) void start();
+/** Keyra's own web app, at whatever address it was opened: its passphrase is not a website login. */
+const keyraApp = () => !!document.querySelector('meta[name="keyra-app"]') || isKeyraHost(pageHost());
+
+if (window.top === window && document.documentElement instanceof HTMLHtmlElement && !keyraApp()) void start();

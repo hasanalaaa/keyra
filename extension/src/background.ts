@@ -3,7 +3,7 @@
 // storage.session, and a typed password only in memory, for at most two minutes (SPEC §9.4).
 import { createClient, GEN_DEFAULTS, KeyraError, normalizeAddress, TOKEN_RE, type Client, type Login } from './api';
 import { ext } from './ext';
-import { normalizeHost } from './host';
+import { isKeyraHost, normalizeHost } from './host';
 import type { Failure, PageConfig, PageMsg, PopupMsg, PopupState, Reach, SaveCard, Settings } from './messages';
 import { pairListener } from './pair';
 
@@ -215,7 +215,12 @@ async function onPage(msg: PageMsg, sender: chrome.runtime.MessageSender): Promi
   try {
     switch (msg.t) {
       case 'config':
-        return { connected: !!(s.address && s.token), showIcons: s.settings.showIcons, self: !!s.address && originOf(sender.url) === s.address, address: s.address } satisfies PageConfig;
+        return {
+          connected: !!(s.address && s.token),
+          showIcons: s.settings.showIcons,
+          self: isKeyraHost(host) || (!!s.address && originOf(sender.url) === s.address),
+          address: s.address,
+        } satisfies PageConfig;
       case 'match':
         return { ok: true, host, entries: await match(host, msg.username) };
       case 'entries':
@@ -230,8 +235,10 @@ async function onPage(msg: PageMsg, sender: chrome.runtime.MessageSender): Promi
         if (owner && owner.tabId !== tabId) return { ok: true, status: { state: 'cancelled' } };
         const status = await (await client()).status();
         if (status.state === 'typed' && owner?.kind === 'type') typedIn.set(tabId, { host: owner.host, at: Date.now() });
-        if (status.state === 'saved') matchCache.clear();
-  entriesCache = null;
+        if (status.state === 'saved') {
+          matchCache.clear();
+          entriesCache = null;
+        }
         return { ok: true, status };
       }
       case 'cancel':
@@ -374,7 +381,7 @@ async function onPopup(msg: PopupMsg): Promise<unknown> {
         await createClient({ address, token }).match('keyra.invalid');
         await ext.storage.local.set({ address, token });
         matchCache.clear();
-  entriesCache = null;
+        entriesCache = null;
         return { ok: true };
       }
       case 'popupMatch':
@@ -392,7 +399,7 @@ async function onPopup(msg: PopupMsg): Promise<unknown> {
       case 'disconnect':
         await ext.storage.local.remove('token');
         matchCache.clear();
-  entriesCache = null;
+        entriesCache = null;
         owner = null;
         return { ok: true };
     }

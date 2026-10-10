@@ -214,6 +214,22 @@ async function functional() {
   await waitFor(async () => (await pop.locator('[data-testid=reach]').textContent()).includes('Ready'), 'popup shows "Ready"');
   await pop.close();
 
+  // Keyra's own unlock screen at an address other than the stored one (its IP, the AP address):
+  // the passphrase is not a website login, so no key in the field and no "Save to Keyra?".
+  const other = await openSite(b, `http://127.0.0.1:${port}/`);
+  await other.evaluate(() => localStorage.setItem('keyra.lang', 'en'));
+  await other.reload();
+  const pass = other.locator('input[type=password]').first();
+  await pass.click();
+  await sleep(1200);
+  check((await keyIcon(other).count()) === 0, "Keyra's unlock screen at another address shows no key in the field");
+  await pass.fill(PASS);
+  await pass.press('Enter');
+  await sleep(2000);
+  check((await other.locator('.root').count()) === 0 && (await card(other).count()) === 0, 'and no "Save to Keyra?" card after the passphrase is sent');
+  await other.close();
+  await button('long'); // the unlock there offered to trust that browser (a press op): withdraw it
+
   // 2. The key in the field, the list of matching logins, arm and type.
   const gh = await openSite(b, at('github.com', '/login'));
   await gh.locator('#login_field').click();

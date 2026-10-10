@@ -28,3 +28,7 @@ export function hostMatches(login: string, page: string): boolean {
   const [short, long] = a.length <= b.length ? [a, b] : [b, a];
   return long.endsWith(`.${short}`) && siteLike(short);
 }
+
+/** Keyra's own addresses (SPEC §8.2): its web app is never treated as a website, even at an address other than the stored one. */
+const KEYRA_HOSTS = new Set(['keyra.local', 'keyra', '192.168.4.1']);
+export const isKeyraHost = (h: string): boolean => KEYRA_HOSTS.has(normalizeHost(h));
