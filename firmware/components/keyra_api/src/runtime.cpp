@@ -252,7 +252,7 @@ void onButton(io::Button b, int64_t pressedAt) {
   // pattern is showing); an armed type action stays armed for the next press.
   // A press that waited in the queue through a commit is not a touch either.
   if (fido::awaitingTouch()) {
-    if (!machine().stale(pressedAt)) fido::press(b == io::Button::Short);
+    if (!machine().pressedBeforeCommitEnd(pressedAt)) fido::press(b == io::Button::Short);
     return;
   }
   const auto press = b == io::Button::Short ? actions::Button::Short : actions::Button::Long;

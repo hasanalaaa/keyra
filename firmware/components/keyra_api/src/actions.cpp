@@ -170,9 +170,9 @@ bool HostWatch::bleLost(const BtAddr& addr, bool unlocked, bool enabled) {
   return hit;
 }
 
-bool Machine::stale(int64_t pressedAt) {
+bool Machine::pressedBeforeCommitEnd(int64_t pressedAt) {
   std::lock_guard<std::mutex> lock(mu_);
-  return pressedAt < freshFrom_;
+  return pressedAt < committedAt_;
 }
 
 Decision Machine::onButton(Button b, bool unlocked, int64_t pressedAt) {
@@ -251,7 +251,7 @@ void Machine::commitFinished(bool ok) {
   }
   running_.reset();
   runningSerial_ = 0;
-  freshFrom_ = now;  // presses queued during the commit are dropped
+  freshFrom_ = committedAt_ = now;  // presses queued during the commit are dropped
   flashLocked(ok ? Indicator::Success : Indicator::Error, now, kFlashMs);
 }
 

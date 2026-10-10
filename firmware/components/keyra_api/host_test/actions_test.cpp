@@ -597,7 +597,7 @@ void stalePressesDoNothing() {
   const int64_t early = g_now;
   g_now += 5;
   m.awaitPresence(Op::Backup, [] { return true; }, "s");
-  CHECK(m.stale(early) && !m.stale(g_now));
+  CHECK(!m.pressedBeforeCommitEnd(early));  // arming alone does not touch the FIDO route
   CHECK(m.onButton(Button::Short, true, early).effect == Effect::None);
   CHECK(m.onButton(Button::Long, true, early).effect == Effect::None);
   CHECK(m.presence().has_value());  // still waiting for a real press
@@ -608,7 +608,7 @@ void stalePressesDoNothing() {
   g_now += 3000;
   CHECK(d.commit());
   m.commitFinished(true);
-  CHECK(m.stale(during));
+  CHECK(m.pressedBeforeCommitEnd(during) && !m.pressedBeforeCommitEnd(g_now));
   CHECK(m.onButton(Button::Long, true, during).effect == Effect::None);  // no lock
   g_now += 10;
   m.arm(req(9), "other");

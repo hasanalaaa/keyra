@@ -204,8 +204,10 @@ class Machine {
   // nothing (Effect::None): it was queued while the actions task was busy, and
   // must not approve what somebody armed after it was made.
   Decision onButton(Button b, bool unlocked, int64_t pressedAt);
-  // The same test for a press routed elsewhere (a FIDO request's touch).
-  bool stale(int64_t pressedAt);
+  // Whether a press was made before the last commit finished: it waited in
+  // the queue, and is not a FIDO touch either. (Only the commit counts here:
+  // arming a type action must not swallow a touch meant for a website.)
+  bool pressedBeforeCommitEnd(int64_t pressedAt);
   // A sequence part typed fine with more to come: the action is armed again
   // for its next part (fresh 60 s), unless something else was armed meanwhile.
   void typingFinished(const TypeRequest& req, Code code);
@@ -243,7 +245,8 @@ class Machine {
   std::string cancelToken_;  // of the waiting presence op
   std::string owner_;        // session that armed the waiting item; empty = none
   int64_t deadline_ = 0;
-  int64_t freshFrom_ = 0;  // presses made before this are stale (see onButton)
+  int64_t freshFrom_ = 0;    // presses made before this are stale (see onButton)
+  int64_t committedAt_ = 0;  // when the last commit finished
   bool typing_ = false;
   bool linkReady_ = false;
   bool usbMounted_ = false;
