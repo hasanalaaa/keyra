@@ -129,12 +129,13 @@ export function useTypeAction(id: number, free: 'test' | 'text' | 'probe' = 'tes
   };
 
   const cancel = async () => {
-    setAct(null);
     try {
       await api.cancelType();
+      setAct(null);
       toast(t('cancelled'));
     } catch {
-      // The device expires it on its own after 60 s.
+      // Still armed on Keyra: the card stays and keeps following the device.
+      toast(t('cancelFailed'), 'error');
     }
   };
 

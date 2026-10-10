@@ -495,7 +495,7 @@ function pressCard(o: PressOpts): void {
       h('p', { class: 'hint' }, t('pressHold')),
       sr,
     ],
-    actions: [{ label: t('cancel'), cls: 'secondary', run: () => void cancelPress(o.mode) }],
+    actions: [{ label: t('cancel'), cls: 'secondary', run: () => void cancelPress(o) }],
   });
   setTarget(o.target);
   timers.push(
@@ -592,9 +592,16 @@ function failedCard(code: string, retry?: () => void): void {
   });
 }
 
-async function cancelPress(mode: PressOpts['mode']): Promise<void> {
+async function cancelPress(o: PressOpts): Promise<void> {
   clearTimers();
-  await send({ t: 'cancel', mode });
+  const r = await send<{ cancelled: boolean }>({ t: 'cancel' });
+  if (!r.ok) {
+    // Still armed on Keyra: say how to stop it there, and keep watching for the outcome.
+    showCard({ badge: badge('alert', 'warn'), title: t('cancelFailTitle'), body: t('cancelFailBody'), role: 'alert' });
+    keepAlive();
+    return schedulePoll(o, 2000);
+  }
+  if (!r.cancelled) return void poll(o); // nothing waited any more: show what happened instead
   setTarget(null);
   showCard({ badge: badge('x', 'info'), title: t('cancelledTitle'), role: 'status', autoClose: 2000 });
 }

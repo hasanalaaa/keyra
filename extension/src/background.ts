@@ -241,9 +241,20 @@ async function onPage(msg: PageMsg, sender: chrome.runtime.MessageSender): Promi
         }
         return { ok: true, status };
       }
-      case 'cancel':
-        if (owner?.tabId === tabId) await (await client()).cancel().catch((e) => (e instanceof KeyraError && e.status === 409 ? undefined : Promise.reject(e)));
-        return { ok: true };
+      case 'cancel': {
+        // Another tab's request replaced this one (it already ended "cancelled"): leave that one alone.
+        // `owner` is lost when the service worker restarts, so null still sends the cancel.
+        if (owner && owner.tabId !== tabId) return { ok: true, cancelled: true };
+        const c = await client();
+        try {
+          await patient(() => c.cancel());
+          return { ok: true, cancelled: true };
+        } catch (e) {
+          // 409 not_cancelled: nothing of this token waits any more (typed, expired, …); status tells which.
+          if (e instanceof KeyraError && e.status === 409) return { ok: true, cancelled: false };
+          throw e;
+        }
+      }
       case 'generate': {
         const c = await client();
         return { ok: true, ...(await patient(() => c.generate(s.settings.gen))) };
