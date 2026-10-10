@@ -33,6 +33,9 @@ class HostMatcherTest {
         assertFalse(HostMatcher.matchesWeb("192.168.1.1", "192.168.1.2"))
         assertFalse(HostMatcher.matchesWeb("1.1", "192.168.1.1"))
         assertFalse(HostMatcher.matchesWeb("", "github.com"))
+        // Only one trailing dot is dropped, as on the device.
+        assertFalse(HostMatcher.matchesWeb("github.com", "github.com.."))
+        assertFalse(HostMatcher.matchesWeb("a..com", "x.a..com"))
     }
 
     @Test

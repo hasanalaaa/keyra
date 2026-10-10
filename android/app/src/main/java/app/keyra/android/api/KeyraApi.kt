@@ -67,9 +67,9 @@ class KeyraApi(
         require(TOKEN_RE.matches(token)) { "Malformed access token" }
     }
 
-    fun entries(): List<Entry> {
+    fun entries(): List<Entry> = answer {
         val list = call("GET", "entries").getJSONArray("entries")
-        return (0 until list.length()).map { i ->
+        (0 until list.length()).map { i ->
             val o = list.getJSONObject(i)
             Entry(o.getLong("id"), o.getString("title"), o.optString("host", ""))
         }
@@ -78,12 +78,12 @@ class KeyraApi(
     /** Arms typing; returns how long Keyra waits for the press, in ms. */
     fun type(id: Long, what: What): Long {
         val body = JSONObject().put("id", id).put("what", what.wire)
-        return call("POST", "type", body).getLong("expiresIn")
+        return answer { call("POST", "type", body).getLong("expiresIn") }
     }
 
-    fun status(): AgentStatus {
+    fun status(): AgentStatus = answer {
         val o = call("GET", "status")
-        return AgentStatus(
+        AgentStatus(
             state = State.parse(o.getString("state")),
             request = o.optStringOrNull("request"),
             id = if (o.has("id")) o.getLong("id") else null,
@@ -104,7 +104,7 @@ class KeyraApi(
         if (url.isNotEmpty()) body.put("url", url)
         if (username.isNotEmpty()) body.put("username", username)
         if (password.isNotEmpty()) body.put("password", password)
-        return call("POST", "save", body).getLong("expiresIn")
+        return answer { call("POST", "save", body).getLong("expiresIn") }
     }
 
     fun generate(o: GenerateOptions): String {
@@ -115,7 +115,14 @@ class KeyraApi(
             .put("digits", o.digits)
             .put("symbols", o.symbols)
             .put("avoidAmbiguous", o.avoidAmbiguous)
-        return call("POST", "generate", body).getString("password")
+        return answer { call("POST", "generate", body).getString("password") }
+    }
+
+    /** A well-formed answer missing a field is a Keyra problem like any other: an IOException. */
+    private inline fun <T> answer(read: () -> T): T = try {
+        read()
+    } catch (e: JSONException) {
+        throw IOException("Keyra sent an unexpected answer", e)
     }
 
     private fun call(method: String, path: String, body: JSONObject? = null): JSONObject {

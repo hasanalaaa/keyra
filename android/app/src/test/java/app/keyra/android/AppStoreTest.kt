@@ -85,4 +85,14 @@ class AppStoreTest {
         assertTrue(kv.map.isEmpty())
         assertFalse(store.configured)
     }
+
+    @Test
+    fun damagedTokenIsUnreadableNotACrash() {
+        val kv = MapStore()
+        val store = AppStore(kv, box())
+        kv.map["token"] = "not base64 at all!"
+        assertThrows(GeneralSecurityException::class.java) { store.token }
+        kv.map["token"] = Base64.getEncoder().encodeToString(ByteArray(8))
+        assertThrows(GeneralSecurityException::class.java) { store.token }
+    }
 }

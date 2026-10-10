@@ -1,6 +1,7 @@
 package app.keyra.android.store
 
 import org.json.JSONObject
+import java.security.GeneralSecurityException
 import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.SecretKey
@@ -63,7 +64,14 @@ class AppStore(private val kv: KeyValueStore, private val box: SecretBox) {
      * was lost, e.g. after a lock-screen reset on some devices) is an error, not "no token".
      */
     var token: String?
-        get() = kv.get(K_TOKEN)?.let { String(box.open(Base64.getDecoder().decode(it)), Charsets.UTF_8) }
+        get() = kv.get(K_TOKEN)?.let {
+            try {
+                String(box.open(Base64.getDecoder().decode(it)), Charsets.UTF_8)
+            } catch (e: IllegalArgumentException) {
+                // Not Base64, or too short to be sealed: as unreadable as a wrong key.
+                throw GeneralSecurityException("Stored token is damaged", e)
+            }
+        }
         set(v) = kv.put(K_TOKEN, v?.let { Base64.getEncoder().encodeToString(box.seal(it.toByteArray(Charsets.UTF_8))) })
 
     val configured: Boolean get() = address != null && kv.get(K_TOKEN) != null

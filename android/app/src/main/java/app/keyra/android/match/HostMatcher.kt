@@ -46,14 +46,18 @@ object HostMatcher {
     /** Second-level labels under a two-letter country code that are not names ("gov.iq", "co.uk"). */
     private val COUNTRY_SLD = setOf("ac", "co", "com", "edu", "gob", "gov", "go", "mil", "ne", "net", "or", "org", "sch")
 
-    fun normalize(host: String): String = host.trim().lowercase().trimEnd('.').removePrefix("www.")
+    /** Exactly as HOST-MATCH.md and the firmware: spaces, one trailing dot, lowercase, one "www.". */
+    fun normalize(host: String): String = host.trim(' ').removeSuffix(".").lowercase().removePrefix("www.")
 
-    private fun isIp(host: String) = host.contains(':') || host.split('.').let { p -> p.size == 4 && p.all { it.isNotEmpty() && it.all(Char::isDigit) } }
+    private fun isIp(host: String) = host.contains(':') || host.split('.').let { p -> p.size == 4 && p.all { it.isNotEmpty() && it.all { c -> c in '0'..'9' } } }
 
-    /** "com", "co.uk", "gov.iq": never treated as a site of its own. */
+    /** "com", "co.uk", "gov.iq", or a host with an empty label: never treated as a site of its own. */
     private fun isPublicSuffixLike(host: String): Boolean {
         val labels = host.split('.')
-        return labels.size < 2 || (labels.size == 2 && labels[1].length == 2 && labels[0] in COUNTRY_SLD)
+        if (labels.size < 2 || labels.any(String::isEmpty)) return true
+        if (labels.size > 2) return false
+        val tld = labels[1]
+        return tld.length == 2 && tld.all { it in 'a'..'z' } && labels[0] in COUNTRY_SLD
     }
 
     fun matchesWeb(entryHost: String, webDomain: String): Boolean {
