@@ -450,8 +450,8 @@ function settingsView(): HTMLElement {
 // ---------- start ----------
 
 ext.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes.token) {
-    if (changes.token.newValue && !changes.token.oldValue) flash = t('connectDone');
+  if (area === 'local' && changes.tokenSealed) {
+    if (changes.tokenSealed.newValue && !changes.tokenSealed.oldValue) flash = t('connectDone');
     void refresh();
   }
 });

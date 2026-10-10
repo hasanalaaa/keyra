@@ -205,8 +205,18 @@ async function functional() {
   await kp.locator('.ready-ready').waitFor();
   check((await button()) === 'approved token_create', 'one press of Keyra approves the token');
   check(await closed, 'the Keyra tab closes by itself after handing over the token');
-  const stored = await b.sw.evaluate(() => chrome.storage.local.get(['address', 'token']));
-  check(stored.address === ADDRESS && /^keyra_[a-z2-7]{32}$/.test(stored.token), 'the extension stored the address and the token');
+  const stored = await b.sw.evaluate(() => chrome.storage.local.get(null));
+  check(stored.address === ADDRESS && stored.token === undefined && stored.tokenSealed?.ct?.length > 32 && !/keyra_[a-z2-7]{32}/.test(JSON.stringify(stored)), 'the extension stored the address and the token, sealed (never in the clear)');
+  const probe = await b.ctx.newPage();
+  await probe.goto(`${ADDRESS}/`);
+  const seen = await b.sw.evaluate(async (url) => {
+    const [tab] = await chrome.tabs.query({ url: `${url}/*` });
+    // A content-script world, like the one on every website.
+    const [r] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => chrome.storage.local.get(null).then((x) => JSON.stringify(x), (e) => `refused: ${e.message}`) });
+    return r.result;
+  }, ADDRESS);
+  check(/^refused/.test(seen), `content scripts cannot read storage.local (${seen.slice(0, 60)})`);
+  await probe.close();
   await phoneUnlock();
   const toks = (await api('GET', '/api/tokens')).body.tokens;
   check(toks.some((t) => t.kind === 'extension' && t.scope === 'all' && /^Chrome on/.test(t.name)), 'Keyra lists it as a browser extension token');
@@ -473,7 +483,7 @@ async function screenshots(lang) {
     await gh.close();
   }
   // Not connected: the one-press pairing screen.
-  await b.sw.evaluate(() => chrome.storage.local.remove('token'));
+  await b.sw.evaluate(() => chrome.storage.local.remove(['token', 'tokenSealed']));
   for (const theme of ['light', 'dark']) {
     const p = await popup(b, null, theme);
     await p.locator('#address').fill('http://keyra.local');

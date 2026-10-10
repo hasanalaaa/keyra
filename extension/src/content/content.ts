@@ -821,10 +821,14 @@ function watch(): void {
   }).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['type', 'autocomplete', 'style', 'class', 'hidden'] });
 }
 
-/** The popup asks this tab what it has, or to arm a login here. */
+/** The popup asks this tab what it has, or to arm a login here; the service worker says the settings changed. */
 function listen(): void {
   ext.runtime.onMessage.addListener((msg: TabMsg, sender, sendResponse) => {
     if (sender.id !== ext.runtime.id || config.self) return false;
+    if (msg.t === 'configChanged') {
+      void loadConfig();
+      return false;
+    }
     if (msg.t === 'hello') {
       forms = findForms(document);
       sendResponse({ host: pageHost(), hasField: forms.some((f) => f.username || f.current || f.newPassword) } satisfies Hello);
@@ -857,7 +861,6 @@ async function start(): Promise<void> {
   await loadConfig();
   if (config.self) return; // Keyra's own web app
   listen();
-  ext.storage.onChanged.addListener((_c, area) => area === 'local' && void loadConfig());
   forms = findForms(document);
   watch();
   const ctx = ctxFor(document.activeElement);

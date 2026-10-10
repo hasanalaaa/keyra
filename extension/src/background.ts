@@ -1,11 +1,13 @@
 // Service worker (Firefox: event page). The only part that talks to Keyra: it keeps the address,
-// the access token and the settings in storage.local, a pending save card per tab in
-// storage.session, and a typed password only in memory, for at most two minutes (SPEC §9.4).
+// the access token (sealed, secret.ts) and the settings in storage.local, a pending save card per
+// tab in storage.session, and a typed password only in memory, for at most two minutes (SPEC §9.4).
+// Content scripts never touch storage: they ask here, and hear {t:'configChanged'} from here.
 import { createClient, GEN_DEFAULTS, KeyraError, normalizeAddress, TOKEN_RE, type Client, type Login } from './api';
 import { ext } from './ext';
 import { isKeyraHost, normalizeHost } from './host';
-import type { Failure, PageConfig, PageMsg, PopupMsg, PopupState, Reach, SaveCard, Settings } from './messages';
+import type { Failure, PageConfig, PageMsg, PopupMsg, PopupState, Reach, SaveCard, Settings, TabMsg } from './messages';
 import { pairListener } from './pair';
+import { seal, unseal, type Sealed } from './secret';
 
 const HOLD_MS = 120_000;
 const DEFAULTS: Settings = { showIcons: true, offerSave: true, never: [], gen: GEN_DEFAULTS };
@@ -17,8 +19,22 @@ interface Stored {
 }
 
 async function stored(): Promise<Stored> {
-  const s = (await ext.storage.local.get(['address', 'token', 'settings'])) as Partial<Stored>;
-  return { address: s.address, token: s.token, settings: { ...DEFAULTS, ...(s.settings ?? {}) } };
+  const s = (await ext.storage.local.get(['address', 'token', 'tokenSealed', 'settings'])) as Partial<Stored> & { tokenSealed?: Sealed };
+  let token: string | undefined;
+  if (typeof s.token === 'string') {
+    // Version 0.3.0 kept it in the clear: seal it once.
+    token = s.token;
+    await saveToken(token);
+  } else if (s.tokenSealed) {
+    token = (await unseal(s.tokenSealed)) ?? undefined;
+    if (!token) await ext.storage.local.remove('tokenSealed');
+  }
+  return { address: s.address, token, settings: { ...DEFAULTS, ...(s.settings ?? {}) } };
+}
+
+async function saveToken(token: string): Promise<void> {
+  await ext.storage.local.set({ tokenSealed: await seal(token) });
+  await ext.storage.local.remove('token');
 }
 
 async function client(): Promise<Client> {
@@ -163,7 +179,8 @@ async function finishPairing(sender: chrome.runtime.MessageSender, n: string, to
   } catch (e) {
     return failure(e);
   }
-  await ext.storage.local.set({ address: p.address, token });
+  await ext.storage.local.set({ address: p.address });
+  await saveToken(token);
   await ext.storage.session.remove('pairing');
   matchCache.clear();
   entriesCache = null;
@@ -392,7 +409,8 @@ async function onPopup(msg: PopupMsg): Promise<unknown> {
         if (!address || !TOKEN_RE.test(token)) return { ok: false, code: 'invalid' };
         if (!(await ext.permissions.contains({ origins: [`${address}/*`] }))) return { ok: false, code: 'forbidden', address };
         await createClient({ address, token }).match('keyra.invalid');
-        await ext.storage.local.set({ address, token });
+        await ext.storage.local.set({ address });
+        await saveToken(token);
         matchCache.clear();
         entriesCache = null;
         return { ok: true };
@@ -410,7 +428,7 @@ async function onPopup(msg: PopupMsg): Promise<unknown> {
         await ext.storage.local.set({ settings: { ...s.settings, ...msg.patch } });
         return { ok: true };
       case 'disconnect':
-        await ext.storage.local.remove('token');
+        await ext.storage.local.remove(['token', 'tokenSealed']);
         matchCache.clear();
         entriesCache = null;
         owner = null;
@@ -424,6 +442,19 @@ async function onPopup(msg: PopupMsg): Promise<unknown> {
 // ---------- wiring ----------
 
 const extPage = (url?: string) => !!url && url.startsWith(ext.runtime.getURL(''));
+
+// Chrome lets storage.local be closed to content scripts; Firefox has no such switch (the sealed
+// token covers it there).
+const local = ext.storage.local as chrome.storage.StorageArea & { setAccessLevel?: chrome.storage.StorageArea['setAccessLevel'] };
+local.setAccessLevel?.({ accessLevel: 'TRUSTED_CONTEXTS' }).catch((e: unknown) => console.warn('Keyra: storage.local stays open to content scripts', e));
+
+// Pages learn of a new connection or settings by message (they no longer read storage).
+ext.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !['address', 'tokenSealed', 'settings'].some((k) => k in changes)) return;
+  void ext.tabs.query({}).then((tabs) => {
+    for (const tab of tabs) if (tab.id !== undefined) ext.tabs.sendMessage(tab.id, { t: 'configChanged' } satisfies TabMsg).catch(() => undefined);
+  });
+});
 
 ext.runtime.onMessage.addListener((msg: { t?: string }, sender, sendResponse) => {
   if (sender.id !== ext.runtime.id || !msg || typeof msg.t !== 'string') return false;

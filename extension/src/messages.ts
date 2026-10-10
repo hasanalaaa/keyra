@@ -1,5 +1,6 @@
 // Messages between the page (content script), the toolbar popup and the service worker.
-// The service worker is the only part that talks to Keyra and holds the access token.
+// The service worker is the only part that talks to Keyra and opens the access token (sealed in
+// storage.local, secret.ts); content scripts never read storage and get only what these return.
 import type { ErrorCode, GenOptions, Login, Status, What } from './api';
 
 export interface Settings {
@@ -75,7 +76,7 @@ export interface PopupState {
 }
 
 /** From the popup to the content script of a tab. */
-export type TabMsg = { t: 'hello' } | { t: 'arm'; login: Login };
+export type TabMsg = { t: 'hello' } | { t: 'arm'; login: Login } | { t: 'configChanged' };
 export interface Hello {
   host: string;
   hasField: boolean;
