@@ -14,6 +14,7 @@
 #include "http.hpp"
 #include "keyra/vault.hpp"
 #include "psa/crypto.h"
+#include "records.hpp"
 #include "runtime.hpp"
 #include "type_request.hpp"
 
@@ -47,30 +48,32 @@ bool sha256(std::string_view s, tokens::Digest& out) {
          len == out.size();
 }
 
-// Caller holds g_mu.
-vault::Status loadLocked(tokens::Store& out) {
-  std::vector<uint8_t> raw;
-  const vault::Status st = vault::tokensRead(raw);
-  if (st != vault::Status::Ok) return st;
-  auto parsed = tokens::Store::parse(raw.data(), raw.size());
-  if (!parsed) {
-    // Fails safe: no token works until a new one is made (which rewrites it).
-    ESP_LOGE(TAG, "stored tokens unreadable; treating as none");
-    out = tokens::Store();
-    return vault::Status::Ok;
+// Caller holds g_mu. A record this firmware cannot read is an error, never "no tokens".
+records::Status loadLocked(tokens::Store& out) {
+  const records::Status st = records::load(out);
+  if (st != records::Status::Ok) {
+    ESP_LOGE(TAG, "reading tokens: %s", records::code(st));
+    return st;
   }
-  out = std::move(*parsed);
   g_names.clear();
   for (const Token& t : out.all()) g_names[t.id] = t.name;
-  return vault::Status::Ok;
+  return st;
 }
 
-vault::Status saveLocked(const tokens::Store& s) {
-  const vault::Status st = vault::tokensWrite(s.serialize());
-  if (st != vault::Status::Ok) ESP_LOGE(TAG, "saving tokens: %s", vault::statusName(st));
+records::Status saveLocked(const tokens::Store& s) {
+  const records::Status st = records::save(s);
+  if (st != records::Status::Ok) {
+    ESP_LOGE(TAG, "saving tokens: %s", records::code(st));
+    return st;
+  }
   g_names.clear();
   for (const Token& t : s.all()) g_names[t.id] = t.name;
   return st;
+}
+
+esp_err_t sendRecordError(httpd_req_t* r, records::Status st) {
+  return http::sendError(r, st == records::Status::Locked ? http::k401 : http::k500, records::code(st),
+                         records::message(st));
 }
 
 esp_err_t badRequest(httpd_req_t* r, const char* message) { return http::sendError(r, http::k400, "invalid", message); }
@@ -372,7 +375,7 @@ bool commitSave(SaveJob& job, uint32_t serial) {
     if (it != g_last.end() && it->second.serial == serial) it->second.id = id;
     tokens::Store s;
     // A scoped token may type what it just saved (while its scope has room).
-    if (job.replace == 0 && loadLocked(s) == vault::Status::Ok && s.addToScope(job.tokenId, id)) saveLocked(s);
+    if (job.replace == 0 && loadLocked(s) == records::Status::Ok && s.addToScope(job.tokenId, id)) saveLocked(s);
   }
   activity::log(activity::Kind::AgentSaved, id, job.tokenName, job.replace != 0 ? 1 : 0);
   return true;
@@ -509,8 +512,8 @@ std::optional<Token> authenticate(httpd_req_t* r, esp_err_t& err) {
   {
     std::lock_guard<std::mutex> lock(g_mu);
     tokens::Store s;
-    if (loadLocked(s) != vault::Status::Ok) {
-      err = http::sendError(r, http::k500, "storage", "Could not read the access tokens");
+    if (const records::Status st = loadLocked(s); st != records::Status::Ok) {
+      err = sendRecordError(r, st);
       return std::nullopt;
     }
     if (const auto i = s.find(d)) {
@@ -546,12 +549,12 @@ esp_err_t dispatch(httpd_req_t* r, Route route, const Token& t, const cJSON* bod
 
 esp_err_t listTokens(httpd_req_t* r) {
   tokens::Store s;
-  vault::Status st;
+  records::Status st;
   {
     std::lock_guard<std::mutex> lock(g_mu);
     st = loadLocked(s);
   }
-  if (st != vault::Status::Ok) return http::sendError(r, http::k500, "storage", "Could not read the access tokens");
+  if (st != records::Status::Ok) return sendRecordError(r, st);
   json::Ptr o(cJSON_CreateObject());
   cJSON* arr = cJSON_AddArrayToObject(o.get(), "tokens");
   for (const Token& t : s.all()) {
@@ -571,8 +574,7 @@ esp_err_t createToken(httpd_req_t* r, const cJSON* body, const std::string& sess
   if (!readNew(r, body, t, err)) return err;
   std::lock_guard<std::mutex> lock(g_mu);
   tokens::Store s;
-  if (loadLocked(s) != vault::Status::Ok)
-    return http::sendError(r, http::k500, "storage", "Could not read the access tokens");
+  if (const records::Status st = loadLocked(s); st != records::Status::Ok) return sendRecordError(r, st);
   if (s.full()) return http::sendError(r, http::k409, "tokens_full", "Keyra holds at most 8 access tokens");
   if (!sessions().consumeGrace(session, monoMs(), Sessions::Grace::Token))
     return protect::requestPress(r, actions::Op::TokenCreate, session);
@@ -588,7 +590,7 @@ esp_err_t createToken(httpd_req_t* r, const cJSON* body, const std::string& sess
   } while (t.id == 0 || s.contains(t.id));
   t.created = unixSecondsOrZero();
   if (!s.add(t)) return badRequest(r, "Invalid token");
-  if (saveLocked(s) != vault::Status::Ok) return http::sendError(r, http::k500, "storage", "Could not save");
+  if (const records::Status st = saveLocked(s); st != records::Status::Ok) return sendRecordError(r, st);
   activity::log(activity::Kind::TokenCreated, 0, t.name, static_cast<uint8_t>(t.kind));  // detail = the stored kind
   ESP_LOGI(TAG, "access token %u created (%s)", unsigned(t.id), tokens::kindName(t.kind));
   json::Ptr o(cJSON_CreateObject());
@@ -603,13 +605,12 @@ esp_err_t deleteToken(httpd_req_t* r, uint32_t id) {
   {
     std::lock_guard<std::mutex> lock(g_mu);
     tokens::Store s;
-    if (loadLocked(s) != vault::Status::Ok)
-      return http::sendError(r, http::k500, "storage", "Could not read the access tokens");
+    if (const records::Status st = loadLocked(s); st != records::Status::Ok) return sendRecordError(r, st);
     for (const Token& t : s.all()) {
       if (t.id == id) name = t.name;
     }
     if (!s.remove(id)) return http::sendError(r, http::k404, "not_found", "No such access token");
-    if (saveLocked(s) != vault::Status::Ok) return http::sendError(r, http::k500, "storage", "Could not save");
+    if (const records::Status st = saveLocked(s); st != records::Status::Ok) return sendRecordError(r, st);
     g_rate.forget(id);
     g_last.erase(id);
   }

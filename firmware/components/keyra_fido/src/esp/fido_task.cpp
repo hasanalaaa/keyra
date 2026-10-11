@@ -1,5 +1,6 @@
 // Device wiring for keyra_fido: TinyUSB reports (via keyra_hid) → queue →
-// FIDO task running core::Device; NVS signature counter; the shared TouchGate
+// FIDO task running core::Device; the signature counter (NVS + vault
+// reservation, core/counter.hpp); the shared TouchGate
 // that keyra_api's button routing answers.
 #include <sys/time.h>
 
@@ -8,6 +9,7 @@
 #include <mutex>
 #include <vector>
 
+#include "core/counter.hpp"
 #include "core/device.hpp"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -76,35 +78,47 @@ class UsbLink final : public Link {
 };
 
 // Serialises the counter's read-modify-write between the FIDO task (next) and
-// keyra_api's backup/restore: a raise racing a next() could otherwise be undone.
+// keyra_api's backup (last) and unlock (secure).
 std::mutex s_counterMutex;
 
-bool readCounter(nvs_handle_t h, uint32_t& v) {
-  v = 0;
-  const esp_err_t err = nvs_get_u32(h, kNvsCounter, &v);
-  return err == ESP_OK || err == ESP_ERR_NVS_NOT_FOUND;
-}
+// NVS's copy of the last value issued (core/counter.hpp).
+class NvsCell final : public CounterCell {
+ public:
+  bool load(uint32_t& v) override {
+    v = 0;
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(kNvsNamespace, NVS_READONLY, &h);
+    if (err == ESP_ERR_NVS_NOT_FOUND) return true;  // nothing signed yet (or NVS erased): no namespace
+    if (err == ESP_OK) {
+      err = nvs_get_u32(h, kNvsCounter, &v);
+      nvs_close(h);
+      if (err == ESP_ERR_NVS_NOT_FOUND) err = ESP_OK;
+    }
+    if (err != ESP_OK) ESP_LOGE(TAG, "counter read: %s", esp_err_to_name(err));
+    return err == ESP_OK;
+  }
+  bool store(uint32_t v) override {
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(kNvsNamespace, NVS_READWRITE, &h);
+    if (err == ESP_OK) {
+      err = nvs_set_u32(h, kNvsCounter, v);
+      if (err == ESP_OK) err = nvs_commit(h);
+      nvs_close(h);
+    }
+    if (err != ESP_OK) ESP_LOGE(TAG, "counter: %s", esp_err_to_name(err));
+    return err == ESP_OK;
+  }
+};
 
-// Monotonic signature counter in NVS, persisted before it is used.
-class NvsCounter final : public Counter {
+VaultStore s_store;
+NvsCell s_cell;
+ReservedCounter s_counter(s_cell, s_store);
+
+class GuardedCounter final : public Counter {
  public:
   bool next(uint32_t& value) override {
     std::lock_guard<std::mutex> g(s_counterMutex);
-    nvs_handle_t h;
-    if (nvs_open(kNvsNamespace, NVS_READWRITE, &h) != ESP_OK) return false;
-    uint32_t v = 0;
-    esp_err_t err = nvs_get_u32(h, kNvsCounter, &v);
-    if (err == ESP_ERR_NVS_NOT_FOUND) err = ESP_OK;
-    if (err == ESP_OK && v == UINT32_MAX) err = ESP_FAIL;  // never wraps
-    if (err == ESP_OK) err = nvs_set_u32(h, kNvsCounter, v + 1);
-    if (err == ESP_OK) err = nvs_commit(h);
-    nvs_close(h);
-    if (err != ESP_OK) {
-      ESP_LOGE(TAG, "counter: %s", esp_err_to_name(err));
-      return false;
-    }
-    value = v + 1;
-    return true;
+    return s_counter.next(value);
   }
 };
 
@@ -141,10 +155,9 @@ class NvsAttestation final : public AttestationStore {
 void fidoTask(void*) {
   static UsbLink link;
   static esp::PsaCrypto crypto;
-  static VaultStore store;
-  static NvsCounter counter;
+  static GuardedCounter counter;
   static NvsAttestation attestation;
-  static Device device(link, crypto, store, counter, attestation, s_gate, {0, 1, 0});
+  static Device device(link, crypto, s_store, counter, attestation, s_gate, {0, 1, 0});
   for (;;) device.step(50);
 }
 
@@ -170,28 +183,12 @@ void press(bool shortPress, int64_t pressedAt) { s_gate.press(shortPress, presse
 
 bool signatureCounter(uint32_t& out) {
   std::lock_guard<std::mutex> g(s_counterMutex);
-  nvs_handle_t h;
-  out = 0;
-  const esp_err_t err = nvs_open(kNvsNamespace, NVS_READONLY, &h);
-  if (err == ESP_ERR_NVS_NOT_FOUND) return true;  // nothing signed yet: no namespace
-  if (err != ESP_OK) return false;
-  const bool ok = readCounter(h, out);
-  nvs_close(h);
-  return ok;
+  return s_counter.last(out);
 }
 
-bool raiseCounterAfterRestore(uint32_t backupCounter) {
+bool secureCounter() {
   std::lock_guard<std::mutex> g(s_counterMutex);
-  nvs_handle_t h;
-  if (nvs_open(kNvsNamespace, NVS_READWRITE, &h) != ESP_OK) return false;
-  uint32_t v = 0;
-  esp_err_t err = readCounter(h, v) ? ESP_OK : ESP_FAIL;
-  const uint32_t next = restoredCounter(v, backupCounter);
-  if (err == ESP_OK && next != v) err = nvs_set_u32(h, kNvsCounter, next);
-  if (err == ESP_OK) err = nvs_commit(h);
-  nvs_close(h);
-  if (err != ESP_OK) ESP_LOGE(TAG, "counter raise: %s", esp_err_to_name(err));
-  return err == ESP_OK;
+  return s_counter.secure();
 }
 
 bool forgetAttestation() {

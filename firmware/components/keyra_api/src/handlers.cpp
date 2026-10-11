@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <ctime>
+#include <optional>
 #include <set>
 #include <vector>
 
@@ -24,6 +25,7 @@
 #include "handlers_protect.hpp"
 #include "handlers_update.hpp"
 #include "health.hpp"
+#include "nvs_reset.hpp"
 #include "activity.hpp"
 #include "http.hpp"
 #include "keyra/ble.hpp"
@@ -324,20 +326,12 @@ struct RestoreJob {
   json::Secret passphrase, backup;
 };
 
-// Restored passkeys must never sign with a counter below what the sites saw
-// from the Keyra the backup came from. Raised whatever the restore's outcome
-// once the backup was read: a failed one may still have added passkeys (merge)
-// or finish at the next unlock (replace), and a higher counter is always safe.
-void raiseCounter(const vault::PasskeyRestore& pk) {
-  if (pk.present && !fido::raiseCounterAfterRestore(pk.counter))
-    ESP_LOGE(TAG, "could not raise the FIDO signature counter past the backup's (%u)", unsigned(pk.counter));
-}
-
 bool commitRestoreReplace(RestoreJob& j) {
   size_t added = 0, updated = 0;
   vault::PasskeyRestore pk;
+  // A restore with passkeys raises the FIDO counter's reservation before
+  // writing anything; if it cannot, it fails with nothing changed.
   const Status st = vault::importBackup(j.passphrase.s, j.backup.s, true, &added, &updated, &pk);
-  raiseCounter(pk);
   if (st != Status::Ok) {
     ESP_LOGE(TAG, "restore(replace): %s", vault::statusName(st));
     return false;
@@ -442,6 +436,8 @@ esp_err_t getState(Ctx& c) {
   }
   netapi::addState(o.get(), c.via);
   cJSON_AddBoolToObject(o.get(), "timeValid", timeValid());
+  // Settings storage was erased at boot and no unlock has logged it yet (SPEC §5).
+  if (const auto reset = nvsreset::pending()) cJSON_AddStringToObject(o.get(), "nvsReset", nvsreset::name(*reset));
   // Reveal grace left for this session (SPEC §12.3); 0 without a session.
   cJSON_AddNumberToObject(o.get(), "graceMs",
                           c.session ? static_cast<double>(sessions().graceLeft(c.token, monoMs(), Sessions::Grace::Reveal)) : 0);
@@ -465,17 +461,33 @@ esp_err_t postSetup(Ctx& c) {
   return sendAwaitingButton(c.r, machine().tryAwaitPresence(actions::Op::Setup, [job] { return commitSetup(*job); }));
 }
 
-// A new session for this browser: `ks` cookie (+ renewed `kt` when trusted) and the CSRF token.
-// Records the unlock (and any wrong guesses before it) in the activity log;
-// returns how many wrong guesses there were, for the app to point out.
-uint32_t logUnlock(uint8_t how) {
-  const uint32_t failed = vault::failedBeforeUnlock();
-  if (failed > 0) activity::log(activity::Kind::FailedUnlocks, 0, {}, 0, failed);
+// What a successful unlock found: wrong guesses before it, and an NVS reset
+// (SPEC §5) it is the first to see.
+struct Unlocked {
+  uint32_t failed = 0;
+  std::optional<NvsErased> nvsReset;
+};
+
+// Records the unlock (an NVS reset not logged yet, and any wrong guesses
+// before it) in the activity log, and makes sure the FIDO counter has its
+// reservation in the vault (a Keyra updated from a version without one).
+Unlocked onUnlocked(uint8_t how) {
+  Unlocked u;
+  u.failed = vault::failedBeforeUnlock();
+  u.nvsReset = nvsreset::takeAtUnlock();
+  if (u.nvsReset) {
+    // The failures the vault assumed for the lost count were never tried.
+    u.failed = u.failed > vault::kFailuresAfterNvsLoss ? u.failed - vault::kFailuresAfterNvsLoss : 0;
+    activity::log(activity::Kind::NvsReset, 0, {}, *u.nvsReset == NvsErased::NewVersion ? 1 : 0);
+  }
+  if (u.failed > 0) activity::log(activity::Kind::FailedUnlocks, 0, {}, 0, u.failed);
   activity::log(activity::Kind::Unlock, 0, {}, how);
-  return failed;
+  if (!fido::secureCounter()) ESP_LOGE(TAG, "could not reserve the FIDO signature counter in the vault");
+  return u;
 }
 
-esp_err_t sendSession(httpd_req_t* r, uint32_t trustId, const std::string& ktToken, uint32_t failedBefore) {
+// A new session for this browser: `ks` cookie (+ renewed `kt` when trusted) and the CSRF token.
+esp_err_t sendSession(httpd_req_t* r, uint32_t trustId, const std::string& ktToken, const Unlocked& u) {
   const Sessions::Issued s = sessions().create(monoMs(), trustId, vault::unlockGeneration());
   if (!s.evicted.empty()) machine().cancelOwned(s.evicted);  // its button items go with it (SPEC §12.5a)
   const std::string cookie = "ks=" + s.token + "; HttpOnly; SameSite=Strict; Path=/";
@@ -484,7 +496,8 @@ esp_err_t sendSession(httpd_req_t* r, uint32_t trustId, const std::string& ktTok
   if (trustId != 0) httpd_resp_set_hdr(r, "Set-Cookie", kt.c_str());
   json::Ptr o(cJSON_CreateObject());
   cJSON_AddStringToObject(o.get(), "csrf", s.csrf.c_str());
-  cJSON_AddNumberToObject(o.get(), "failedAttempts", failedBefore);
+  cJSON_AddNumberToObject(o.get(), "failedAttempts", u.failed);
+  if (u.nvsReset) cJSON_AddStringToObject(o.get(), "nvsReset", nvsreset::name(*u.nvsReset));
   return http::sendJson(r, http::k200, o.get());
 }
 
@@ -517,7 +530,7 @@ esp_err_t postUnlock(Ctx& c) {
   }
 
   adoptClientClock(c.r);  // the right passphrase: before the unlock is logged
-  return sendSession(c.r, trustId, ktToken, logUnlock(0));
+  return sendSession(c.r, trustId, ktToken, onUnlocked(0));
 }
 
 // Forgotten passphrase (SPEC §12.2): the recovery key sets a new passphrase and
@@ -546,7 +559,7 @@ esp_err_t postUnlockRecovery(Ctx& c) {
   if (st != Status::Ok) return sendVaultError(c.r, st);
   ESP_LOGI(TAG, "unlocked with the recovery key; passphrase replaced");
   adoptClientClock(c.r);
-  return sendSession(c.r, trustId, ktToken, logUnlock(1));
+  return sendSession(c.r, trustId, ktToken, onUnlocked(1));
 }
 
 esp_err_t postLock(Ctx& c) {
@@ -1080,7 +1093,6 @@ esp_err_t postRestore(Ctx& c) {
   size_t added = 0, updated = 0;
   vault::PasskeyRestore pk;
   const Status st = vault::importBackup(job->passphrase.s, job->backup.s, false, &added, &updated, &pk);
-  raiseCounter(pk);
   if (st != Status::Ok) return sendVaultError(c.r, st);
   activity::log(activity::Kind::Restore, 0, {}, 0, static_cast<uint32_t>(added + updated));
   json::Ptr o(cJSON_CreateObject());

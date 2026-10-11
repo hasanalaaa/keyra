@@ -7,7 +7,7 @@ idf_component_register(
          "src/handlers_protect.cpp" "src/health.cpp" "src/activity.cpp" "src/activity_log.cpp"
          "src/version.cpp" "src/handlers_update.cpp" "src/tokens.cpp" "src/handlers_agent.cpp" "src/host_match.cpp"
          "src/companion.cpp"
-         "src/tags.cpp" "src/handlers_tags.cpp"
+         "src/tags.cpp" "src/handlers_tags.cpp" "src/records.cpp" "src/burn.cpp" "src/nvs_reset.cpp"
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "src"
     REQUIRES esp_common keyra_net

@@ -6,6 +6,7 @@
 #include <map>
 
 #include "core/attest.hpp"
+#include "core/counter.hpp"
 #include "core/platform.hpp"
 
 namespace keyra::fido::test {
@@ -66,6 +67,20 @@ class MemStore final : public Store {
     ++pinWrites;
     return Result::Ok;
   }
+  uint32_t reserved = 0;  // the counter reservation
+  int reserveWrites = 0;
+  bool failReserve = false;
+  Result counterReserved(uint32_t& out) override {
+    if (!open) return Result::Locked;
+    out = reserved;
+    return Result::Ok;
+  }
+  Result reserveCounter(uint32_t atLeast) override {
+    if (!open) return Result::Locked;
+    if (failReserve) return Result::Error;
+    if (atLeast > reserved) reserved = atLeast, ++reserveWrites;
+    return Result::Ok;
+  }
 };
 
 class MemAttestation final : public AttestationStore {
@@ -96,6 +111,23 @@ class MemCounter final : public Counter {
     v = ++value;
     return true;
   }
+};
+
+// NVS's copy of the signature counter (core/counter.hpp); erase() is a lost NVS partition.
+class MemCell final : public CounterCell {
+ public:
+  uint32_t value = 0;
+  bool failStore = false;
+  bool load(uint32_t& v) override {
+    v = value;
+    return true;
+  }
+  bool store(uint32_t v) override {
+    if (failStore) return false;
+    value = v;
+    return true;
+  }
+  void erase() { value = 0; }
 };
 
 class ScriptUser final : public User {

@@ -9,6 +9,7 @@
 //   upgrade_test                      runs the checks
 //   upgrade_test write030 <in> <out>  regen.sh: this version's writes, for the rollback step
 #include "common.hpp"
+#include "core/counter.hpp"
 #include "core/cred.hpp"
 #include "core/pin.hpp"
 
@@ -154,6 +155,20 @@ void upgradeReadsEverything() {
   CHECK(readEvents(again) && again.size() == want.size() + newEvents().size());
   for (size_t i = 0; i < want.size() && i < again.size(); ++i) CHECK(sameEvent(again[i], want[i]));
 
+  // 3ce814a kept the signature counter in NVS only. The first unlock on this
+  // version reserves it in the vault, so losing NVS after the update cannot
+  // send it back below what the sites have seen.
+  {
+    fido::test::MemCell nvs;
+    nvs.value = f.counter.value;
+    fido::VaultStore store;
+    fido::ReservedCounter reserved(nvs, store);
+    CHECK(reserved.secure());
+    nvs.erase();
+    uint32_t v = 0;
+    CHECK(reserved.next(v) && v > f.counter.value);
+  }
+
   // A passphrase change keeps everything (the DEK is re-wrapped, not replaced).
   CHECK(vault::changePassphrase(kPass, "a new passphrase") == vault::Status::Ok);
   reboot();
@@ -183,9 +198,14 @@ void oldBackupRestores() {
     const auto got = listAll();
     CHECK(entriesMatch(got, expectedEntries()));
     CHECK((byTitle(got, "Local only") != nullptr) == !replace);
+    // The restore reserved the counter past the backup's before writing a
+    // passkey; this new Keyra has nothing in NVS, so it starts from there.
+    uint32_t reserved = 0;
+    CHECK(vault::fidoCounterRead(reserved) == vault::Status::Ok);
     Fido f;
-    f.counter.value = fido::restoredCounter(0, pk.counter);
-    checkPasskeys(f, creds, pk.counter);
+    f.counter.value = fido::lastIssued(0, reserved);
+    CHECK(f.counter.value >= pk.counter + 1000);
+    checkPasskeys(f, creds, pk.counter + 1000);
   }
   CHECK(vault::importBackup("wrong backup passphrase", backup, true, nullptr, nullptr, nullptr) ==
         vault::Status::WrongPassphrase);

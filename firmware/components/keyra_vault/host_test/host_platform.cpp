@@ -43,11 +43,16 @@ void mem::zeroize(void* p, size_t n) { OPENSSL_cleanse(p, n); }
 
 namespace test {
 HeapStats heapStats() { return {gLive, gDirty}; }
+MemStorage& hostStorage() {
+  static MemStorage storage;
+  return storage;
+}
+void failNextWrite() { hostStorage().failAfter = 0; }
 }  // namespace test
 
 namespace detail {
 Vault& instance() {
-  static test::MemStorage storage;
+  static test::MemStorage& storage = test::hostStorage();
   static test::MemCounter counter;
   static test::OpenSslCrypto crypto;
   static test::FakeClock clock;

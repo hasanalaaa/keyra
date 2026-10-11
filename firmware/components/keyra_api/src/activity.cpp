@@ -161,6 +161,7 @@ const char* kindName(Kind k) {
     case Kind::TagRevoked: return "tag_revoked";
     case Kind::TagTapped: return "tag_tapped";
     case Kind::TagRefused: return "tag_refused";
+    case Kind::NvsReset: return "nvs_reset";
   }
   return "unknown";
 }

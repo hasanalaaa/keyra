@@ -23,11 +23,14 @@ bool ledActive();  // awaitingTouch(), or a host WINK in the last 1.5 s
 // pair is made on the next U2F registration. The signature counter stays.
 bool forgetAttestation();
 
-// Passkeys in backups (docs/research/PASSKEY-BACKUP.md): a backup stores the
-// signature counter, and after restoring one the counter is raised to at least
-// the backup's + 1000 (never lowered).
+// The signature counter (docs/FIDO.md "Counter"): NVS plus a reservation in
+// the vault, so neither an erased NVS partition nor a restore lets it go back
+// (the restore raises the reservation itself, keyra/vault.hpp). Vault unlocked.
+// signatureCounter: the last value issued, for backups. secureCounter: run at
+// every unlock, makes sure the vault holds a reservation (a Keyra updated from
+// a version without one gets it here, before NVS could be lost).
 bool signatureCounter(uint32_t& out);
-bool raiseCounterAfterRestore(uint32_t backupCounter);
+bool secureCounter();
 
 // Discoverable credentials for Settings → Passkeys (vault must be unlocked).
 struct Passkey {

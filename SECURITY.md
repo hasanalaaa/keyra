@@ -185,7 +185,10 @@ The failure counter is saved to NVS **before** the key derivation runs. After
 | 14 or more | 900 s (15 min, the cap) |
 
 A reboot restarts the full delay for the stored count, so power-cycling never
-shortens it. A correct unlock resets the counter. Rate limiting protects the
+shortens it. If the NVS partition is unusable at boot and has to be erased
+(SPEC §5, "Settings storage reset"), the count is assumed to be 14 (the
+15-minute delay) rather than 0, and the owner is told in the app and the
+activity log. A correct unlock resets the counter. Rate limiting protects the
 device's own API; it does **not** slow an attacker who copies the flash and
 runs PBKDF2 elsewhere. Only passphrase strength does.
 
@@ -346,8 +349,10 @@ exact key formats and the list of what is implemented are in
 - **Phishing.** The browser supplies the RP ID; a credential ID presented under
   another RP ID does not decrypt. Deleted passkeys stop working even if a site
   still holds their ID.
-- **Counter.** One global signature counter in NVS, written before each
-  signature, never reset.
+- **Counter.** One global signature counter, written before each signature,
+  never reset. NVS holds it; a reservation sealed in the vault is raised before
+  NVS may pass it, so an erased NVS partition does not send it back, and a
+  restore reserves past the backup's counter before any restored passkey exists.
 - **Reset.** `authenticatorReset` (within 10 s of power-up, with a press and the
   vault unlocked) deletes passkeys, removes the security key PIN and changes the
   wrapping key; factory reset destroys everything.
@@ -394,7 +399,9 @@ and cannot do:
   otherwise). Creating one needs a press; revoking needs none and withdraws
   anything it armed. Comparison is constant-time; tokens are never logged. The
   Android app keeps its token under a non-exportable Android Keystore key; the
-  extension keeps it in its own extension storage.
+  extension keeps it in its own extension storage. A stored token list this
+  firmware cannot read (a newer format after a rollback, or damage) is
+  reported, never replaced by a new empty one; the same holds for tags.
 - **Plain HTTP.** On the home network a token can be sniffed. The thief gets
   the same arm-only power — and the owner's press is still required, the
   phone shows which token asked, and the activity log records it. Revoke a

@@ -11,6 +11,8 @@ target_compile_definitions(keyra_api_host_match_test PRIVATE
 add_executable(keyra_api_companion_test companion_test.cpp ../src/companion.cpp ../src/host_match.cpp
                ../src/tokens.cpp ../src/validate.cpp)
 add_executable(keyra_api_tags_test tags_test.cpp ../src/tags.cpp ../src/tokens.cpp ../src/validate.cpp)
+add_executable(keyra_api_records_test records_test.cpp ../src/records.cpp ../src/tags.cpp ../src/tokens.cpp
+               ../src/validate.cpp)
 add_executable(keyra_api_target_test target_test.cpp ../src/target.cpp ../../keyra_ble/src/policy.cpp)
 add_executable(keyra_api_host_os_test host_os_test.cpp ../src/host_os.cpp ../../keyra_ble/src/policy.cpp)
 add_executable(keyra_api_generator_test generator_test.cpp ../src/generator.cpp)
@@ -20,15 +22,17 @@ add_executable(keyra_api_version_test version_test.cpp ../src/version.cpp)
 add_executable(keyra_api_entry_fields_test entry_fields_test.cpp)
 target_link_libraries(keyra_api_entry_fields_test PRIVATE keyra_vault_host)
 add_executable(keyra_api_typetext_test typetext_test.cpp ../src/actions.cpp ../src/validate.cpp)
+add_executable(keyra_api_seqfields_test seqfields_test.cpp)
+add_executable(keyra_api_burn_test burn_test.cpp ../src/burn.cpp)
 add_executable(keyra_api_sequence_test sequence_test.cpp ../src/actions.cpp ../src/sequence_run.cpp
                ../../keyra_hid/src/typer.cpp)
 # Bond addresses are parsed with keyra::ble::parseAddr; the target (in actions)
 # names settings::Output. keyra_ble's stub/ supplies esp_err.h for those headers.
-foreach(t actions routes target typetext sequence host_os tokens tags companion)
+foreach(t actions routes target typetext sequence seqfields burn host_os tokens tags companion records)
   target_include_directories(keyra_api_${t}_test PRIVATE ../include ../../keyra_net/include ../../keyra_ble/include
                              ../../keyra_ble/host_test/stub)
 endforeach()
-foreach(t actions sessions routes trust tokens host_match companion tags target generator health activity version typetext sequence host_os entry_fields)
+foreach(t actions sessions routes trust tokens host_match companion tags records target generator health activity version typetext sequence seqfields burn host_os entry_fields)
   target_include_directories(keyra_api_${t}_test PRIVATE ../src)
   add_test(NAME keyra_api_${t} COMMAND keyra_api_${t}_test)
 endforeach()
@@ -37,6 +41,10 @@ target_link_libraries(keyra_api_actions_test PRIVATE keyra_vault_host)
 target_link_libraries(keyra_api_typetext_test PRIVATE keyra_vault_host keyra_hid_keymap)
 # Sequences run through the real typing engine (keyra_hid) over a fake link.
 target_link_libraries(keyra_api_sequence_test PRIVATE keyra_vault_host keyra_hid_keymap)
+# Fields wipe themselves with vault::wipe.
+target_link_libraries(keyra_api_seqfields_test PRIVATE keyra_vault_host)
+# Uses are taken from the vault core over its test rig (failures injected).
+target_link_libraries(keyra_api_burn_test PRIVATE keyra_vault_host)
 # validate.cpp checks text against the keyboard layouts (keyra_hid's host library).
 target_link_libraries(keyra_api_routes_test PRIVATE keyra_hid_keymap)
 # Token names are checked with validate.cpp; the test hashes with OpenSSL (via keyra_vault_host).
@@ -45,3 +53,5 @@ target_link_libraries(keyra_api_tokens_test PRIVATE keyra_hid_keymap keyra_vault
 target_link_libraries(keyra_api_companion_test PRIVATE keyra_hid_keymap keyra_vault_host)
 # Tags verify SUN messages with AES from OpenSSL (via keyra_vault_host), names via validate.cpp.
 target_link_libraries(keyra_api_tags_test PRIVATE keyra_hid_keymap keyra_vault_host)
+# Records go through the real vault core (keyra_vault_host).
+target_link_libraries(keyra_api_records_test PRIVATE keyra_hid_keymap keyra_vault_host)

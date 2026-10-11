@@ -19,6 +19,10 @@ namespace vault = keyra::vault;
 using cbor::Value;
 using Bytes = std::vector<uint8_t>;
 
+namespace keyra::vault::test {
+void failNextWrite();  // host_platform.cpp: the vault's next write or remove fails once
+}
+
 namespace {
 
 const std::string kPass = "first device passphrase", kBackupPass = "backup pass phrase";
@@ -26,7 +30,8 @@ const std::string kPass = "first device passphrase", kBackupPass = "backup pass 
 struct Rig {
   OpenSslCrypto crypto;
   VaultStore store;
-  MemCounter counter;
+  MemCell nvs;  // the device's NVS copy; the reservation is the real vault's
+  ReservedCounter counter{nvs, store};
   ScriptUser user;  // presence always approved; the vault is already unlocked
   MemAttestation attestation;
   Authenticator auth{crypto, store, counter, attestation};
@@ -109,9 +114,9 @@ Source makeSource() {
   Rig r;
   CHECK(make(r, "resident.example", 1, true, s.resident));
   CHECK(make(r, "plain.example", 2, false, s.plain));
-  r.counter.value = 500;  // as if it had signed a lot
-  CHECK(assertWith(r, s.resident, true));
-  s.counter = r.counter.value;
+  r.nvs.value = 500;  // as if it had signed a lot
+  CHECK(assertWith(r, s.resident, true, &s.counter));
+  CHECK(s.counter == 501);
   CHECK(vault::exportBackup(kBackupPass, s.backup, true, s.counter) == vault::Status::Ok);
   return s;
 }
@@ -126,7 +131,7 @@ void restoreOnNewKeyra() {
   vault::PasskeyRestore pk;
   CHECK(vault::importBackup(kBackupPass, src.backup, true, &added, &updated, &pk) == vault::Status::Ok);
   CHECK(pk.present && pk.added == 1 && pk.counter == src.counter);
-  r.counter.value = restoredCounter(r.counter.value, pk.counter);
+  // No step of the caller's: the restore itself reserved past the backup's counter.
 
   uint32_t count = 0;
   CHECK(assertWith(r, src.plain, false, &count));
@@ -196,9 +201,34 @@ void replaceTakesTheBackups() {
 }
 
 void counterNeverGoesBack() {
-  CHECK(restoredCounter(10, 500) == 1500);
-  CHECK(restoredCounter(5000, 500) == 5000);
-  CHECK(restoredCounter(0, UINT32_MAX - 10) == UINT32_MAX);
+  CHECK(vault::fidoCounterAfterRestore(500) == 500 + 1000 + kCounterBlock);
+  CHECK(vault::fidoCounterAfterRestore(UINT32_MAX - 10) == UINT32_MAX);
+}
+
+// A restore whose counter reservation cannot be saved changes nothing: no
+// passkey of the backup can sign, so none can sign with a counter seen before.
+void restoreFailsWhenTheCounterCannotBeReserved() {
+  const Source src = makeSource();
+  CHECK(vault::factoryReset() == vault::Status::Ok && vault::setup("second device passphrase") == vault::Status::Ok);
+  Rig r;
+  Cred local;
+  CHECK(make(r, "local.example", 8, true, local));
+  for (const bool replace : {true, false}) {
+    keyra::vault::test::failNextWrite();  // the reservation
+    size_t added = 0, updated = 0;
+    vault::PasskeyRestore pk;
+    CHECK(vault::importBackup(kBackupPass, src.backup, replace, &added, &updated, &pk) ==
+          vault::Status::StorageError);
+    CHECK(added == 0 && pk.added == 0);
+    CHECK(!assertWith(r, src.plain, false) && !assertWith(r, src.resident, false));
+    CHECK(assertWith(r, local, false));
+    std::vector<vault::Entry> entries;
+    CHECK(vault::list(entries) == vault::Status::Ok && entries.empty());
+  }
+  // Once it can be saved, the restore goes through and the counter is past the backup's.
+  CHECK(vault::importBackup(kBackupPass, src.backup, false, nullptr, nullptr, nullptr) == vault::Status::Ok);
+  uint32_t count = 0;
+  CHECK(assertWith(r, src.plain, false, &count) && count > src.counter + 1000);
 }
 
 }  // namespace
@@ -209,5 +239,6 @@ int main() {
   mergeKeepsBothSets();
   replaceTakesTheBackups();
   counterNeverGoesBack();
+  restoreFailsWhenTheCounterCannotBeReserved();
   return KEYRA_TEST_RESULT();
 }

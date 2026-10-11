@@ -44,6 +44,7 @@ enum class Kind : uint8_t {
   TagRevoked = 26,
   TagTapped = 27,      // id: the entry; detail as AgentArmed
   TagRefused = 28,     // id: the tag's id; detail: 0 wrong secret or MAC, 1 replayed, 2 another chip; n: in a row
+  NvsReset = 29,       // settings storage (NVS) was erased at boot; detail: 0 no free pages, 1 newer NVS format
 };
 
 enum class LockWhy : uint8_t { Manual = 0, Idle = 1, Usb = 2, Ble = 3, Button = 4 };

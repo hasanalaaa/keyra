@@ -2,6 +2,7 @@
 
 #include <algorithm>
 
+#include "core/counter.hpp"
 #include "core/cred.hpp"
 #include "core/pin.hpp"
 #include "keyra/fido.hpp"
@@ -57,6 +58,12 @@ bool VaultStore::pinSet() { return vault::fidoPinSet(); }
 Store::Result VaultStore::pinRead(std::vector<uint8_t>& out) { return from(vault::fidoPinRead(out)); }
 
 Store::Result VaultStore::pinWrite(const std::vector<uint8_t>& data) { return from(vault::fidoPinWrite(data)); }
+
+static_assert(kCounterBlock == vault::kFidoCounterBlock, "one block size");
+
+Store::Result VaultStore::counterReserved(uint32_t& out) { return from(vault::fidoCounterRead(out)); }
+
+Store::Result VaultStore::reserveCounter(uint32_t atLeast) { return from(vault::fidoCounterRaise(atLeast)); }
 
 // ---- keyra/fido.hpp: Settings → Passkeys -----------------------------------
 

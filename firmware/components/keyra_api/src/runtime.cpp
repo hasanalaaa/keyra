@@ -7,6 +7,7 @@
 #include <mutex>
 
 #include "clock.hpp"
+#include "burn.hpp"
 #include "handlers_kbd.hpp"
 #include "sequence_run.hpp"
 #include "esp_log.h"
@@ -100,22 +101,22 @@ class HidKeys final : public seqrun::Keys {
   const hid::Options& o_;
 };
 
-Code runSequence(const actions::TypeRequest& job, const vault::Entry& e, const hid::Options& o) {
-  seqrun::Fields f;
+// checkOnly: the whole sequence is checked and nothing is typed.
+Code runSequence(const actions::TypeRequest& job, const vault::Entry& e, const hid::Options& o, bool checkOnly) {
+  seqrun::Fields f;  // wiped on every return
   f.username = e.username;
   f.password = e.password;
-  char code[11] = {};
   if (seqrun::needs(*job.seq).totp) {
-    if (!timeValid() || !totp::code(e.totp, unixMs() / 1000, code, nullptr, nullptr)) return Code::Failed;
-    f.totp = code;
+    char code[11] = {};
+    const bool ok = timeValid() && totp::code(e.totp, unixMs() / 1000, code, nullptr, nullptr);
+    if (ok) f.totp = code;
     std::memset(code, 0, sizeof code);
+    if (!ok) return Code::Failed;
   }
   HidKeys keys(o);
+  if (checkOnly) return seqrun::checkAll(*job.seq, f, keys);
   Code c = job.part == 0 ? seqrun::checkAll(*job.seq, f, keys) : Code::Typed;
   if (c == Code::Typed) c = seqrun::runPart(*job.seq, job.part, f, keys);
-  vault::wipe(f.username);
-  vault::wipe(f.password);
-  vault::wipe(f.totp);
   return c;
 }
 
@@ -140,47 +141,69 @@ Code typeJob(const actions::TypeRequest& job, const settings::Settings& s, const
   vault::Entry e;
   if (vault::get(job.id, e) != vault::Status::Ok) return Code::Failed;
   if (actions::entryChanged(job, e.revision)) { vault::wipe(e); return Code::EntryChanged; }  // edited since armed
-  Code c = Code::Failed;
-  switch (job.what) {
-    case What::Username: c = typeOne(e.username, o); break;
-    case What::Password: c = typeOne(e.password, o); break;
-    case What::Both:
-      if (!hid::typeable(e.username, o) || !hid::typeable(e.password, o)) {
-        c = Code::UnsupportedChar;
+  // Only typing the password uses up a "delete after typing" entry (SPEC §16);
+  // a sequence counts once, when its last part is typed.
+  const bool lastPart = job.seq && job.part + 1 >= job.seq->parts;
+  const bool password = job.what == What::Password || job.what == What::Both ||
+                        (job.what == What::Sequence && lastPart);
+  const int64_t now = unixSecondsOrZero();
+  // What typeOne would refuse before its first key: such a typing uses nothing.
+  auto ready = [&o](const std::string& t) {
+    return t.empty() ? Code::Failed : hid::typeable(t, o) ? Code::Typed : Code::UnsupportedChar;
+  };
+  auto check = [&]() -> Code {
+    switch (job.what) {
+      case What::Password: return ready(e.password);
+      case What::Both: {
+        const Code u = ready(e.username);
+        return u == Code::Typed ? ready(e.password) : u;
+      }
+      case What::Sequence: return job.seq ? runSequence(job, e, o, true) : Code::Failed;
+      default: return Code::Typed;
+    }
+  };
+  auto type = [&]() -> Code {
+    Code c = Code::Failed;
+    switch (job.what) {
+      case What::Username: c = typeOne(e.username, o); break;
+      case What::Password: c = typeOne(e.password, o); break;
+      case What::Both:
+        if (!hid::typeable(e.username, o) || !hid::typeable(e.password, o)) {
+          c = Code::UnsupportedChar;
+          break;
+        }
+        c = typeOne(e.username, o);
+        if (c == Code::Typed)
+          c = fromHid(hid::tapKey(s.bothSeparator == settings::Separator::Enter ? hid::KEY_ENTER : hid::KEY_TAB, o), o);
+        if (c == Code::Typed) c = typeOne(e.password, o);
+        break;
+      case What::Totp: {
+        char code[11] = {};
+        if (timeValid() && totp::code(e.totp, unixMs() / 1000, code, nullptr, nullptr)) c = typeOne(code, o);
+        std::memset(code, 0, sizeof code);
         break;
       }
-      c = typeOne(e.username, o);
-      if (c == Code::Typed)
-        c = fromHid(hid::tapKey(s.bothSeparator == settings::Separator::Enter ? hid::KEY_ENTER : hid::KEY_TAB, o), o);
-      if (c == Code::Typed) c = typeOne(e.password, o);
-      break;
-    case What::Totp: {
-      char code[11] = {};
-      if (timeValid() && totp::code(e.totp, unixMs() / 1000, code, nullptr, nullptr)) c = typeOne(code, o);
-      std::memset(code, 0, sizeof code);
-      break;
+      case What::Sequence: c = job.seq ? runSequence(job, e, o, false) : Code::Failed; break;
+      case What::Test:
+      case What::Text:
+      case What::Probe: break;
     }
-    case What::Sequence: c = job.seq ? runSequence(job, e, o) : Code::Failed; break;
-    case What::Test:
-    case What::Text:
-    case What::Probe: break;
-  }
+    return c;
+  };
+  burn::Counted counted;
+  Code c = burn::typeCounted(
+      password && e.burnAfter > 0, [&](bool* burned) { return vault::touch(job.id, now, true, burned); }, check, type,
+      counted);
   const std::string title = e.title;
   vault::wipe(e);
-  if (c == Code::Typed && job.submit) c = fromHid(hid::tapKey(hid::KEY_ENTER, o), o);
-  if (c == Code::Typed) {
-    // Only typing the password uses up a "delete after typing" entry (SPEC §16);
-    // a sequence counts once, when its last part is typed.
-    const bool lastPart = job.seq && job.part + 1 >= job.seq->parts;
-    const bool password = job.what == What::Password || job.what == What::Both ||
-                          (job.what == What::Sequence && lastPart);
-    bool burned = false;
-    if (vault::touch(job.id, unixSecondsOrZero(), password, &burned) != vault::Status::Ok) ESP_LOGW(TAG, "touch failed");
-    if (burned) {
-      ESP_LOGI(TAG, "entry deleted after its last allowed use");
-      activity::log(activity::Kind::EntryBurned, job.id, title);
-    }
+  if (counted.burned) {
+    ESP_LOGI(TAG, "entry deleted: its last allowed use is being typed");
+    activity::log(activity::Kind::EntryBurned, job.id, title);
   }
+  if (c == Code::Typed && job.submit) c = fromHid(hid::tapKey(hid::KEY_ENTER, o), o);
+  // lastUsed only; a counted typing recorded it with the use.
+  if (c == Code::Typed && !counted.used && vault::touch(job.id, now, false, nullptr) != vault::Status::Ok)
+    ESP_LOGW(TAG, "could not record the last use");
   return c;
 }
 

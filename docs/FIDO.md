@@ -35,7 +35,7 @@ answered "conditions not satisfied" so the browser keeps retrying.
 | Attestation | **Self attestation** (`packed`, no certificate) for CTAP2. U2F registration needs a certificate, so each Keyra makes its own P-256 attestation key on first use (hardware RNG) and a self-signed X.509 certificate for it, both kept in NVS and replaced by a factory reset. It identifies only "this Keyra" and is not certified. |
 | AAGUID | `b722a2aa-5acc-4835-9c91-5fa93812679d` (random, fixed for every Keyra). |
 | Discoverable credentials | Up to **50**, listed and deletable in the web app (Settings → Passkeys). |
-| Signature counter | One global counter in NVS, incremented before every signature. It never goes backwards, also not across a factory reset. |
+| Signature counter | One global counter, incremented and saved before every signature: NVS plus a reservation in the vault (below). It never goes backwards, also not across a factory reset, a lost NVS partition or a restore. |
 
 ### User presence and user verification
 
@@ -170,9 +170,18 @@ unlocked. A flash dump without the passphrase reveals no credential key.
   (U2F, `rk:false`) credentials work there: `merge` adds them next to the ones
   it has, `replace` makes them the backup's (a backup without passkeys leaves
   them alone). A restore that would pass 4 wrapping keys or 50 passkeys is
-  refused before anything changes. The signature counter is raised to at least
-  the backup's + 1000. Anyone with the backup file and its passphrase can use
-  these passkeys, just as they can read every password in it.
+  refused before anything changes. Before any passkey is written the counter
+  reservation is raised past the backup's counter + 1000 (and if it cannot be
+  saved, the restore fails with nothing changed), so a restored passkey never
+  signs with a counter its sites have seen. Anyone with the backup file and its
+  passphrase can use these passkeys, just as they can read every password in it.
+- **Counter.** NVS holds the last value issued. The vault holds a reservation
+  (`fidoctr.bin`, sealed with the DEK, a u32), raised 1024 values at a time
+  before NVS may pass it: one vault write per 1024 signatures. While NVS lies in
+  the newest block it is used; lower (the NVS partition was erased at boot, or
+  a restore raised the reservation) the counter carries on from the
+  reservation. Every unlock creates one if there is none. Code:
+  `src/core/counter.cpp`.
 
 ## Honest limits
 

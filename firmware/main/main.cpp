@@ -1,4 +1,6 @@
 // Boot wiring only (SPEC §4): bring components up in dependency order.
+#include <optional>
+
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "keyra/ble.hpp"
@@ -22,22 +24,36 @@ constexpr bool kDevCdc = true;
 constexpr bool kDevCdc = false;
 #endif
 
-void initNvs() {
+// Settings, Bluetooth bonds, trusted browsers, the unlock-failure count and
+// the FIDO counter's NVS copy live in NVS; nothing boots without it. When the
+// partition itself is unusable (full, or written by a newer NVS format) it is
+// erased, never silently (SPEC §5 "Settings storage reset"): the vault assumes
+// the longest unlock delay, the FIDO counter carries on from its vault
+// reservation, and the owner is told in /api/state and the activity log.
+// Vault data lives in LittleFS and is unaffected. Returns why, if erased.
+std::optional<keyra::api::NvsErased> initNvs() {
   esp_err_t err = nvs_flash_init();
+  std::optional<keyra::api::NvsErased> erased;
   if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-    // The NVS layout itself is unusable (not just a missing key): start clean
-    // rather than boot-loop. Vault data lives in LittleFS and is unaffected.
-    ESP_LOGW(TAG, "NVS unusable (%s); erasing", esp_err_to_name(err));
+    ESP_LOGE(TAG, "NVS unusable (%s); erasing it", esp_err_to_name(err));
+    erased = err == ESP_ERR_NVS_NEW_VERSION_FOUND ? keyra::api::NvsErased::NewVersion
+                                                   : keyra::api::NvsErased::NoFreePages;
     ESP_ERROR_CHECK(nvs_flash_erase());
     err = nvs_flash_init();
   }
   ESP_ERROR_CHECK(err);
+  return erased;
 }
 
 }  // namespace
 
 extern "C" void app_main() {
-  initNvs();
+  const auto nvsErased = initNvs();
+  if (nvsErased) {
+    keyra::api::nvsErased(*nvsErased);
+    const keyra::vault::Status es = keyra::vault::nvsErased();
+    if (es != keyra::vault::Status::Ok) ESP_LOGE(TAG, "keeping the unlock delay: %s", keyra::vault::statusName(es));
+  }
   keyra::io::init();
   // A vault that fails to mount must not stop the device: the API reports it and
   // factory reset (button-gated) stays reachable.
