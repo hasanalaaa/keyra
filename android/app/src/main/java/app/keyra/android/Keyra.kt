@@ -9,6 +9,7 @@ import app.keyra.android.api.ApiException
 import app.keyra.android.api.ConnectionOpener
 import app.keyra.android.api.KeyraApi
 import app.keyra.android.store.appStore
+import app.keyra.android.ui.ResultMessages
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.util.concurrent.ExecutorService
@@ -49,17 +50,7 @@ object Keyra {
     }
 
     fun message(context: Context, e: Throwable): String = when (e) {
-        is ApiException -> when (e.code) {
-            "locked" -> context.getString(R.string.err_locked)
-            "invalid_token" -> context.getString(R.string.err_invalid_token)
-            "busy" -> context.getString(R.string.err_busy)
-            "rate_limited" -> context.getString(R.string.err_rate_limited, ((e.retryAfterMs + 999) / 1000).toInt().coerceAtLeast(1))
-            "not_found" -> context.getString(R.string.err_not_found)
-            "forbidden" -> context.getString(R.string.err_forbidden)
-            "no_time" -> context.getString(R.string.err_no_time)
-            "not_cancelled" -> context.getString(R.string.err_not_cancelled)
-            else -> context.getString(R.string.err_other, e.message ?: e.code)
-        }
+        is ApiException -> ResultMessages.text(context, e.code, e.retryAfterMs)
         is IOException -> context.getString(R.string.err_unreachable)
         else -> context.getString(R.string.err_other, e.message ?: e.javaClass.simpleName)
     }

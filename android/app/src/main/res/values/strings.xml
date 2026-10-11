@@ -52,13 +52,15 @@
     <string name="press_title">Press Keyra\'s button</string>
     <string name="press_body_type">Put the cursor in the field on the device Keyra types into, then press the button.</string>
     <string name="press_body_save">Keyra saves this login when you press its button.</string>
-    <string name="seconds_left">%1$d s left</string>
+    <plurals name="seconds_left">
+        <item quantity="one">%1$d second left</item>
+        <item quantity="other">%1$d seconds left</item>
+    </plurals>
     <string name="state_waiting">Keyra is connecting or working…</string>
     <string name="state_typed">Typed.</string>
     <string name="state_saved">Saved to Keyra.</string>
     <string name="state_cancelled">Cancelled. Nothing was typed or saved.</string>
     <string name="state_expired">Time ran out. Nothing was typed or saved.</string>
-    <string name="state_failed">Keyra could not finish (%1$s).</string>
     <string name="state_unknown">Lost contact with Keyra. Check Keyra itself for the result.</string>
     <string name="cancel">Cancel</string>
     <string name="close">Close</string>
@@ -68,17 +70,37 @@
     <string name="err_locked">Keyra is locked. Unlock it in its web app, then try again.</string>
     <string name="err_invalid_token">Keyra does not accept this token. It may have been revoked: create a new one in Keyra\'s web app.</string>
     <string name="err_busy">Keyra is waiting for another request. Long-press its button to cancel that request.</string>
-    <string name="err_rate_limited">Too many requests. Try again in %1$d s.</string>
+    <plurals name="err_rate_limited">
+        <item quantity="one">Too many requests. Try again in %1$d second.</item>
+        <item quantity="other">Too many requests. Try again in %1$d seconds.</item>
+    </plurals>
     <string name="err_not_found">This login is not available to this token.</string>
     <string name="err_forbidden">This token cannot do that. Create a token of the kind \"App\".</string>
     <string name="err_no_time">Keyra\'s clock is not set, so it cannot make a 2FA code yet.</string>
-    <string name="err_not_cancelled">Nothing was waiting.</string>
+    <string name="err_not_cancelled">No request of yours is waiting for the button.</string>
+    <string name="err_entry_changed">This account changed after you asked. Nothing was typed; request it again.</string>
+    <string name="err_no_usb">Keyra is not connected to the computer by USB. Connect it and try again.</string>
+    <string name="err_no_host">No paired Bluetooth device connected in time. Check that it is nearby and Bluetooth is on, then try again.</string>
+    <string name="err_host_changed">Keyra was disconnected or the computer went to sleep before the press. Nothing was typed; try again.</string>
+    <string name="err_unsupported_char">This login contains a character Keyra cannot type with the selected keyboard layout. Change the layout or edit the login.</string>
+    <string name="err_failed">Keyra could not finish. Check the device and try again.</string>
+    <string name="err_unsupported_format">This record was saved by a newer Keyra version. Update Keyra to read it.</string>
+    <string name="err_corrupt">Keyra cannot read this record because it is damaged. Check Keyra’s web app; do not overwrite it.</string>
+    <string name="err_invalid">Keyra rejected this request. Check its fields and try again.</string>
+    <string name="err_host_mismatch">This login does not match the current site. Choose it explicitly in Keyra.</string>
+    <string name="err_too_large">This request is too large for Keyra.</string>
+    <string name="err_method_not_allowed">This action is not supported by Keyra. Check its firmware version.</string>
+    <string name="err_full">Keyra has no room for another account.</string>
+    <string name="err_csrf">Keyra rejected this request for security reasons. Reconnect and try again.</string>
+    <string name="account_row">%1$s, %2$s. Choose account</string>
+    <string name="pin_remove_row">%1$s. Tap to remove this remembered choice.</string>
     <string name="err_other">Keyra answered: %1$s</string>
     <string name="not_set_up">Set up the connection to Keyra first.</string>
 
     <!-- Generate -->
     <string name="gen_title">Generate password</string>
     <string name="gen_length">Length: %1$d</string>
+    <string name="gen_length_slider">Password length</string>
     <string name="gen_lower">Lowercase letters (a–z)</string>
     <string name="gen_upper">Capital letters (A–Z)</string>
     <string name="gen_digits">Digits (0–9)</string>

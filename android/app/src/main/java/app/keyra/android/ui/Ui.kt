@@ -38,7 +38,7 @@ fun statusText(context: Context, s: AgentStatus): String = when (s.state) {
     State.SAVED -> context.getString(R.string.state_saved)
     State.CANCELLED -> context.getString(R.string.state_cancelled)
     State.EXPIRED -> context.getString(R.string.state_expired)
-    State.FAILED -> context.getString(R.string.state_failed, s.code ?: "?")
+    State.FAILED -> s.code?.let { ResultMessages.text(context, it) } ?: context.getString(R.string.err_failed)
     State.WAITING -> context.getString(R.string.state_waiting)
     State.ARMED, State.NONE -> context.getString(R.string.press_title)
 }
@@ -71,17 +71,20 @@ class EntryAdapter(private val context: Context) : BaseAdapter() {
     override fun getItemId(position: Int) = shown[position].id
 
     override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
-        val v = convertView ?: LayoutInflater.from(context).inflate(android.R.layout.simple_list_item_2, parent, false)
+        val v = convertView ?: LayoutInflater.from(context).inflate(R.layout.entry_item, parent, false)
         val e = shown[position]
+        v.contentDescription = context.getString(R.string.account_row, e.title, e.host)
         // Align both lines to the layout's start, whatever script the title is in.
         v.findViewById<TextView>(android.R.id.text1).apply {
             text = e.title
             textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
         v.findViewById<TextView>(android.R.id.text2).apply {
             text = e.host
             textDirection = View.TEXT_DIRECTION_LTR
             textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
         return v
     }
@@ -115,5 +118,6 @@ class PressPanel(root: View) {
         body.text = ""
         title.text = text
         button.setText(R.string.close)
+        button.contentDescription = button.text
     }
 }

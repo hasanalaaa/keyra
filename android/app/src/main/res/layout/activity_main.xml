@@ -24,14 +24,17 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center"
+        android:accessibilityLiveRegion="polite"
         android:padding="24dp"
         android:visibility="gone" />
 
     <Button
         android:id="@+id/retry"
+        android:minHeight="48dp"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center_horizontal"
+        android:contentDescription="@string/retry"
         android:text="@string/retry"
         android:visibility="gone" />
 

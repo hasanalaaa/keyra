@@ -17,6 +17,8 @@ import app.keyra.android.match.HostMatcher
 import app.keyra.android.match.Target
 import app.keyra.android.ui.PressPanel
 import app.keyra.android.ui.PressWaiter
+import app.keyra.android.ui.ResultMessages
+import app.keyra.android.ui.fitSystemBars
 import app.keyra.android.ui.statusText
 import java.security.GeneralSecurityException
 
@@ -37,6 +39,7 @@ class SaveActivity : Activity(), PressWaiter.Listener {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         setContentView(R.layout.activity_save)
+        fitSystemBars(findViewById(R.id.root))
         setTitle(R.string.save_title)
         panel = PressPanel(findViewById(R.id.root))
         panel.panel.visibility = View.GONE
@@ -104,11 +107,16 @@ class SaveActivity : Activity(), PressWaiter.Listener {
     }
 
     override fun onTick(secondsLeft: Int) {
-        panel.countdown.text = getString(R.string.seconds_left, secondsLeft)
+        panel.countdown.text = resources.getQuantityString(R.plurals.seconds_left, secondsLeft, secondsLeft)
     }
 
     override fun onStatus(status: AgentStatus) {
-        panel.title.text = statusText(this, status)
+        val text = statusText(this, status)
+        if (panel.title.text != text) panel.title.text = text
+    }
+
+    override fun onRateLimited(retryAfterMs: Long) {
+        panel.title.text = ResultMessages.text(this, "rate_limited", retryAfterMs)
     }
 
     override fun onFinished(status: AgentStatus?, error: Throwable?) {

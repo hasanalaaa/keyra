@@ -43,13 +43,12 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal">
+            android:orientation="vertical">
 
             <EditText
                 android:id="@+id/token"
-                android:layout_width="0dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
                 android:fontFamily="monospace"
                 android:hint="@string/token_hint"
                 android:importantForAutofill="no"
@@ -60,8 +59,10 @@
             <Button
                 android:id="@+id/paste"
                 style="?android:attr/borderlessButtonStyle"
-                android:layout_width="wrap_content"
+                android:minHeight="48dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:contentDescription="@string/paste"
                 android:text="@string/paste" />
         </LinearLayout>
 
@@ -85,35 +86,41 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
+            android:accessibilityLiveRegion="polite"
             android:visibility="gone" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:gravity="end"
-            android:orientation="horizontal"
+            android:orientation="vertical"
             tools:ignore="ButtonStyle">
 
             <Button
                 android:id="@+id/test"
                 style="?android:attr/borderlessButtonStyle"
-                android:layout_width="wrap_content"
+                android:minHeight="48dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:contentDescription="@string/test_connection"
                 android:text="@string/test_connection" />
 
             <Button
                 android:id="@+id/save"
-                android:layout_width="wrap_content"
+                android:minHeight="48dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:contentDescription="@string/save"
                 android:text="@string/save" />
         </LinearLayout>
 
         <Button
             android:id="@+id/enable_autofill"
+            android:minHeight="48dp"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
+            android:contentDescription="@string/enable_autofill"
             android:text="@string/enable_autofill" />
 
         <TextView
@@ -146,9 +153,11 @@
         <Button
             android:id="@+id/disconnect"
             style="?android:attr/borderlessButtonStyle"
+            android:minHeight="48dp"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
+            android:contentDescription="@string/disconnect"
             android:text="@string/disconnect"
             android:textColor="@color/danger" />
     </LinearLayout>

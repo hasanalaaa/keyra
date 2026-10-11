@@ -15,6 +15,7 @@ class PressWaiter(private val api: KeyraApi, private val listener: Listener) {
     interface Listener {
         fun onTick(secondsLeft: Int)
         fun onStatus(status: AgentStatus)
+        fun onRateLimited(retryAfterMs: Long)
         /** [status] is null when Keyra could not be asked any more ([error] says why). */
         fun onFinished(status: AgentStatus?, error: Throwable?)
     }
@@ -61,7 +62,10 @@ class PressWaiter(private val api: KeyraApi, private val listener: Listener) {
                 }
             }.onFailure { e ->
                 when {
-                    e is ApiException && e.code == "rate_limited" -> Keyra.main.postDelayed(poll, maxOf(POLL_MS, e.retryAfterMs))
+                    e is ApiException && e.code == "rate_limited" -> {
+                        listener.onRateLimited(e.retryAfterMs)
+                        Keyra.main.postDelayed(poll, maxOf(POLL_MS, e.retryAfterMs))
+                    }
                     // Wi-Fi hiccups are common while Keyra types over Bluetooth; keep trying until the deadline.
                     e is ApiException || late -> finish(null, e)
                     else -> Keyra.main.postDelayed(poll, POLL_MS)

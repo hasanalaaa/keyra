@@ -74,6 +74,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
+                android:accessibilityLiveRegion="polite"
                 android:textColor="@color/danger"
                 android:visibility="gone" />
 
@@ -81,21 +82,24 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
-                android:gravity="end"
-                android:orientation="horizontal"
+                android:orientation="vertical"
                 tools:ignore="ButtonStyle">
 
                 <Button
                     android:id="@+id/dismiss"
                     style="?android:attr/borderlessButtonStyle"
-                    android:layout_width="wrap_content"
+                    android:minHeight="48dp"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:contentDescription="@string/cancel"
                     android:text="@string/cancel" />
 
                 <Button
                     android:id="@+id/save"
-                    android:layout_width="wrap_content"
+                    android:minHeight="48dp"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:contentDescription="@string/save_button"
                     android:text="@string/save_button" />
             </LinearLayout>
         </LinearLayout>

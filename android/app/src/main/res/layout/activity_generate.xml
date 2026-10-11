@@ -24,6 +24,7 @@
             android:id="@+id/length"
             android:layout_width="match_parent"
             android:layout_height="48dp"
+            android:contentDescription="@string/gen_length_slider"
             android:max="56" />
 
         <CheckBox
@@ -32,6 +33,7 @@
             android:layout_height="wrap_content"
             android:checked="true"
             android:minHeight="48dp"
+            android:contentDescription="@string/gen_lower"
             android:text="@string/gen_lower" />
 
         <CheckBox
@@ -40,6 +42,7 @@
             android:layout_height="wrap_content"
             android:checked="true"
             android:minHeight="48dp"
+            android:contentDescription="@string/gen_upper"
             android:text="@string/gen_upper" />
 
         <CheckBox
@@ -48,6 +51,7 @@
             android:layout_height="wrap_content"
             android:checked="true"
             android:minHeight="48dp"
+            android:contentDescription="@string/gen_digits"
             android:text="@string/gen_digits" />
 
         <CheckBox
@@ -56,6 +60,7 @@
             android:layout_height="wrap_content"
             android:checked="true"
             android:minHeight="48dp"
+            android:contentDescription="@string/gen_symbols"
             android:text="@string/gen_symbols" />
 
         <CheckBox
@@ -63,13 +68,16 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:minHeight="48dp"
+            android:contentDescription="@string/gen_avoid"
             android:text="@string/gen_avoid" />
 
         <Button
             android:id="@+id/generate"
+            android:minHeight="48dp"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
+            android:contentDescription="@string/gen_button"
             android:text="@string/gen_button" />
 
         <TextView
@@ -85,10 +93,12 @@
         <Button
             android:id="@+id/copy"
             style="?android:attr/borderlessButtonStyle"
+            android:minHeight="48dp"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center_horizontal"
             android:enabled="false"
+            android:contentDescription="@string/copy"
             android:text="@string/copy" />
 
         <TextView
@@ -96,6 +106,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center"
+            android:accessibilityLiveRegion="polite"
             android:visibility="gone" />
 
         <TextView
