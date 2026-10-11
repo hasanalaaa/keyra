@@ -21,15 +21,16 @@ add_executable(keyra_api_activity_test activity_test.cpp ../src/activity.cpp)
 add_executable(keyra_api_version_test version_test.cpp ../src/version.cpp)
 add_executable(keyra_api_typetext_test typetext_test.cpp ../src/actions.cpp ../src/validate.cpp)
 add_executable(keyra_api_seqfields_test seqfields_test.cpp)
+add_executable(keyra_api_burn_test burn_test.cpp ../src/burn.cpp)
 add_executable(keyra_api_sequence_test sequence_test.cpp ../src/actions.cpp ../src/sequence_run.cpp
                ../../keyra_hid/src/typer.cpp)
 # Bond addresses are parsed with keyra::ble::parseAddr; the target (in actions)
 # names settings::Output. keyra_ble's stub/ supplies esp_err.h for those headers.
-foreach(t actions routes target typetext sequence seqfields host_os tokens tags companion records)
+foreach(t actions routes target typetext sequence seqfields burn host_os tokens tags companion records)
   target_include_directories(keyra_api_${t}_test PRIVATE ../include ../../keyra_net/include ../../keyra_ble/include
                              ../../keyra_ble/host_test/stub)
 endforeach()
-foreach(t actions sessions routes trust tokens host_match companion tags records target generator health activity version typetext sequence seqfields host_os)
+foreach(t actions sessions routes trust tokens host_match companion tags records target generator health activity version typetext sequence seqfields burn host_os)
   target_include_directories(keyra_api_${t}_test PRIVATE ../src)
   add_test(NAME keyra_api_${t} COMMAND keyra_api_${t}_test)
 endforeach()
@@ -40,6 +41,8 @@ target_link_libraries(keyra_api_typetext_test PRIVATE keyra_vault_host keyra_hid
 target_link_libraries(keyra_api_sequence_test PRIVATE keyra_vault_host keyra_hid_keymap)
 # Fields wipe themselves with vault::wipe.
 target_link_libraries(keyra_api_seqfields_test PRIVATE keyra_vault_host)
+# Uses are taken from the vault core over its test rig (failures injected).
+target_link_libraries(keyra_api_burn_test PRIVATE keyra_vault_host)
 # validate.cpp checks text against the keyboard layouts (keyra_hid's host library).
 target_link_libraries(keyra_api_routes_test PRIVATE keyra_hid_keymap)
 # Token names are checked with validate.cpp; the test hashes with OpenSSL (via keyra_vault_host).
