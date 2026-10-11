@@ -19,20 +19,39 @@ export interface Match {
   rank: number; // 0 title prefix, 1 word prefix, 2 substring (title), 3 other fields
 }
 
+interface Keys {
+  title: string;
+  words: string[];
+  other: string; // host and username
+}
+
+// Normalized once per entry object (a reload brings new objects, and the old keys go with them):
+// with thousands of accounts, normalizing on every keystroke and in every sort comparison dominated.
+const keyCache = new WeakMap<EntrySummary, Keys>();
+function keysOf(e: EntrySummary): Keys {
+  let k = keyCache.get(e);
+  if (!k) {
+    const title = normalize(e.title);
+    k = { title, words: title.split(/[\s\-_.@]+/), other: `${normalize(hostOf(e.url))}\u0000${normalize(e.username)}` };
+    keyCache.set(e, k);
+  }
+  return k;
+}
+
 export function search(entries: EntrySummary[], q: string): Match[] {
   const nq = normalize(q.trim());
   if (!nq) return [];
   const out: Match[] = [];
   for (const e of entries) {
-    const title = normalize(e.title);
+    const k = keysOf(e);
     let rank = -1;
-    if (title.startsWith(nq)) rank = 0;
-    else if (title.split(/[\s\-_.@]+/).some((w) => w.startsWith(nq))) rank = 1;
-    else if (title.includes(nq)) rank = 2;
-    else if (normalize(hostOf(e.url)).includes(nq) || normalize(e.username).includes(nq)) rank = 3;
+    if (k.title.startsWith(nq)) rank = 0;
+    else if (k.words.some((w) => w.startsWith(nq))) rank = 1;
+    else if (k.title.includes(nq)) rank = 2;
+    else if (k.other.includes(nq)) rank = 3;
     if (rank >= 0) out.push({ entry: e, rank });
   }
-  return out.sort((a, b) => a.rank - b.rank || compareTitles(a.entry.title, b.entry.title));
+  return out.sort((a, b) => a.rank - b.rank || collator.compare(keysOf(a.entry).title, keysOf(b.entry).title));
 }
 
 /**
@@ -74,7 +93,7 @@ export const compareTitles = (a: string, b: string): number => collator.compare(
 /** Groups for the "All" section, ordered by script: UI language first, then the other, then "#". */
 export function groupByLetter(entries: EntrySummary[], lang: Lang): { letter: string; items: EntrySummary[] }[] {
   const map = new Map<string, EntrySummary[]>();
-  for (const e of [...entries].sort((a, b) => compareTitles(a.title, b.title))) {
+  for (const e of [...entries].sort((a, b) => collator.compare(keysOf(a).title, keysOf(b).title))) {
     const l = letterOf(e.title);
     const list = map.get(l);
     if (list) list.push(e);
