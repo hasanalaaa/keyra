@@ -20,6 +20,7 @@ Status unlock(const std::string& passphrase, uint32_t* retryAfterMs) {
 }
 void lock() { detail::instance().lock(); }
 Status list(std::vector<Entry>& out) { return detail::instance().list(out); }
+Status forEach(const std::function<bool(const Entry&)>& fn) { return detail::instance().forEach(fn); }
 Status get(uint32_t id, Entry& out) { return detail::instance().get(id, out); }
 Status put(Entry& e) { return detail::instance().put(e); }
 Status remove(uint32_t id) { return detail::instance().remove(id); }

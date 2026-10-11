@@ -7,6 +7,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -60,6 +61,12 @@ Status setup(const std::string& passphrase);  // creates meta + empty vault, lea
 Status unlock(const std::string& passphrase, uint32_t* retryAfterMs);
 void lock();  // wipes keys + decrypted entries
 Status list(std::vector<Entry>& out);  // passwords/totp included; callers strip
+// Calls fn with each entry in list() order, one decoded copy at a time (wiped
+// afterwards), so a caller that keeps a little of each never holds the whole
+// vault in RAM twice (docs/research/CAPACITY.md). fn returns false to stop.
+// The vault is locked while fn runs: fn must be quick and must not call back
+// into the vault. Corrupt as soon as one entry does not decode.
+Status forEach(const std::function<bool(const Entry&)>& fn);
 Status get(uint32_t id, Entry& out);
 // id==0 → create (assigns e.id); else update an existing entry (NotFound otherwise).
 // The vault has no wall clock: timestamps are stored as the caller sets them,

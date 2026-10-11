@@ -108,6 +108,7 @@ class Vault {
   Status unlock(const std::string& passphrase, uint32_t* retryAfterMs);
   void lock();
   Status list(std::vector<Entry>& out);
+  Status forEach(const std::function<bool(const Entry&)>& fn);
   Status get(uint32_t id, Entry& out);
   Status put(Entry& e);
   Status remove(uint32_t id);

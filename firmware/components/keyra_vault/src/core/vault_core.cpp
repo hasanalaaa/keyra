@@ -615,6 +615,22 @@ Status Vault::list(std::vector<Entry>& out) {
   return Status::Ok;
 }
 
+Status Vault::forEach(const std::function<bool(const Entry&)>& fn) {
+  std::lock_guard<std::mutex> g(m_);
+  if (Status s = requireUnlocked(); s != Status::Ok) return s;
+  for (const auto& slot : slots_) {
+    // A fresh copy each time: reusing one would let a longer field reallocate
+    // and free the previous entry's buffer unwiped.
+    Entry e;
+    const bool ok = codec::decode(slot.plain.data(), slot.plain.size(), e);
+    const bool more = ok && fn(e);
+    wipe(e);
+    if (!ok) return Status::Corrupt;
+    if (!more) break;
+  }
+  return Status::Ok;
+}
+
 Status Vault::get(uint32_t id, Entry& out) {
   std::lock_guard<std::mutex> g(m_);
   if (Status s = requireUnlocked(); s != Status::Ok) return s;

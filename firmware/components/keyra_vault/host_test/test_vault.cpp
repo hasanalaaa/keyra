@@ -166,6 +166,39 @@ TEST(crud) {
   CHECK(v.touch(a.id, 1, false, nullptr) == Status::Locked);
 }
 
+TEST(for_each_matches_list) {
+  auto r = Rig::ready();
+  Vault& v = *r->v;
+  for (const char* t : {"alpha", "beta", "gamma"}) {
+    Entry e = sample(t);
+    CHECK(v.put(e) == Status::Ok);
+  }
+  std::vector<Entry> all;
+  CHECK(v.list(all) == Status::Ok && all.size() == 3);
+  Entry changed = all[1];
+  changed.password = "rotated";
+  changed.updated = 1700000100;
+  CHECK(v.put(changed) == Status::Ok);  // gives it a history
+  CHECK(v.list(all) == Status::Ok);
+
+  size_t i = 0;
+  CHECK(v.forEach([&](const Entry& e) {
+    CHECK(i < all.size() && same(e, all[i]));
+    ++i;
+    return true;
+  }) == Status::Ok);
+  CHECK(i == 3);
+
+  i = 0;
+  CHECK(v.forEach([&](const Entry&) { return ++i < 2; }) == Status::Ok);
+  CHECK(i == 2);  // stopped by the callback
+
+  v.lock();
+  i = 0;
+  CHECK(v.forEach([&](const Entry&) { return ++i, true; }) == Status::Locked);
+  CHECK(i == 0);
+}
+
 TEST(arabic_utf8_round_trip) {
   auto r = Rig::ready();
   Entry e = sample("حسابي في البنك", "حسن", "https://مثال.عراق/دخول");
