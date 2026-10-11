@@ -166,7 +166,7 @@ bool awaitingTouch() { return s_gate.awaiting(); }
 
 bool ledActive() { return s_gate.awaiting() || monoMs() < UsbLink::s_winkUntil.load(); }
 
-void press(bool shortPress) { s_gate.press(shortPress, monoMs()); }
+void press(bool shortPress, int64_t pressedAt) { s_gate.press(shortPress, pressedAt, monoMs()); }
 
 bool signatureCounter(uint32_t& out) {
   std::lock_guard<std::mutex> g(s_counterMutex);

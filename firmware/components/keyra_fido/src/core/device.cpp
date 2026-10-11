@@ -37,7 +37,7 @@ void Device::pump(uint32_t waitMs) {
 User::Answer Device::wait(TouchGate::Phase phase, uint8_t keepalive, const std::function<bool()>& done) {
   const int64_t deadline = link_.nowMs() + kPresenceTimeoutMs;
   int64_t nextKeepalive = link_.nowMs();
-  gate_.begin(phase);
+  gate_.begin(phase, link_.nowMs());
   Answer a = Answer::Timeout;
   for (;;) {
     const int64_t now = link_.nowMs();

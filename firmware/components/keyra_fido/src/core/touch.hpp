@@ -9,6 +9,9 @@
 // U2F has no keepalive: the host polls, so a press is latched and handed to
 // the next poll if it comes within kLatchMs; the prompt itself lapses kPollGapMs
 // after the last poll (the host gave up).
+//
+// Each prompt remembers when it began. A press made before that (it waited in
+// the actions task's queue) answers nothing: it was not meant for this request.
 #include <cstdint>
 #include <mutex>
 
@@ -22,7 +25,7 @@ class TouchGate {
   static constexpr int64_t kLatchMs = 3000;
 
   // Blocking requests (CTAP2): begin → poll answer() → end.
-  void begin(Phase p);
+  void begin(Phase p, int64_t nowMs);
   void end();
   Answer answer();
 
@@ -32,7 +35,8 @@ class TouchGate {
 
   // Button routing (actions task).
   bool awaiting();
-  void press(bool shortPress, int64_t nowMs);
+  // `pressedAt`: when the button reported the press (same clock as nowMs).
+  void press(bool shortPress, int64_t pressedAt, int64_t nowMs);
 
  private:
   std::mutex mu_;
@@ -41,6 +45,7 @@ class TouchGate {
   bool u2f_ = false;
   int64_t u2fUntil_ = 0;
   int64_t answeredAt_ = 0;
+  int64_t startedAt_ = 0;  // when the current prompt began
 };
 
 }  // namespace keyra::fido
