@@ -449,6 +449,7 @@ esp_err_t getState(Ctx& c) {
 
 esp_err_t postSetup(Ctx& c) {
   if (vault::initialized()) return sendVaultError(c.r, Status::AlreadyInitialized);
+  adoptClientClock(c.r);  // an empty Keyra: nothing a wrong clock could harm yet
   auto job = std::make_shared<SetupJob>();
   esp_err_t err = ESP_OK;
   if (!requireString(c, "passphrase", job->passphrase.s, err) ||

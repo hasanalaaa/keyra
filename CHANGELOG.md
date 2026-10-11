@@ -236,7 +236,7 @@ All notable changes to Keyra are documented here. The format follows
   including a page load from any device on the network, could set Keyra's
   clock through `X-Keyra-Time` while NTP had not set it, shifting 2FA codes
   and activity times. The header is now taken only with a live session, at
-  setup, or from an unlock whose passphrase was right.
+  setup of an empty Keyra, or from an unlock whose passphrase was right.
 
 ## [0.2.0] - 2026-10-08
 

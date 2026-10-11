@@ -178,7 +178,8 @@ Conventions
 - Locked vault or missing session on a protected route → 401 `locked`.
 - Clock: clients send `X-Keyra-Time: <unix ms>` on every request; the device
   adopts it if it has no time or drifts > 5 s (device has no RTC), but only
-  from a request with a live session, from `POST /api/setup`, and from
+  from a request with a live session, from `POST /api/setup` while the vault
+  is not set up yet, and from
   `POST /api/unlock` / `/api/unlock/recovery` once the passphrase or key was
   right (before the unlock is logged). Requests without a session, access
   tokens and tag taps never set it (`routes.cpp` `adoptsClientClock`).

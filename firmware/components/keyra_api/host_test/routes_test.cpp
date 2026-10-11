@@ -57,11 +57,12 @@ void apiRoutes() {
   CHECK(needsSession(Route::ListPasskeys) && needsSession(Route::DeletePasskey));
   CHECK(needsCsrf(Method::Delete, Route::DeletePasskey));
 
-  // X-Keyra-Time sets the clock only with a live session, or for setup.
+  // X-Keyra-Time sets the clock only with a live session (setup and unlock
+  // adopt it in their handlers, once the vault is empty or the passphrase right).
   CHECK(adoptsClientClock(Route::ListEntries, true) && adoptsClientClock(Route::State, true));
   CHECK(!adoptsClientClock(Route::State, false) && !adoptsClientClock(Route::Unlock, false));
   CHECK(!adoptsClientClock(Route::UnlockRecovery, false) && !adoptsClientClock(Route::FactoryReset, false));
-  CHECK(adoptsClientClock(Route::Setup, false));
+  CHECK(!adoptsClientClock(Route::Setup, false));
   CHECK(!adoptsClientClock(Route::AgentType, false) && !adoptsClientClock(Route::AgentEntries, true));
   CHECK(!adoptsClientClock(Route::TagTap, false) && !adoptsClientClock(Route::TagStatus, true));
 
