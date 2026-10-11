@@ -176,10 +176,11 @@ class Machine {
   // swap the action the user is about to approve with the button. nullopt =
   // busy. A replaced item of the same owner ends as cancelled.
   std::optional<Pending> arm(TypeRequest req, const std::string& owner);
-  // POST /api/type/cancel: the waiting type action, only when `owner` armed it
-  // (last = cancelled); false (and nothing changes) otherwise, so one session
-  // can never withdraw what another is about to approve with the button.
-  bool cancel(const std::string& owner);
+  // POST /api/type/cancel by the session `caller`: withdraws the waiting type
+  // action (last = cancelled) when the caller armed it, or when `foreign`
+  // says its owner is not a session (an access token or a tap tag, shown on
+  // the session's screen). Another session's action stays: false, nothing changes.
+  bool cancel(const std::string& caller, const std::function<bool(const std::string& owner)>& foreign);
   // Withdraws the waiting item (type action or presence op) when `owner` armed
   // it, and keeps a sequence of theirs that is typing now from arming its next
   // part; false (and nothing changes) otherwise. Called when a session ends

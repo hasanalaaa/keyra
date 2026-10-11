@@ -35,6 +35,7 @@
 #include "keyra/settings.hpp"
 #include "keyra/vault.hpp"
 #include "runtime.hpp"
+#include "tags.hpp"
 #include "trusted.hpp"
 #include "type_request.hpp"
 #include "validate.hpp"
@@ -916,7 +917,10 @@ esp_err_t postPresenceCancel(Ctx& c) {
 }
 
 esp_err_t postTypeCancel(Ctx& c) {
-  machine().cancel(c.token);  // this session's own action only (SPEC §12.5a)
+  // This session's own action, or one a token or tag armed; never another session's (SPEC §12.5a).
+  const auto foreign = [](const std::string& o) { return tokens::ownerId(o) != 0 || tags::ownerId(o) != 0; };
+  if (!machine().cancel(c.token, foreign))
+    return http::sendError(c.r, http::k409, "not_cancelled", "Nothing of yours is waiting for the button");
   return http::sendEmpty(c.r, http::k204);
 }
 

@@ -213,7 +213,7 @@ void waitingPartExpiresOrCancels() {
   CHECK(m.last()->code == Code::Cancelled);
 
   // Lock drops a waiting sequence like any armed action.
-  m.cancel("s");
+  m.cancel("s", nullptr);
   m.arm(r, "s");
   d = m.onButton(actions::Button::Short, true, g_now);
   m.typingFinished(d.run, Code::Typed);

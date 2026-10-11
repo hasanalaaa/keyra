@@ -66,18 +66,26 @@ void longPressCancelsThenLocks() {
 }
 
 void cancelEndpoint() {
+  // Like postTypeCancel: an access token's or a tap tag's item is not another session's.
+  const auto foreign = [](const std::string& o) { return o.rfind("token:", 0) == 0 || o.rfind("tag:", 0) == 0; };
   auto m = make();
-  CHECK(!m.cancel("s"));
-  m.arm(req(5), "s");
-  // Another session (or none) cannot withdraw it: the slot and last stay as they were.
-  CHECK(!m.cancel("other") && !m.cancel(""));
-  CHECK(m.pending().has_value() && !m.last().has_value());
-  CHECK(m.cancel("s"));
+  CHECK(!m.cancel("s", foreign));  // nothing waiting
+  // 1. Another session (or none) cannot withdraw it: the slot and last stay as they were.
+  m.arm(req(5), "other");
+  CHECK(!m.cancel("s", foreign) && !m.cancel("", foreign));
+  CHECK(m.pending() && m.pending()->req.id == 5 && !m.last().has_value());
+  // 2. Its own action: withdrawn.
+  CHECK(m.cancel("other", foreign));
   CHECK(m.last()->code == Code::Cancelled);
   CHECK(!m.pending().has_value());
+  // 3. One a token or a tag armed (shown on the session's screen): the session may withdraw it.
+  m.arm(req(6), "token:3");
+  CHECK(m.cancel("s", foreign) && !m.pending().has_value());
+  m.arm(req(7), "tag:2");
+  CHECK(m.cancel("s", foreign) && !m.pending().has_value());
   // A presence op is not a type action: this route leaves it alone.
   m.awaitPresence(Op::Backup, [] { return true; }, "s");
-  CHECK(!m.cancel("s") && m.presence().has_value());
+  CHECK(!m.cancel("s", foreign) && m.presence().has_value());
 }
 
 void presenceApproveRunsCommitOnce() {
@@ -136,7 +144,7 @@ void unauthenticatedOpsNeverDisplace() {
   m.arm(req(12), "s");
   CHECK(!m.tryAwaitPresence(Op::FactoryReset, [] { return true; }).has_value());
   CHECK(m.pending().has_value());
-  m.cancel("s");
+  m.cancel("s", nullptr);
   CHECK(m.tryAwaitPresence(Op::Setup, [] { return true; })->expiresIn == kExpiryMs);
   CHECK(!m.tryAwaitPresence(Op::Setup, [] { return true; }).has_value());
   Decision d = m.onButton(Button::Short, false, g_now);
@@ -250,7 +258,7 @@ void tokenTracksItsOwnRequest() {
   // Later results by others leave this one readable.
   for (int i = 0; i < 3; ++i) {
     m.arm(req(9), "sessionA");
-    m.cancel("sessionA");
+    m.cancel("sessionA", nullptr);
   }
   CHECK(m.track(s1).stage == Stage::Finished && m.track(s1).code == Code::NoUsb);
 
@@ -355,7 +363,7 @@ void netOps() {
   // displaces a pending action and survives a lock.
   m.arm(req(13), "s");
   CHECK(!m.tryAwaitPresence(Op::TrustBrowser, [] { return true; }).has_value());
-  m.cancel("s");
+  m.cancel("s", nullptr);
   CHECK(m.tryAwaitPresence(Op::TrustBrowser, [] { return true; }).has_value());
   m.dropSessionItems();
   CHECK(m.presence() && m.presence()->op == Op::TrustBrowser);
@@ -619,8 +627,8 @@ void pressIsBoundToItsRequester() {
   CHECK(m.arm(req(2), "alice"));  // a type action of hers replaces her op too
   CHECK(m.opResult()->op == Op::Recovery && m.opResult()->code == OpCode::Cancelled);
   CHECK(!m.awaitPresence(Op::Backup, [] { return true; }, "mallory"));  // and is hers alone
-  CHECK(!m.cancel("mallory"));  // nor can she withdraw it
-  CHECK(m.cancel("alice"));
+  CHECK(!m.cancel("mallory", nullptr));  // nor can she withdraw it
+  CHECK(m.cancel("alice", nullptr));
 
   // Items armed without a session (setup, factory reset, trust) belong to nobody.
   CHECK(m.tryAwaitPresence(Op::Setup, [] { return true; }));

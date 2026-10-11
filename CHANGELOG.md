@@ -34,8 +34,9 @@ All notable changes to Keyra are documented here. The format follows
 - **Notes need the reveal press.** With "Protect reveal" on, an account's notes
   are no longer sent before the press; `hasNotes` says whether there are any.
 - **One session can no longer cancel another's typing.** `POST /api/type/cancel`
-  withdrew whatever action was waiting, whoever armed it; it now withdraws only
-  the calling session's own action.
+  withdrew whatever action was waiting, whoever armed it; it now withdraws the
+  calling session's own action or one an access token or tap tag armed, and
+  answers 409 `not_cancelled` (shown in the app) when nothing of that kind waits.
 - **Restored passkeys never sign with an old counter.** A restore with passkeys
   now reserves the signature counter past the backup's before it writes any of
   them, and fails with nothing changed if it cannot (it used to write first and
