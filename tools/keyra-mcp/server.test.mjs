@@ -171,3 +171,31 @@ test('a locked Keyra and a missing token are explained, not crashed on', async (
     await once(t.child, 'exit');
   }
 });
+
+test('two concurrent type requests are never mistaken for each other', async () => {
+  // The previous test left Keyra locked.
+  csrf = (await api('POST', '/api/unlock', { passphrase: 'keyra demo vault' })).body.csrf;
+  const entries = (await api('GET', '/api/entries')).body.entries;
+  const github = entries.find((e) => e.title === 'GitHub');
+  const tok = await createToken('Concurrent test', [github.id]);
+  const s = mcp(tok.token);
+  try {
+    const first = s.tool('keyra_type_login', { id: github.id, what: 'password' });
+    await waitFor(async () => (await api('GET', '/api/state')).body.pending?.by === 'Concurrent test');
+    // The second call is refused at once; it does not ride on the first one's outcome.
+    const second = await s.tool('keyra_type_login', { id: github.id, what: 'username' });
+    assert.equal(second.isError, true);
+    assert.match(second.content[0].text, /Another keyra_type_login request/);
+    await press();
+    const done = await first;
+    assert.equal(done.isError, false);
+    assert.equal(done.content[0].text, 'typed');
+    // The slot is free again afterwards.
+    const third = s.tool('keyra_type_login', { id: github.id, what: 'password' });
+    await waitFor(async () => (await api('GET', '/api/state')).body.pending !== null);
+    await press('long');
+    assert.equal((await third).content[0].text, 'denied');
+  } finally {
+    s.child.kill();
+  }
+});

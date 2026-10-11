@@ -72,6 +72,21 @@ jobs:
             extension/dist/chrome
             extension/dist/firefox
 
+  keyra-mcp:
+    name: keyra-mcp (tests against the device mock)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      # The tests start web/mock/server.mjs, which serves the built web app.
+      - run: npm --prefix web ci
+      - run: npm --prefix web run build
+      - run: node --test tools/keyra-mcp/server.test.mjs
+
   android:
     name: Android app (unit tests, builds, lint)
     runs-on: ubuntu-latest

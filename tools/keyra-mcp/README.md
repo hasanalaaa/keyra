@@ -64,6 +64,11 @@ Errors come back as tool errors with a plain explanation: Keyra locked (unlock
 it in the web app), token unknown or revoked, Keyra busy with another request,
 or rate limited (10 requests per 10 s per token).
 
+One `keyra_type_login` runs at a time: while a request waits for the press, a
+second call is refused at once ("Another keyra_type_login request is still
+waiting…"), because Keyra reports only a token's latest request and the two
+results would otherwise be mixed up.
+
 `KEYRA_POLL_MS` (default 2000) sets how often `keyra_type_login` checks for
 the press.
 
