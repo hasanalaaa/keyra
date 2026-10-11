@@ -6,6 +6,15 @@ All notable changes to Keyra are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-11
+
+Highlights:
+- The web app opens faster: 109.5 KB instead of 189.5 KB
+- Thousands of accounts scroll and search smoothly
+- Unlocking reads half as much flash; the account list no longer copies the whole vault
+- Stricter browser security policy for the web app
+- Android app: clear message for every Keyra answer, better Arabic, TalkBack
+
 ### Changed
 
 - **The web app opens with less and loads the rest when it is used.** Keyra
@@ -25,6 +34,22 @@ All notable changes to Keyra are documented here. The format follows
   every keystroke and comparison. With 5000 accounts the list draws under 200
   rows and each search keystroke answers in the next frame. The mock takes
   `MOCK_ENTRIES=N` to try it.
+
+### Fixed
+
+- **Large vaults use far less memory and flash time.** `GET /api/entries` and
+  `GET /api/agent/entries` build their answer while the vault walks its
+  accounts one at a time instead of copying every account (passwords and notes
+  included) first, and reading an account file no longer looks its path up
+  twice, which halves the flash reads of an unlock with many accounts
+  (docs/research/CAPACITY.md has the measurements and the storage plan).
+
+### Added
+
+- **Android app: every answer from Keyra has its own message** (changed
+  account, nothing waiting, newer format, rate limit with the wait), Arabic
+  copy reviewed, TalkBack labels, 48dp touch targets and large-font support.
+- **docs/HARDWARE-TESTS.md**: a checklist for testing on real devices.
 
 ## [0.3.1] - 2026-10-11
 
