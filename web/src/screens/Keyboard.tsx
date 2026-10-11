@@ -7,17 +7,13 @@ import { Sheet } from '../components/Sheet';
 import { ErrorCard, HostNotice, Ready, readyText } from '../components/Ready';
 import { useTypeAction } from '../lib/actions';
 import { defaultTarget } from '../lib/ble';
-import { byFit, layoutName, matchProbe } from '../lib/keyboard';
-import { t, type Key } from '../lib/i18n';
+import { PLATFORM, byFit, layoutName, layoutTitle, matchProbe } from '../lib/keyboard';
+import { t } from '../lib/i18n';
 import { loadBle, useApp } from '../lib/store';
 import type { HostOs, KeyboardLayout } from '../lib/types';
 
 export type LayoutOutput = 'usb' | 'ble';
 
-const PLATFORM: Record<KeyboardLayout['platform'], Key> = { any: 'layoutAny', windows: 'osWindows', mac: 'osMac' };
-
-/** "German · Mac": the firmware's English name, plus the system when the name alone is ambiguous. */
-export const layoutTitle = (l: KeyboardLayout): string => (l.platform === 'any' ? layoutName(l) : `${layoutName(l)} · ${t(PLATFORM[l.platform])}`);
 
 interface Props {
   output: LayoutOutput;

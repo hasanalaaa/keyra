@@ -14,23 +14,27 @@ import { clock, t } from '../lib/i18n';
 import { back, go, replace } from '../lib/router';
 import { holdFastPolling, lockNow, pollNow, setLangPref, setThemePref, toast, useApp } from '../lib/store';
 import type { Settings as S } from '../lib/types';
-import { validWifi } from './Setup';
 import { BluetoothSection } from './Bluetooth';
 import { OsSelect } from '../components/HostOs';
 import { minHint } from './common';
-import { HomeWifiSheet } from './HomeWifi';
-import { PasskeysSheet } from './Passkeys';
-import { HealthSheet } from './Health';
-import { ActivitySheet } from './Activity';
-import { UpdateSheet } from './Update';
-import { TrustedSheet } from './Trusted';
-import { TokensSheet } from './Tokens';
-import { TagsSheet } from './Tags';
-import { RecoverySheet } from './Recovery';
-import { BothSequenceSheet } from './BothSequence';
-import { shortDate } from '../lib/wifi';
+import { lazy } from '../components/Lazy';
+import { shortDate, validWifi } from '../lib/wifi';
 import type { Keyboard, RecoveryInfo } from '../lib/types';
-import { LayoutSheet, layoutTitle, type LayoutOutput } from './Keyboard';
+import type { LayoutOutput } from './Keyboard';
+import { layoutTitle } from '../lib/keyboard';
+
+// Each sub-screen loads when it is first opened (DESIGN Appendix A).
+const HomeWifiSheet = lazy(() => import('./HomeWifi').then((m) => m.HomeWifiSheet));
+const PasskeysSheet = lazy(() => import('./Passkeys').then((m) => m.PasskeysSheet));
+const HealthSheet = lazy(() => import('./Health').then((m) => m.HealthSheet));
+const ActivitySheet = lazy(() => import('./Activity').then((m) => m.ActivitySheet));
+const UpdateSheet = lazy(() => import('./Update').then((m) => m.UpdateSheet));
+const TrustedSheet = lazy(() => import('./Trusted').then((m) => m.TrustedSheet));
+const TokensSheet = lazy(() => import('./Tokens').then((m) => m.TokensSheet));
+const TagsSheet = lazy(() => import('./Tags').then((m) => m.TagsSheet));
+const RecoverySheet = lazy(() => import('./Recovery').then((m) => m.RecoverySheet));
+const BothSequenceSheet = lazy(() => import('./BothSequence').then((m) => m.BothSequenceSheet));
+const LayoutSheet = lazy(() => import('./Keyboard').then((m) => m.LayoutSheet));
 
 const SPEEDS = [
   { value: 30, key: 'slow' },

@@ -11,6 +11,11 @@ export function signalBars(rssi: number): 1 | 2 | 3 | 4 {
 /** Same rule as the device: a WPA2/WPA3 passphrase is 8–63 printable ASCII characters. */
 export const validHomePassword = (s: string): boolean => s.length >= 8 && s.length <= 63 && /^[\x20-\x7e]+$/.test(s);
 
+/** Keyra's own Wi‑Fi password (onboarding and Settings): WPA2 rules, and not the factory default. */
+export function validWifi(pw: string): boolean {
+  return pw.length >= 8 && pw.length <= 63 && /^[\x20-\x7e]+$/.test(pw) && pw !== 'keyra1234';
+}
+
 /** Unix seconds → short date with Western digits (DESIGN §3.1); 0 = unknown. */
 export function shortDate(unixSec: number, lang: 'ar' | 'en'): string {
   if (!unixSec) return '—';

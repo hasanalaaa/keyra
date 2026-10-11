@@ -47,6 +47,9 @@
 
 .spinner { animation:spin 700ms linear infinite; flex:none; }
 .spinner circle { fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-dasharray:36 50; }
+/* A screen still loading (components/Lazy.tsx): shown only if it takes over 300 ms. */
+.lazy-wait { position:fixed; inset:0; z-index:var(--z-sheet); display:grid; place-items:center; color:var(--text-3); pointer-events:none; opacity:0; animation:lazy-show 160ms 300ms forwards; }
+@keyframes lazy-show { to { opacity:1; } }
 @keyframes spin { to { transform:rotate(360deg); } }
 
 /* ---------- Cards, groups, rows ---------- */

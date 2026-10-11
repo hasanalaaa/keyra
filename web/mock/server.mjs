@@ -14,6 +14,7 @@
 //   MOCK_NVS_RESET=new_version         the boot had to erase NVS (or no_free_pages): nvsReset, 15-min unlock delay
 //   MOCK_NVS_DELAY_MS=3000             that delay, shortened
 //   MOCK_RECORDS=unsupported_format    the tokens and tags records cannot be read (or corrupt)
+//   MOCK_ENTRIES=5000                  pad the seeded vault with generated accounts up to this many (list performance)
 //   PORT=8787                          listen port
 //
 // Simulated hardware: POST /__mock/button {press:"short"|"long"} · POST /__mock/usb {usb:bool} (unplugging
@@ -40,7 +41,8 @@ const KDF_MS = 450; // the device spends ≈1.2 s; keep the mock snappy but visi
 const MAX_BODY = 64 * 1024;
 const MAX_RESTORE_BODY = 2 * 1024 * 1024;
 const MAX_IMAGE = 3 * 1024 * 1024; // one app partition (SPEC §14)
-const MAX_ENTRIES = 1000;
+const SEED_ENTRIES = Math.max(0, Math.floor(Number(process.env.MOCK_ENTRIES) || 0));
+const MAX_ENTRIES = Math.max(1000, SEED_ENTRIES);
 const MAX_SESSIONS = 4;
 const MAX_HISTORY = 10;
 const LIMITS = { title: 128, url: 512, username: 256, password: 256, totp: 512, notes: 2048 };
@@ -1108,6 +1110,12 @@ function seed() {
     ['Slack', 'keyra.slack.com', 'hasan@keyra.dev', 'Slack-Channel-Hash', '', '', false, 0],
     ['Router', '192.168.1.1', 'admin', 'admin1234', '', 'TP-Link in the living room.', false, 0],
   ];
+  // MOCK_ENTRIES: deterministic filler in both scripts, so search and A–Z sections have real work to do.
+  const names = ['Amazon', 'Bank', 'Cloud', 'Delta', 'Email', 'Forum', 'Games', 'Health', 'Insurance', 'Jobs', 'Kitchen', 'Library', 'Market', 'News', 'Office', 'Photos', 'Quran', 'Radio', 'School', 'Travel', 'Utility', 'Video', 'Wallet', 'Xbox', 'Yoga', 'Zoom', 'متجر', 'بنك', 'جامعة', 'حكومة', 'دراسة', 'رياضة', 'سفر', 'شركة', 'صحة', 'طعام', 'عمل', 'فواتير', 'قراءة', 'مكتبة', 'نادي', 'هاتف', 'وزارة', 'يوميات'];
+  for (let i = rows.length; i < SEED_ENTRIES; i++) {
+    const name = names[i % names.length];
+    rows.push([`${name} ${i}`, `site${i}.example.com`, `user${i}@example.com`, `Generated-${i}-Pass`, '', '', false, 0]);
+  }
   const entries = new Map();
   for (const [title, url, username, password, totp, notes, favorite, usedDaysAgo] of rows) {
     const id = freshId(entries);
@@ -1170,8 +1178,12 @@ if (!FRESH) {
 
 // ---------- HTTP plumbing ----------
 
+// Same headers as the firmware (keyra_api http.cpp). The app is all separate files, so its policy has no
+// 'unsafe-inline'; only the self-contained NFC tap page (SPEC §18) keeps it for its own inline script.
+const CSP_APP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
+const CSP_TAP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 const SECURITY = {
-  'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:",
+  'Content-Security-Policy': CSP_APP,
   'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'no-referrer',
   'X-Content-Type-Options': 'nosniff',
@@ -2730,6 +2742,8 @@ const ASSETS = {
   '/favicon.svg': ['favicon.svg', 'image/svg+xml'],
 };
 
+const ASSET_TYPES = { '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.woff2': 'font/woff2' };
+
 const PROBES = {
   '/hotspot-detect.html': [200, 'text/html', '<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>'],
   '/library/test/success.html': [200, 'text/html', '<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>'],
@@ -2747,16 +2761,19 @@ function serveStatic(req, res, path) {
     return res.end(probe[2]);
   }
   // SPEC §18: a tag's URL serves the tap page, which changes nothing by itself.
-  const asset = req.method === 'GET' ? (/^\/t\/./.test(path) ? ['tap.html', 'text/html; charset=utf-8'] : ASSETS[path]) : undefined;
+  // /assets/<name>: the hashed build files the firmware packs into assets.pack (immutable).
+  const hashed = /^\/assets\/[A-Za-z0-9._-]+$/.test(path) ? [path.slice(1), ASSET_TYPES[path.slice(path.lastIndexOf('.'))]] : undefined;
+  const asset = req.method === 'GET' ? (/^\/t\/./.test(path) ? ['tap.html', 'text/html; charset=utf-8'] : hashed?.[1] ? hashed : ASSETS[path]) : undefined;
   const file = asset && DIST + asset[0];
   if (!file || !existsSync(file)) {
-    const hint = asset ? 'Run `npm run build` first (or use `npm run dev`).' : 'Not found';
+    const hint = asset && !hashed ? 'Run `npm run build` first (or use `npm run dev`).' : 'Not found';
     return send(res, 404, { error: 'not_found', message: hint });
   }
   res.writeHead(200, {
     ...SECURITY,
+    ...(asset[0] === 'tap.html' ? { 'Content-Security-Policy': CSP_TAP } : {}),
     'Content-Type': asset[1],
-    'Cache-Control': asset[0] === 'index.html' ? 'no-cache' : asset[0] === 'tap.html' ? 'no-store' : 'public, max-age=31536000',
+    'Cache-Control': asset[0] === 'index.html' ? 'no-cache' : asset[0] === 'tap.html' ? 'no-store' : hashed ? 'public, max-age=31536000, immutable' : 'public, max-age=31536000',
   });
   res.end(readFileSync(file));
 }

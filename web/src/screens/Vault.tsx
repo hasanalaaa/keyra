@@ -10,14 +10,17 @@ import { hostOf } from '../lib/csv';
 import { groupByLetter, highlightRange, search } from '../lib/search';
 import type { EntrySummary } from '../lib/types';
 import { AccountView } from './Account';
-import { EditAccount } from './Edit';
-import { ImportSheet } from './Import';
-import { BackupSheet } from './Backup';
-import { Settings } from './Settings';
 import { A2hsSheet, shouldOfferA2hs } from './A2hs';
-import { GenerateSheet } from './Generate';
-import { TypeTextSheet } from './TypeText';
-import { ConnectSheet } from './Tokens';
+import { lazy } from '../components/Lazy';
+
+// Everything but the list and an account loads on first use (DESIGN Appendix A).
+const EditAccount = lazy(() => import('./Edit').then((m) => m.EditAccount));
+const ImportSheet = lazy(() => import('./Import').then((m) => m.ImportSheet));
+const BackupSheet = lazy(() => import('./Backup').then((m) => m.BackupSheet));
+const Settings = lazy(() => import('./Settings').then((m) => m.Settings));
+const GenerateSheet = lazy(() => import('./Generate').then((m) => m.GenerateSheet));
+const TypeTextSheet = lazy(() => import('./TypeText').then((m) => m.TypeTextSheet));
+const ConnectSheet = lazy(() => import('./Tokens').then((m) => m.ConnectSheet));
 
 let a2hsChecked = false;
 

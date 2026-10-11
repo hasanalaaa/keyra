@@ -9,11 +9,13 @@ const char* TAG = "http";
 constexpr int kRecvRetries = 3;
 }  // namespace
 
-void securityHeaders(httpd_req_t* r) {
-  // 'unsafe-inline' only because the single-file web build inlines its JS/CSS.
+void securityHeaders(httpd_req_t* r, Csp csp) {
   httpd_resp_set_hdr(r, "Content-Security-Policy",
-                     "default-src 'self'; script-src 'self' 'unsafe-inline'; "
-                     "style-src 'self' 'unsafe-inline'; img-src 'self' data:");
+                     csp == Csp::App
+                         ? "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+                           "object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+                         : "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+                           "img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
   httpd_resp_set_hdr(r, "X-Frame-Options", "DENY");
   httpd_resp_set_hdr(r, "Referrer-Policy", "no-referrer");
   httpd_resp_set_hdr(r, "X-Content-Type-Options", "nosniff");

@@ -1,7 +1,7 @@
 // Keyboard layouts (SPEC §10.1) and the Layout Doctor (SPEC §10.3): the probe types fixed key
 // positions, and what appears on the computer names its layout. Pure helpers, unit-tested in
 // test/keyboard.test.ts.
-import { currentLang } from './i18n';
+import { currentLang, t, type Key } from './i18n';
 import type { HostOs, KeyboardLayout } from './types';
 
 // The firmware names layouts in English (layouts.txt); the Arabic UI shows these.
@@ -81,3 +81,8 @@ export function matchProbe(seen: string, layouts: readonly KeyboardLayout[], os:
 export function byFit(layouts: readonly KeyboardLayout[], os: HostOs): KeyboardLayout[] {
   return [...layouts].sort((a, b) => Number(fitsOs(b, os)) - Number(fitsOs(a, os)));
 }
+
+export const PLATFORM: Record<KeyboardLayout['platform'], Key> = { any: 'layoutAny', windows: 'osWindows', mac: 'osMac' };
+
+/** "German · Mac": the firmware's English name, plus the system when the name alone is ambiguous. */
+export const layoutTitle = (l: KeyboardLayout): string => (l.platform === 'any' ? layoutName(l) : `${layoutName(l)} · ${t(PLATFORM[l.platform])}`);
