@@ -11,6 +11,9 @@
 //                                      without it, requests to http://127.0.0.1:PORT do, localhost is the AP
 //   MOCK_HOME_ONLINE=1                 Keyra is on the home network (Firmware update can check GitHub)
 //   MOCK_BACKUP_DAYS=3                 days since the seeded vault's last backup (> 30 shows the reminder)
+//   MOCK_NVS_RESET=new_version         the boot had to erase NVS (or no_free_pages): nvsReset, 15-min unlock delay
+//   MOCK_NVS_DELAY_MS=3000             that delay, shortened
+//   MOCK_RECORDS=unsupported_format    the tokens and tags records cannot be read (or corrupt)
 //   PORT=8787                          listen port
 //
 // Simulated hardware: POST /__mock/button {press:"short"|"long"} · POST /__mock/usb {usb:bool} (unplugging
@@ -27,6 +30,7 @@ import { fileURLToPath } from 'node:url';
 
 const PORT = Number(process.env.PORT || 8787);
 const FRESH = process.env.MOCK_FRESH === '1';
+const RECORD_ERROR = ['unsupported_format', 'corrupt'].includes(process.env.MOCK_RECORDS) ? process.env.MOCK_RECORDS : null;
 const AUTO_BUTTON = process.env.MOCK_AUTO_BUTTON === '1';
 const VIA_HOME = process.env.MOCK_VIA === 'home';
 const DEMO_PASSPHRASE = 'keyra demo vault';
@@ -140,6 +144,15 @@ let failures = 0;
 let failedBefore = 0; // wrong guesses before the latest successful unlock (Vault::failedBeforeUnlock)
 let lockedUntil = 0;
 let timeValid = false;
+// SPEC §5: MOCK_NVS_RESET=no_free_pages|new_version plays a boot that had to erase NVS: the vault
+// assumes 14 failed unlocks (the longest delay; MOCK_NVS_DELAY_MS shortens it for e2e), and
+// state carries nvsReset until an unlock logs it.
+let nvsReset = ['no_free_pages', 'new_version'].includes(process.env.MOCK_NVS_RESET) ? process.env.MOCK_NVS_RESET : null;
+const NVS_ASSUMED = 14;
+if (nvsReset) {
+  failures = NVS_ASSUMED;
+  lockedUntil = Date.now() + (Number(process.env.MOCK_NVS_DELAY_MS) || 900_000);
+}
 let lastActivity = Date.now();
 const sessions = new Map(); // token → { csrf, lastUsed, trustId, grace: { reveal|backup|recovery: until } }
 const GRACE_MS = 60000; // SPEC §12.3: after a press, this session may see secrets this long
@@ -1405,6 +1418,9 @@ function issueSession(res, req, known, how = 0) {
   const failedAttempts = failedBefore;
   if (failedAttempts > 0) logEvent('failed_unlocks', { n: failedAttempts });
   logEvent('unlock', { detail: how });
+  const nvs = nvsReset;
+  if (nvs) logEvent('nvs_reset', { detail: nvs === 'new_version' ? 1 : 0 });
+  nvsReset = null; // logged: state stops carrying it, this answer carries it once
   usbSeen = host.usb;
   lastActivity = Date.now();
   if (sessions.size >= MAX_SESSIONS) {
@@ -1416,7 +1432,7 @@ function issueSession(res, req, known, how = 0) {
   sessions.set(tok, { csrf, lastUsed: Date.now(), trustId: known?.id ?? 0, grace: {} });
   const cookies = [`ks=${tok}; HttpOnly; SameSite=Strict; Path=/`];
   if (known) cookies.push(`kt=${cookie(req, 'kt')}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000`);
-  return send(res, 200, { csrf, failedAttempts }, { 'Set-Cookie': cookies });
+  return send(res, 200, { csrf, failedAttempts, ...(nvs ? { nvsReset: nvs } : {}) }, { 'Set-Cookie': cookies });
 }
 
 function trustRequest(res, req) {
@@ -1749,6 +1765,10 @@ async function api(req, res, path) {
     if (!b || typeof b !== 'object' || Array.isArray(b)) bad('Body must be a JSON object');
   }
 
+  // records.cpp: a tokens.bin / tags.bin this firmware cannot read is reported, never written over.
+  if (RECORD_ERROR && ['tokens', 'createToken', 'deleteToken', 'tags', 'createTag', 'deleteTag'].includes(m.route))
+    fail(500, RECORD_ERROR, RECORD_ERROR === 'corrupt' ? 'The record is damaged' : 'The record was saved by a newer firmware');
+
   switch (m.route) {
     case 'state': {
       const s = machine.slot;
@@ -1794,6 +1814,7 @@ async function api(req, res, path) {
         },
         timeValid,
         graceMs: session ? graceLeft(sess) : 0,
+        ...(nvsReset ? { nvsReset } : {}),
         ...(session && fw.phase !== 'idle' ? { update: fwState() } : {}),
       });
     }
@@ -1827,7 +1848,7 @@ async function api(req, res, path) {
       throttle();
       await sleep(KDF_MS);
       if (pass !== vault.passphrase) wrongAttempt('Wrong passphrase');
-      failedBefore = failures - 1; // throttle() counted this (right) attempt too, like Vault::attempt
+      failedBefore = Math.max(0, failures - 1 - (nvsReset ? NVS_ASSUMED : 0)); // throttle() counted this (right) attempt too; the assumed ones are left out
       failures = 0;
       lockedUntil = 0;
       const known = knownBrowser(req);
@@ -1847,7 +1868,7 @@ async function api(req, res, path) {
       throttle();
       await sleep(80);
       if (!vault.recovery || !safeEqual(key, vault.recovery.key)) wrongAttempt('Wrong recovery key');
-      failedBefore = failures - 1; // throttle() counted this (right) attempt too, like Vault::attempt
+      failedBefore = Math.max(0, failures - 1 - (nvsReset ? NVS_ASSUMED : 0)); // throttle() counted this (right) attempt too; the assumed ones are left out
       failures = 0;
       lockedUntil = 0;
       const known = knownBrowser(req);
@@ -2294,13 +2315,14 @@ async function api(req, res, path) {
     }
 
     case 'typeCancel': {
-      // Like Machine::cancel(owner): only this session's own action; another's stays armed.
+      // Like postTypeCancel: this session's own action, or one a token or tag armed;
+      // another session's stays armed (409, like presence/cancel).
       const s = machine.slot;
-      if (s?.kind === 'type' && requester && s.owner === requester) {
-        endCancelled(s);
-        machine.slot = null;
-        syncDemand();
-      }
+      const mine = s?.kind === 'type' && requester && (s.owner === requester || /^(token|tag):/.test(s.owner));
+      if (!mine) fail(409, 'not_cancelled', 'Nothing of yours is waiting for the button');
+      endCancelled(s);
+      machine.slot = null;
+      syncDemand();
       return send(res, 204);
     }
 

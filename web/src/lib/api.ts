@@ -1,4 +1,4 @@
-import type { AccessToken, NfcTag, NewNfcTag, BleInfo, DeviceState, Keyboard, Entry, HostOs, EntryInput, ActivityEvent, EntrySummary, Health, Network, PasskeyList, RestoreResult, UpdateCheck, RecoveryInfo, Settings, Totp, TrustedBrowser, TypeTextRequest, TypeWhat, Pending, PresenceOp } from './types';
+import type { AccessToken, NfcTag, NewNfcTag, BleInfo, DeviceState, Keyboard, Entry, HostOs, EntryInput, ActivityEvent, EntrySummary, Health, Network, PasskeyList, RestoreResult, UpdateCheck, RecoveryInfo, Settings, Totp, TrustedBrowser, TypeTextRequest, TypeWhat, Pending, PresenceOp, NvsReset } from './types';
 import { generateRequest, type GenSettings } from './generator';
 
 export class ApiError extends Error {
@@ -126,10 +126,12 @@ function uploadFirmware(file: Blob, onProgress: (sent: number, total: number) =>
 interface Session {
   csrf: string;
   failedAttempts?: number; // absent on firmware before SPEC §15
+  nvsReset?: NvsReset; // SPEC §5: once, on the unlock that logged it
 }
 
 export interface Unlocked {
   failedAttempts: number;
+  nvsReset?: NvsReset;
 }
 
 export interface Awaiting {
@@ -153,14 +155,14 @@ export const api = {
     const r = await json<Session | Awaiting>('POST', '/unlock', { passphrase }, 30000);
     if (isAwaiting(r)) return r;
     setCsrf(r.csrf);
-    return { failedAttempts: r.failedAttempts ?? 0 };
+    return { failedAttempts: r.failedAttempts ?? 0, nvsReset: r.nvsReset };
   },
   /** Forgotten passphrase (SPEC §12.2): the recovery key (40 hex) sets `next` and unlocks. */
   async unlockRecovery(recoveryKey: string, next: string): Promise<Awaiting | Unlocked> {
     const r = await json<Session | Awaiting>('POST', '/unlock/recovery', { recoveryKey, next }, 30000);
     if (isAwaiting(r)) return r;
     setCsrf(r.csrf);
-    return { failedAttempts: r.failedAttempts ?? 0 };
+    return { failedAttempts: r.failedAttempts ?? 0, nvsReset: r.nvsReset };
   },
   async lock(): Promise<void> {
     try {

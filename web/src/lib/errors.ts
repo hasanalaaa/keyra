@@ -14,5 +14,15 @@ export function errorText(e: unknown, fallback: Key = 'genericError'): string {
   return t(fallback);
 }
 
+/** SPEC §17, §18: a tokens or tags record this firmware cannot read (it is never written over). */
+export const recordError = (e: unknown): Key | null =>
+  e instanceof ApiError ? (e.code === 'unsupported_format' ? 'recordNewer' : e.code === 'corrupt' ? 'recordCorrupt' : null) : null;
+
+/** errorText for the token and tag screens: an unreadable record says why. */
+export const recordErrorText = (e: unknown): string => {
+  const k = recordError(e);
+  return k ? t(k) : errorText(e);
+};
+
 /** 401s are handled globally (the app shows Unlock), so callers should not toast them. */
 export const isLockedError = (e: unknown): boolean => e instanceof ApiError && e.status === 401 && e.code === 'locked';

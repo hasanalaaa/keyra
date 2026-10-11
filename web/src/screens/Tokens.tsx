@@ -7,8 +7,8 @@ import { Alert, Sheet } from '../components/Sheet';
 import { Ready } from '../components/Ready';
 import { ApiError, api } from '../lib/api';
 import { usePressGate } from '../lib/actions';
-import { errorText, isLockedError } from '../lib/errors';
-import { accountCount, t } from '../lib/i18n';
+import { isLockedError, recordError, recordErrorText as errorText } from '../lib/errors';
+import { accountCount, t, type Key } from '../lib/i18n';
 import { replace } from '../lib/router';
 import { loadEntries, toast, useApp } from '../lib/store';
 import type { AccessToken } from '../lib/types';
@@ -27,6 +27,7 @@ export function TokensSheet({ onClose }: { onClose: () => void }) {
   const [view, setView] = useState<'list' | 'new'>('list');
   const [created, setCreated] = useState<(AccessToken & { token: string }) | null>(null);
   const [confirm, setConfirm] = useState<AccessToken | null>(null);
+  const [broken, setBroken] = useState<Key | null>(null);
 
   const load = () =>
     api
@@ -34,10 +35,12 @@ export function TokensSheet({ onClose }: { onClose: () => void }) {
       .then((r) => {
         setList(r.tokens);
         setMax(r.max);
+        setBroken(null);
       })
       .catch((e) => {
         setList([]);
-        if (!isLockedError(e)) toast(errorText(e), 'error');
+        setBroken(recordError(e));
+        if (!recordError(e) && !isLockedError(e)) toast(errorText(e), 'error');
       });
   useEffect(() => void load(), []);
 
@@ -75,6 +78,8 @@ export function TokensSheet({ onClose }: { onClose: () => void }) {
           <p class="waiting-row" role="status">
             <Spinner />
           </p>
+        ) : broken ? (
+          <Notice tone="err">{t(broken)}</Notice>
         ) : list.length === 0 ? (
           <p class="callout center">{t('appsNone')}</p>
         ) : (
@@ -96,7 +101,7 @@ export function TokensSheet({ onClose }: { onClose: () => void }) {
           </ul>
         )}
         {full && <p class="caption">{t('appsFull')}</p>}
-        <Button full icon="plus" disabled={list === null || full} onClick={() => setView('new')}>
+        <Button full icon="plus" disabled={list === null || full || !!broken} onClick={() => setView('new')}>
           {t('appsNew')}
         </Button>
       </div>

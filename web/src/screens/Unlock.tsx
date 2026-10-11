@@ -77,6 +77,11 @@ export function Unlock({ reason }: { reason: LockReason }) {
           {reason ? <KeyGlyph size={72} class="locked-glyph" /> : <LogoTile size={72} />}
           <h1 class="display">{reason ? t('lockedTitle') : t('unlockTitle')}</h1>
           {reasonText && <p class="subtitle">{reasonText}</p>}
+          {app.device?.nvsReset && (
+            <Notice tone="warn">
+              <span data-testid="nvs-reset">{t('nvsResetBanner')}</span>
+            </Notice>
+          )}
           {recover ? (
             <RecoverForm onBack={() => setRecover(false)} />
           ) : revealed ? (

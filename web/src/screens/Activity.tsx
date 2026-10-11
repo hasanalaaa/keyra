@@ -22,6 +22,7 @@ export function eventText(e: ActivityEvent, account: (id: number) => string | un
   switch (e.kind) {
     case 'unlock': return t(e.detail === 1 ? 'actUnlockRecovery' : 'actUnlock');
     case 'failed_unlocks': return t('actFailed', { n: e.n ?? 0 });
+    case 'nvs_reset': return t(e.detail === 1 ? 'actNvsResetNewer' : 'actNvsReset');
     case 'lock': return t(LOCK_TEXT[e.detail] ?? 'actLock');
     case 'typed': return t('actTyped', { title }) + over;
     case 'text_typed': return t('actTextTyped') + over;
@@ -60,7 +61,8 @@ export function eventText(e: ActivityEvent, account: (id: number) => string | un
 
 function iconOf(e: ActivityEvent): IconName {
   switch (e.kind) {
-    case 'failed_unlocks': return 'triangle-alert';
+    case 'failed_unlocks':
+    case 'nvs_reset': return 'triangle-alert';
     case 'unlock':
     case 'lock': return 'lock';
     case 'typed':
@@ -132,7 +134,7 @@ export function ActivitySheet({ onClose }: { onClose: () => void }) {
           <ul class="card rows">
             {events.map((e, i) => (
               <li key={i}>
-                <div class={`row activity-row${e.kind === 'failed_unlocks' ? ' warn' : ''}`}>
+                <div class={`row activity-row${e.kind === 'failed_unlocks' || e.kind === 'nvs_reset' ? ' warn' : ''}`}>
                   <Icon name={iconOf(e)} size={20} class="row-icon" />
                   <span class="row-label">
                     <bdi dir="auto">{eventText(e, (id) => app.entries?.find((x) => x.id === id)?.title)}</bdi>

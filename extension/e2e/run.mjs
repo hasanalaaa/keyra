@@ -281,6 +281,22 @@ async function functional() {
   check(true, 'the card turns into "Typed"');
   await card(gh).waitFor({ state: 'detached', timeout: 4000 });
 
+  // Edited while the press is awaited (SPEC §5): the press types nothing and the card says why.
+  await gh.locator('#login_field').click();
+  await keyIcon(gh).waitFor();
+  await keyIcon(gh).click();
+  await menu(gh).locator('.item', { hasText: 'GitHub' }).waitFor();
+  await sleep(700); // past the click guard of a just-opened list
+  await menu(gh).locator('.item', { hasText: 'GitHub' }).click();
+  await card(gh).getByText("Press Keyra's button").waitFor();
+  const ghId = (await api('GET', '/api/state')).body.pending.id;
+  check((await api('PUT', `/api/entries/${ghId}`, { notes: 'edited while armed' })).status === 200, 'the login is edited while armed');
+  check(/typ/.test(await button()), 'the press is taken');
+  await card(gh).getByText('The account changed', { exact: true }).waitFor({ timeout: 6000 });
+  check((await api('GET', '/api/state')).body.last.code === 'entry_changed', 'Keyra reports entry_changed');
+  await card(gh).locator('button', { hasText: 'Close' }).click();
+  await card(gh).waitFor({ state: 'detached', timeout: 4000 });
+
   // A plain sign-in with a login Keyra already has asks nothing.
   await gh.locator('#login_field').fill('hasanalaaa');
   await gh.locator('#password').fill('whatever-was-typed');

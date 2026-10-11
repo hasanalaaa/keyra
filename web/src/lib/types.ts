@@ -83,9 +83,13 @@ export interface DeviceState {
   timeValid: boolean;
   /** SPEC §12.3: reveal grace left for this session after a press (ms). */
   graceMs?: number;
+  /** SPEC §5: the settings storage (NVS) was erased at boot; shown until an unlock logs it. */
+  nvsReset?: NvsReset;
   /** SPEC §14: a firmware image being received, checked and waiting, or why it failed (sessions only). */
   update?: UpdateState;
 }
+
+export type NvsReset = 'no_free_pages' | 'new_version';
 
 export interface UpdateState {
   phase: 'receiving' | 'staged' | 'restarting' | 'failed';
@@ -127,6 +131,7 @@ export interface ActivityEvent {
   kind:
     | 'unlock'
     | 'failed_unlocks'
+    | 'nvs_reset'
     | 'lock'
     | 'typed'
     | 'revealed'

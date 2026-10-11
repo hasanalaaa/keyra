@@ -574,11 +574,50 @@ async function notesFlow(base, opts) {
   await page.locator('.ready-ready').waitFor();
   const other = await otherSession(base);
   const r = await fetch(`${base}/api/type/cancel`, { method: 'POST', headers: { cookie: other.cookie, 'X-Keyra-CSRF': other.csrf } });
-  check(r.status === 204, `cancel answers 204 (${r.status})`);
+  check(r.status === 409 && (await r.json()).error === 'not_cancelled', `another session's cancel is refused (${r.status})`);
   check((await pageApi(page, 'GET', '/api/state')).body.pending?.id === id, "another session's cancel leaves it armed");
   check((await pageApi(page, 'POST', '/api/type/cancel')).status === 204, 'own cancel');
   check((await pageApi(page, 'GET', '/api/state')).body.pending === null, 'own cancel withdraws it');
   console.log('  ✓ notes flow passed');
+  await ctx.close();
+}
+
+// ---------- Settings storage erased at boot, unreadable token and tag records (SPEC §5, §17, §18) ----------
+
+async function nvsFlow(base, opts) {
+  const { ctx, page, tag } = await open(base, opts);
+  console.log(`nvs reset ${tag || '(phone, ar, light)'}`);
+  const before = errors.length;
+  // Before any unlock: the banner explains the delay, and the delay holds.
+  await page.locator('[data-testid=nvs-reset]').waitFor();
+  check((await (await fetch(`${base}/api/state`)).json()).nvsReset === 'new_version', 'state carries nvsReset before the unlock');
+  await page.locator('input[type=password]').fill(PASS);
+  await page.locator('button[type=submit]').click();
+  await page.getByText(L(opts, 'Too many tries', 'محاولات كثيرة')).waitFor();
+  await shot(page, `unlock-nvs-reset${tag}`);
+  await page.locator('button[type=submit]:not([disabled])').waitFor({ timeout: 10000 }); // retryAfterMs passed
+  await page.locator('button[type=submit]').click();
+  await page.locator('.list-pane').waitFor();
+  await page.locator('.toast-error', { hasText: L(opts, 'erased its settings storage', 'مسح Keyra تخزين الإعدادات') }).waitFor();
+  check((await pageApi(page, 'GET', '/api/state')).body.nvsReset === undefined, 'the unlock logged it: state no longer carries it');
+  const ev = (await pageApi(page, 'GET', '/api/activity')).body.events.find((e) => e.kind === 'nvs_reset');
+  check(ev?.detail === 1, 'activity has nvs_reset (newer NVS format)');
+  await settingsRow(page, L(opts, 'Activity', 'سجل النشاط'));
+  await page.locator('.activity-row.warn', { hasText: L(opts, 'newer Keyra', 'إصدار أحدث') }).first().waitFor();
+  await page.keyboard.press('Escape');
+  await page.locator('.toast-error').waitFor({ state: 'detached', timeout: 10000 }); // out of the screenshot
+
+  // Token and tag records saved by a newer firmware: said, and nothing offered that would write over them.
+  await settingsRow(page, L(opts, 'Apps and agents', 'التطبيقات والوكلاء'));
+  await page.locator('.notice', { hasText: L(opts, 'Update Keyra', 'حدّث Keyra') }).waitFor();
+  check(await page.locator('.sheet button', { hasText: L(opts, 'New access token', 'رمز وصول جديد') }).isDisabled(), 'no new token over an unreadable record');
+  await shot(page, `apps-newer-record${tag}`);
+  await page.keyboard.press('Escape');
+  await settingsRow(page, L(opts, 'NFC tags', 'وسوم NFC'));
+  await page.locator('.notice', { hasText: L(opts, 'Update Keyra', 'حدّث Keyra') }).waitFor();
+  check(await page.locator('.sheet button', { hasText: L(opts, 'New tag', 'وسم جديد') }).isDisabled(), 'no new tag over an unreadable record');
+  expectErrors(before, 429, 500);
+  console.log('  ✓ nvs reset flow passed');
   await ctx.close();
 }
 
@@ -1632,6 +1671,8 @@ try {
   await burnFlow(await startMock(), { lang: 'en', dark: true });
   await notesFlow(await startMock(), {});
   await notesFlow(await startMock(), { lang: 'en', dark: true });
+  await nvsFlow(await startMock({ MOCK_NVS_RESET: 'new_version', MOCK_NVS_DELAY_MS: '4000', MOCK_RECORDS: 'unsupported_format' }), {});
+  await nvsFlow(await startMock({ MOCK_NVS_RESET: 'new_version', MOCK_NVS_DELAY_MS: '4000', MOCK_RECORDS: 'unsupported_format' }), { lang: 'en', dark: true });
   await sequenceFlow(await startMock(), {});
   await sequenceFlow(await startMock(), { lang: 'en', dark: true });
   await updateFlow(await startMock({ MOCK_HOME_ONLINE: '1' }), {});

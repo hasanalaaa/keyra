@@ -136,9 +136,10 @@ export function useTypeAction(id: number, free: 'test' | 'text' | 'probe' = 'tes
       await api.cancelType();
       setAct(null);
       toast(t('cancelled'));
-    } catch {
-      // Still armed on Keyra: the card stays and keeps following the device.
-      toast(t('cancelFailed'), 'error');
+    } catch (e) {
+      // 409 not_cancelled: nothing of this session waits (another session's, or already done);
+      // otherwise still armed on Keyra. Either way the card keeps following the device.
+      toast(t(e instanceof ApiError && e.code === 'not_cancelled' ? 'nothingWaiting' : 'cancelFailed'), 'error');
     }
   };
 

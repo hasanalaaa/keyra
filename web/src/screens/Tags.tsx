@@ -7,7 +7,7 @@ import { Alert, Sheet } from '../components/Sheet';
 import { Ready } from '../components/Ready';
 import { ApiError, api } from '../lib/api';
 import { usePressGate } from '../lib/actions';
-import { errorText, isLockedError } from '../lib/errors';
+import { isLockedError, recordError, recordErrorText as errorText } from '../lib/errors';
 import { t, type Key } from '../lib/i18n';
 import { loadEntries, toast, useApp } from '../lib/store';
 import type { NewNfcTag, NfcTag } from '../lib/types';
@@ -35,11 +35,12 @@ export function TagsSheet({ onClose }: { onClose: () => void }) {
   const [view, setView] = useState<'list' | 'new'>('list');
   const [created, setCreated] = useState<NewNfcTag | null>(null);
   const [confirm, setConfirm] = useState<NfcTag | null>(null);
+  const [broken, setBroken] = useState<Key | null>(null);
 
   const load = () =>
     api.tags().then(
-      (r) => (setList(r.tags), setMax(r.max)),
-      (e) => (setList([]), onErr(e)),
+      (r) => (setList(r.tags), setMax(r.max), setBroken(null)),
+      (e) => (setList([]), setBroken(recordError(e)), !recordError(e) && onErr(e)),
     );
   useEffect(() => {
     void load();
@@ -72,6 +73,8 @@ export function TagsSheet({ onClose }: { onClose: () => void }) {
           <p class="waiting-row" role="status">
             <Spinner />
           </p>
+        ) : broken ? (
+          <Notice tone="err">{t(broken)}</Notice>
         ) : list.length === 0 ? (
           <p class="callout center">{t('tagsNone')}</p>
         ) : (
@@ -93,7 +96,7 @@ export function TagsSheet({ onClose }: { onClose: () => void }) {
           </ul>
         )}
         {full && <p class="caption">{t('tagsFull')}</p>}
-        <Button full icon="plus" disabled={list === null || full} onClick={() => setView('new')}>
+        <Button full icon="plus" disabled={list === null || full || !!broken} onClick={() => setView('new')}>
           {t('tagsNew')}
         </Button>
       </div>

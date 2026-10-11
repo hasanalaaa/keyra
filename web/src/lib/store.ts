@@ -265,6 +265,8 @@ async function opened(r: Awaiting | Unlocked): Promise<Awaiting | null> {
   await Promise.all([pollNow(), loadEntries(), loadBle(), loadBackupAt()]);
   // Someone tried wrong passphrases since the last unlock (SPEC §15): say so once.
   if (r.failedAttempts > 0) toast(t('failedSinceLast', { n: r.failedAttempts }), 'error');
+  // SPEC §5: the settings storage was erased at boot; this unlock is the one that logged it.
+  else if (r.nvsReset) toast(t('nvsResetDone'), 'error');
   return null;
 }
 

@@ -13,6 +13,13 @@ All notable changes to Keyra are documented here. The format follows
   a press that typed nothing because the account was edited since the request
   (`entry_changed`) says so in the web app and the extension, in Arabic and
   English.
+- **The web app explains an erased settings storage.** Before the unlock, a
+  banner says Keyra had to erase its settings storage, what is safe, what is
+  lost and that unlocking is delayed (`state.nvsReset`); the unlock that logs
+  it says so once, and the activity log names `nvs_reset`. The token and tag
+  screens say when their record was saved by a newer Keyra or is damaged, and
+  offer nothing that would write over it. Cancelling an action that is not
+  yours says nothing of yours is waiting.
 
 ### Fixed
 
