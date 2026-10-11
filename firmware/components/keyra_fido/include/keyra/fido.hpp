@@ -13,8 +13,10 @@ bool start();
 
 // Button routing (keyra_api owns the button): while a FIDO request waits the
 // LED shows the FIDO pattern and presses go here (short = approve, long = refuse).
+// `pressedAt`: when keyra_io recognised the press (esp_timer ms); a press made
+// before the waiting request began answers nothing.
 bool awaitingTouch();
-void press(bool shortPress);
+void press(bool shortPress, int64_t pressedAt);
 bool ledActive();  // awaitingTouch(), or a host WINK in the last 1.5 s
 
 // Factory reset: drops this Keyra's U2F attestation key and certificate; a new

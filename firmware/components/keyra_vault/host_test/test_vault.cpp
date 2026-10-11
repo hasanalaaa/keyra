@@ -569,4 +569,36 @@ TEST(burn_after_typing_the_password) {
   CHECK((*r)->put(bad) == Status::Invalid);
 }
 
+// Entry::revision (RAM only): every change gives a new one, typing's touch()
+// does not, and a replace-restore of the same entry is a change too.
+TEST(revision_changes_with_every_edit) {
+  auto r = Rig::ready();
+  Entry e = sample("Bank");
+  CHECK((*r)->put(e) == Status::Ok);
+  Entry a, b;
+  CHECK((*r)->get(e.id, a) == Status::Ok && a.revision != 0);
+  CHECK((*r)->touch(e.id, 1800000000, true, nullptr) == Status::Ok);
+  CHECK((*r)->get(e.id, b) == Status::Ok && b.revision == a.revision);
+  // The same second, the same `updated`: still a new revision.
+  e.password = "changed";
+  CHECK((*r)->put(e) == Status::Ok);
+  CHECK((*r)->get(e.id, b) == Status::Ok && b.revision != a.revision && b.updated == a.updated);
+  // An edit that changes nothing visible is still an edit.
+  const uint32_t before = b.revision;
+  CHECK((*r)->put(e) == Status::Ok);
+  CHECK((*r)->get(e.id, b) == Status::Ok && b.revision != before);
+  // Another entry never shares a revision.
+  Entry other = sample("Mail");
+  CHECK((*r)->put(other) == Status::Ok);
+  Entry c;
+  CHECK((*r)->get(other.id, c) == Status::Ok && c.revision != b.revision);
+  // Replacing everything from a backup (same ids) gives new revisions.
+  std::string backup;
+  CHECK((*r)->exportBackup("backup passphrase", backup) == Status::Ok);
+  CHECK((*r)->importBackup("backup passphrase", backup, true, nullptr, nullptr) == Status::Ok);
+  Entry d;
+  CHECK((*r)->get(e.id, d) == Status::Ok && d.revision != b.revision && d.revision != c.revision);
+  wipe(a), wipe(b), wipe(c), wipe(d);
+}
+
 TEST_MAIN()

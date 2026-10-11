@@ -197,14 +197,14 @@ Conventions
 | POST `/api/unlock` | none | `{passphrase}` → 200 `{csrf, failedAttempts, nvsReset?}` (§15, below) / 401 `{error:"wrong", retryAfterMs}` / 429 `{error:"rate_limited", retryAfterMs}` / 202 trust the browser first (§8.2) |
 | POST `/api/lock` | session | → 204 |
 | GET `/api/entries` | session | → `{entries:[{id,title,url,username,favorite,hasPassword,hasTotp,hasSequence,updated,lastUsed,burnAfter}]}` (no secrets) |
-| GET `/api/entries/{id}` | session | → the entry; `password`, `totp`, old passwords and `sequence` only when `revealed` (§12.3) |
+| GET `/api/entries/{id}` | session | → the entry with `hasPassword`, `hasTotp`, `hasSequence`, `hasNotes`; `password`, `totp`, `notes`, old passwords and `sequence` only when `revealed` (§12.3) |
 | POST `/api/entries/{id}/reveal` | session | → 200 the revealed entry, or 202 press first (§12.3) |
 | POST `/api/entries` | session | entry (no id) → 201 `{id}` |
 | PUT `/api/entries/{id}` | session | partial entry → 200 `{id}` |
 | DELETE `/api/entries/{id}` | session | → 202 `{awaiting:"button", op:"delete_entry", expiresIn, cancel}` (404 if unknown, 409 `busy` §12.5a); the press removes it (only if still unlocked and still there, else `failed`) |
 | POST `/api/entries/import` | session | `{entries:[…≤50]}` → `{added, skipped}` (duplicate = same title+username+url) |
 | GET `/api/entries/{id}/totp` | session | → `{code, period, remaining}` / 409 `no_time` / 404 |
-| POST `/api/type` | session | `{id, what:"username"\|"password"\|"both"\|"totp"\|"sequence", submit?, target?, switchLang?}`, `{text, repeat?, separator?}` (§9.2), `{test:true}` or `{probe:true}` (§10.3) → 202 `{pending}`; replaces this session's own pending item, 409 `busy` while another session's waits (§12.5a) |
+| POST `/api/type` | session | `{id, what:"username"\|"password"\|"both"\|"totp"\|"sequence", submit?, target?, switchLang?}`, `{text, repeat?, separator?}` (§9.2), `{test:true}` or `{probe:true}` (§10.3) → 202 `{pending}`; replaces this session's own pending item, 409 `busy` while another session's waits (§12.5a). An entry action types the version of the account it was armed for: edited before the press (by anyone), it types nothing and ends `entry_changed` |
 | POST `/api/type/cancel` | session | → 204 |
 | GET `/api/settings` | session | → `{deviceName, wifiSsid, autoLockMin, keyDelayMs, bothSeparator:"tab"\|"enter", submitAfterBoth:bool, ledBrightness, bleEnabled, output, bleConnect, protectReveal, passkeysInBackup, lockOnUsb, lockOnBle, lastBackupAt, homeWifi:{enabled, ssid}, apMode, osUsb, layoutUsb, layoutBle, bothSequence}` |
 | PUT `/api/settings` | session | partial of the above (+ optional `wifiPassword`; `homeWifi` goes through `/api/wifi/home`, `lastBackupAt` is set by backups) → 200 settings. Changing `wifiSsid`/`wifiPassword`, turning `protectReveal` off or `passkeysInBackup` on (op `passkeys_backup_on`), requires presence → 202 `{awaiting:"button"}` |
@@ -214,7 +214,10 @@ Conventions
 | POST `/api/factory-reset` | none (must work when passphrase is forgotten) | → 202 `{awaiting:"button"}`; on button press: wipe vault + settings, restart into setup |
 
 `Pending` = `{kind:"type", id, title, what, submit, expiresIn, target, preview?, part?, parts?}` (expires after
-**60 s**; `preview`/`part`/`parts` for sequences, §10.4). `Result` = `{ok:bool, code:"typed"|"cancelled"|"expired"|"no_usb"|"no_host"|"host_changed"|"unsupported_char"|"failed", at:ms_ago, title?, what?}`.
+**60 s**; `preview`/`part`/`parts` for sequences, §10.4). `Result` = `{ok:bool, code:"typed"|"cancelled"|"expired"|"no_usb"|"no_host"|"host_changed"|"unsupported_char"|"entry_changed"|"failed", at:ms_ago, title?, what?}`
+(`entry_changed`: the account was edited after the action was armed — the
+vault keeps a revision of each entry in RAM only, nothing stored — so the
+press typed nothing; for a sequence, at whichever part it noticed).
 
 Routes added after v1.0, described in their sections: `/api/ble`, `/api/ble/pair`,
 `/api/ble/bonds/{addr}` (§8.1); `/api/wifi/scan`, `/api/wifi/home`,
@@ -636,7 +639,10 @@ Entries may carry `sequence` (grammar and limits in
 `keyra_vault/include/keyra/sequence.hpp`: field tokens, Tab/Enter/Space,
 `{DELAY n}`, `{PRESS}`; no modifier or shortcut tokens). `POST /api/type
 {id, what:"sequence"}` types it; each `{PRESS}` re-arms the action for its next
-part. Settings `bothSequence` replaces the built-in "Both" order.
+part. Every part stays owned by the session that armed the sequence (§12.5a):
+only it may replace or cancel a waiting part, another session gets 409 `busy`,
+and a part that is typing when its session ends (lock, trusted browser
+removed) arms no next part. Settings `bothSequence` replaces the built-in "Both" order.
 
 ### 10.5 Host system and input language
 
@@ -748,8 +754,9 @@ Version 1 files migrate on the next unlock.
 ### 12.3 Secrets only after a press ("blind phone")
 
 With `protectReveal` on (default), `GET /api/entries/{id}` returns no password,
-2FA secret or old passwords (`revealed:false`, `hasPassword`, `hasTotp`,
-history dates). `POST /api/entries/{id}/reveal` → 202 press → the session that
+2FA secret, notes or old passwords (`revealed:false`, `hasPassword`, `hasTotp`,
+`hasNotes`, history dates). Notes are treated like the password because they
+often hold recovery codes or PINs. `POST /api/entries/{id}/reveal` → 202 press → the session that
 asked may read secrets for 60 s (`state.graceMs`). Downloading a backup and
 changing the recovery key need the same press. Turning `protectReveal` off
 needs a press; turning it on applies at once. Deleting an account
@@ -779,6 +786,18 @@ what the user is about to approve; the same session may replace its own item
 (which then ends as `cancelled`). Ops armed without a session (setup, factory
 reset, trusting a browser) belong to nobody: they never replace anything and
 nothing replaces them. The cancel token comes back with the arming answer.
+
+An item lives no longer than the session that armed it. Lock ends every
+session and drops their items; a session that ends on its own — its trusted
+browser removed (§8.2), or the least recently used one pushed out by a fifth
+browser — has its waiting item withdrawn (`cancelled`). A slow request (unlock
+aside: restore, backup, passphrase change, Wi‑Fi scan, update) waits in a
+queue; before it runs it checks again that its session is live and the vault
+not locked or unlocked anew meanwhile, else 401 `locked` and nothing changes.
+
+The security key (§11) gets the same care: a FIDO request remembers when it
+began, and a press made before that (one that waited in the button queue)
+neither approves nor refuses it.
 
 A press grants what it was asked for, to that session only: `reveal` opens
 60 s of reading secrets; `backup` allows one backup download and `recovery`

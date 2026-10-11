@@ -2,9 +2,10 @@
 
 namespace keyra::fido {
 
-void TouchGate::begin(Phase p) {
+void TouchGate::begin(Phase p, int64_t now) {
   std::lock_guard<std::mutex> g(mu_);
   phase_ = p;
+  startedAt_ = now;
   answer_ = Answer::None;
   u2f_ = false;
 }
@@ -34,7 +35,10 @@ bool TouchGate::takeLatched(int64_t now) {
   }
   if (phase_ == Phase::Idle || u2f_) {  // never hijack a blocking CTAP2 wait
     phase_ = Phase::Presence;
-    if (!u2f_ || answer_ != Answer::None) answer_ = Answer::None;
+    if (!u2f_ || answer_ != Answer::None) {  // a new prompt, not the next poll of this one
+      answer_ = Answer::None;
+      startedAt_ = now;
+    }
     u2f_ = true;
     u2fUntil_ = now + kPollGapMs;
   }
@@ -55,9 +59,10 @@ bool TouchGate::awaiting() {
   return phase_ != Phase::Idle && answer_ == Answer::None;
 }
 
-void TouchGate::press(bool shortPress, int64_t now) {
+void TouchGate::press(bool shortPress, int64_t pressedAt, int64_t now) {
   std::lock_guard<std::mutex> g(mu_);
   if (phase_ == Phase::Idle || answer_ != Answer::None) return;
+  if (pressedAt < startedAt_) return;  // made before this request: queued, not a touch for it
   if (!shortPress) {
     answer_ = Answer::Denied;
   } else if (phase_ == Phase::Presence) {

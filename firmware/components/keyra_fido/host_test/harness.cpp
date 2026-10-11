@@ -60,7 +60,7 @@ class StdioLink final : public Link {
     }
     if (waitingSince < 0) waitingSince = nowMs();
     if (nowMs() - waitingSince >= pressMs) {
-      gate.press(true, nowMs());
+      gate.press(true, nowMs(), nowMs());
       waitingSince = -1;
     }
   }

@@ -28,6 +28,10 @@ struct Entry {
   // Delete the entry after its password has been typed this many more times
   // (SPEC §16); 0 = keep. At most kMaxBurnAfter.
   uint8_t burnAfter = 0;
+  // RAM only, never stored or backed up: set by get(), and different after
+  // every change to the entry since the unlock (put, restore) — but not after
+  // touch(). A type action armed for one version refuses to type another.
+  uint32_t revision = 0;
 };
 
 enum class Status {

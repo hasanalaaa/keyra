@@ -8,6 +8,23 @@ All notable changes to Keyra are documented here. The format follows
 
 ### Fixed
 
+- **A press made before a passkey request no longer approves it.** A press
+  that waited in the button queue while Keyra was busy could count as the
+  security-key touch for a request that started after it. Every FIDO prompt
+  now remembers when it began and ignores older presses.
+- **Ending a session ends its pending work.** Removing a trusted browser, or a
+  fifth browser pushing out the oldest session, now withdraws what that session
+  left waiting for the button; a queued slow request (restore, backup,
+  passphrase change) is refused with 401 `locked` if its session ended or the
+  vault locked before it ran.
+- **Auto-type sequences keep their owner at every `{PRESS}`.** After the first
+  part, the session that armed a sequence could no longer cancel or replace it;
+  now every part belongs to it, and another session still gets 409 `busy`.
+- **Typing types the account you armed.** An edit to the account (from any
+  session) while the press is awaited now makes the press type nothing and
+  report `entry_changed`, instead of typing the new values.
+- **Notes need the reveal press.** With "Protect reveal" on, an account's notes
+  are no longer sent before the press; `hasNotes` says whether there are any.
 - **Restored passkeys never sign with an old counter.** A restore with passkeys
   now reserves the signature counter past the backup's before it writes any of
   them, and fails with nothing changed if it cannot (it used to write first and

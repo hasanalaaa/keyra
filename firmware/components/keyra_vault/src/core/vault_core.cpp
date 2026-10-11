@@ -574,7 +574,7 @@ Status Vault::loadEntries() {
     bool ok = codec::decode(plain.data(), plain.size(), e) && e.id == id;
     wipe(e);
     if (!ok) return Status::Corrupt;
-    slots_.push_back(Slot{id, std::move(plain)});
+    slots_.push_back(Slot{id, std::move(plain), ++revisions_});
   }
   return Status::Ok;
 }
@@ -620,7 +620,9 @@ Status Vault::get(uint32_t id, Entry& out) {
   if (Status s = requireUnlocked(); s != Status::Ok) return s;
   Slot* slot = find(id);
   if (!slot) return Status::NotFound;
-  return codec::decode(slot->plain.data(), slot->plain.size(), out) ? Status::Ok : Status::Corrupt;
+  if (!codec::decode(slot->plain.data(), slot->plain.size(), out)) return Status::Corrupt;
+  out.revision = slot->revision;
+  return Status::Ok;
 }
 
 Status Vault::persist(const std::string& path, uint32_t id, const SecureBuf& plain) {
@@ -634,14 +636,15 @@ Status Vault::persist(const std::string& path, uint32_t id, const SecureBuf& pla
   return writeAtomic(path, file.data(), file.size());
 }
 
-Status Vault::store(Entry& rec) {
+Status Vault::store(Entry& rec, bool edited) {
   SecureBuf plain;
   if (!codec::encode(rec, plain)) return Status::Full;  // out of RAM for plaintext
   if (Status s = persist(entryPath(rec.id), rec.id, plain); s != Status::Ok) return s;
   if (Slot* slot = find(rec.id)) {
     slot->plain = std::move(plain);
+    if (edited) slot->revision = ++revisions_;
   } else {
-    slots_.push_back(Slot{rec.id, std::move(plain)});
+    slots_.push_back(Slot{rec.id, std::move(plain), ++revisions_});
   }
   return Status::Ok;
 }
@@ -670,7 +673,7 @@ Status Vault::put(Entry& e) {
   } else {
     s = Status::NotFound;
   }
-  if (s == Status::Ok) s = store(rec);
+  if (s == Status::Ok) s = store(rec, true);
   if (s == Status::Ok) {
     e.id = rec.id;
     e.created = rec.created;
@@ -708,7 +711,7 @@ Status Vault::touch(uint32_t id, int64_t now, bool password, bool* burned) {
   }
   if (s == Status::Ok) {
     if (now != 0) rec.lastUsed = now;
-    s = store(rec);
+    s = store(rec, false);  // what typing reads is unchanged
   }
   wipe(rec);
   return s;
@@ -982,7 +985,7 @@ Status Vault::importBackup(const std::string& backupPass, const std::string& jso
     if (s != Status::Ok) break;
     Slot* slot = find(e.id);
     if (!slot) {
-      s = store(e);
+      s = store(e, true);
       continue;
     }
     Entry old;
@@ -1004,7 +1007,7 @@ Status Vault::importBackup(const std::string& backupPass, const std::string& jso
       if (e.lastUsed == 0) e.lastUsed = old.lastUsed;
     }
     wipe(old);
-    if (s == Status::Ok) s = store(e);
+    if (s == Status::Ok) s = store(e, true);
     if (s == Status::Ok) ++nUpdated;
   }
   cleanup();

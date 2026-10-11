@@ -134,7 +134,7 @@ Bytes makeCredential() {
 void pressAfterKeepalives() {
   Rig r;
   r.link.onTime = [&](int64_t now) {
-    if (now >= 1100 && r.gate.awaiting()) r.gate.press(true, now);
+    if (now >= 1100 && r.gate.awaiting()) r.gate.press(true, now, now);
   };
   r.send(150, r.cid, hid::kCbor, makeCredential());  // 2 packets
   int ka = 0;
@@ -172,7 +172,7 @@ void cancelTimeoutRefuse() {
   {
     Rig r;
     r.link.onTime = [&](int64_t now) {
-      if (now >= 500 && r.gate.awaiting()) r.gate.press(false, now);
+      if (now >= 500 && r.gate.awaiting()) r.gate.press(false, now, now);
     };
     r.send(150, r.cid, hid::kCbor, makeCredential());
     CHECK(r.run(r.cid, hid::kCbor) == Bytes{0x27});
@@ -189,7 +189,7 @@ void busyOtherChannelAndPing() {
   CHECK(other != r.cid);
   r.link.out.clear();
   r.link.onTime = [&](int64_t now) {
-    if (now >= 2000 && r.gate.awaiting()) r.gate.press(true, now);
+    if (now >= 2000 && r.gate.awaiting()) r.gate.press(true, now, now);
   };
   r.send(300, r.cid, hid::kCbor, makeCredential());
   r.send(800, other, hid::kPing, {1, 2, 3});
@@ -214,7 +214,7 @@ void unlockWaitThenPress() {
   r.store.open = false;
   r.link.onTime = [&](int64_t now) {
     if (now >= 2000) r.store.open = true;  // the phone unlocked Keyra
-    if (now >= 3000 && r.gate.awaiting()) r.gate.press(true, now);
+    if (now >= 3000 && r.gate.awaiting()) r.gate.press(true, now, now);
   };
   r.send(150, r.cid, hid::kCbor, makeCredential());
   bool sawProcessing = false;
@@ -240,7 +240,7 @@ void u2fLatchThroughDevice() {
   r.send(150, r.cid, hid::kMsg, reg);
   CHECK(r.run(r.cid, hid::kMsg) == Bytes({0x69, 0x85}));
   CHECK(r.gate.awaiting());
-  r.gate.press(true, r.link.now);
+  r.gate.press(true, r.link.now, r.link.now);
   CHECK(!r.gate.awaiting());  // LED back to normal; the press waits for the next poll
   r.send(r.link.now + 200, r.cid, hid::kMsg, reg);
   const Bytes ok = r.run(r.cid, hid::kMsg);
@@ -253,13 +253,13 @@ void u2fLatchThroughDevice() {
 void gateRules() {
   TouchGate g;
   CHECK(!g.awaiting());
-  g.press(true, 0);  // nothing to approve
+  g.press(true, 0, 0);  // nothing to approve
   CHECK(g.answer() == TouchGate::Answer::None);
-  g.begin(TouchGate::Phase::Unlock);
+  g.begin(TouchGate::Phase::Unlock, 0);
   CHECK(g.awaiting());
-  g.press(true, 10);  // short press cannot stand in for an unlock
+  g.press(true, 10, 10);  // short press cannot stand in for an unlock
   CHECK(g.answer() == TouchGate::Answer::None && g.awaiting());
-  g.press(false, 20);
+  g.press(false, 20, 20);
   CHECK(g.answer() == TouchGate::Answer::Denied && !g.awaiting());
   g.end();
 
@@ -269,16 +269,59 @@ void gateRules() {
   g.tick(1000 + TouchGate::kPollGapMs + 1);
   CHECK(!g.awaiting());
   CHECK(!g.takeLatched(10000));
-  g.press(true, 10000);
+  g.press(true, 10000, 10000);
   CHECK(!g.takeLatched(10000 + TouchGate::kLatchMs + 1));  // too late: asks again instead
   CHECK(g.awaiting());
-  g.press(true, 20000);
+  g.press(true, 20000, 20000);
   CHECK(g.takeLatched(20100));
   CHECK(!g.awaiting());
   // A U2F poll never hijacks a blocking CTAP2 wait.
-  g.begin(TouchGate::Phase::Presence);
+  g.begin(TouchGate::Phase::Presence, 30000);
   CHECK(!g.takeLatched(30000));
-  g.press(true, 30001);
+  g.press(true, 30001, 30001);
+  CHECK(g.answer() == TouchGate::Answer::Approved);
+  g.end();
+}
+
+// A press made before the request began (it waited in the actions task's
+// queue) is not a touch for it: only a press made after the prompt counts.
+void queuedPressBeforeRequest() {
+  Rig r;
+  bool staleSent = false;
+  int64_t freshAt = -1;
+  r.link.onTime = [&](int64_t now) {
+    if (!r.gate.awaiting()) return;
+    if (!staleSent && now >= 1100) {
+      r.gate.press(true, 100, now);  // pressed at 100, before the request at 150, handled now
+      staleSent = true;
+      CHECK(r.gate.awaiting());      // still waiting: nothing was approved
+    } else if (staleSent && now >= 2000 && freshAt < 0) {
+      freshAt = now;
+      r.gate.press(true, now, now);
+    }
+  };
+  r.send(150, r.cid, hid::kCbor, makeCredential());
+  const Bytes resp = r.run(r.cid, hid::kCbor);
+  CHECK(staleSent && freshAt >= 2000);
+  CHECK(!resp.empty() && resp[0] == 0x00);
+  CHECK(r.link.now >= 2000);  // answered only after the fresh press
+
+  // The same for U2F: a press older than the prompt is not latched.
+  TouchGate g;
+  CHECK(!g.takeLatched(5000));  // the prompt starts at 5000
+  g.press(true, 4990, 5010);
+  CHECK(g.awaiting());
+  CHECK(!g.takeLatched(5100));
+  g.press(true, 5050, 5060);
+  CHECK(g.takeLatched(5200));
+
+  // And for a blocking request: begin() marks the start.
+  g.begin(TouchGate::Phase::Presence, 7000);
+  g.press(true, 6999, 7001);
+  CHECK(g.answer() == TouchGate::Answer::None && g.awaiting());
+  g.press(false, 6000, 7002);  // nor can a queued long press refuse it
+  CHECK(g.answer() == TouchGate::Answer::None);
+  g.press(true, 7000, 7003);
   CHECK(g.answer() == TouchGate::Answer::Approved);
   g.end();
 }
@@ -292,5 +335,6 @@ int main() {
   unlockWaitThenPress();
   u2fLatchThroughDevice();
   gateRules();
+  queuedPressBeforeRequest();
   return KEYRA_TEST_RESULT();
 }

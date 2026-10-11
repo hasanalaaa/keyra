@@ -221,6 +221,66 @@ void waitingPartExpiresOrCancels() {
   CHECK(!m.pending().has_value());
 }
 
+// The session that armed a sequence owns every part of it (SPEC §12.5a), not
+// just the first: only it may replace or cancel a waiting part, and another
+// session gets busy at every part.
+void everyPartKeepsItsOwner() {
+  actions::Machine m([] { return g_now; });
+  actions::TypeRequest r{9, "Bank", actions::What::Sequence, false, {}, nullptr, job("a{PRESS}b{PRESS}c"), 0};
+  actions::TypeRequest other{1, "Mail", actions::What::Password, false, {}, nullptr, nullptr, 0};
+  m.arm(r, "s");
+  for (uint8_t part = 0; part < 2; ++part) {
+    actions::Decision d = m.onButton(actions::Button::Short, true, g_now);
+    CHECK(d.effect == actions::Effect::Run && d.run.part == part);
+    m.typingFinished(d.run, Code::Typed);
+    auto p = m.pending();
+    CHECK(p && p->req.part == part + 1 && p->owner == "s");
+    CHECK(!m.arm(other, "t").has_value());  // someone else: busy
+    CHECK(!m.cancelOwned("t"));
+    CHECK(m.pending() && m.pending()->req.id == 9);
+  }
+  // The owner may cancel the waiting last part.
+  CHECK(m.cancelOwned("s"));
+  CHECK(!m.pending().has_value());
+  CHECK(m.last()->code == Code::Cancelled);
+
+  // ...or replace it with something else.
+  m.arm(r, "s");
+  actions::Decision d = m.onButton(actions::Button::Short, true, g_now);
+  m.typingFinished(d.run, Code::Typed);
+  auto p = m.arm(other, "s");
+  CHECK(p && p->req.id == 1 && p->owner == "s");
+  CHECK(m.last()->code == Code::Cancelled && m.last()->title == "Bank");
+}
+
+// A session that ends while a part is typing (trusted browser removed) does
+// not get its next part armed again.
+void endedOwnerGetsNoNextPart() {
+  actions::Machine m([] { return g_now; });
+  actions::TypeRequest r{9, "Bank", actions::What::Sequence, false, {}, nullptr, job("a{PRESS}b"), 0};
+  m.arm(r, "s");
+  actions::Decision d = m.onButton(actions::Button::Short, true, g_now);
+  CHECK(!m.cancelOwned("t"));  // not theirs
+  CHECK(m.cancelOwned("s"));
+  m.typingFinished(d.run, Code::Typed);
+  CHECK(!m.pending().has_value());
+  CHECK(m.last()->code == Code::Cancelled);
+
+  // The same after a lock.
+  m.arm(r, "s");
+  d = m.onButton(actions::Button::Short, true, g_now);
+  m.dropSessionItems();
+  m.typingFinished(d.run, Code::Typed);
+  CHECK(!m.pending().has_value());
+  CHECK(m.last()->code == Code::Cancelled);
+
+  // And a withdrawal does not leak into the next sequence.
+  m.arm(r, "s");
+  d = m.onButton(actions::Button::Short, true, g_now);
+  m.typingFinished(d.run, Code::Typed);
+  CHECK(m.pending() && m.pending()->req.part == 1);
+}
+
 }  // namespace
 
 int main() {
@@ -232,5 +292,7 @@ int main() {
   builtInMatchesBoth();
   machineWaitsForEachPress();
   waitingPartExpiresOrCancels();
+  everyPartKeepsItsOwner();
+  endedOwnerGetsNoNextPart();
   return KEYRA_TEST_RESULT();
 }

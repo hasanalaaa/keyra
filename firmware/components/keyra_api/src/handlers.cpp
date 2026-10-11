@@ -62,6 +62,7 @@ struct Ctx {
   json::Ptr body;  // parsed JSON object, when the route takes one
   net::Via via = net::Via::Home;
   std::optional<tokens::Token> bearer;  // /api/agent/…: the access token (SPEC §17)
+  uint32_t generation = 0;              // vault::unlockGeneration() when the session was checked
 };
 
 // ---------- small helpers ----------
@@ -488,6 +489,7 @@ Unlocked onUnlocked(uint8_t how) {
 // A new session for this browser: `ks` cookie (+ renewed `kt` when trusted) and the CSRF token.
 esp_err_t sendSession(httpd_req_t* r, uint32_t trustId, const std::string& ktToken, const Unlocked& u) {
   const Sessions::Issued s = sessions().create(monoMs(), trustId, vault::unlockGeneration());
+  if (!s.evicted.empty()) machine().cancelOwned(s.evicted);  // its button items go with it (SPEC §12.5a)
   const std::string cookie = "ks=" + s.token + "; HttpOnly; SameSite=Strict; Path=/";
   httpd_resp_set_hdr(r, "Set-Cookie", cookie.c_str());
   const std::string kt = "kt=" + ktToken + "; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000";
@@ -1228,7 +1230,12 @@ void slowWorker(void*) {
     Ctx* job = nullptr;
     xQueueReceive(g_slowQueue, &job, portMAX_DELAY);
     httpd_req_t* r = job->r;
-    if (dispatch(*job) != ESP_OK) ESP_LOGW(TAG, "slow request failed to send");
+    // The request may have waited behind another (a restore runs seconds of
+    // PBKDF2): its session may have ended, or the vault locked, since then.
+    const bool stale = needsSession(job->match.route) &&
+                       !sessions().stillValid(job->token, job->generation, vault::unlockGeneration(), vault::unlocked());
+    const esp_err_t sent = stale ? http::sendError(r, http::k401, "locked", "Vault is locked") : dispatch(*job);
+    if (sent != ESP_OK) ESP_LOGW(TAG, "slow request failed to send");
     delete job;  // wipes the parsed body (cJSON frees are zeroised)
     httpd_req_async_handler_complete(r);
   }
@@ -1239,7 +1246,8 @@ esp_err_t deferToWorker(Ctx& c) {
   httpd_req_t* copy = nullptr;
   if (httpd_req_async_handler_begin(c.r, &copy) != ESP_OK)
     return http::sendError(c.r, http::k500, "no_memory", "Out of memory");
-  Ctx* job = new Ctx{copy, c.match, c.session, std::move(c.token), std::move(c.body), c.via, std::move(c.bearer)};
+  Ctx* job = new Ctx{copy, c.match, c.session, std::move(c.token), std::move(c.body), c.via, std::move(c.bearer),
+                     c.generation};
   if (xQueueSend(g_slowQueue, &job, 0) != pdTRUE) {
     delete job;
     http::sendError(copy, http::k503, "busy", "Keyra is busy; try again");
@@ -1368,6 +1376,7 @@ bool entryRequest(httpd_req_t* r, const cJSON* body, uint32_t id, actions::What 
                        (what == actions::What::Totp && e.totp.empty());
   out = {id, e.title, what, submit, target, nullptr, nullptr, 0};
   out.switchLang = switchLang;
+  out.revision = e.revision;  // an edit before the press makes it type nothing
   vault::wipe(e);
   if (missing) {
     err = badRequest(r, "Entry has no value for that field");
@@ -1407,7 +1416,7 @@ esp_err_t handleApi(httpd_req_t* r, Method method, std::string_view path) {
     http::sendError(r, http::k413, "too_large", "Request body too large");
     return ESP_FAIL;  // closes the socket instead of draining an oversized body
   }
-  Ctx c{r, matchApi(method, path), false, {}, nullptr, net::viaForSocket(httpd_req_to_sockfd(r)), std::nullopt};
+  Ctx c{r, matchApi(method, path), false, {}, nullptr, net::viaForSocket(httpd_req_to_sockfd(r)), std::nullopt, 0};
   if (c.match.kind == Match::Kind::NotFound) return http::sendError(r, http::k404, "not_found", "No such endpoint");
   if (c.match.kind == Match::Kind::MethodNotAllowed)
     return http::sendError(r, http::k405, "method_not_allowed", "Method not allowed");
@@ -1432,7 +1441,8 @@ esp_err_t handleApi(httpd_req_t* r, Method method, std::string_view path) {
   size_t cookieLen = sizeof cookie;
   if (httpd_req_get_cookie_val(r, "ks", cookie, &cookieLen) == ESP_OK) {
     c.token = cookie;
-    csrf = sessions().csrfFor(c.token, monoMs(), vault::unlockGeneration());
+    c.generation = vault::unlockGeneration();
+    csrf = sessions().csrfFor(c.token, monoMs(), c.generation);
   }
   c.session = csrf.has_value() && vault::unlocked();
   if (needsSession(c.match.route)) {

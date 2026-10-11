@@ -9,6 +9,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace keyra::api {
 
@@ -27,6 +28,7 @@ class Sessions {
 
   struct Issued {
     std::string token, csrf;
+    std::string evicted;  // the session pushed out to make room (empty = none)
   };
   // Evicts the least recently used session when all slots are taken.
   // `trustId`: the trusted browser (SPEC §8.2) this session was opened from, 0 = none.
@@ -49,8 +51,13 @@ class Sessions {
   int64_t graceLeft(std::string_view token, int64_t nowMs, Grace g);
   // True (and the grace ends) when this session has that grace now.
   bool consumeGrace(std::string_view token, int64_t nowMs, Grace g);
-  // Revoking a trusted browser ends the sessions it opened.
-  size_t endTrusted(uint32_t trustId);
+  // Revoking a trusted browser ends the sessions it opened; returns their
+  // tokens, so what they left waiting for the button can be withdrawn too.
+  std::vector<std::string> endTrusted(uint32_t trustId);
+  // Whether a request admitted for `token` in unlock `generation` may still
+  // act: the session is live, the vault unlocked and not unlocked again since.
+  // Work deferred to another task re-checks this before it changes anything.
+  bool stillValid(std::string_view token, uint32_t generation, uint32_t currentGeneration, bool unlocked);
   size_t size();
 
   // Idle tracking for auto-lock: any authenticated request or button use counts.
