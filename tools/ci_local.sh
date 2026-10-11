@@ -30,6 +30,9 @@ npm --prefix extension test
 npm --prefix extension run build
 SHOTS=0 npm --prefix extension run e2e
 
+step "keyra-mcp (tests against the device mock)"
+node --test tools/keyra-mcp/server.test.mjs
+
 step "Android app (unit tests, builds, lint)"
 (cd android && ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}" JAVA_HOME="${JAVA_HOME:-/Applications/Android Studio.app/Contents/jbr/Contents/Home}" \
   ./gradlew --console=plain --rerun-tasks testDebugUnitTest assembleDebug assembleRelease lint \

@@ -114,7 +114,21 @@ async function listLogins(args) {
   return rows.map((e) => `${e.id}: ${e.title}${e.host ? ` (${e.host})` : ''}`).join('\n');
 }
 
+// Keyra answers GET /api/agent/status with a token's *last* request, so a second request
+// armed while the first waits would make either call report the other's outcome.
+let typing = false;
+
 async function typeLogin(args) {
+  if (typing) throw new KeyraError(0, 'local_busy', 'Another keyra_type_login request is still waiting for the press on Keyra. Wait for its result, then try again.');
+  typing = true;
+  try {
+    return await armAndWait(args);
+  } finally {
+    typing = false;
+  }
+}
+
+async function armAndWait(args) {
   if (!Number.isInteger(args.id) || args.id < 1) throw new KeyraError(400, 'invalid', '"id" must be a login id from keyra_list_logins.');
   const body = { id: args.id, what: args.what ?? 'both' };
   if (typeof args.submit === 'boolean') body.submit = args.submit;
