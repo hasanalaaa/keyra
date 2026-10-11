@@ -5,6 +5,7 @@
 #include <cstring>
 #include <string>
 
+#include "asset_pack.hpp"
 #include "esp_check.h"
 #include "esp_log.h"
 #include "handlers.hpp"
@@ -15,6 +16,8 @@
 
 extern const uint8_t index_html_gz_start[] asm("_binary_index_html_gz_start");
 extern const uint8_t index_html_gz_end[] asm("_binary_index_html_gz_end");
+extern const uint8_t assets_pack_start[] asm("_binary_assets_pack_start");
+extern const uint8_t assets_pack_end[] asm("_binary_assets_pack_end");
 extern const uint8_t manifest_start[] asm("_binary_manifest_webmanifest_start");
 extern const uint8_t manifest_end[] asm("_binary_manifest_webmanifest_end");
 extern const uint8_t icon192_start[] asm("_binary_icon_192_png_start");
@@ -88,6 +91,16 @@ esp_err_t sendAsset(httpd_req_t* r, const Asset& a) {
   return httpd_resp_send(r, reinterpret_cast<const char*>(a.start), a.end - a.start);
 }
 
+// /assets/<name>: the app's hashed scripts, stylesheet and font. A new build
+// gives a new name, so a copy may be kept for good.
+esp_err_t sendPacked(httpd_req_t* r, const assets::File& f) {
+  httpd_resp_set_type(r, f.type);
+  if (f.gzip) httpd_resp_set_hdr(r, "Content-Encoding", "gzip");
+  httpd_resp_set_hdr(r, "Cache-Control", "public, max-age=31536000, immutable");
+  http::securityHeaders(r);
+  return httpd_resp_send(r, reinterpret_cast<const char*>(f.body), f.size);
+}
+
 esp_err_t handleAny(httpd_req_t* r) {
   const char* q = std::strchr(r->uri, '?');
   const std::string_view path(r->uri, q ? static_cast<size_t>(q - r->uri) : std::strlen(r->uri));
@@ -109,12 +122,16 @@ esp_err_t handleAny(httpd_req_t* r) {
     for (const Asset& a : kAssets) {
       if (path == a.path) return sendAsset(r, a);
     }
+    if (path.substr(0, 8) == "/assets/") {
+      if (const auto f = assets::find(assets_pack_start, assets_pack_end - assets_pack_start, path))
+        return sendPacked(r, *f);
+    }
     // An NFC tag's URL (SPEC §18): a page that arms nothing by itself, so a
     // link preview fetching it changes nothing; its script does the tap.
     if (isTapPage(path)) {
       httpd_resp_set_type(r, "text/html; charset=utf-8");
       httpd_resp_set_hdr(r, "Cache-Control", "no-store");
-      http::securityHeaders(r);
+      http::securityHeaders(r, http::Csp::InlinePage);
       return httpd_resp_send(r, reinterpret_cast<const char*>(tap_start), tap_end - tap_start);
     }
   }

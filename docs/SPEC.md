@@ -76,8 +76,10 @@ Keyra/
   README.md  README.ar.md  SECURITY.md  CHANGELOG.md  CONTRIBUTING.md  LICENSE  .github/
 ```
 
-Build: `web` builds to a single gzipped `index.html` (+ icons/manifest) that the
-firmware embeds (`EMBED_FILES`) from `firmware/components/keyra_api/www/`.
+Build: `web` builds to a gzipped `index.html` and `assets.pack` (its hashed
+scripts, stylesheet and font, gzipped where that helps) plus icons/manifest,
+which the firmware embeds (`EMBED_FILES`) from `firmware/components/keyra_api/www/`.
+Byte budget (DESIGN Appendix A): ≤ 130 KB gzip to open the vault list, ≤ 400 KB in all.
 The committed `www/` contains the latest built assets so the firmware builds
 without Node.
 
@@ -271,7 +273,7 @@ Button semantics (owned by `keyra_api/actions`):
 Captive / connectivity (owned by `keyra_net` + static handler): answer OS probes as **online** so phones connect normally and no sheet appears:
 `/hotspot-detect.html`, `/library/test/success.html` → Apple "Success" HTML; `/generate_204`, `/gen_204` → 204; `/connecttest.txt` → `Microsoft Connect Test`; `/ncsi.txt` → `Microsoft NCSI`; `/success.txt` → `success`. Requests whose `Host` is not the device (IP or `keyra.local`) get a tiny 302 to `http://keyra.local/`. DNS answers every A query with 192.168.4.1 (AAAA → empty).
 
-Static: `GET /` → `index.html` (gzip, `Cache-Control: no-cache`); `/manifest.webmanifest`, `/icon-*.png`, `/apple-touch-icon.png` (long cache).
+Static: `GET /` → `index.html` (gzip, `Cache-Control: no-cache`); `/assets/<name>-<hash>.js|.css|.woff2` from `assets.pack` (gzip except the font, `Cache-Control: public, max-age=31536000, immutable`: a new build gives new names, and screens other than the list load on first use); `/manifest.webmanifest`, `/icon-*.png`, `/apple-touch-icon.png` (long cache).
 
 ## 6. Security model
 
@@ -288,8 +290,9 @@ Static: `GET /` → `index.html` (gzip, `Cache-Control: no-cache`); `/manifest.w
 - Typing requires a physical button press for every action. Nothing types
   without it. Secrets never appear in logs.
 - Web: CSRF header, HttpOnly SameSite=Strict cookie, strict CSP
-  (`default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:`
-  — inline only because the single-file build inlines assets), `X-Frame-Options: DENY`,
+  (`default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`:
+  no inline script or style anywhere in the app; only the self-contained NFC tap page (§18) adds
+  `'unsafe-inline'` to `script-src` and `style-src`), `X-Frame-Options: DENY`,
   `Referrer-Policy: no-referrer`.
 - Honest limits (document in SECURITY.md): HTTP on a WPA2 link (no TLS);
   no secure element; flash encryption/secure boot are optional eFuse steps

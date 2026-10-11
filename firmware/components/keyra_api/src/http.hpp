@@ -30,7 +30,10 @@ constexpr const char* k503 = "503 Service Unavailable";
 constexpr const char* k507 = "507 Insufficient Storage";
 
 // CSP, X-Frame-Options, Referrer-Policy, nosniff (SPEC §6) on every response.
-void securityHeaders(httpd_req_t* r);
+// Csp::InlinePage only for the self-contained NFC tap page, whose script and
+// style are inline; the app itself is all separate files.
+enum class Csp { App, InlinePage };
+void securityHeaders(httpd_req_t* r, Csp csp = Csp::App);
 
 esp_err_t sendJson(httpd_req_t* r, const char* status, const cJSON* body);
 // Like sendJson for a body that is already JSON text.

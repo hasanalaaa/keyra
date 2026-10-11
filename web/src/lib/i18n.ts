@@ -17,6 +17,9 @@ const en = {
   offline: "Lost connection to Keyra. Check your phone is on {ssid} or on the same home Wi‑Fi as Keyra.",
   reconnecting: 'Reconnecting…',
   skipToAccounts: 'Skip to accounts',
+  loading: 'Loading…',
+  loadFailTitle: "Couldn't open this",
+  loadFailBody: 'Check that this phone is still connected to Keyra, then try again.',
 
   // Welcome
   welcomeTitle: 'Welcome to Keyra',
@@ -845,6 +848,9 @@ const ar: Record<Key, string> = {
   offline: 'انقطع الاتصال بـ Keyra. تأكد أن هاتفك على شبكة {ssid} أو على نفس شبكة البيت المتصل بها Keyra.',
   reconnecting: 'نعيد الاتصال…',
   skipToAccounts: 'انتقل إلى الحسابات',
+  loading: 'جارٍ التحميل…',
+  loadFailTitle: 'تعذّر فتح هذه الصفحة',
+  loadFailBody: 'تأكد أن هاتفك ما زال متصلاً بـ Keyra، ثم حاول مجدداً.',
 
   welcomeTitle: 'أهلاً بك في Keyra',
   welcomeSub: 'خزنتك الصغيرة التي تكتب كلمات المرور بدلاً عنك.',

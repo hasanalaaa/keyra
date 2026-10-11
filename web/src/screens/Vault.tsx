@@ -1,5 +1,5 @@
 // Home: account list (DESIGN §5.4) with sheets/dialogs per route; desktop two-pane at ≥ 900 px.
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { Icon, KeyGlyph } from '../components/Icon';
 import { Button, IconButton, Monogram, Notice } from '../components/ui';
 import { Sheet, useMedia, type SheetCtl } from '../components/Sheet';
@@ -10,14 +10,17 @@ import { hostOf } from '../lib/csv';
 import { groupByLetter, highlightRange, search } from '../lib/search';
 import type { EntrySummary } from '../lib/types';
 import { AccountView } from './Account';
-import { EditAccount } from './Edit';
-import { ImportSheet } from './Import';
-import { BackupSheet } from './Backup';
-import { Settings } from './Settings';
 import { A2hsSheet, shouldOfferA2hs } from './A2hs';
-import { GenerateSheet } from './Generate';
-import { TypeTextSheet } from './TypeText';
-import { ConnectSheet } from './Tokens';
+import { lazy } from '../components/Lazy';
+
+// Everything but the list and an account loads on first use (DESIGN Appendix A).
+const EditAccount = lazy(() => import('./Edit').then((m) => m.EditAccount));
+const ImportSheet = lazy(() => import('./Import').then((m) => m.ImportSheet));
+const BackupSheet = lazy(() => import('./Backup').then((m) => m.BackupSheet));
+const Settings = lazy(() => import('./Settings').then((m) => m.Settings));
+const GenerateSheet = lazy(() => import('./Generate').then((m) => m.GenerateSheet));
+const TypeTextSheet = lazy(() => import('./TypeText').then((m) => m.TypeTextSheet));
+const ConnectSheet = lazy(() => import('./Tokens').then((m) => m.ConnectSheet));
 
 let a2hsChecked = false;
 
@@ -97,6 +100,8 @@ function ListPane({ selected, desktop }: { selected: number | null; desktop: boo
   const lastY = useRef(0);
   const entries = app.entries;
   const d = app.device;
+  // Phones scroll the window (null); the desktop list pane scrolls itself.
+  const scroller = desktop ? pane : null;
 
   useEffect(() => {
     if (entries) return;
@@ -228,20 +233,20 @@ function ListPane({ selected, desktop }: { selected: number | null; desktop: boo
               </Button>
             </div>
           ) : (
-            <Group title={t('results')} items={results} q={q} selected={selected} />
+            <Group title={t('results')} items={results} q={q} selected={selected} scroller={scroller} />
           )
         ) : (
           <>
             <BackupReminder />
-            {favorites.length > 0 && <Group title={t('favorites')} items={favorites} selected={selected} />}
-            {recent.length > 0 && <Group title={t('recent')} items={recent} selected={selected} />}
+            {favorites.length > 0 && <Group title={t('favorites')} items={favorites} selected={selected} scroller={scroller} />}
+            {recent.length > 0 && <Group title={t('recent')} items={recent} selected={selected} scroller={scroller} />}
             <h2 class="section-head">{t('all')}</h2>
             {groups.map((g) => (
               <section key={g.letter} class="letter-group">
                 <h3 class="letter-head" dir="auto">
                   {g.letter}
                 </h3>
-                <Rows items={g.items} selected={selected} />
+                <Rows items={g.items} selected={selected} scroller={scroller} />
               </section>
             ))}
           </>
@@ -335,20 +340,102 @@ function BackupReminder() {
   );
 }
 
-function Group({ title, items, q, selected }: { title: string; items: EntrySummary[]; q?: string; selected: number | null }) {
+type Scroller = { current: HTMLElement | null } | null;
+
+interface RowsProps {
+  items: EntrySummary[];
+  q?: string;
+  selected: number | null;
+  scroller: Scroller;
+}
+
+function Group({ title, ...rows }: RowsProps & { title: string }) {
   return (
     <section class="group">
       <h2 class="section-head">{title}</h2>
-      <Rows items={items} q={q} selected={selected} />
+      <Rows {...rows} />
     </section>
   );
 }
 
-function Rows({ items, q, selected }: { items: EntrySummary[]; q?: string; selected: number | null }) {
+// Long lists render only the rows near the viewport (thousands of accounts stay smooth); spacer items
+// keep the full height, so scrolling, the scrollbar and sticky letters behave as if every row were there.
+// Short lists (every vault under WINDOW_MIN per section) render whole.
+const WINDOW_MIN = 60;
+const OVERSCAN = 8; // rows past each edge: Tab and ↑/↓ reach the next row before it is needed
+// Every account row is one height (single-line title and subtitle). It is measured from the first row drawn
+// and shared, so every section's spacers agree: a section scrolled into view never changes the list height.
+let rowH = 64; // .acc-row's minimum height, until a drawn row is measured
+const rowHListeners = new Set<() => void>();
+function learnRowHeight(li: HTMLElement | null | undefined): void {
+  const h = li?.getBoundingClientRect().height ?? 0;
+  if (h > 0 && Math.abs(h - rowH) > 0.01) {
+    rowH = h;
+    rowHListeners.forEach((f) => f());
+  }
+}
+
+/** [first, end) of the rows to draw, the row height the spacers use, and a way to keep a row's neighbours drawn. */
+function useWindow(items: unknown[], list: { current: HTMLUListElement | null }, scroller: Scroller): [number, number, number, (i: number) => void] {
+  const n = items.length;
+  const on = n > WINDOW_MIN;
+  const [range, setRange] = useState<[number, number]>([0, 0]);
+  const [, setH] = useState(rowH);
+  const update = useRef(() => {});
+  update.current = () => {
+    const ul = list.current;
+    if (!ul) return;
+    const pane = scroller?.current;
+    const view = pane ? pane.getBoundingClientRect() : { top: 0, bottom: innerHeight };
+    const top = ul.getBoundingClientRect().top;
+    const s = Math.min(n, Math.max(0, Math.floor((view.top - top) / rowH) - OVERSCAN));
+    const e = Math.min(n, Math.max(s, Math.ceil((view.bottom - top) / rowH) + OVERSCAN));
+    setRange((p) => (p[0] === s && p[1] === e ? p : [s, e]));
+  };
+  useLayoutEffect(() => {
+    if (!on) return;
+    const target = scroller?.current ?? window;
+    const run = () => update.current();
+    const remeasured = () => {
+      setH(rowH);
+      run();
+    };
+    run();
+    target.addEventListener('scroll', run, { passive: true });
+    addEventListener('resize', run);
+    rowHListeners.add(remeasured);
+    return () => {
+      target.removeEventListener('scroll', run);
+      removeEventListener('resize', run);
+      rowHListeners.delete(remeasured);
+    };
+  }, [on, items, scroller]);
+  useLayoutEffect(() => {
+    if (on) learnRowHeight(list.current?.querySelector<HTMLElement>('li[aria-posinset]'));
+  });
+  // A focused row keeps OVERSCAN rows drawn on each side at once, so the next Tab or ↓ always has a row
+  // to land on, however fast the keys come (the scroll that follows would draw them a frame later).
+  const reveal = (i: number) =>
+    i >= 0 &&
+    setRange((p) => (i - OVERSCAN >= p[0] && i + OVERSCAN < p[1] ? p : [Math.max(0, Math.min(p[0], i - OVERSCAN)), Math.min(n, Math.max(p[1], i + OVERSCAN + 1))]));
+  return on ? [Math.min(range[0], n), Math.min(range[1], n), rowH, reveal] : [0, n, rowH, reveal];
+}
+
+function Rows({ items, q, selected, scroller }: RowsProps) {
+  const list = useRef<HTMLUListElement>(null);
+  const n = items.length;
+  const [start, end, h, reveal] = useWindow(items, list, scroller);
+  const windowed = n > WINDOW_MIN;
+  const gap = (key: string, rows: number) => rows > 0 && <li key={key} class="rows-gap" aria-hidden="true" style={{ blockSize: `${rows * h}px` }} />;
   return (
-    <ul class="card rows">
-      {items.map((e) => (
-        <li key={e.id}>
+    <ul
+      class="card rows"
+      ref={list}
+      onFocusIn={windowed ? (e) => reveal(Number((e.target as HTMLElement).closest('li')?.getAttribute('aria-posinset')) - 1) : undefined}
+    >
+      {windowed && gap('gap-start', start)}
+      {items.slice(start, end).map((e, i) => (
+        <li key={e.id} aria-setsize={windowed ? n : undefined} aria-posinset={windowed ? start + i + 1 : undefined}>
           <button
             type="button"
             class={`row acc-row${selected === e.id ? ' selected' : ''}`}
@@ -370,6 +457,7 @@ function Rows({ items, q, selected }: { items: EntrySummary[]; q?: string; selec
           </button>
         </li>
       ))}
+      {windowed && gap('gap-end', n - end)}
     </ul>
   );
 }

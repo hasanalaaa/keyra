@@ -1617,6 +1617,115 @@ async function trustedFlow(base, opts) {
   await ctx.close();
 }
 
+// ---------- Loading on demand (DESIGN Appendix A): the list needs none of the lazy files; a failed one retries ----------
+
+async function lazyFlow(base, opts) {
+  const { ctx, page, tag } = await open(base, opts);
+  console.log(`lazy loading ${tag || '(phone, ar, light)'}`);
+  const csp = (await fetch(`${base}/`)).headers.get('content-security-policy');
+  check(!csp.includes('unsafe-inline') && csp.includes("script-src 'self';"), `strict CSP for the app (${csp})`);
+  const loaded = [];
+  page.on('request', (r) => r.url().includes('/assets/') && loaded.push(new URL(r.url()).pathname.slice(8)));
+  await unlockUi(page);
+  const lazyNames = /^(Settings|Edit|Import|Backup|Generate|TypeText|Tokens|Tags|Recovery|Setup|Update|Activity|Health|Keyboard|HomeWifi|Passkeys|Trusted|BothSequence|jsQR|esm)-/;
+  check(!loaded.some((f) => lazyNames.test(f)), `opening the vault loads no lazy screen (${loaded.join(', ')})`);
+
+  // The first try fails (Keyra out of reach): a clear message, not a blank sheet; the retry opens it.
+  let fail = true;
+  await page.route(/\/assets\/Settings-[^/]+\.js$/, (route) => (fail ? route.abort('connectionrefused') : route.continue()));
+  const before = errors.length;
+  await page.locator(`.top-bar .icon-btn[aria-label="${L(opts, 'Settings', 'الإعدادات')}"]`).click();
+  await page.locator('.alert', { hasText: L(opts, "Couldn't open this", 'تعذّر فتح هذه الصفحة') }).waitFor();
+  errors.splice(before); // the refused request itself is logged by the browser
+  fail = false;
+  await page.locator('.alert .btn-primary').click();
+  await page.locator('.settings').first().waitFor({ timeout: 8000 });
+  check((await page.locator('.alert').count()) === 0, 'the message is gone once Settings opened');
+  console.log('  ✓ lazy loading flow passed');
+  await ctx.close();
+}
+
+// ---------- Thousands of accounts (MOCK_ENTRIES): the list draws only what is on screen, search stays instant ----------
+
+async function bigVaultFlow(base, opts) {
+  const { ctx, page, tag } = await open(base, opts);
+  console.log(`5000 accounts ${tag || '(phone, ar, light)'}`);
+  const t0 = Date.now();
+  await unlockUi(page);
+  const opened = Date.now() - t0;
+  const n = (await pageApi(page, 'GET', '/api/entries')).body.entries.length;
+  check(n === 5000, `5000 accounts (${n})`);
+  const drawn = await page.locator('.acc-row').count();
+  check(drawn < 200, `only rows near the screen are drawn (${drawn})`);
+  const scroller = opts.desktop ? '.list-pane' : null;
+  const scrollHeight = () => page.evaluate((sel) => (sel ? document.querySelector(sel) : document.scrollingElement).scrollHeight, scroller);
+  const scrollTo = (y) =>
+    page.evaluate(
+      ([sel, y]) => {
+        const el = sel ? document.querySelector(sel) : document.scrollingElement;
+        el.scrollTop = y === 'end' ? el.scrollHeight : y;
+      },
+      [scroller, y],
+    );
+
+  // Scrolled to the very end, the last account is there and the page height did not jump.
+  const height = await scrollHeight();
+  await scrollTo('end');
+  await page.waitForTimeout(150);
+  const last = await page.evaluate(() => {
+    const lis = [...document.querySelectorAll('.letter-group:last-child li[aria-posinset]')];
+    const li = lis[lis.length - 1];
+    return { title: li?.querySelector('.row-title')?.textContent ?? '', pos: Number(li?.getAttribute('aria-posinset')), size: Number(li?.getAttribute('aria-setsize')) };
+  });
+  check(last.title && last.pos === last.size, `the last row is drawn at the end (${last.title}, ${last.pos}/${last.size})`);
+  const height2 = await scrollHeight();
+  check(Math.abs(height2 - height) < 2, `stable list height (${height} → ${height2})`);
+  check((await page.locator('.acc-row').count()) < 200, 'still few rows drawn at the end');
+  await shot(page, `big-vault-end${tag}`);
+  await scrollTo(0);
+
+  // Search: each keystroke re-ranks 5000 accounts and draws the next frame.
+  const timings = [];
+  for (const q of ['a', 'ب', 'zoom', 'zoom 4', 'user49', 'site123']) {
+    timings.push(
+      await page.evaluate(async (q) => {
+        const input = document.querySelector('input[type=search]');
+        const t = performance.now();
+        input.value = q;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        await new Promise((r) => requestAnimationFrame(() => setTimeout(r)));
+        return performance.now() - t;
+      }, q),
+    );
+  }
+  await page.locator('.acc-row', { hasText: 'user123@example.com' }).first().waitFor();
+  const ms = timings.map((x) => x.toFixed(0)).join('/');
+  check(Math.max(...timings) < 250, `search answers within 250 ms (${ms} ms)`);
+  await page.locator('input[type=search]').fill('Zoom 4');
+  await page.locator('.acc-row', { hasText: 'Zoom 4' }).first().waitFor();
+  check((await page.locator('.acc-row').count()) < 200, 'search results are windowed too');
+  await shot(page, `big-vault-search${tag}`);
+
+  await page.locator('input[type=search]').fill('');
+  await page.locator('.acc-row').first().waitFor();
+  if (opts.desktop) {
+    // ↓ walks the list past the drawn rows: the selection stays drawn and on screen.
+    await page.locator('.large-title').click();
+    for (let i = 0; i < 40; i++) await page.keyboard.press('ArrowDown');
+    await page.waitForTimeout(200);
+    const sel = page.locator('.acc-row.selected');
+    check((await sel.count()) === 1 && (await sel.isVisible()), 'the selected row is drawn and visible after 40 × ↓');
+  } else {
+    // Tab walks row to row beyond the first screen.
+    await page.locator('li[aria-posinset="1"] .acc-row').first().focus(); // the first long section
+    for (let i = 0; i < 30; i++) await page.keyboard.press('Tab');
+    const focused = await page.evaluate(() => document.activeElement?.closest('li')?.getAttribute('aria-posinset') ?? '');
+    check(Number(focused) === 31, `Tab reaches rows that were not drawn at first (${focused})`);
+  }
+  console.log(`  ✓ 5000 accounts: vault open ${opened} ms, ${drawn} rows drawn, search ${ms} ms`);
+  await ctx.close();
+}
+
 /** Shrinks the PNGs for the README when pngquant is on PATH (they are committed). */
 function quantizeShots() {
   const files = readdirSync(SHOTS).filter((f) => f.endsWith('.png')).map((f) => SHOTS + f);
@@ -1697,6 +1806,10 @@ try {
   await tokensFlow(await startMock(), { lang: 'en', dark: true });
   await tagsFlow(await startMock(), {});
   await tagsFlow(await startMock(), { lang: 'en', dark: true });
+  await lazyFlow(await startMock(), {});
+  await lazyFlow(await startMock(), { lang: 'en', dark: true, desktop: true });
+  await bigVaultFlow(await startMock({ MOCK_ENTRIES: '5000' }), {});
+  await bigVaultFlow(await startMock({ MOCK_ENTRIES: '5000' }), { lang: 'en', dark: true, desktop: true });
 
   quantizeShots();
   if (errors.length) {

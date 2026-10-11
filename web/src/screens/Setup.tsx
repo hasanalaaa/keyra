@@ -10,18 +10,8 @@ import { t } from '../lib/i18n';
 import { back, go, replace } from '../lib/router';
 import { holdFastPolling, unlock, useApp } from '../lib/store';
 import { LangButton, minHint } from './common';
-
-// In memory only (never persisted): survives step changes, not reloads.
-// `sent`: this tab asked the device to set up, so `initialized` turning true is our own commit and the
-// app must stay here for the done/reconnect screen (the poll can report it before the result is read).
-const draft = { passphrase: '', confirm: '', wifi: '', sent: false, committed: false };
-
-/** True while the just-initialized device still needs the done/reconnect screen. */
-export const setupInProgress = (): boolean => draft.sent || draft.committed;
-
-export function validWifi(pw: string): boolean {
-  return pw.length >= 8 && pw.length <= 63 && /^[\x20-\x7e]+$/.test(pw) && pw !== 'keyra1234';
-}
+import { draft } from '../lib/setupDraft';
+import { validWifi } from '../lib/wifi';
 
 /** "Keyra-XXXX" from the last two MAC bytes (the firmware's default SSID). */
 function ssidFromMac(mac: string): string {

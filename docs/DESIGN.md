@@ -1,7 +1,7 @@
 # Keyra — Design System & Screen Spec (v1)
 
-Audience: the frontend engineer (Preact + TypeScript + plain CSS, one inlined file, ≤ 190 KB gzip total
-including fonts) and the owner (image prompts in §7). Companion to `SPEC.md` (§1 is the experience).
+Audience: the frontend engineer (Preact + TypeScript + plain CSS, hashed files embedded in the firmware: ≤ 130 KB
+gzip to open the vault list, ≤ 400 KB in all, fonts included — Appendix A) and the owner (image prompts in §7). Companion to `SPEC.md` (§1 is the experience).
 Every number below is final unless marked `ASSUMPTION`. Contrast ratios were **computed** (WCAG 2.x
 relative luminance), not eyeballed. Font size was **measured** by actually subsetting the font.
 
@@ -28,7 +28,7 @@ electric-blue accent that is literally the device's LED.**
    LED-blue).
 4. **Purposeful spring motion.** Springs (Material 3 Expressive, Apple) via CSS `linear()`; every animation
    states a fact ("ready", "typed", "expired"), nothing decorative; full reduced-motion path.
-5. **Arabic-first craft within 190 KB.** One embedded geometric Arabic+Latin variable font (Readex Pro,
+5. **Arabic-first craft within 130 KB to the list.** One embedded geometric Arabic+Latin variable font (Readex Pro,
    OFL, 29.5 KB measured), logical CSS only, Arabic sized 6 % up with 1.7 line-height, Western digits
    everywhere so on-screen codes match what Keyra types. No icon font, no image assets, no animation lib.
 
@@ -229,16 +229,16 @@ Breakpoints: `<600` phone (gutter 16; 20 at ≥ 414) · `≥600` tablet (content
 
 ## 3. Typography
 
-**Decision: embed exactly one font — Readex Pro, subset, variable weight 400–700 — as base64 `woff2` inside
-the CSS.** Why not system fonts: Arabic system fonts differ wildly (SF Arabic / Segoe UI / Noto), so the same
+**Decision: embed exactly one font — Readex Pro, subset, variable weight 400–700 — as one hashed `woff2` file
+(`/assets/keyra-sans-<hash>.woff2`), preloaded by `index.html` and registered with `FontFace` (`web/src/lib/font.ts`).** Why not system fonts: Arabic system fonts differ wildly (SF Arabic / Segoe UI / Noto), so the same
 screen would have 3 characters and different line metrics; the budget allows one font; Readex Pro (Lexend
 family, OFL) is a geometric humanist with a **native-designed Arabic and a matching Latin** — one file covers
 both scripts and harmonises with the ring/key geometry. System stack stays as fallback while loading.
 
 **Measured:** Arabic letters (U+0620–064A, harakat, Arabic punctuation, Arabic-Indic digits, Persian پ چ ژ ک گ ی),
 Basic Latin, quotes/dashes/bullet/ellipsis, all GSUB/GPOS shaping kept, hinting dropped → **29,524 bytes
-woff2, 370 glyphs** (Latin-only would be 11.6 KB; not worth a second file). Base64 inflates 1.33× in the HTML
-but gzip recovers it → ≈ 30 KB on the wire. Missing glyphs (✓ ● ✔) are **SVG icons**, never characters.
+woff2, 370 glyphs** (Latin-only would be 11.6 KB; not worth a second file). Served as is (woff2 is already
+compressed) → 28.8 KB on the wire, once: its hashed name lets the browser keep it. Missing glyphs (✓ ● ✔) are **SVG icons**, never characters.
 Kurdish Sorani extras (ڕ ڵ ۆ ێ ە) are not included — add U+0695, U+06B5, U+06C6, U+06CE, U+06D5 to the
 `--unicodes` list only if a Kurdish UI is requested (≈ +1 KB). User data in those letters still renders via
 fallback fonts.
@@ -255,9 +255,8 @@ pyftsubset rx.ttf --flavor=woff2 --no-hinting --desubroutinize --layout-features
  --unicodes="U+0020-007E,U+00A0,U+00B7,U+00D7,U+2013,U+2014,U+2018,U+2019,U+201C,U+201D,U+2022,U+2026,U+0600-0605,U+0609-060D,U+0620-064A,U+064B-0652,U+0640,U+0660-0669,U+066A-066C,U+067E,U+0686,U+0698,U+06A9,U+06AF,U+06CC,U+200C-200F" \
  --output-file=keyra-sans.woff2
 ```
-```css
-@font-face{font-family:"Keyra Sans";font-weight:400 700;font-style:normal;font-display:swap;
-  src:url(data:font/woff2;base64,AAAA…) format("woff2")}
+```ts
+new FontFace('Keyra Sans', `url(${fontUrl}) format('woff2')`, { weight: '400 700', style: 'normal', display: 'swap' })
 ```
 Licence: Readex Pro is SIL OFL 1.1 — include the licence text in `README` credits (not in the bundle).
 
@@ -1040,20 +1039,34 @@ Arabic / RTL
 
 ---
 
-## Appendix A — Byte budget (gzip, target ≤ 190 KB; estimate ≈ 95 KB)
+## Appendix A — Byte budget (gzip -9 bytes over the air; `web/scripts/postbuild.mjs` enforces both)
+
+| Budget | Limit | Measured (0.3.1 → now) | What it means |
+|---|---|---|---|
+| **Initial load** | **≤ 130 KB** (133,120 B) | 189.5 KB → **109.5 KB** | Everything a phone downloads to open the app, unlock and see the vault list: `index.html`, the entry script and the chunks it imports statically, the stylesheet and the preloaded font. |
+| **Total** | **≤ 400 KB** (409,600 B) | 189.5 KB → **204.5 KB** | `index.html.gz` plus every file in `assets.pack`: what the firmware embeds for the web app (the PNG icons, manifest and tap page are extra, about 20 KB). |
+
+Initial load, measured:
 | Item | KB |
 |---|---|
-| Preact + hooks (+ `preact/compat` **not** used) | 5 |
-| App code (screens, API client, CSV parser, i18n strings AR+EN, generator, strength) | 40–50 |
-| CSS (tokens twice-themed, components, RTL-free thanks to logical props) | 8–10 |
-| Font `keyra-sans.woff2` (base64 inline; already compressed) | 30 |
-| Icons sprite (26) + logo + manifest icons | 3 (+ PNG icons served separately, long cache) |
-| **Total** | **≈ 86–98** |
-Headroom ≈ 50 KB: do **not** spend it on a second font, a charting lib, an animation lib or a CSV lib (≈ 60 lines of code).
-The limit was raised from 150 to 170 KB for the recovery kit (SPEC §10.2), which needs a QR encoder
-(`qrcode` core, ≈ 8 KB) and the audited Shamir library; `web/scripts/postbuild.mjs` enforces it.
-It was raised again to 190 KB with Password health, Activity and Firmware update (SPEC §13–§16):
-about 0.2 s more on Keyra's own Wi-Fi, and the app partition still has over 1 MB free.
+| Shared chunk (Preact, i18n AR+EN, API client, store, UI kit, Unlock, vault list, account view) | 47.4 |
+| Entry chunk (app shell, router, windowed list, account, ready/typing UI) | 21.4 |
+| CSS (tokens twice-themed, components, screens) | 11.0 |
+| Font `keyra-sans.woff2` (stored, not gzipped) | 28.8 |
+| `index.html` + loader runtime | 1.0 |
+| **Total** | **109.5** |
+
+Loaded on first use, then kept by the browser (hashed name, `Cache-Control: immutable`): onboarding (Setup),
+add/edit, import, backup, Settings and each of its sheets (home Wi‑Fi, passkeys, password health, activity,
+firmware update, trusted browsers, apps/tokens, NFC tags, keyboard layouts and Layout Doctor, typing order,
+recovery kit with its QR encoder), the generator sheet, type text, pairing, the QR reader (`jsQR`, 45 KB) and
+the Shamir library (2 KB). A load that fails says so with a retry; when Keyra answers but the file still will
+not load (an old tab after a firmware update), the retry reloads the app, which keeps the session and the route.
+
+Rules: a screen that the list or an account does not need goes behind `lazy()` (`web/src/components/Lazy.tsx`);
+the initial budget is for the vault list, not a second font, a charting lib, an animation lib or a CSV lib.
+History: 150 KB (one file), 170 KB (recovery kit, SPEC §12.2), 190 KB (health, activity, update, SPEC §13–§15),
+then split into the two budgets above when the single file reached 189.5 KB.
 
 ## Appendix B — Assumptions the lead must confirm (flagged `ASSUMPTION` above)
 1. **LED patterns** (4.11.1): Pending = blue breathe 1600 ms period; Success green 700 ms; Error red 3 blinks. Tell the firmware owner or change `--d-breath`.

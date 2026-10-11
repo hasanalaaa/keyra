@@ -6,6 +6,26 @@ All notable changes to Keyra are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **The web app opens with less and loads the rest when it is used.** Keyra
+  now serves the app as separate hashed files (`/assets/*`, packed into
+  `assets.pack` in the firmware, cached by the browser for good): opening the
+  app and the vault list downloads 109.5 KB instead of 189.5 KB, and
+  onboarding, add/edit, import, backup, Settings and each of its sheets, the
+  QR reader and the recovery kit load on first use. A screen that cannot load
+  says so and offers a retry. The byte budget is now 130 KB for the initial
+  load and 400 KB in all (DESIGN Appendix A).
+- **Stricter Content-Security-Policy.** With nothing inline left in the app,
+  `'unsafe-inline'` is gone from `script-src` and `style-src`, and the policy
+  adds `object-src 'none'; base-uri 'none'; frame-ancestors 'none'` (the NFC
+  tap page keeps its inline script and style).
+- **Thousands of accounts stay smooth.** Long account lists draw only the rows
+  near the screen, and search normalizes each account once instead of on
+  every keystroke and comparison. With 5000 accounts the list draws under 200
+  rows and each search keystroke answers in the next frame. The mock takes
+  `MOCK_ENTRIES=N` to try it.
+
 ## [0.3.1] - 2026-10-11
 
 Highlights:

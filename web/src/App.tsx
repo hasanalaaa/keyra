@@ -5,9 +5,12 @@ import { dismissToast, useApp } from './lib/store';
 import { replace, useRoute, type Route } from './lib/router';
 import { t, type Key } from './lib/i18n';
 import { Welcome } from './screens/Welcome';
-import { Setup, setupInProgress } from './screens/Setup';
+import { setupInProgress } from './lib/setupDraft';
 import { Unlock } from './screens/Unlock';
 import { Vault } from './screens/Vault';
+import { lazy } from './components/Lazy';
+
+const Setup = lazy(() => import('./screens/Setup').then((m) => m.Setup));
 
 const TITLES: Partial<Record<Route['name'], Key>> = {
   setup: 'welcomeTitle',

@@ -2,7 +2,6 @@
 // Shamir shares. Splitting and combining happen only in this browser, with the
 // audited `shamir-secret-sharing` library (pinned); nothing here is ever sent
 // to Keyra except the recombined key itself, when it is used to unlock.
-import { combine, split } from 'shamir-secret-sharing';
 
 export const KEY_BYTES = 20;
 // Crockford base32: no I, L, O, U, so hand-copied keys survive bad handwriting.
@@ -106,6 +105,8 @@ export interface Share {
 export async function splitKey(key: Uint8Array, n: number, k: number): Promise<string[]> {
   if (key.length !== KEY_BYTES || k < 2 || k > n || n > 10) throw new Error('bad share settings');
   const fp = fnv(key) & 0xffff;
+  // The Shamir library loads only when a kit is made or used.
+  const { split } = await import('shamir-secret-sharing');
   const shares = await split(key, n, k);
   return shares.map((sh) => {
     const payload = new Uint8Array([SHARE_VERSION, k, fp >> 8, fp & 0xff, ...sh]);
@@ -144,6 +145,7 @@ export async function combineShares(shares: ParsedShare[]): Promise<Uint8Array |
   const { threshold, fp } = unique[0];
   if (unique.some((s) => s.threshold !== threshold || s.fp !== fp)) return 'mismatch';
   if (unique.length < threshold) return 'too_few';
+  const { combine } = await import('shamir-secret-sharing');
   const key = await combine(unique.slice(0, threshold).map((s) => s.bytes));
   return (fnv(key) & 0xffff) === fp ? key : 'mismatch';
 }
