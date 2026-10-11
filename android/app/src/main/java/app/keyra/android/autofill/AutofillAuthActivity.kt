@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.View
+import android.view.WindowManager
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.ListView
@@ -22,6 +23,7 @@ import app.keyra.android.api.What
 import app.keyra.android.match.Target
 import app.keyra.android.store.appStore
 import app.keyra.android.ui.EntryAdapter
+import app.keyra.android.ui.fitSystemBars
 import java.security.GeneralSecurityException
 
 /**
@@ -37,6 +39,7 @@ class AutofillAuthActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_autofill)
+        fitSystemBars(findViewById(R.id.root))
         setResult(RESULT_CANCELED) // nothing is ever filled by the system
         progress = findViewById(R.id.progress)
         message = findViewById(R.id.message)
@@ -60,6 +63,11 @@ class AutofillAuthActivity : Activity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
+    }
+
     private fun arm(id: Long, title: String, what: What) {
         val api = api ?: return
         progress.visibility = View.VISIBLE
@@ -78,6 +86,7 @@ class AutofillAuthActivity : Activity() {
         val adapter = EntryAdapter(this)
         val remember = findViewById<CheckBox>(R.id.remember)
         remember.text = getString(R.string.af_remember, label)
+        remember.contentDescription = remember.text
         val list = findViewById<ListView>(R.id.list)
         list.adapter = adapter
         list.setOnItemClickListener { _, _, position, _ ->

@@ -98,6 +98,8 @@ class SetupActivity : Activity() {
         for (p in list) {
             val row = layoutInflater.inflate(android.R.layout.simple_list_item_1, pins, false) as TextView
             row.text = getString(R.string.pin_row, p.key.substringAfter(':'), p.title)
+            row.contentDescription = getString(R.string.pin_remove_row, row.text)
+            row.minimumHeight = (48 * resources.displayMetrics.density).toInt()
             row.setOnClickListener {
                 AlertDialog.Builder(this)
                     .setMessage(row.text)

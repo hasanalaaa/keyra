@@ -72,11 +72,16 @@ class ArmActivity : Activity(), PressWaiter.Listener {
     }
 
     override fun onTick(secondsLeft: Int) {
-        panel.countdown.text = getString(R.string.seconds_left, secondsLeft)
+        panel.countdown.text = resources.getQuantityString(R.plurals.seconds_left, secondsLeft, secondsLeft)
     }
 
     override fun onStatus(status: AgentStatus) {
-        panel.title.text = statusText(this, status)
+        val text = statusText(this, status)
+        if (panel.title.text != text) panel.title.text = text
+    }
+
+    override fun onRateLimited(retryAfterMs: Long) {
+        panel.title.text = ResultMessages.text(this, "rate_limited", retryAfterMs)
     }
 
     override fun onFinished(status: AgentStatus?, error: Throwable?) {
