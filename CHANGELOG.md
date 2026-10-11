@@ -6,6 +6,15 @@ All notable changes to Keyra are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-11
+
+Highlights:
+- Passkey counters never go back, even after a restore or a settings wipe
+- An old button press never approves a newer request
+- Revoking a browser also withdraws what it left waiting for the button
+- Nothing is typed if the account changed after it was armed
+- Notes stay hidden until you press the button (with reveal protection)
+
 ### Changed
 
 - **The web app shows hidden notes and the new typing result.** An account's
@@ -528,7 +537,8 @@ First public release.
   release profile with HID only and logging off.
 - Host test suite (vault, TOTP, key map, action state machine) and CI.
 
-[Unreleased]: https://github.com/hasanalaaa/keyra/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/hasanalaaa/keyra/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/hasanalaaa/keyra/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/hasanalaaa/keyra/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/hasanalaaa/keyra/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/hasanalaaa/keyra/releases/tag/v0.1.0
