@@ -6,6 +6,31 @@ All notable changes to Keyra are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-10-11
+
+Highlights:
+- Backups are written and restored piece by piece, so large vaults no longer run out of memory
+- A full storage now says "full" instead of a general storage error
+- Merging a backup into a large vault is much faster
+
+### Changed
+
+- **Backup and restore stream.** `POST /api/backup` encrypts and sends the
+  file in chunks (PSA multipart AES-GCM) and `POST /api/restore` decrypts the
+  request as it arrives, so neither holds the whole file, its plaintext and
+  every account at once. The file format is unchanged (v3, byte for byte):
+  older backups restore and new ones open in older firmware. Nothing is kept
+  before the file's authentication tag checks, and a wrong passphrase is always
+  reported as such. A restore request may now be up to 8 MB.
+- **Merging is no longer quadratic.** A merge looks accounts up by id and by
+  title, username and address in hash maps instead of scanning the vault for
+  each incoming account.
+
+### Fixed
+
+- **Out of space is reported as `507 full`.** Saving, importing and restoring
+  on a full storage now answer `full` instead of `500 storage`.
+
 ## [0.3.2] - 2026-10-11
 
 Highlights:
