@@ -5,6 +5,7 @@ idf_component_register(
     "src/api.cpp"
     "src/core/backup_format.cpp"
     "src/core/backup_stream.cpp"
+    "src/core/bucket.cpp"
     "src/core/entry_codec.cpp"
     "src/core/json.cpp"
     "src/core/secure_buf.cpp"
@@ -15,10 +16,11 @@ idf_component_register(
     "src/core/vault_core.cpp"
     "src/core/vault_passkeys.cpp"
     "src/esp/esp_platform.cpp"
+    "src/esp/flash_tail.cpp"
     "src/esp/littlefs_storage.cpp"
     "src/esp/psa_crypto.cpp"
   INCLUDE_DIRS "include"
   PRIV_INCLUDE_DIRS "src"
-  PRIV_REQUIRES mbedtls nvs_flash esp_partition esp_timer heap joltwallet__littlefs)
+  PRIV_REQUIRES mbedtls nvs_flash esp_partition spi_flash esp_app_format esp_timer heap joltwallet__littlefs)
 
 target_compile_options(${COMPONENT_LIB} PRIVATE -Wall -Wextra -Werror)

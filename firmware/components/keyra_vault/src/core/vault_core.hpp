@@ -59,6 +59,16 @@
 //   *.tmp      in-flight atomic writes (write tmp → close → rename); any found at
 //              init are leftovers of an interrupted write and are deleted.
 //
+// Layout 2 (buckets, the 16 MB tail; docs/SPEC.md §6.1): the same files, except
+// that entries live in b/<kk>.bin (bucket.hpp) instead of e/<id>.bin, and:
+//   vault.home "KYRH" | u8 version=1 | u8 n | firmware version[n] (ASCII): this
+//              filesystem is the vault, laid out in buckets; the version is the
+//              firmware that moved it there (the updater's floor). Written last
+//              by a move (the commit) and kept by setup and factory reset.
+//   old.erased the "vault" partition was erased and tombstoned after the move.
+// After a move the "vault" partition holds only a tombstone meta.bin
+// ("KYR1" | u8 0x7f | "moved"), which every firmware reads as Corrupt.
+//
 // Unlock throttling: the failure counter is persisted before the KDF runs, so
 // pulling power mid-attempt still counts it. Delay after n consecutive failures
 // is 0 for n ≤ 4, then 2^(n-4) s, capped at 900 s. The device has no RTC, so the
@@ -87,11 +97,14 @@ inline constexpr size_t kMaxActivity = kMaxActivityBytes;
 inline constexpr char kTokensPath[] = "tokens.bin";
 inline constexpr char kTagsPath[] = "tags.bin";
 inline constexpr char kFidoCounterPath[] = "fidoctr.bin";
+inline constexpr char kHomePath[] = "vault.home";
+inline constexpr char kOldErasedPath[] = "old.erased";
 
 class Vault {
  public:
   struct Options {
     uint32_t kdfIterations = 0;  // 0: calibrate at setup to ≈1.2 s; tests pass a small count
+    std::string firmware = {};   // running firmware version, recorded in vault.home by a move
   };
   static constexpr uint32_t kMinIterations = 60000, kMaxIterations = 2000000;
 
@@ -101,6 +114,15 @@ class Vault {
   Vault& operator=(const Vault&) = delete;
 
   Status init();
+  // Copies the vault to the tail, verifies it, commits (vault.home) and erases
+  // the partition; see docs/SPEC.md §6.1. Only when migrationPending(). The
+  // caller makes sure the running image can no longer be rolled back. `tick`
+  // runs between file operations (the device yields to its idle tasks).
+  Status migrate(const std::function<void()>& tick = nullptr);
+  bool migrationPending() const { return ready_ && p_.tail != nullptr && !onTail_; }
+  // The firmware version that moved the vault to the tail ("" when it is not there).
+  std::string movedBy();
+  size_t maxEntries() const { return buckets_ ? kMaxEntriesBuckets : kMaxEntriesFiles; }
   bool initialized() const { return initialized_; }
   bool unlocked() const { return unlocked_; }
   // Bumped on every unlock: a session from an earlier unlock never comes back.
@@ -195,7 +217,14 @@ class Vault {
     std::vector<const std::vector<uint8_t>*> records;  // merge: backup records to add
   };
 
+  struct Change {  // one entry write: plain == nullptr removes it
+    uint32_t id;
+    const SecureBuf* plain;
+  };
+
   Status ready() const;  // init succeeded and storage is usable
+  Status selectHome();   // init: which filesystem holds the vault, and its layout
+  Status finishMoveOut();  // after a move: tombstone and erase the partition (redo-able)
   // One small record sealed with the DEK (activity log, tokens); an empty write removes it.
   Status sealedRead(const char* path, const char* aad, std::vector<uint8_t>& out);
   Status sealedWrite(const char* path, const char* aad, size_t max, const std::vector<uint8_t>& data);
@@ -204,11 +233,15 @@ class Vault {
   Status fidoCounterReadLocked(uint32_t& out);
   Status fidoCounterRaiseLocked(uint32_t atLeast);
   Status requireUnlocked() const;
-  Status storageFailure() const;
+  Status storageFailure() const { return storageFailure(*fs_); }
+  static Status storageFailure(const Storage& st);
   Status forEachLocked(const std::function<bool(const Entry&)>& fn);
   Status loadMeta();
   Status writeMeta(const Meta& m);
-  Status writeAtomic(const std::string& path, const uint8_t* data, size_t n);
+  Status writeAtomic(const std::string& path, const uint8_t* data, size_t n) {
+    return writeAtomic(*fs_, path, data, n);
+  }
+  static Status writeAtomic(Storage& st, const std::string& path, const uint8_t* data, size_t n);
   Status removeAllEntryFiles();
   Status removeStaged();     // e/*.new left by a restore that never committed
   Status settleRestore();    // finish (marker present) or discard a replace-restore
@@ -229,7 +262,13 @@ class Vault {
   Status openWrap(const Key& kek, const uint8_t iv[12], const char* aad, const uint8_t wrapped[48], Key& dek);
   Status finishUnlock(Key& dek);  // dek → dek_, entries loaded, v1 meta migrated
   Status loadEntries();
+  Status openEntry(uint32_t id, const std::vector<uint8_t>& sealed);  // → a new slot
+  Status seal(uint32_t id, const SecureBuf& plain, std::vector<uint8_t>& out);
   Status persist(const std::string& path, uint32_t id, const SecureBuf& plain);
+  // Writes and removes entries in either layout: one file each, or one rewrite
+  // per bucket touched. Stops at the first failure (earlier changes stay).
+  Status writeEntries(const std::vector<Change>& changes);
+  Status stageEntries(const backup::Entries& incoming);  // a replace-restore's *.new
   // encode + persist + update RAM slot; `edited`: a new revision (false for touch)
   Status store(Entry& rec, bool edited);
   Slot* find(uint32_t id);
@@ -251,8 +290,12 @@ class Vault {
 
   Platform p_;
   Options opt_;
+  Storage* fs_;           // the filesystem that holds the vault: p_.storage or *p_.tail
+  bool onTail_ = false;   // the vault belongs in the tail (moved, or meant to be)
+  std::string floor_;     // vault.home's firmware version
   std::mutex m_;  // backed by FreeRTOS on device; std::atomic flags keep state polls lock-free
   std::atomic<bool> ready_{false}, initialized_{false}, unlocked_{false};
+  std::atomic<bool> buckets_{false};  // entry layout 2 (vault.home present)
   std::atomic<uint32_t> generation_{0};
   Meta meta_;
   Key dek_{};

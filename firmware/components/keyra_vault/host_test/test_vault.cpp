@@ -127,7 +127,8 @@ TEST(crud) {
   CHECK(a.id != 0);
   Entry b = sample("beta");
   CHECK(v.put(b) == Status::Ok && b.id != a.id);
-  CHECK(r->storage.files.size() == 3);  // meta + 2 entries
+  CHECK(hasEntry(r->storage, a.id) && hasEntry(r->storage, b.id));
+  CHECK(r->storage.files.size() == (bucketLayout() ? 2 + (bucket::of(a.id) == bucket::of(b.id) ? 1u : 2u) : 3u));
 
   std::vector<Entry> all;
   CHECK(v.list(all) == Status::Ok && all.size() == 2);
@@ -156,7 +157,8 @@ TEST(crud) {
   CHECK(v.remove(b.id) == Status::NotFound);
   CHECK(v.touch(b.id, 1, false, nullptr) == Status::NotFound);
   CHECK(v.list(all) == Status::Ok && all.size() == 1);
-  CHECK(r->storage.files.size() == 2);
+  CHECK(hasEntry(r->storage, a.id) && !hasEntry(r->storage, b.id));
+  CHECK(r->storage.files.size() == (bucketLayout() ? 3u : 2u));  // + vault.home and a's bucket
 
   v.lock();
   CHECK(v.list(all) == Status::Locked);
@@ -245,7 +247,7 @@ TEST(field_limits) {
 TEST(entry_count_limit) {
   auto r = Rig::ready();
   Vault& v = *r->v;
-  for (size_t i = 0; i < kMaxEntries; ++i) {
+  for (size_t i = 0; i < v.maxEntries(); ++i) {
     Entry e;
     e.title = std::to_string(i);
     if (v.put(e) != Status::Ok) {
@@ -257,7 +259,7 @@ TEST(entry_count_limit) {
   extra.title = "one too many";
   CHECK(v.put(extra) == Status::Full);
   std::vector<Entry> all;
-  CHECK(v.list(all) == Status::Ok && all.size() == kMaxEntries);
+  CHECK(v.list(all) == Status::Ok && all.size() == v.maxEntries());
   // Updates still work when full.
   all[0].notes = "still editable";
   CHECK(v.put(all[0]) == Status::Ok);
@@ -328,7 +330,7 @@ TEST(crash_during_setup_and_passphrase_change) {
     r.reboot();
     CHECK(r->init() == Status::Ok);
     CHECK(!r->initialized());
-    CHECK(r.storage.files.empty());
+    CHECK(r.storage.files.size() == (bucketLayout() ? 1u : 0u));  // vault.home stays
     CHECK(r->setup(kPass) == Status::Ok);
   }
   {
@@ -362,7 +364,7 @@ TEST(tamper_is_corrupt_not_wrong_passphrase) {
     CHECK((*r)->put(e) == Status::Ok);
     (*r)->lock();
     for (auto& f : r->storage.files)
-      if (f.first != "meta.bin") mutate(f.second, which);
+      if (f.first != "meta.bin" && f.first != kHomePath) mutate(f.second, which);
     CHECK((*r)->unlock(kPass, nullptr) == Status::Corrupt);
     CHECK(!(*r)->unlocked());
     CHECK(r->counter.value == 0);  // the passphrase was right; not a failed attempt
@@ -373,10 +375,9 @@ TEST(tamper_is_corrupt_not_wrong_passphrase) {
     Entry a = sample("a"), b = sample("b");
     CHECK((*r)->put(a) == Status::Ok && (*r)->put(b) == Status::Ok);
     (*r)->lock();
-    char pa[32], pb[32];
-    std::snprintf(pa, sizeof pa, "e/%08x.bin", a.id);
-    std::snprintf(pb, sizeof pb, "e/%08x.bin", b.id);
-    std::swap(r->storage.files[pa], r->storage.files[pb]);
+    const auto ra = entryRecord(r->storage, a.id), rb = entryRecord(r->storage, b.id);
+    setEntryRecord(r->storage, a.id, rb);
+    setEntryRecord(r->storage, b.id, ra);
     CHECK((*r)->unlock(kPass, nullptr) == Status::Corrupt);
   }
   {
@@ -400,16 +401,16 @@ TEST(change_passphrase) {
   auto r = Rig::ready();
   Entry e = sample("x");
   CHECK((*r)->put(e) == Status::Ok);
-  std::vector<uint8_t> entryFile;
-  for (auto& f : r->storage.files)
-    if (f.first != "meta.bin") entryFile = f.second;
+  auto others = r->storage.files;  // everything but meta.bin
+  others.erase("meta.bin");
 
   CHECK((*r)->changePassphrase("wrong", "next passphrase") == Status::WrongPassphrase);
   CHECK(r->counter.value == 1);
   CHECK((*r)->changePassphrase(kPass, "") == Status::Invalid);
   CHECK((*r)->changePassphrase(kPass, "next passphrase") == Status::Ok);
-  for (auto& f : r->storage.files)  // only the DEK was re-wrapped
-    if (f.first != "meta.bin") CHECK(f.second == entryFile);
+  auto after = r->storage.files;  // only the DEK was re-wrapped
+  after.erase("meta.bin");
+  CHECK(after == others);
   (*r)->lock();
   CHECK((*r)->changePassphrase(kPass, "x") == Status::Locked);
   CHECK((*r)->unlock(kPass, nullptr) == Status::WrongPassphrase);
@@ -426,7 +427,7 @@ TEST(factory_reset) {
   for (int i = 0; i < 7; ++i, r->clock.now += 3600 * 1000) (*r)->unlock("bad", nullptr);
   CHECK(r->counter.value == 7);
   CHECK((*r)->factoryReset() == Status::Ok);
-  CHECK(r->storage.files.empty());
+  CHECK(r->storage.files.size() == (bucketLayout() ? 1u : 0u));  // only vault.home
   CHECK(r->counter.value == 0);
   CHECK(!(*r)->initialized() && !(*r)->unlocked());
   CHECK((*r)->setup("another passphrase") == Status::Ok);
@@ -556,7 +557,7 @@ TEST(v1_entry_on_flash_migrates_on_write) {
   CHECK(r->crypto.random(file.data() + 1, 12));
   CHECK(r->crypto.gcmSeal(dek, file.data() + 1, reinterpret_cast<const uint8_t*>(aad.data()), aad.size(),
                           plain.data(), plain.size(), file.data() + 13));
-  r->storage.files[std::string("e/") + hex + ".bin"] = file;
+  setEntryRecord(r->storage, e.id, file);
 
   r->reboot();
   CHECK((*r)->init() == Status::Ok && (*r)->unlock(kPass, nullptr) == Status::Ok);
@@ -571,7 +572,7 @@ TEST(v1_entry_on_flash_migrates_on_write) {
   CHECK(got.history.size() == 1 && got.history[0].password == e.password &&
         got.history[0].changedAt == 1800000000);
   // The file grew by the history block: it is format 2 now.
-  CHECK(r->storage.files.at(std::string("e/") + hex + ".bin").size() > file.size());
+  CHECK(entryRecord(r->storage, e.id).size() > file.size());
 }
 
 TEST(burn_after_typing_the_password) {
@@ -590,9 +591,7 @@ TEST(burn_after_typing_the_password) {
   CHECK((*r)->init() == Status::Ok && (*r)->unlock(kPass, nullptr) == Status::Ok);
   CHECK((*r)->touch(e.id, 0, true, &burned) == Status::Ok && burned);
   CHECK((*r)->get(e.id, back) == Status::NotFound);
-  char name[16];
-  std::snprintf(name, sizeof name, "e/%08x.bin", e.id);
-  CHECK(r->storage.files.count(name) == 0);
+  CHECK(!hasEntry(r->storage, e.id));
   // Entries without the flag are never deleted by typing.
   Entry keep = sample("Keep");
   CHECK((*r)->put(keep) == Status::Ok);

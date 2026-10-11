@@ -13,7 +13,7 @@ namespace keyra::vault::backup {
 // false means transport failure. No caller may commit entries until this returns Ok.
 using Source = std::function<bool(char*, size_t, size_t& got)>;
 using Entries = std::vector<Entry, ZeroingAllocator<Entry>>;
-Status readStream(Crypto& crypto, const std::string& passphrase, const Source& source,
+Status readStream(Crypto& crypto, const std::string& passphrase, const Source& source, size_t maxEntries,
                   Entries& entries, Passkeys& passkeys);
 
 }  // namespace keyra::vault::backup

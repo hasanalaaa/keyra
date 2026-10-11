@@ -27,7 +27,8 @@ class Storage {
   virtual bool remove(const std::string& path) = 0;  // true if gone (incl. never existed)
   // Plain file names inside dir ("" = root, "e" = entries); missing dir → empty.
   virtual bool list(const std::string& dir, std::vector<std::string>& names) = 0;
-  // Destroys every byte and leaves an empty, mounted filesystem. Factory reset only.
+  // Destroys every byte and leaves an empty, mounted filesystem. Factory reset
+  // and the move to the tail (which first clears its target and finally the source).
   virtual bool format() = 0;
   // Inspect immediately after a failed mutating operation, before cleanup can
   // overwrite errno. LittleFS maps LFS_ERR_NOSPC to ENOSPC at the VFS boundary.
@@ -81,10 +82,13 @@ class Clock {
 };
 
 struct Platform {
-  Storage& storage;
+  Storage& storage;  // the "vault" partition
   Counter& counter;
   Crypto& crypto;
   Clock& clock;
+  // The second filesystem in the upper 8 MB of a 16 MB flash, or null (8 MB
+  // boards). With one, the vault moves there once (Vault::migrate) and stays.
+  Storage* tail = nullptr;
 };
 
 }  // namespace keyra::vault

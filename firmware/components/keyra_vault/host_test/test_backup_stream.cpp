@@ -157,7 +157,8 @@ TEST(five_thousand_entries_authenticate_before_full) {
   auto dst = Rig::ready();
   Entry existing = sample("keep");
   CHECK((*dst)->put(existing) == Status::Ok);
-  const std::string file = oldFile(*dst, 5000, 600);
+  // One more than the limit (1000 in the partition, 5000 in bucket files).
+  const std::string file = oldFile(*dst, std::max<size_t>(5000, (*dst)->maxEntries() + 1), 600);
   CHECK(file.size() > 4 * 1024 * 1024);
   BackupImport prepared;
   CHECK(prepare(*dst, file, "another wrong passphrase", prepared, 4096) == Status::WrongPassphrase);

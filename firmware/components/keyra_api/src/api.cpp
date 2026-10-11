@@ -23,5 +23,6 @@ esp_err_t start() {
 }
 
 void confirmBoot(bool healthy) { update::confirmBoot(healthy); }
+bool imageConfirmed() { return update::imageConfirmed(); }
 
 }  // namespace keyra::api

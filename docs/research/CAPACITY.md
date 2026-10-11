@@ -325,6 +325,67 @@ record), which also lifts that partition to an estimated ~3500 typical entries (
 
 `kMaxEntries` stays 1000 and nothing was migrated.
 
+## Implemented: the tail and bucket files (after 0.3.3)
+
+The design above, as built (format and rules: docs/SPEC.md §6.1). Decisions
+taken: the tail + packing migration with the `esp_flash_default_chip->size`
+raise (one function, `keyra_vault/src/esp/flash_tail.cpp`); downgrades below
+the moving version refused by the updater, an older firmware that boots
+anyway sees a tombstone (`corrupt`), and going back means a restore from
+backup; limits 5000 on 16 MB boards, 1000 unchanged on 8 MB boards (no
+packing there yet).
+
+The `esp_flash_default_chip->size` raise checked against IDF 6.0.2 source:
+`CONFIG_SPI_FLASH_ROM_IMPL` is off in our build, so `esp_flash_read/write/
+erase_region` (`spi_flash/esp_flash_api.c`) bound every access by `chip->size`
+and nothing else; writes also pass `main_flash_region_protected`
+(`spi_flash_os_func_app.c`), which only refuses the bootloader/partition
+table area, the running app and read-only partitions. `esp_partition_register_external`
+then accepts 0x800000 + 8 MB (it checks `esp_flash_get_size`, i.e. the raised
+size, and overlaps). The firmware reads the last 16 bytes of the tail right
+after registering it and gives the tail up if that fails. Not yet run on a
+real 16 MB chip: see "Verify on the device" below.
+
+Measured with the bench (`keyra_capacity buckets|migrate`, littlefs 2.11 on a
+counting RAM flash, reads via open/lseek/read as `LittleFsStorage` does since
+0.3.2; device times are the model above, not measurements):
+
+**Unlock (PBKDF2 excluded) and one write, layout 2 in the 8 MB tail:**
+
+| shape | n | read calls | bytes read | GCM | device model | next put: read / progs / erases → model |
+|---|---|---|---|---|---|---|
+| typical | 1000 | 12179 | 2.62 MB | 1001 | 0.2–0.8 s | 319 KB / 12 / 1 → 0.1–0.2 s |
+| typical | 5000 | 15539 | 4.60 MB | 5001 | 0.5–1.8 s | 382 KB / 41 / 5 → 0.2–0.6 s |
+| small | 5000 | 12083 | 2.98 MB | 5001 | 0.4–1.5 s | 341 KB / 18 / 2 → 0.1–0.3 s |
+| notes600 | 5000 | 22843 | 7.45 MB | 5001 | 0.7–2.4 s | 474 KB / 80 / 10 → 0.4–1.2 s |
+
+For comparison, layout 1 read 483 MB for 1000 typical entries (30–90 s with
+open-only reads) and would read ~12 GB for 5000. Unlock no longer grows with
+the square of the count.
+
+**The one-time move** (`Vault::migrate`, partition → tail):
+
+| shape | n | read calls | bytes read | progs | erases | device model |
+|---|---|---|---|---|---|---|
+| small | 1000 | 707054 | 221.9 MB | 876 | 168 | 20–63 s |
+| typical | 1000 | 1361700 | 504.3 MB | 1492 | 168 | 37–115 s |
+| notes600 | 440 | 235744 | 39.7 MB | 1372 | 168 | 8–29 s |
+
+plus erasing both regions in 64 KiB blocks (128 for the tail, 30 for the
+partition): ~24 s at the datasheet's typical block erase, up to ~5 min at its
+maximum. The move reads each old entry file once (one directory walk each, the
+cost of one old unlock) and runs once, at boot, before Wi-Fi comes up: that
+boot takes about one to five minutes longer. Memory stays bounded by one
+bucket (entries are read bucket by bucket) plus a 32-byte digest per file.
+
+**Backup of 5000 typical entries** (2 old passwords each, `test_buckets`):
+3.93 MB, under the 8 MiB restore cap; export streams and the streamed replace
+restore stages 128 buckets.
+
+**Verify on the device** before relying on it: the log line `vault.tail:
+upper 8 MiB registered`, the move's `vault moved (N steps)` and its duration,
+then one unlock's time with the real vault (calibrates the model above).
+
 ## Decisions for review
 
 1. Approve the tail + packing migration (and the `esp_flash_default_chip->size`

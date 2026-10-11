@@ -7,6 +7,7 @@
 
 #include "backup_format.hpp"
 #include "backup_stream.hpp"
+#include "bucket.hpp"
 #include "entry_codec.hpp"
 #include "json.hpp"
 #include "text.hpp"
@@ -29,6 +30,12 @@ constexpr size_t kMetaV1Size = 4 + 1 + kPassBody;
 constexpr size_t kEntryOverhead = 1 + 12 + 16;
 constexpr uint32_t kCalibrationIterations = 10000;
 constexpr uint64_t kCalibrationTargetMs = 1200;
+constexpr uint8_t kHomeMagic[4] = {'K', 'Y', 'R', 'H'};
+constexpr uint8_t kHomeVersion = 1;
+// meta.bin left in the partition after the move: "KYR1" with a version no
+// firmware knows, so every one of them (this one too) reports Corrupt instead
+// of offering a fresh setup or opening a stale copy.
+constexpr uint8_t kTombstone[] = {'K', 'Y', 'R', '1', 0x7f, 'm', 'o', 'v', 'e', 'd'};
 
 std::string hexId(uint32_t id) {
   char b[9];
@@ -57,6 +64,29 @@ bool endsWith(const std::string& s, const char* suffix) {
 }
 
 bool isStaged(const std::string& name) { return endsWith(name, ".new") || endsWith(name, ".new.tmp"); }
+
+bool isTombstone(const std::vector<uint8_t>& b) {
+  return b.size() == sizeof kTombstone && std::memcmp(b.data(), kTombstone, sizeof kTombstone) == 0;
+}
+
+std::vector<uint8_t> homeFile(const std::string& firmware) {
+  std::vector<uint8_t> b(kHomeMagic, kHomeMagic + 4);
+  b.push_back(kHomeVersion);
+  const size_t n = std::min<size_t>(firmware.size(), 255);
+  b.push_back(uint8_t(n));
+  b.insert(b.end(), firmware.begin(), firmware.begin() + long(n));
+  return b;
+}
+
+bool parseHome(const std::vector<uint8_t>& b, std::string& firmware) {
+  if (b.size() < 6 || std::memcmp(b.data(), kHomeMagic, 4) != 0 || b[4] != kHomeVersion ||
+      b.size() != 6 + size_t(b[5]))
+    return false;
+  firmware.assign(b.begin() + 6, b.end());
+  return true;
+}
+
+std::string join(const char* dir, const std::string& name) { return *dir ? std::string(dir) + "/" + name : name; }
 
 const uint8_t* bytes(const char* s) { return reinterpret_cast<const uint8_t*>(s); }
 
@@ -159,14 +189,14 @@ uint32_t unlockDelayMs(uint32_t failures) {
   return seconds * 1000;
 }
 
-Vault::Vault(Platform platform, Options options) : p_(platform), opt_(options) {}
+Vault::Vault(Platform platform, Options options) : p_(platform), opt_(std::move(options)), fs_(&p_.storage) {}
 
 Vault::~Vault() { lock(); }
 
 Status Vault::ready() const { return ready_ ? Status::Ok : Status::StorageError; }
 
-Status Vault::storageFailure() const {
-  return p_.storage.lastFailure() == Storage::Failure::NoSpace ? Status::Full : Status::StorageError;
+Status Vault::storageFailure(const Storage& st) {
+  return st.lastFailure() == Storage::Failure::NoSpace ? Status::Full : Status::StorageError;
 }
 
 Status Vault::requireUnlocked() const {
@@ -183,14 +213,13 @@ Status Vault::init() {
   slots_.clear();
   unlocked_ = initialized_ = ready_ = false;
 
-  if (!p_.storage.mount()) return Status::StorageError;
-  for (const char* dir : {"", kEntryDir, "f"}) {
+  if (Status s = selectHome(); s != Status::Ok) return s;
+  for (const char* dir : {"", kEntryDir, "f", bucket::kDir}) {
     std::vector<std::string> names;
-    if (!p_.storage.list(dir, names)) return Status::StorageError;
+    if (!fs_->list(dir, names)) return Status::StorageError;
     for (const auto& n : names) {
       if (!endsWith(n, ".tmp")) continue;
-      std::string path = *dir ? std::string(dir) + "/" + n : n;
-      if (!p_.storage.remove(path)) return storageFailure();
+      if (!fs_->remove(join(dir, n))) return storageFailure();
     }
   }
   if (Status s = settleRestore(); s != Status::Ok) return s;
@@ -222,7 +251,7 @@ void putLe(uint8_t* p, uint64_t v, int n) {
 
 Status Vault::loadMeta() {
   std::vector<uint8_t> b;
-  switch (p_.storage.read(kMetaPath, b)) {
+  switch (fs_->read(kMetaPath, b)) {
     case Storage::Read::NotFound: return Status::NotInitialized;
     case Storage::Read::Error: return Status::StorageError;
     case Storage::Read::Ok: break;
@@ -301,34 +330,39 @@ Status Vault::writeMeta(const Meta& m) {
   return s;
 }
 
-Status Vault::writeAtomic(const std::string& path, const uint8_t* data, size_t n) {
+Status Vault::writeAtomic(Storage& st, const std::string& path, const uint8_t* data, size_t n) {
   const std::string tmp = path + ".tmp";
-  if (!p_.storage.write(tmp, data, n)) {
-    const Status failure = storageFailure();
-    p_.storage.remove(tmp);  // cleanup must not hide the original ENOSPC
+  if (!st.write(tmp, data, n)) {
+    const Status failure = storageFailure(st);
+    st.remove(tmp);  // cleanup must not hide the original ENOSPC
     return failure;
   }
-  if (!p_.storage.rename(tmp, path)) {
-    const Status failure = storageFailure();
-    p_.storage.remove(tmp);  // best effort; init() also sweeps leftovers
+  if (!st.rename(tmp, path)) {
+    const Status failure = storageFailure(st);
+    st.remove(tmp);  // best effort; init() also sweeps leftovers
     return failure;
   }
   return Status::Ok;
 }
 
+// Both entry directories in either layout: e/ may hold foreign files a move copied.
 Status Vault::removeAllEntryFiles() {
-  std::vector<std::string> names;
-  if (!p_.storage.list(kEntryDir, names)) return Status::StorageError;
-  for (const auto& n : names)
-    if (!p_.storage.remove(std::string(kEntryDir) + "/" + n)) return storageFailure();
+  for (const char* dir : {kEntryDir, bucket::kDir}) {
+    std::vector<std::string> names;
+    if (!fs_->list(dir, names)) return Status::StorageError;
+    for (const auto& n : names)
+      if (!fs_->remove(join(dir, n))) return storageFailure();
+  }
   return Status::Ok;
 }
 
 Status Vault::removeStaged() {
-  std::vector<std::string> names;
-  if (!p_.storage.list(kEntryDir, names)) return Status::StorageError;
-  for (const auto& n : names)
-    if (isStaged(n) && !p_.storage.remove(std::string(kEntryDir) + "/" + n)) return storageFailure();
+  for (const char* dir : {kEntryDir, bucket::kDir}) {
+    std::vector<std::string> names;
+    if (!fs_->list(dir, names)) return Status::StorageError;
+    for (const auto& n : names)
+      if (isStaged(n) && !fs_->remove(join(dir, n))) return storageFailure();
+  }
   return removeStagedPasskeys();
 }
 
@@ -337,7 +371,7 @@ Status Vault::removeStaged() {
 // new e/<id>.bin can no longer be told apart by name.
 Status Vault::settleRestore() {
   std::vector<uint8_t> marker;
-  switch (p_.storage.read(kRestoreMarker, marker)) {
+  switch (fs_->read(kRestoreMarker, marker)) {
     case Storage::Read::NotFound: return removeStaged();  // never committed: roll back
     case Storage::Read::Error: return Status::StorageError;
     case Storage::Read::Ok: break;
@@ -364,22 +398,36 @@ Status Vault::settleRestore() {
     return Status::Corrupt;
   }
   std::vector<std::string> names;
-  if (!p_.storage.list(kEntryDir, names)) return Status::StorageError;
-  const std::string dir = std::string(kEntryDir) + "/";
-  for (const auto& n : names) {
-    uint32_t id;
-    // An old entry whose id the backup reuses is replaced by the rename below.
-    if (parseEntryName(n, id) && std::find(keep.begin(), keep.end(), id) == keep.end() &&
-        !p_.storage.remove(dir + n))
-      return storageFailure();
-  }
-  for (const auto& n : names) {
-    if (endsWith(n, ".new") && !p_.storage.rename(dir + n, dir + n.substr(0, n.size() - 4) + ".bin"))
-      return storageFailure();
+  if (buckets_) {
+    // The same per bucket: the new set's buckets are the ones its ids fall in,
+    // and each of them was staged whole.
+    std::vector<bool> kept(bucket::kCount, false);
+    for (uint32_t id : keep) kept[bucket::of(id)] = true;
+    if (!fs_->list(bucket::kDir, names)) return Status::StorageError;
+    uint32_t k;
+    for (const auto& n : names)
+      if (bucket::parseName(n, k, ".bin") && !kept[k] && !fs_->remove(bucket::path(k))) return storageFailure();
+    for (const auto& n : names)
+      if (bucket::parseName(n, k, ".new") && !fs_->rename(bucket::stagedPath(k), bucket::path(k)))
+        return storageFailure();
+  } else {
+    if (!fs_->list(kEntryDir, names)) return Status::StorageError;
+    const std::string dir = std::string(kEntryDir) + "/";
+    for (const auto& n : names) {
+      uint32_t id;
+      // An old entry whose id the backup reuses is replaced by the rename below.
+      if (parseEntryName(n, id) && std::find(keep.begin(), keep.end(), id) == keep.end() &&
+          !fs_->remove(dir + n))
+        return storageFailure();
+    }
+    for (const auto& n : names) {
+      if (endsWith(n, ".new") && !fs_->rename(dir + n, dir + n.substr(0, n.size() - 4) + ".bin"))
+        return storageFailure();
+    }
   }
   if (passkeys)
     if (Status s = settlePasskeys(keepPasskeys, keys); s != Status::Ok) return s;
-  return p_.storage.remove(kRestoreMarker) ? Status::Ok : storageFailure();
+  return fs_->remove(kRestoreMarker) ? Status::Ok : storageFailure();
 }
 
 Status Vault::deriveKey(const std::string& pass, const uint8_t salt[16], uint32_t iters, Key& out) {
@@ -424,8 +472,8 @@ Status Vault::setup(const std::string& passphrase) {
   // could never be decrypted with the new key.
   if (Status s = removeAllEntryFiles(); s != Status::Ok) return s;
   if (Status s = removePasskeyFilesLocked(); s != Status::Ok) return s;
-  if (!p_.storage.remove(kActivityPath) || !p_.storage.remove(kTokensPath) || !p_.storage.remove(kTagsPath) ||
-      !p_.storage.remove(kFidoCounterPath))
+  if (!fs_->remove(kActivityPath) || !fs_->remove(kTokensPath) || !fs_->remove(kTagsPath) ||
+      !fs_->remove(kFidoCounterPath))
     return storageFailure();
   if (!p_.counter.store(0)) return Status::StorageError;
   failures_ = 0;
@@ -634,30 +682,49 @@ RecoveryInfo Vault::recoveryInfo() {
   return {true, meta_.recovery.created};
 }
 
+Status Vault::openEntry(uint32_t id, const std::vector<uint8_t>& file) {
+  if (file.size() < kEntryOverhead || file[0] != kEntryVersion) return Status::Corrupt;
+  SecureBuf plain;
+  if (!plain.alloc(file.size() - kEntryOverhead)) return Status::StorageError;
+  const std::string aad = entryAad(id);
+  Crypto::Open r = p_.crypto.gcmOpen(dek_.data(), file.data() + 1, bytes(aad.c_str()), aad.size(),
+                                     file.data() + 13, file.size() - 13, plain.data());
+  if (r == Crypto::Open::Error) return Status::StorageError;
+  if (r == Crypto::Open::AuthFailed) return Status::Corrupt;
+  Entry e;
+  bool ok = codec::decode(plain.data(), plain.size(), e) && e.id == id;
+  wipe(e);
+  if (!ok) return Status::Corrupt;
+  slots_.push_back(Slot{id, std::move(plain), ++revisions_});
+  return Status::Ok;
+}
+
 Status Vault::loadEntries() {
   slots_.clear();
   if (Status s = settleRestore(); s != Status::Ok) return s;  // never read a half-done restore
   std::vector<std::string> names;
-  if (!p_.storage.list(kEntryDir, names)) return Status::StorageError;
-  slots_.reserve(names.size());
   std::vector<uint8_t> file;
+  if (buckets_) {
+    if (!fs_->list(bucket::kDir, names)) return Status::StorageError;
+    bucket::Records records;
+    for (const auto& name : names) {
+      uint32_t k;
+      if (!bucket::parseName(name, k, ".bin")) continue;  // not ours
+      if (fs_->read(bucket::path(k), file) != Storage::Read::Ok) return Status::StorageError;
+      // A damaged bucket fails the unlock like a damaged entry file: never skipped.
+      if (!bucket::parse(file, k, records)) return Status::Corrupt;
+      for (const auto& rec : records)
+        if (Status s = openEntry(rec.id, rec.sealed); s != Status::Ok) return s;
+    }
+    return Status::Ok;
+  }
+  if (!fs_->list(kEntryDir, names)) return Status::StorageError;
+  slots_.reserve(names.size());
   for (const auto& name : names) {
     uint32_t id;
     if (!parseEntryName(name, id)) continue;  // not ours; never decrypted, never listed
-    if (p_.storage.read(entryPath(id), file) != Storage::Read::Ok) return Status::StorageError;
-    if (file.size() < kEntryOverhead || file[0] != kEntryVersion) return Status::Corrupt;
-    SecureBuf plain;
-    if (!plain.alloc(file.size() - kEntryOverhead)) return Status::StorageError;
-    const std::string aad = entryAad(id);
-    Crypto::Open r = p_.crypto.gcmOpen(dek_.data(), file.data() + 1, bytes(aad.c_str()), aad.size(),
-                                       file.data() + 13, file.size() - 13, plain.data());
-    if (r == Crypto::Open::Error) return Status::StorageError;
-    if (r == Crypto::Open::AuthFailed) return Status::Corrupt;
-    Entry e;
-    bool ok = codec::decode(plain.data(), plain.size(), e) && e.id == id;
-    wipe(e);
-    if (!ok) return Status::Corrupt;
-    slots_.push_back(Slot{id, std::move(plain), ++revisions_});
+    if (fs_->read(entryPath(id), file) != Storage::Read::Ok) return Status::StorageError;
+    if (Status s = openEntry(id, file); s != Status::Ok) return s;
   }
   return Status::Ok;
 }
@@ -728,21 +795,98 @@ Status Vault::get(uint32_t id, Entry& out) {
   return Status::Ok;
 }
 
-Status Vault::persist(const std::string& path, uint32_t id, const SecureBuf& plain) {
-  std::vector<uint8_t> file(kEntryOverhead + plain.size());
+Status Vault::seal(uint32_t id, const SecureBuf& plain, std::vector<uint8_t>& file) {
+  file.assign(kEntryOverhead + plain.size(), 0);
   file[0] = kEntryVersion;
   if (!p_.crypto.random(file.data() + 1, 12)) return Status::StorageError;
   const std::string aad = entryAad(id);
   if (!p_.crypto.gcmSeal(dek_.data(), file.data() + 1, bytes(aad.c_str()), aad.size(),
                          plain.data(), plain.size(), file.data() + 13))
     return Status::StorageError;
+  return Status::Ok;
+}
+
+Status Vault::persist(const std::string& path, uint32_t id, const SecureBuf& plain) {
+  std::vector<uint8_t> file;
+  if (Status s = seal(id, plain, file); s != Status::Ok) return s;
   return writeAtomic(path, file.data(), file.size());
+}
+
+Status Vault::writeEntries(const std::vector<Change>& changes) {
+  if (!buckets_) {
+    for (const Change& c : changes) {
+      if (c.plain) {
+        if (Status s = persist(entryPath(c.id), c.id, *c.plain); s != Status::Ok) return s;
+      } else if (!fs_->remove(entryPath(c.id))) {
+        return storageFailure();
+      }
+    }
+    return Status::Ok;
+  }
+  std::vector<std::vector<const Change*>> byBucket(bucket::kCount);
+  for (const Change& c : changes) byBucket[bucket::of(c.id)].push_back(&c);
+  std::vector<uint8_t> file;
+  bucket::Records records;
+  for (uint32_t k = 0; k < bucket::kCount; ++k) {
+    if (byBucket[k].empty()) continue;
+    switch (fs_->read(bucket::path(k), file)) {
+      case Storage::Read::NotFound: records.clear(); break;
+      case Storage::Read::Error: return Status::StorageError;
+      case Storage::Read::Ok:
+        // Rewriting a bucket that does not parse would drop its other entries.
+        if (!bucket::parse(file, k, records)) return Status::Corrupt;
+        break;
+    }
+    for (const Change* c : byBucket[k]) {
+      const uint32_t id = c->id;
+      records.erase(std::remove_if(records.begin(), records.end(),
+                                   [id](const bucket::Record& r) { return r.id == id; }),
+                    records.end());
+      if (!c->plain) continue;
+      records.push_back(bucket::Record{id, {}});
+      if (Status s = seal(id, *c->plain, records.back().sealed); s != Status::Ok) return s;
+    }
+    if (records.empty()) {
+      if (!fs_->remove(bucket::path(k))) return storageFailure();
+      continue;
+    }
+    const std::vector<uint8_t> out = bucket::encode(records);
+    if (Status s = writeAtomic(bucket::path(k), out.data(), out.size()); s != Status::Ok) return s;
+  }
+  return Status::Ok;
+}
+
+Status Vault::stageEntries(const backup::Entries& incoming) {
+  if (!buckets_) {
+    for (const auto& e : incoming) {
+      SecureBuf plain;
+      if (!codec::encode(e, plain)) return Status::Full;
+      if (Status s = persist(stagedPath(e.id), e.id, plain); s != Status::Ok) return s;
+    }
+    return Status::Ok;
+  }
+  // Whole buckets: settleRestore renames them over the old ones.
+  std::vector<std::vector<const Entry*>> byBucket(bucket::kCount);
+  for (const auto& e : incoming) byBucket[bucket::of(e.id)].push_back(&e);
+  for (uint32_t k = 0; k < bucket::kCount; ++k) {
+    if (byBucket[k].empty()) continue;
+    bucket::Records records;
+    for (const Entry* e : byBucket[k]) {
+      SecureBuf plain;
+      if (!codec::encode(*e, plain)) return Status::Full;
+      records.push_back(bucket::Record{e->id, {}});
+      if (Status s = seal(e->id, plain, records.back().sealed); s != Status::Ok) return s;
+    }
+    const std::vector<uint8_t> out = bucket::encode(records);
+    if (Status s = writeAtomic(bucket::stagedPath(k), out.data(), out.size()); s != Status::Ok) return s;
+  }
+  return Status::Ok;
 }
 
 Status Vault::store(Entry& rec, bool edited) {
   SecureBuf plain;
   if (!codec::encode(rec, plain)) return Status::Full;  // out of RAM for plaintext
-  if (Status s = persist(entryPath(rec.id), rec.id, plain); s != Status::Ok) return s;
+  if (Status s = writeEntries({Change{rec.id, &plain}}); s != Status::Ok) return s;
   if (Slot* slot = find(rec.id)) {
     slot->plain = std::move(plain);
     if (edited) slot->revision = ++revisions_;
@@ -760,7 +904,7 @@ Status Vault::put(Entry& e) {
   Entry rec = e;
   Status s = Status::Ok;
   if (e.id == 0) {
-    if (slots_.size() >= kMaxEntries) s = Status::Full;
+    if (slots_.size() >= maxEntries()) s = Status::Full;
     else if (!newId(rec.id)) s = Status::StorageError;
     keepHistory(Entry{}, rec);
   } else if (Slot* slot = find(e.id)) {
@@ -791,7 +935,7 @@ Status Vault::remove(uint32_t id) {
   if (Status s = requireUnlocked(); s != Status::Ok) return s;
   auto it = std::find_if(slots_.begin(), slots_.end(), [id](const Slot& s) { return s.id == id; });
   if (it == slots_.end()) return Status::NotFound;
-  if (!p_.storage.remove(entryPath(id))) return storageFailure();
+  if (Status s = writeEntries({Change{id, nullptr}}); s != Status::Ok) return s;
   slots_.erase(it);  // SecureBuf wipes the plaintext
   return Status::Ok;
 }
@@ -807,7 +951,7 @@ Status Vault::touch(uint32_t id, int64_t now, bool password, bool* burned) {
   if (s == Status::Ok && password && rec.burnAfter > 0 && --rec.burnAfter == 0) {
     // Its last allowed use: gone from flash and RAM.
     wipe(rec);
-    if (!p_.storage.remove(entryPath(id))) return storageFailure();
+    if (Status w = writeEntries({Change{id, nullptr}}); w != Status::Ok) return w;
     slots_.erase(std::find_if(slots_.begin(), slots_.end(), [id](const Slot& x) { return x.id == id; }));
     if (burned) *burned = true;
     return Status::Ok;
@@ -952,7 +1096,7 @@ Status Vault::readBackup(const std::string& backupPass, const std::string& jsonT
     if (pk && !backup::readPasskeys(*pk, passkeys)) return Status::Invalid;
   }
   if (!entries || entries->type != json::Value::Type::Array) return Status::Invalid;
-  if (entries->items.size() > kMaxEntries) return Status::Full;
+  if (entries->items.size() > maxEntries()) return Status::Full;
 
   out.resize(entries->items.size());
   for (size_t i = 0; i < out.size(); ++i) {
@@ -982,7 +1126,7 @@ Status Vault::prepareBackupStream(const std::string& backupPass, const BackupSou
   std::lock_guard<std::mutex> g(m_);
   if (Status s = requireUnlocked(); s != Status::Ok) return s;
   out.impl_ = std::make_unique<BackupImport::Impl>();
-  const Status s = backup::readStream(p_.crypto, backupPass, source,
+  const Status s = backup::readStream(p_.crypto, backupPass, source, maxEntries(),
                                       out.impl_->entries, out.impl_->passkeys);
   if (s != Status::Ok) out.impl_.reset();
   return s;
@@ -1098,7 +1242,7 @@ Status Vault::importPreparedLocked(backup::Entries& incoming, backup::Passkeys& 
     byAccount.emplace(identityKey(e.title, e.username, e.url), index.size() - 1);
     ++nAdded;
   }
-  if ((replace ? 0 : slots_.size()) + nAdded > kMaxEntries) {
+  if ((replace ? 0 : slots_.size()) + nAdded > maxEntries()) {
     cleanup();
     return Status::Full;
   }
@@ -1125,12 +1269,8 @@ Status Vault::importPreparedLocked(backup::Entries& incoming, backup::Passkeys& 
       putLe(&marker[marker.size() - 4], v, 4);
     };
     if (pk.present) putId(uint32_t(incoming.size()));
-    for (const auto& e : incoming) {
-      if (s != Status::Ok) break;
-      SecureBuf plain;
-      s = codec::encode(e, plain) ? persist(stagedPath(e.id), e.id, plain) : Status::Full;
-      putId(e.id);
-    }
+    for (const auto& e : incoming) putId(e.id);
+    if (s == Status::Ok) s = stageEntries(incoming);
     if (s == Status::Ok && pk.present) {
       std::vector<uint32_t> ids;
       s = stagePasskeys(pk, ids);
@@ -1153,17 +1293,41 @@ Status Vault::importPreparedLocked(backup::Entries& incoming, backup::Passkeys& 
     return Status::Ok;
   }
 
-  // 3b. Merge. A storage failure from here on leaves a partial import (reported).
+  // 3b. Merge. Every write is planned first and then made in one batch (one
+  // rewrite per bucket in layout 2). A storage failure from here on leaves a
+  // partial import (reported).
+  struct Write {
+    uint32_t id;
+    SecureBuf plain;
+  };
+  std::vector<Write> writes;
+  writes.reserve(incoming.size());  // `current` below points into it
+  std::unordered_map<uint32_t, size_t> planned;  // id → index in writes
   Status s = Status::Ok;
   for (auto& e : incoming) {
     if (s != Status::Ok) break;
-    Slot* slot = find(e.id);
-    if (!slot) {
-      s = store(e, true);
+    // What the vault holds for this id at this point of the import: an earlier
+    // duplicate in the same backup may already have replaced the stored copy.
+    const auto p = planned.find(e.id);
+    const Slot* slot = find(e.id);
+    const SecureBuf* current = p != planned.end() ? &writes[p->second].plain : slot ? &slot->plain : nullptr;
+    auto planWrite = [&](const Entry& rec) {
+      SecureBuf plain;
+      if (!codec::encode(rec, plain)) return Status::Full;  // out of RAM for plaintext
+      if (p != planned.end()) {
+        writes[p->second].plain = std::move(plain);
+      } else {
+        planned.emplace(rec.id, writes.size());
+        writes.push_back(Write{rec.id, std::move(plain)});
+      }
+      return Status::Ok;
+    };
+    if (!current) {
+      s = planWrite(e);
       continue;
     }
     Entry old;
-    if (!codec::decode(slot->plain.data(), slot->plain.size(), old)) {
+    if (!codec::decode(current->data(), current->size(), old)) {
       s = Status::Corrupt;
     } else if (old.updated >= e.updated) {
       wipe(old);
@@ -1181,10 +1345,26 @@ Status Vault::importPreparedLocked(backup::Entries& incoming, backup::Passkeys& 
       if (e.lastUsed == 0) e.lastUsed = old.lastUsed;
     }
     wipe(old);
-    if (s == Status::Ok) s = store(e, true);
+    if (s == Status::Ok) s = planWrite(e);
     if (s == Status::Ok) ++nUpdated;
   }
   cleanup();
+  if (s == Status::Ok) {
+    std::vector<Change> changes;
+    changes.reserve(writes.size());
+    for (const Write& w : writes) changes.push_back(Change{w.id, &w.plain});
+    s = writeEntries(changes);
+  }
+  if (s == Status::Ok) {
+    for (Write& w : writes) {
+      if (Slot* slot = find(w.id)) {
+        slot->plain = std::move(w.plain);
+        slot->revision = ++revisions_;
+      } else {
+        slots_.push_back(Slot{w.id, std::move(w.plain), ++revisions_});
+      }
+    }
+  }
   if (s == Status::Ok) s = mergePasskeys(plan);
   if (s != Status::Ok) {
     // RAM must reflect what actually reached flash.
@@ -1222,7 +1402,31 @@ Status Vault::factoryReset() {
   meta_ = Meta{};
   // format() destroys the whole partition (old ciphertext and wrapped keys
   // included), which also recovers a filesystem that no longer mounts.
-  if (!p_.storage.format()) return Status::StorageError;
+  if (onTail_) {
+    // Both regions. A power cut part-way leaves either the old vault (the
+    // first step makes init redo the partition's erase) or a tail without
+    // vault.home beside the tombstone: Corrupt, and another reset finishes.
+    const std::string floor = opt_.firmware.empty() ? floor_ : opt_.firmware;
+    (void)p_.tail->remove(kOldErasedPath);  // may not even mount; the formats decide
+    if (!p_.storage.format() ||
+        writeAtomic(p_.storage, kMetaPath, kTombstone, sizeof kTombstone) != Status::Ok ||
+        !p_.tail->format())
+      return Status::StorageError;
+    const std::vector<uint8_t> home = homeFile(floor);
+    const uint8_t erased = 1;
+    if (writeAtomic(*p_.tail, kHomePath, home.data(), home.size()) != Status::Ok ||
+        writeAtomic(*p_.tail, kOldErasedPath, &erased, 1) != Status::Ok)
+      return Status::StorageError;
+    fs_ = p_.tail;
+    buckets_ = true;
+    floor_ = floor;
+  } else {
+    if (!fs_->format()) return Status::StorageError;
+    if (buckets_) {  // a single filesystem in layout 2 (host tests, the bench) keeps it
+      const std::vector<uint8_t> home = homeFile(floor_);
+      if (writeAtomic(kHomePath, home.data(), home.size()) != Status::Ok) return Status::StorageError;
+    }
+  }
   if (!p_.counter.store(0)) return Status::StorageError;
   failures_ = 0;
   lockedUntilMs_ = 0;
@@ -1230,4 +1434,193 @@ Status Vault::factoryReset() {
   return Status::Ok;
 }
 
+// ---------- where the vault lives (docs/SPEC.md §6.1) ----------
+
+Status Vault::selectHome() {
+  fs_ = &p_.storage;
+  onTail_ = false;
+  buckets_ = false;
+  floor_.clear();
+  std::vector<uint8_t> b;
+  if (!p_.tail) {
+    // One filesystem: its vault.home alone says the layout (host tests and the
+    // bench use layout 2 this way; on a device only the tail has one).
+    if (!fs_->mount()) return Status::StorageError;
+    switch (fs_->read(kHomePath, b)) {
+      case Storage::Read::NotFound: return Status::Ok;
+      case Storage::Read::Error: return Status::StorageError;
+      case Storage::Read::Ok: break;
+    }
+    if (!parseHome(b, floor_)) return Status::Corrupt;
+    buckets_ = true;
+    return Status::Ok;
+  }
+  // The tail is the vault once it holds vault.home (the move's commit). A tail
+  // that does not mount, or has none, was never committed, unless the
+  // partition says the vault moved: then it was lost (or a factory reset was
+  // cut short) and only another factory reset goes on, never a guess.
+  const bool tailUp = p_.tail->mount();
+  const Storage::Read home = tailUp ? p_.tail->read(kHomePath, b) : Storage::Read::NotFound;
+  if (home == Storage::Read::Error) return Status::StorageError;
+  if (home == Storage::Read::Ok) {
+    fs_ = p_.tail;
+    onTail_ = buckets_ = true;
+    if (!parseHome(b, floor_)) return Status::Corrupt;
+    return finishMoveOut();
+  }
+  if (!p_.storage.mount()) return Status::StorageError;
+  if (p_.storage.read(kMetaPath, b) == Storage::Read::Ok && isTombstone(b)) {
+    fs_ = p_.tail;
+    onTail_ = buckets_ = true;
+    return Status::Corrupt;
+  }
+  return Status::Ok;
+}
+
+// Redone at every init until old.erased exists, so a power cut anywhere in it
+// is finished at the next boot. The tombstone goes first (one atomic rename),
+// then every sector is erased: the DEK never changes, so stale ciphertext
+// would still open entries deleted since. Nothing writes to the vault on the
+// tail before this has run, so an unmountable tail beside an intact old
+// vault can only be a moment after the commit, while both were identical.
+Status Vault::finishMoveOut() {
+  std::vector<uint8_t> b;
+  switch (p_.tail->read(kOldErasedPath, b)) {
+    case Storage::Read::Ok: return Status::Ok;
+    case Storage::Read::Error: return Status::StorageError;
+    case Storage::Read::NotFound: break;
+  }
+  if (p_.storage.mount() &&
+      writeAtomic(p_.storage, kMetaPath, kTombstone, sizeof kTombstone) != Status::Ok)
+    return Status::StorageError;
+  if (!p_.storage.format()) return Status::StorageError;
+  if (Status s = writeAtomic(p_.storage, kMetaPath, kTombstone, sizeof kTombstone); s != Status::Ok) return s;
+  const uint8_t erased = 1;
+  return writeAtomic(*p_.tail, kOldErasedPath, &erased, 1);
+}
+
+std::string Vault::movedBy() {
+  std::lock_guard<std::mutex> g(m_);
+  return onTail_ ? floor_ : std::string();
+}
+
+// Copies ciphertext only (no key needed), one bucket at a time so memory stays
+// bounded by the largest bucket. Until vault.home is written on the tail the
+// partition is the vault and nothing on it has changed; vault.home is the
+// single commit point; finishMoveOut() follows.
+Status Vault::migrate(const std::function<void()>& tick) {
+  std::lock_guard<std::mutex> g(m_);
+  if (!migrationPending()) return Status::Invalid;
+  Storage& from = p_.storage;
+  Storage& to = *p_.tail;
+  auto yield = [&tick] {
+    if (tick) tick();
+  };
+
+  // 1. What there is. init() has settled any restore and swept *.tmp; anything
+  // still in flight means this is not a settled vault, so the move waits.
+  std::vector<std::string> copies;                        // paths copied as they are
+  std::vector<std::vector<uint32_t>> ids(bucket::kCount);  // e/<id>.bin, by bucket
+  for (const char* dir : {"", kEntryDir, "f"}) {
+    std::vector<std::string> names;
+    if (!from.list(dir, names)) return Status::StorageError;
+    for (const auto& n : names) {
+      if (endsWith(n, ".tmp") || endsWith(n, ".new") || n == kRestoreMarker || n == kHomePath ||
+          n == kOldErasedPath)
+        return Status::Invalid;
+      uint32_t id;
+      if (std::strcmp(dir, kEntryDir) == 0 && parseEntryName(n, id)) {
+        ids[bucket::of(id)].push_back(id);
+      } else {
+        copies.push_back(join(dir, n));  // meta, passkeys, logs, tokens, tags, counter, foreign files
+      }
+    }
+  }
+  std::vector<std::string> stray;
+  if (!from.list(bucket::kDir, stray)) return Status::StorageError;
+  if (!stray.empty()) return Status::Invalid;
+
+  // 2. A clean tail: also drops whatever an interrupted attempt left.
+  if (!to.format()) return Status::StorageError;
+  yield();
+
+  // 3. Copy, reading each file back at once; keep a digest of every file for
+  // the final pass.
+  struct Written {
+    std::string path;
+    std::array<uint8_t, 32> digest;
+  };
+  std::vector<Written> written;
+  std::vector<uint8_t> back;
+  auto digest = [this](const std::vector<uint8_t>& b, std::array<uint8_t, 32>& out) {
+    static const uint8_t label[] = "keyra/move/v1";
+    uint8_t mac[64];
+    size_t n = 0;
+    const bool ok = p_.crypto.hmac(Hash::Sha256, label, sizeof label - 1, b.data(), b.size(), mac, &n) && n == 32;
+    if (ok) std::memcpy(out.data(), mac, 32);
+    return ok;
+  };
+  auto put = [&](const std::string& path, const std::vector<uint8_t>& bytes) {
+    if (!to.write(path, bytes.data(), bytes.size())) return storageFailure(to);
+    if (to.read(path, back) != Storage::Read::Ok) return Status::StorageError;
+    if (back != bytes) return Status::Corrupt;
+    written.push_back(Written{path, {}});
+    if (!digest(bytes, written.back().digest)) return Status::StorageError;
+    yield();
+    return Status::Ok;
+  };
+  std::vector<uint8_t> bytes;
+  for (const auto& path : copies) {
+    if (from.read(path, bytes) != Storage::Read::Ok) return Status::StorageError;
+    yield();
+    if (Status s = put(path, bytes); s != Status::Ok) return s;
+  }
+  bucket::Records records, again;
+  for (uint32_t k = 0; k < bucket::kCount; ++k) {
+    if (ids[k].empty()) continue;
+    records.clear();
+    for (uint32_t id : ids[k]) {
+      records.push_back(bucket::Record{id, {}});
+      if (from.read(entryPath(id), records.back().sealed) != Storage::Read::Ok) return Status::StorageError;
+      yield();
+    }
+    bytes = bucket::encode(records);
+    // Each record must come back exactly as its entry file was.
+    if (!bucket::parse(bytes, k, again) || again.size() != records.size()) return Status::Corrupt;
+    for (size_t i = 0; i < again.size(); ++i)
+      if (again[i].id != records[i].id || again[i].sealed != records[i].sealed) return Status::Corrupt;
+    if (Status s = put(bucket::path(k), bytes); s != Status::Ok) return s;
+  }
+
+  // 4. Read everything back once more: exactly these files, each as written.
+  size_t seen = 0;
+  for (const char* dir : {"", kEntryDir, "f", bucket::kDir}) {
+    std::vector<std::string> names;
+    if (!to.list(dir, names)) return Status::StorageError;
+    for (const auto& n : names) {
+      const std::string path = join(dir, n);
+      const auto w =
+          std::find_if(written.begin(), written.end(), [&path](const Written& x) { return x.path == path; });
+      if (w == written.end()) return Status::Corrupt;
+      std::array<uint8_t, 32> d;
+      if (to.read(path, back) != Storage::Read::Ok) return Status::StorageError;
+      if (!digest(back, d)) return Status::StorageError;
+      if (d != w->digest) return Status::Corrupt;
+      ++seen;
+      yield();
+    }
+  }
+  if (seen != written.size()) return Status::Corrupt;
+
+  // 5. Commit.
+  const std::vector<uint8_t> home = homeFile(opt_.firmware);
+  if (Status s = writeAtomic(to, kHomePath, home.data(), home.size()); s != Status::Ok) return s;
+  fs_ = &to;
+  onTail_ = buckets_ = true;
+  floor_ = opt_.firmware;
+  // 6. The partition: tombstone and erase (redone by init if cut short).
+  return finishMoveOut();
+}
+
 }  // namespace keyra::vault
+

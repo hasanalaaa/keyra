@@ -5,7 +5,7 @@
 // flash is RAM that counts reads, programs and erases; device times are a model
 // of those counts (see kModels), not measurements.
 //
-// keyra_capacity [capacity|unlock|ops|ram|backup|all]
+// keyra_capacity [capacity|unlock|ops|ram|backup|buckets|migrate|all]
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
@@ -20,6 +20,7 @@
 #include <openssl/crypto.h>
 
 #include "core/backup_format.hpp"
+#include "core/bucket.hpp"
 #include "core/entry_codec.hpp"
 #include "core/secure_buf.hpp"
 #include "core/vault_core.hpp"
@@ -121,7 +122,7 @@ class LfsStorage : public Storage {
       if (lfs_format(&lfs_, &cfg_) != 0 || lfs_mount(&lfs_, &cfg_) != 0) return false;
     }
     mounted_ = true;
-    for (const char* d : {"e", "f"}) {
+    for (const char* d : {"e", "f", "b"}) {
       int r = lfs_mkdir(&lfs_, d);
       if (r != 0 && r != LFS_ERR_EXIST) return false;
     }
@@ -304,22 +305,26 @@ std::string hex8(uint32_t id) {
 }
 
 // What Vault::persist + writeAtomic put on flash for one entry, without the
-// vault's kMaxEntries check (so the bench can go past 1000).
+// vault's kMaxEntriesFiles check (so the bench can go past 1000).
 struct Writer {
   Storage& st;
   Crypto& crypto;
   uint8_t dek[32];
-  bool put(const Entry& e) {
+  // The sealed record, as e/<id>.bin holds it and a bucket file embeds it.
+  bool seal(const Entry& e, std::vector<uint8_t>& file) {
     if (!codec::valid(e)) return false;
     SecureBuf plain;
     if (!codec::encode(e, plain)) return false;
-    std::vector<uint8_t> file(kOverhead + plain.size());
+    file.assign(kOverhead + plain.size(), 0);
     file[0] = 1;
     crypto.random(file.data() + 1, 12);
     const std::string aad = "keyra/e/v1/" + hex8(e.id);
-    if (!crypto.gcmSeal(dek, file.data() + 1, reinterpret_cast<const uint8_t*>(aad.data()), aad.size(),
-                        plain.data(), plain.size(), file.data() + 13))
-      return false;
+    return crypto.gcmSeal(dek, file.data() + 1, reinterpret_cast<const uint8_t*>(aad.data()), aad.size(),
+                          plain.data(), plain.size(), file.data() + 13);
+  }
+  bool put(const Entry& e) {
+    std::vector<uint8_t> file;
+    if (!seal(e, file)) return false;
     const std::string path = "e/" + hex8(e.id) + ".bin";
     if (!st.write(path + ".tmp", file.data(), file.size())) return false;
     return st.rename(path + ".tmp", path);
@@ -527,7 +532,7 @@ void backupBench() {
       std::printf("| %s | %zu | %.2f MB | %.2f MB | %.0f ms |\n", sh->name, n, out.size() / 1e6,
                   (gSecurePeak - base) / 1e6, ms);
       Status in = v.checkBackup("backup passphrase 1", out, true);
-      if (n > kMaxEntries && in != Status::Full) std::abort();
+      if (n > kMaxEntriesFiles && in != Status::Full) std::abort();
     }
   }
 }
@@ -557,6 +562,125 @@ void ops() {
   for (auto& e : all) wipe(e);
 }
 
+// ---------------------------------------------------------------- 7. layout 2: buckets in the tail
+// A tail filesystem (8 MB) holding meta.bin, vault.home and n entries packed
+// into the bucket files exactly as Vault::writeEntries writes them.
+struct TailRig {
+  std::unique_ptr<Flash> flash;
+  std::unique_ptr<LfsStorage> st;
+  CountingCrypto crypto;
+  test::MemCounter counter;
+  test::FakeClock clock;
+  uint8_t dek[32];
+
+  explicit TailRig(size_t blocks) : flash(new Flash(blocks)), st(new LfsStorage(*flash, blocks)) {
+    st->mount();
+    crypto.random(dek, 32);
+    writeMeta(*st, crypto, dek);
+    const uint8_t home[] = {'K', 'Y', 'R', 'H', 1, 0};
+    st->write("vault.home", home, sizeof home);
+  }
+  bool fill(const Shape& sh, size_t n) {
+    Writer w{*st, crypto, {}};
+    std::memcpy(w.dek, dek, 32);
+    std::vector<bucket::Records> buckets(bucket::kCount);
+    for (size_t i = 0; i < n; ++i) {
+      Entry e = makeEntry(sh, uint32_t(i + 1) * 2654435761u);
+      bucket::Record r{e.id, {}};
+      if (!w.seal(e, r.sealed)) return false;
+      buckets[bucket::of(e.id)].push_back(std::move(r));
+    }
+    for (uint32_t k = 0; k < bucket::kCount; ++k) {
+      if (buckets[k].empty()) continue;
+      const auto bytes = bucket::encode(buckets[k]);
+      const std::string path = bucket::path(k);
+      if (!st->write(path + ".tmp", bytes.data(), bytes.size()) || !st->rename(path + ".tmp", path)) return false;
+    }
+    return true;
+  }
+  Vault vault() { return Vault(Platform{*st, counter, crypto, clock}, Vault::Options{kIters}); }
+};
+
+void bucketsBench() {
+  std::printf("\n## 6. Layout 2 (128 bucket files in the 8 MB tail): unlock and one write\n\n");
+  std::printf("| shape | n | read calls | bytes read | GCM | host | device model | next put: read / progs / erases → model |\n");
+  std::printf("|---|---|---|---|---|---|---|---|\n");
+  for (const auto& [sh, n] : std::vector<std::pair<const Shape*, size_t>>{
+           {&kTypical, 1000}, {&kTypical, 5000}, {&kSmall, 5000}, {&kNotes, 5000}}) {
+    TailRig rig(kTailBlocks);
+    if (!rig.fill(*sh, n)) {
+      std::printf("| %s | %zu | (does not fit) |\n", sh->name, n);
+      continue;
+    }
+    rig.st->statOnRead = false;  // LittleFsStorage::read since 0.3.2: open/lseek/read
+    rig.st->unmount();
+    Vault v = rig.vault();
+    if (v.init() != Status::Ok || v.maxEntries() != kMaxEntriesBuckets) std::abort();
+    const Counts before = gCounts;
+    uint32_t retry = 0;
+    Status s = Status::Ok;
+    const double ms = hostMs([&] { s = v.unlock(kPass, &retry); });
+    const Counts c = gCounts - before;
+    if (s != Status::Ok) std::abort();
+    Entry e;
+    std::vector<Entry> all;
+    v.list(all);
+    e = all[all.size() / 2];
+    e.password = "changed";
+    const Counts b2 = gCounts;
+    if (v.put(e) != Status::Ok) std::abort();
+    const Counts p = gCounts - b2;
+    std::printf("| %s | %zu | %llu | %.2f MB | %llu | %.0f ms | %s | %.0f KB / %llu / %llu → %s |\n", sh->name, n,
+                (unsigned long long)c.reads, c.readBytes / 1e6, (unsigned long long)c.gcm, ms,
+                modelRange(c, n).c_str(), p.readBytes / 1e3, (unsigned long long)p.progs,
+                (unsigned long long)p.erases, modelRange(p).c_str());
+    for (auto& x : all) wipe(x);
+    wipe(e);
+  }
+}
+
+// The one-time move: n entries in the partition (layout 1) into a fresh tail.
+// LfsStorage::format() does not count the device's full-region erases, so they are
+// listed apart: the tail (128) and then the partition (30) in 64 KiB block
+// erases (esp_flash_erase_region; W25Q128JV tBE2 0.15 s typ., 2 s max).
+void migrateBench() {
+  std::printf("\n## 7. The move to the tail (Vault::migrate), partition → tail\n\n");
+  std::printf("| shape | n | read calls | bytes read | progs | erases | host | device model (+ erasing both regions) |\n");
+  std::printf("|---|---|---|---|---|---|---|---|\n");
+  for (const auto& [sh, n] : std::vector<std::pair<const Shape*, size_t>>{
+           {&kSmall, 1000}, {&kTypical, 1000}, {&kNotes, 440}}) {
+    Rig old(kVaultBlocks);
+    if (old.fill(*sh, n) != n) {
+      std::printf("| %s | %zu | (does not fit) |\n", sh->name, n);
+      continue;
+    }
+    old.st->statOnRead = false;
+    old.st->unmount();
+    Flash tailFlash(kTailBlocks);
+    LfsStorage tail(tailFlash, kTailBlocks);
+    tail.statOnRead = false;
+    Vault v(Platform{*old.st, old.counter, old.crypto, old.clock, &tail}, Vault::Options{kIters, "bench"});
+    if (v.init() != Status::Ok || !v.migrationPending()) std::abort();
+    const Counts before = gCounts;
+    Status s = Status::Ok;
+    const double ms = hostMs([&] { s = v.migrate(); });
+    const Counts c = gCounts - before;
+    if (s != Status::Ok) {
+      std::printf("migrate failed: %s\n", statusName(s));
+      std::abort();
+    }
+    std::printf("| %s | %zu | %llu | %.1f MB | %llu | %llu | %.0f ms | %s + 24–316 s |\n", sh->name, n,
+                (unsigned long long)c.reads, c.readBytes / 1e6, (unsigned long long)c.progs,
+                (unsigned long long)c.erases, ms, modelRange(c).c_str());
+    Vault after(Platform{*old.st, old.counter, old.crypto, old.clock, &tail}, Vault::Options{kIters, "bench"});
+    uint32_t retry = 0;
+    if (after.init() != Status::Ok || after.unlock(kPass, &retry) != Status::Ok) std::abort();
+    std::vector<Entry> all;
+    if (after.list(all) != Status::Ok || all.size() != n) std::abort();
+    for (auto& x : all) wipe(x);
+  }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -568,5 +692,7 @@ int main(int argc, char** argv) {
   if (what == "ram" || what == "all") ram();
   if (what == "backup" || what == "all") backupBench();
   if (what == "ops" || what == "all") ops();
+  if (what == "buckets" || what == "all") bucketsBench();
+  if (what == "migrate" || what == "all") migrateBench();
   return 0;
 }

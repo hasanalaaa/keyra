@@ -1,14 +1,22 @@
 // ESP-IDF implementations of the vault platform seams.
 #pragma once
 
+#include <initializer_list>
+#include <string>
+#include <vector>
+
 #include "core/platform.hpp"
+#include "esp_partition.h"
 
 namespace keyra::vault::esp {
 
-// LittleFS on the data partition labelled "vault", mounted at /vault.
-// The partition belongs to the vault: format() erases all of it.
+// LittleFS on a data partition, mounted at `base`: "vault" at /vault, and on
+// 16 MB boards the tail (flash_tail.cpp). The partition belongs to the vault:
+// format() erases all of it. `dirs` are created at mount.
 class LittleFsStorage : public Storage {
  public:
+  LittleFsStorage(const char* label, const char* base, std::initializer_list<const char*> dirs)
+      : label_(label), base_(base), dirs_(dirs) {}
   bool mount() override;
   Read read(const std::string& path, std::vector<uint8_t>& out) override;
   bool write(const std::string& path, const uint8_t* data, size_t n) override;
@@ -19,9 +27,21 @@ class LittleFsStorage : public Storage {
   Failure lastFailure() const override { return lastFailure_; }
 
  private:
+  std::string full(const std::string& path) const { return path.empty() ? base_ : base_ + "/" + path; }
+  const esp_partition_t* partition() const;
+  esp_err_t registerFs() const;
+
+  const char* label_;
+  std::string base_;
+  std::vector<const char*> dirs_;
   bool mounted_ = false;
   Failure lastFailure_ = Failure::Other;
 };
+
+// The upper 8 MB of a flash of 16 MB or more, registered as a data partition
+// labelled kTailLabel; null on smaller chips or when it cannot be used.
+inline constexpr char kTailLabel[] = "vaulttail";
+const esp_partition_t* registerTail();
 
 // Unlock-failure counter in NVS namespace "keyra_v".
 class NvsCounter : public Counter {

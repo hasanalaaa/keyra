@@ -223,7 +223,7 @@ TEST(invalid_entries_reject_whole_import) {
 TEST(import_respects_entry_limit) {
   auto r = Rig::ready();
   std::string many = "[";
-  for (size_t i = 0; i < kMaxEntries; ++i) many += (i ? "," : "") + std::string("{\"title\":\"t") + std::to_string(i) + "\"}";
+  for (size_t i = 0; i < (*r)->maxEntries(); ++i) many += (i ? "," : "") + std::string("{\"title\":\"t") + std::to_string(i) + "\"}";
   many += "]";
   Entry existing = sample("existing");
   CHECK((*r)->put(existing) == Status::Ok);
@@ -233,7 +233,7 @@ TEST(import_respects_entry_limit) {
   CHECK(r->storage.files == snapshot);
   size_t a = 0;
   CHECK((*r)->importBackup(kBackupPass, seal(r->crypto, many), true, &a, nullptr) == Status::Ok);
-  CHECK(a == kMaxEntries);
+  CHECK(a == (*r)->maxEntries());
   std::string tooMany = many.substr(0, many.size() - 1) + ",{\"title\":\"extra\"}]";
   CHECK((*r)->importBackup(kBackupPass, seal(r->crypto, tooMany), true, nullptr, nullptr) ==
         Status::Full);
@@ -377,10 +377,11 @@ TEST(uncommitted_staging_is_discarded) {
   auto r = Rig::ready();
   Entry e = sample("kept");
   CHECK((*r)->put(e) == Status::Ok);
+  const char* dir = bucketLayout() ? "b/" : "e/";
   const auto bin = std::find_if(r->storage.files.begin(), r->storage.files.end(),
-                                [](const auto& f) { return f.first.compare(0, 2, "e/") == 0; });
+                                [dir](const auto& f) { return f.first.compare(0, 2, dir) == 0; });
   CHECK(bin != r->storage.files.end());
-  r->storage.files["e/0000002a.new"] = bin->second;
+  r->storage.files[bucketLayout() ? bucket::stagedPath(0x2a) : "e/0000002a.new"] = bin->second;
   r->reboot();
   CHECK((*r)->init() == Status::Ok && !restoreLeftovers(r->storage));
   CHECK((*r)->unlock(kPass, nullptr) == Status::Ok && byId(*r->v).size() == 1);
@@ -469,7 +470,7 @@ TEST(check_backup_writes_nothing) {
   CHECK((*r)->checkBackup(kBackupPass, "{}", true) == Status::Invalid);
   CHECK((*r)->checkBackup(kBackupPass, seal(r->crypto, "[{\"title\":5}]"), true) == Status::Invalid);
   std::string many = "[";
-  for (size_t i = 0; i <= kMaxEntries; ++i) many += (i ? "," : "") + std::string("{}");
+  for (size_t i = 0; i <= (*r)->maxEntries(); ++i) many += (i ? "," : "") + std::string("{}");
   CHECK((*r)->checkBackup(kBackupPass, seal(r->crypto, many + "]"), true) == Status::Full);
   CHECK(r->storage.files == snapshot);
   (*r)->lock();

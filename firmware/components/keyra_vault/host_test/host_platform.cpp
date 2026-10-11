@@ -44,7 +44,13 @@ void mem::zeroize(void* p, size_t n) { OPENSSL_cleanse(p, n); }
 namespace test {
 HeapStats heapStats() { return {gLive, gDirty}; }
 MemStorage& hostStorage() {
-  static MemStorage storage;
+  static MemStorage storage = [] {
+    MemStorage s;
+    // Same switch as rig.hpp: KEYRA_VAULT_LAYOUT=buckets gives layout 2.
+    const char* v = std::getenv("KEYRA_VAULT_LAYOUT");
+    if (v && std::strcmp(v, "buckets") == 0) s.files[kHomePath] = {'K', 'Y', 'R', 'H', 1, 0};
+    return s;
+  }();
   return storage;
 }
 void failNextWrite() { hostStorage().failAfter = 0; }
