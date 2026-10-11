@@ -127,27 +127,27 @@ void addToken(cJSON* o, const Token& t) {
 // ---------- /api/agent/… ----------
 
 esp_err_t listEntries(httpd_req_t* r, const Token& t) {
-  std::vector<vault::Entry> all;
-  const vault::Status st = vault::list(all);
+  // Built while the vault iterates, like GET /api/entries (handlers.cpp).
+  std::string body = "{\"entries\":[";
+  const size_t empty = body.size();
+  bool printed = true;
+  const vault::Status st = vault::forEach([&](const vault::Entry& e) {
+    if (!tokens::inScope(t, e.id)) return true;
+    json::Ptr j(cJSON_CreateObject());
+    cJSON_AddNumberToObject(j.get(), "id", e.id);
+    cJSON_AddStringToObject(j.get(), "title", e.title.c_str());
+    cJSON_AddStringToObject(j.get(), "host", tokens::urlHost(e.url).c_str());
+    if (body.size() > empty) body += ',';
+    return printed = http::appendJson(body, j.get());
+  });
   if (st != vault::Status::Ok) {
-    for (vault::Entry& e : all) vault::wipe(e);
     return http::sendError(r, st == vault::Status::Locked ? http::k401 : http::k500,
                            st == vault::Status::Locked ? "locked" : "storage", "Could not read the accounts");
   }
-  json::Ptr o(cJSON_CreateObject());
-  cJSON* arr = cJSON_AddArrayToObject(o.get(), "entries");
-  for (vault::Entry& e : all) {
-    if (tokens::inScope(t, e.id)) {
-      cJSON* j = cJSON_CreateObject();
-      cJSON_AddNumberToObject(j, "id", e.id);
-      cJSON_AddStringToObject(j, "title", e.title.c_str());
-      cJSON_AddStringToObject(j, "host", tokens::urlHost(e.url).c_str());
-      cJSON_AddItemToArray(arr, j);
-    }
-    vault::wipe(e);
-  }
+  if (!printed) return http::sendError(r, http::k500, "no_memory", "Out of memory");
+  body += "]}";
   activity::log({activity::Kind::AgentListed, 0, t.id, 1, 0, t.name});
-  return http::sendJson(r, http::k200, o.get());
+  return http::sendJsonText(r, http::k200, body);
 }
 
 // The page's host from a request body; false when refused (the 400 is sent).

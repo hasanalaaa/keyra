@@ -33,6 +33,10 @@ constexpr const char* k507 = "507 Insufficient Storage";
 void securityHeaders(httpd_req_t* r);
 
 esp_err_t sendJson(httpd_req_t* r, const char* status, const cJSON* body);
+// Like sendJson for a body that is already JSON text.
+esp_err_t sendJsonText(httpd_req_t* r, const char* status, const std::string& body);
+// Appends o as compact JSON; false when out of memory.
+bool appendJson(std::string& out, const cJSON* o);
 cJSON* errorBody(const char* code, const char* message);
 esp_err_t sendError(httpd_req_t* r, const char* status, const char* code, const char* message);
 esp_err_t sendEmpty(httpd_req_t* r, const char* status);

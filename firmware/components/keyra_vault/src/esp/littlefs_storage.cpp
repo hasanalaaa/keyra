@@ -1,4 +1,5 @@
 #include <dirent.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -49,7 +50,12 @@ esp_err_t registerFs() {
   return esp_vfs_littlefs_register(&conf);
 }
 
-using File = std::unique_ptr<FILE, int (*)(FILE*)>;
+struct Fd {
+  int fd;
+  ~Fd() {
+    if (fd >= 0) ::close(fd);
+  }
+};
 
 }  // namespace
 
@@ -87,12 +93,21 @@ bool LittleFsStorage::mount() {
 
 Storage::Read LittleFsStorage::read(const std::string& path, std::vector<uint8_t>& out) {
   out.clear();
-  File f(std::fopen(full(path).c_str(), "rb"), &std::fclose);
-  if (!f) return errno == ENOENT ? Read::NotFound : Read::Error;
-  struct stat st;
-  if (::fstat(fileno(f.get()), &st) != 0 || st.st_size < 0) return Read::Error;
-  out.resize(size_t(st.st_size));
-  if (!out.empty() && std::fread(out.data(), 1, out.size(), f.get()) != out.size()) return Read::Error;
+  // open/lseek/read, not fopen/fstat: esp_littlefs answers fstat with a fresh
+  // lookup of the path, which walks the whole directory again — with thousands
+  // of entries that doubled the flash reads of an unlock (docs/research/CAPACITY.md).
+  // lseek works on the open file and costs no lookup.
+  const Fd f{::open(full(path).c_str(), O_RDONLY)};
+  const int fd = f.fd;
+  if (fd < 0) return errno == ENOENT ? Read::NotFound : Read::Error;
+  const off_t size = ::lseek(fd, 0, SEEK_END);
+  if (size < 0 || ::lseek(fd, 0, SEEK_SET) != 0) return Read::Error;
+  out.resize(size_t(size));
+  for (size_t got = 0; got < out.size();) {
+    const ssize_t n = ::read(fd, out.data() + got, out.size() - got);
+    if (n <= 0) return Read::Error;  // a short file here means it changed under us
+    got += size_t(n);
+  }
   return Read::Ok;
 }
 

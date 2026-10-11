@@ -1,5 +1,7 @@
 #include "http.hpp"
 
+#include <cstring>
+
 #include "esp_log.h"
 #include "esp_timer.h"
 
@@ -19,6 +21,16 @@ void securityHeaders(httpd_req_t* r) {
   httpd_resp_set_hdr(r, "X-Content-Type-Options", "nosniff");
 }
 
+namespace {
+esp_err_t sendJsonBytes(httpd_req_t* r, const char* status, const char* body, size_t len) {
+  httpd_resp_set_status(r, status);
+  httpd_resp_set_type(r, "application/json; charset=utf-8");
+  httpd_resp_set_hdr(r, "Cache-Control", "no-store");
+  securityHeaders(r);
+  return httpd_resp_send(r, body, static_cast<ssize_t>(len));
+}
+}  // namespace
+
 esp_err_t sendJson(httpd_req_t* r, const char* status, const cJSON* body) {
   char* text = cJSON_PrintUnformatted(body);
   if (!text) {
@@ -26,13 +38,21 @@ esp_err_t sendJson(httpd_req_t* r, const char* status, const cJSON* body) {
     httpd_resp_set_status(r, k500);
     return httpd_resp_send(r, nullptr, 0);
   }
-  httpd_resp_set_status(r, status);
-  httpd_resp_set_type(r, "application/json; charset=utf-8");
-  httpd_resp_set_hdr(r, "Cache-Control", "no-store");
-  securityHeaders(r);
-  const esp_err_t err = httpd_resp_send(r, text, HTTPD_RESP_USE_STRLEN);
+  const esp_err_t err = sendJsonBytes(r, status, text, strlen(text));
   cJSON_free(text);
   return err;
+}
+
+esp_err_t sendJsonText(httpd_req_t* r, const char* status, const std::string& body) {
+  return sendJsonBytes(r, status, body.data(), body.size());
+}
+
+bool appendJson(std::string& out, const cJSON* o) {
+  char* text = cJSON_PrintUnformatted(o);
+  if (!text) return false;
+  out += text;
+  cJSON_free(text);
+  return true;
 }
 
 cJSON* errorBody(const char* code, const char* message) {

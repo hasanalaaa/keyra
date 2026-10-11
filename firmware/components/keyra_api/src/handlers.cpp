@@ -662,43 +662,24 @@ esp_err_t postHealthRotate(Ctx& c) {
   return getHealth(c, false);
 }
 
+// The summaries are built while the vault iterates, one decoded entry at a
+// time: a full copy of every entry (vault::list) costs 0.3–1.3 KB per account,
+// most of it in small blocks that drain internal RAM first
+// (docs/research/CAPACITY.md). The text itself goes to PSRAM once it is large.
 esp_err_t listEntries(Ctx& c) {
-  std::vector<vault::Entry> all;
-  const Status st = vault::list(all);
-  if (st != Status::Ok) return sendVaultError(c.r, st);
-  // Streamed in chunks: a full cJSON tree of 1000 entries would not fit in RAM
-  // on boards without PSRAM.
-  httpd_resp_set_status(c.r, http::k200);
-  httpd_resp_set_type(c.r, "application/json; charset=utf-8");
-  httpd_resp_set_hdr(c.r, "Cache-Control", "no-store");
-  http::securityHeaders(c.r);
-  std::string buf = "{\"entries\":[";
-  esp_err_t err = ESP_OK;
-  for (size_t i = 0; i < all.size() && err == ESP_OK; ++i) {
+  std::string body = "{\"entries\":[";
+  const size_t empty = body.size();
+  bool printed = true;
+  const Status st = vault::forEach([&](const vault::Entry& e) {
     json::Ptr o(cJSON_CreateObject());
-    addEntrySummary(o.get(), all[i]);
-    char* text = cJSON_PrintUnformatted(o.get());
-    if (!text) {
-      err = ESP_ERR_NO_MEM;
-      break;
-    }
-    if (i > 0) buf += ',';
-    buf += text;
-    cJSON_free(text);
-    if (buf.size() >= 1024) {
-      err = httpd_resp_send_chunk(c.r, buf.data(), buf.size());
-      buf.clear();
-    }
-  }
-  for (vault::Entry& e : all) vault::wipe(e);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "entries stream failed: %s", esp_err_to_name(err));
-    return ESP_FAIL;  // headers are out; closing the socket is the only honest signal
-  }
-  buf += "]}";
-  err = httpd_resp_send_chunk(c.r, buf.data(), buf.size());
-  if (err == ESP_OK) err = httpd_resp_send_chunk(c.r, nullptr, 0);
-  return err;
+    addEntrySummary(o.get(), e);
+    if (body.size() > empty) body += ',';
+    return printed = http::appendJson(body, o.get());
+  });
+  if (st != Status::Ok) return sendVaultError(c.r, st);
+  if (!printed) return http::sendError(c.r, http::k500, "no_memory", "Out of memory");
+  body += "]}";
+  return http::sendJsonText(c.r, http::k200, body);
 }
 
 // GET: secrets only inside the reveal grace (or with protection off).
@@ -790,15 +771,11 @@ esp_err_t importEntries(Ctx& c) {
     return badRequest(c.r, "at most 50 entries per request");
 
   std::set<std::string> seen;
-  {
-    std::vector<vault::Entry> existing;
-    const Status st = vault::list(existing);
-    if (st != Status::Ok) return sendVaultError(c.r, st);
-    for (vault::Entry& e : existing) {
-      seen.insert(dedupeKey(e));
-      vault::wipe(e);
-    }
-  }
+  const Status listed = vault::forEach([&seen](const vault::Entry& e) {
+    seen.insert(dedupeKey(e));
+    return true;
+  });
+  if (listed != Status::Ok) return sendVaultError(c.r, listed);
   size_t added = 0, skipped = 0;
   const int64_t now = unixSecondsOrZero();
   const cJSON* item = nullptr;
