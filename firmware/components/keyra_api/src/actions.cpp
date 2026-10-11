@@ -76,7 +76,12 @@ bool Machine::cancelOwned(const std::string& owner) {
   std::lock_guard<std::mutex> lock(mu_);
   const int64_t now = now_();
   expireLocked(now);
-  if (kind_ == Kind::None || owner.empty() || owner != owner_) return false;
+  if (owner.empty()) return false;
+  // A sequence part being typed cannot be stopped midway, but its next part
+  // must not be armed again for an owner that is gone.
+  const bool typingOwned = typing_ && typingOwner_ == owner;
+  if (typingOwned) typingWithdrawn_ = true;
+  if (kind_ == Kind::None || owner != owner_) return typingOwned;
   if (kind_ == Kind::Type) {
     lastLocked(req_, Code::Cancelled, now);
   } else {
@@ -116,6 +121,7 @@ std::optional<Machine::Armed> Machine::awaitPresence(Op op, Commit commit, const
 
 void Machine::dropSessionItems() {
   std::lock_guard<std::mutex> lock(mu_);
+  if (typing_) typingWithdrawn_ = true;  // no next sequence part after the lock
   const bool sessionOp = kind_ == Kind::Presence && op_ != Op::Setup && op_ != Op::FactoryReset &&
                          op_ != Op::TrustBrowser;
   if (kind_ == Kind::Type) lastLocked(req_, Code::Cancelled, now_());
@@ -198,6 +204,8 @@ Decision Machine::onButton(Button b, bool unlocked, int64_t pressedAt) {
       d.run = std::move(req_);
       typing_ = true;
       typingSerial_ = d.run.serial;
+      typingOwner_ = owner_;  // a sequence's next part goes back to the same owner
+      typingWithdrawn_ = false;
       clearSlotLocked();
     } else if (!typing_) {
       d.effect = Effect::Blink;
@@ -226,9 +234,12 @@ void Machine::typingFinished(const TypeRequest& req, Code code) {
   const int64_t now = now_();
   typing_ = false;
   typingSerial_ = 0;
+  const std::string owner = std::move(typingOwner_);
+  typingOwner_.clear();
   if (code == Code::Typed && req.what == What::Sequence && req.seq && req.part + 1 < req.seq->parts) {
-    if (kind_ == Kind::None) {  // waits for the {PRESS}: same request, next part
+    if (kind_ == Kind::None && !typingWithdrawn_) {  // waits for the {PRESS}: same request, next part
       kind_ = Kind::Type;
+      owner_ = owner;  // still that session's: it alone may replace or cancel it (SPEC §12.5a)
       req_ = req;
       ++req_.part;
       serial_ = req_.serial;
@@ -236,7 +247,7 @@ void Machine::typingFinished(const TypeRequest& req, Code code) {
       freshFrom_ = now;  // {PRESS} means a new press, not one made while typing
       return;
     }
-    code = Code::Cancelled;  // another item replaced it while this part was typing
+    code = Code::Cancelled;  // replaced while this part typed, or its owner's session ended
   }
   lastLocked(req, code, now);
   flashLocked(code == Code::Typed ? Indicator::Success : Indicator::Error, now, kFlashMs);

@@ -174,7 +174,9 @@ class Machine {
   std::optional<Pending> arm(TypeRequest req, const std::string& owner);
   bool cancel();  // pending type action → last = cancelled
   // Withdraws the waiting item (type action or presence op) when `owner` armed
-  // it; false (and nothing changes) otherwise.
+  // it, and keeps a sequence of theirs that is typing now from arming its next
+  // part; false (and nothing changes) otherwise. Called when a session ends
+  // without a lock (trusted browser removed, session evicted) and for tokens.
   bool cancelOwned(const std::string& owner);
   // The waiting presence op, when it is `op` and `token` is the cancel token
   // handed to whoever armed it (the screen that asked gave up): dropped
@@ -209,7 +211,8 @@ class Machine {
   // arming a type action must not swallow a touch meant for a website.)
   bool pressedBeforeCommitEnd(int64_t pressedAt);
   // A sequence part typed fine with more to come: the action is armed again
-  // for its next part (fresh 60 s), unless something else was armed meanwhile.
+  // for its next part (fresh 60 s) with the same owner, unless something else
+  // was armed meanwhile or its owner was withdrawn (cancelOwned, lock).
   void typingFinished(const TypeRequest& req, Code code);
   void commitFinished(bool ok);
 
@@ -255,6 +258,8 @@ class Machine {
   uint32_t serial_ = 0;         // of the item in the slot
   uint32_t lastSerial_ = 0;     // last one handed out
   uint32_t typingSerial_ = 0;   // while typing_
+  std::string typingOwner_;     // while typing_: owner_ of the request being typed
+  bool typingWithdrawn_ = false;  // while typing_: its owner is gone, arm no next part
   uint32_t runningSerial_ = 0;  // while running_
   struct Finished {
     uint32_t serial = 0;
