@@ -192,9 +192,9 @@ Conventions
 
 | Method & path | Auth | Body → Response |
 |---|---|---|
-| GET `/api/state` | none | `{device:{name,version,model,mac}, initialized, unlocked, session:bool, autoLockMin, host:{usb, ble, capsLock, output, bleTarget, connecting, usbOs?}` (§8.1, §10.5; `usbOs` with a session only)`, pending:Pending\|null, last:Result\|null, presence:{awaiting:bool, op:string\|null, expiresIn:ms, result:{op, ok:bool, code:"done"\|"failed"\|"expired"\|"cancelled", at:ms_ago}\|null}, net?` (§8.2)`, timeValid:bool, graceMs` (§12.3)`, update?` (§14, session only)`}` — polled ~1 s while something is pending, else ~5 s |
+| GET `/api/state` | none | `{device:{name,version,model,mac}, initialized, unlocked, session:bool, autoLockMin, host:{usb, ble, capsLock, output, bleTarget, connecting, usbOs?}` (§8.1, §10.5; `usbOs` with a session only)`, pending:Pending\|null, last:Result\|null, presence:{awaiting:bool, op:string\|null, expiresIn:ms, result:{op, ok:bool, code:"done"\|"failed"\|"expired"\|"cancelled", at:ms_ago}\|null}, net?` (§8.2)`, timeValid:bool, graceMs` (§12.3)`, update?` (§14, session only)`, nvsReset?` (below)`}` — polled ~1 s while something is pending, else ~5 s |
 | POST `/api/setup` | none, only if !initialized | `{passphrase, wifiPassword, deviceName?}` → 202 `{awaiting:"button", expiresIn}`; completes when the button is pressed (watch `state.presence` / `state.initialized`). passphrase 10–128 chars; wifiPassword 8–63 printable ASCII and ≠ `keyra1234`. The client then calls unlock. AP restarts with the new password ~3 s after commit. |
-| POST `/api/unlock` | none | `{passphrase}` → 200 `{csrf, failedAttempts}` (§15) / 401 `{error:"wrong", retryAfterMs}` / 429 `{error:"rate_limited", retryAfterMs}` / 202 trust the browser first (§8.2) |
+| POST `/api/unlock` | none | `{passphrase}` → 200 `{csrf, failedAttempts, nvsReset?}` (§15, below) / 401 `{error:"wrong", retryAfterMs}` / 429 `{error:"rate_limited", retryAfterMs}` / 202 trust the browser first (§8.2) |
 | POST `/api/lock` | session | → 204 |
 | GET `/api/entries` | session | → `{entries:[{id,title,url,username,favorite,hasPassword,hasTotp,hasSequence,updated,lastUsed,burnAfter}]}` (no secrets) |
 | GET `/api/entries/{id}` | session | → the entry; `password`, `totp`, old passwords and `sequence` only when `revealed` (§12.3) |
@@ -224,6 +224,27 @@ Routes added after v1.0, described in their sections: `/api/ble`, `/api/ble/pair
 `/api/update`, `/api/update/check|download|apply` (§14); `/api/activity` (§15);
 `/api/tokens[/{id}]`, `/api/agent/…` (§17); `/api/tags[/{id}]`, `/api/tag/tap|status`
 and the page `GET /t/…` (§18).
+
+Settings storage reset (NVS, `main.cpp` `initNvs`):
+- Settings, Bluetooth bonds, trusted browsers, the unlock-failure count and the
+  FIDO counter's NVS copy live in the NVS partition; the vault lives in
+  LittleFS. If NVS cannot be opened at boot because the partition itself is
+  unusable (`ESP_ERR_NVS_NO_FREE_PAGES`, or `ESP_ERR_NVS_NEW_VERSION_FOUND`:
+  written by a newer NVS format), Keyra cannot boot without erasing it, and
+  does — never silently, and never touching the vault:
+  - the vault assumes 14 failed unlocks (`vault::nvsErased`, the 15-minute
+    delay; a higher stored count is kept) and saves that, so neither the
+    erase nor a reboot shortens the delay; the right passphrase resets it;
+  - the FIDO signature counter carries on from its reservation in the vault
+    (§11), so it never goes back;
+  - `GET /api/state` carries `nvsReset: "no_free_pages"|"new_version"` (to
+    everyone, before any unlock: it explains the delay and the default Wi-Fi
+    password) until an unlock logs it; that unlock's answer carries the same
+    `nvsReset` once, and the activity log gets `nvs_reset` (§15). The
+    `failedAttempts` it reports leaves out the 14 assumed failures.
+  - What is lost and must be redone: settings (the access point is back to
+    `Keyra-XXXX` / `keyra1234`), Bluetooth pairings, trusted browsers, the U2F
+    attestation key (a new one is made; sign-ins are unaffected).
 
 Restore (`/api/restore`):
 - The backup passphrase and the file are checked before anything changes, and
@@ -682,8 +703,19 @@ Design, key formats and honest limits: [FIDO.md](FIDO.md). Contract points:
   `replace` makes them the backup's in the same staged commit as the entries,
   and leaves local passkeys alone when the backup has none. Both refuse with
   409 `passkeys_full` before any change (and before the press) when the result
-  would pass 4 keys or 50 passkeys. The restore raises the signature counter to
-  at least the backup's + 1000. Credentials keep BE = BS = 0.
+  would pass 4 keys or 50 passkeys. After every check and before writing
+  anything, a restore with passkeys raises the counter reservation to the
+  backup's counter + 1000 + 1024; if that cannot be saved it fails with nothing
+  changed (500 `storage`, or the press ends `failed`). Credentials keep BE = BS = 0.
+- **Counter** ([FIDO.md](FIDO.md#keys-and-storage)). NVS holds the last value
+  issued; the vault record `fidoctr.bin` (AES-256-GCM with the DEK, AAD
+  `"keyra/fidoctr/v1"`, plaintext u32 LE, absent = none) holds a reservation R,
+  raised a block of 1024 at a time before NVS may pass it. NVS is trusted while
+  R − 1024 < NVS; lower (erased, or a restore raised R) the counter carries on
+  from R. Every unlock creates R if there is none (Keyras updated from 0.3.0 or
+  older). Never lowered, not in backups, kept by restores, passphrase changes
+  and authenticatorReset, removed by setup (it is sealed with the old DEK);
+  a record that does not open stops signing rather than guess.
 - **API** (session):
   - `GET /api/fido` → `{passkeys:[{id, rpId, userName, displayName, created}], max:50,
     pinSet, pinRetries}` (newest first; `created` unix seconds, 0 = unknown;
@@ -914,7 +946,8 @@ removed, accounts deleted. Never a password, a code or typed text.
   `ble_forgot`, `trusted_removed`, `entry_deleted`, `entry_burned` (§16),
   `rotate_started`, `rotate_ended` (§13.1), `token_created`, `token_revoked`,
   `agent_listed`, `agent_armed`, `agent_saved`, `agent_generated` (§17),
-  `tag_created`, `tag_revoked`, `tag_tapped`, `tag_refused` (§18);
+  `tag_created`, `tag_revoked`, `tag_tapped`, `tag_refused` (§18),
+  `nvs_reset` (detail 0 no free pages, 1 newer NVS format; §5);
   `unknown` for a kind this firmware does not name.
 - There is no endpoint to clear it: a borrowed or stolen session cannot hide
   what it did.
@@ -935,7 +968,14 @@ sequence (formats 1–3 still read, as 0), backups carry it when non-zero, and
   activity log records `entry_burned` (id, title). Nothing is asked first —
   that was decided when the count was set; the account screen says how many
   uses are left.
-- Typing still needs the press; a cancelled or failed action uses nothing.
+- The use is taken before the first key is sent: the count saved, or on the
+  last use the entry removed (and `entry_burned` logged). If the vault cannot
+  record it, nothing is typed and the result is `failed`, so a one-time code
+  never goes out while it could still be typed again.
+- Typing still needs the press. A cancelled or expired action, and one refused
+  before its first key (a character the layout cannot type, an empty field),
+  uses nothing; one that fails after typing started (the computer went away
+  mid-way) has used it.
 
 
 ## 17. Access tokens and the Agent Gate
@@ -949,7 +989,11 @@ NFC tags build on.
   padding) = 160 bits from the hardware RNG, shown once at creation. Keyra
   stores only SHA-256 of the whole string, with its metadata, in the vault
   record `tokens.bin` (sealed with the DEK, AAD `keyra/tokens/v1`; plaintext
-  format in `keyra_api/src/tokens.cpp`). Not part of backups; kept across
+  format in `keyra_api/src/tokens.cpp`). A record this firmware cannot read
+  (another format version, e.g. left by a newer firmware before a rollback, or
+  damage) is never treated as empty or written over: every token call answers
+  500 `unsupported_format` or `corrupt` until a firmware that reads it runs
+  (`keyra_api/src/records.cpp`). Not part of backups; kept across
   passphrase changes and restores (scoped ids that no longer exist simply
   match nothing); gone with a new setup or factory reset. At most **8**.
 - **Metadata.** `{id, name (1–48 bytes UTF-8), kind:"agent"|"app"|"extension" (§9.4),
@@ -1029,7 +1073,8 @@ Keyra's network that arms **one account** for typing — exactly like
     works twice). Both keys are random per tag and shown once.
 - **Storage.** Vault record `tags.bin`, sealed with the DEK (AAD
   `keyra/tags/v1`; plaintext format in `keyra_api/src/tags.cpp`). At most
-  **16**. Per tag: `{id, name (1–48 bytes UTF-8), kind:"simple"|"secure",
+  **16**. An unreadable record is handled like `tokens.bin` (§17): 500
+  `unsupported_format` / `corrupt`, never overwritten. Per tag: `{id, name (1–48 bytes UTF-8), kind:"simple"|"secure",
   entry, what:"username"|"password"|"both"|"totp", target:null|"usb"|bond
   address, created, lastUsed}`, plus the secret's hash (simple) or both AES
   keys, the bound UID and the last counter (secure). Not part of backups; kept

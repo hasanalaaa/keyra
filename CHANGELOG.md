@@ -6,6 +6,25 @@ All notable changes to Keyra are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Restored passkeys never sign with an old counter.** A restore with passkeys
+  now reserves the signature counter past the backup's before it writes any of
+  them, and fails with nothing changed if it cannot (it used to write first and
+  only log a failed raise).
+- **A lost settings storage (NVS) no longer resets the passkey counter or the
+  unlock delay.** The counter carries on from a reservation kept in the vault;
+  the unlock delay starts at its longest instead of zero. Erasing NVS at boot
+  is no longer silent: the app is told (`nvsReset` in `/api/state` and the
+  unlock answer) and the activity log records it.
+- **Access tokens and NFC tags saved by a newer firmware are kept.** A record
+  this firmware cannot read is reported (`unsupported_format` / `corrupt`)
+  instead of being treated as empty and overwritten by the next new token or tag.
+- **Delete after typing counts before typing.** The use is saved (or the entry
+  deleted on its last one) before the first key; if that fails nothing is typed.
+- **A sequence's password is wiped on every path**, also when its 2FA code
+  cannot be made.
+
 ## [0.3.0] - 2026-10-11
 
 Highlights:
