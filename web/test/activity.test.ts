@@ -18,6 +18,11 @@ describe('activity event text', () => {
       'Chrome → Mac asked to type GitHub on another site: evil.example',
     );
   });
+  it('counts repeated starts and ends of "change every password" (the device folds them into one line)', () => {
+    setLang('en');
+    expect(eventText({ kind: 'rotate_started', at: 1, detail: 0, n: 3 })).toMatch(/ ×3$/);
+    expect(eventText({ kind: 'rotate_ended', at: 1, detail: 0, n: 1 })).not.toMatch(/×/);
+  });
   it('speaks Arabic', () => {
     setLang('ar');
     expect(eventText({ kind: 'revealed', at: 1, detail: 0, id: 2, title: 'بنك' })).toBe('أظهر كلمة سر «بنك»');

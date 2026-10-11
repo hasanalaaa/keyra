@@ -225,6 +225,8 @@ export const api = {
   trusted: async () => (await json<{ browsers: TrustedBrowser[] }>('GET', '/trusted')).browsers,
   revokeTrusted: (id: number) => json<void>('DELETE', `/trusted/${id}`),
   health: () => json<Health>('GET', '/health'),
+  /** Health → weak and reused included; Awaiting → the reveal press, then call again (SPEC §13). */
+  healthReveal: () => json<Health | Awaiting>('POST', '/health/reveal'),
   updateUpload: uploadFirmware,
   // Keyra asks GitHub itself: a TLS handshake and an answer from the internet.
   updateCheck: () => json<UpdateCheck>('POST', '/update/check', undefined, 45000),

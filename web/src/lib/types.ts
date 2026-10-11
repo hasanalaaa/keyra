@@ -166,6 +166,8 @@ export interface ActivityEvent {
 export interface Health {
   checked: number; // entries that have a password
   clock: boolean; // false: the device has no time, so nothing can be "old"
+  /** false: protectReveal and no reveal grace, so weak and reused are left empty until a press. */
+  revealed?: boolean;
   weak: { id: number; level: 1 | 2 }[];
   reused: number[][]; // groups of ids that share one password
   old: { id: number; since: number }[]; // unix seconds the password was set

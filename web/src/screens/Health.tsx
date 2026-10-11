@@ -4,7 +4,9 @@ import { useEffect, useState } from 'preact/hooks';
 import { Icon } from '../components/Icon';
 import { Button, Monogram, Spinner } from '../components/ui';
 import { Alert, Sheet } from '../components/Sheet';
+import { Ready } from '../components/Ready';
 import { api } from '../lib/api';
+import { usePressGate } from '../lib/actions';
 import { errorText, isLockedError } from '../lib/errors';
 import { accountCount, t } from '../lib/i18n';
 import { go } from '../lib/router';
@@ -28,6 +30,16 @@ export function HealthSheet({ onClose }: { onClose: () => void }) {
   const [failed, setFailed] = useState(false);
   const [confirm, setConfirm] = useState<'start' | 'end' | null>(null);
   const [busy, setBusy] = useState(false);
+  // SPEC §13: with protectReveal, weak and reused wait for the reveal press like the secrets.
+  const gate = usePressGate('reveal');
+  const check = async () => {
+    try {
+      const r = await gate.run(() => api.healthReveal());
+      if (r) setH(r);
+    } catch (e) {
+      if (!isLockedError(e)) toast(errorText(e), 'error');
+    }
+  };
 
   const rotate = async (on: boolean) => {
     setConfirm(null);
@@ -90,13 +102,26 @@ export function HealthSheet({ onClose }: { onClose: () => void }) {
             </Button>
           </section>
         ) : null}
-        <div class={`card health-summary ${n ? 'warn' : 'ok'}`} role="status">
-          <Icon name={n ? 'triangle-alert' : 'shield-check'} size={28} />
-          <span class="row-label">
-            <strong>{n ? t('healthIssues', { accounts: accountCount(n) }) : t('healthAllGood')}</strong>
-            <span class="caption">{t('healthChecked', { accounts: accountCount(h.checked) })}</span>
-          </span>
-        </div>
+        {gate.phase.kind === 'ready' ? (
+          <Ready state="ready" deadline={gate.phase.deadline} total={gate.phase.total} title={t('revealTitle')} body={t('healthLocked')} onCancel={gate.cancel} />
+        ) : h.revealed === false ? (
+          <div class="card health-summary" role="status">
+            <Icon name="lock" size={28} />
+            <span class="row-label">
+              <strong>{t('healthLocked')}</strong>
+              <span class="caption">{t('healthChecked', { accounts: accountCount(h.checked) })}</span>
+            </span>
+            <Button onClick={() => void check()}>{t('healthCheck')}</Button>
+          </div>
+        ) : (
+          <div class={`card health-summary ${n ? 'warn' : 'ok'}`} role="status">
+            <Icon name={n ? 'triangle-alert' : 'shield-check'} size={28} />
+            <span class="row-label">
+              <strong>{n ? t('healthIssues', { accounts: accountCount(n) }) : t('healthAllGood')}</strong>
+              <span class="caption">{t('healthChecked', { accounts: accountCount(h.checked) })}</span>
+            </span>
+          </div>
+        )}
         {h.reused.length > 0 && (
           <section class="group">
             <h2 class="section-head">{t('healthReused')}</h2>

@@ -1037,7 +1037,8 @@ function strengthLevel(pw) {
   return b < 36 ? 1 : b < 60 ? 2 : b < 80 ? 3 : 4;
 }
 
-function health(entries) {
+/** SPEC §13: weak and reused speak about the passwords, so they follow the reveal grace. */
+function health(entries, revealed) {
   const now = timeValid ? nowSec() : 0;
   const withPw = entries.filter((e) => e.password);
   const weak = [], old = [], groups = new Map();
@@ -1050,7 +1051,7 @@ function health(entries) {
   }
   const reused = [...groups.values()].filter((g) => g.length > 1).map((g) => g.sort((a, b) => a - b));
   const byId = (a, b) => a.id - b.id;
-  const out = { checked: withPw.length, clock: !!now, weak: weak.sort(byId), reused, old: old.sort(byId) };
+  const out = { checked: withPw.length, clock: !!now, revealed, weak: revealed ? weak.sort(byId) : [], reused: revealed ? reused : [], old: old.sort(byId) };
   if (settings.rotateSince > 0) {
     const setAt = (e) => (e.history.length ? e.history[0].changedAt : e.created);
     out.rotate = { since: settings.rotateSince, pending: withPw.filter((e) => setAt(e) < settings.rotateSince).map((e) => e.id) };
@@ -1307,6 +1308,7 @@ function match(method, rawPath) {
     case 'update/apply': return one('POST', 'fwApply');
     case 'health': return one('GET', 'health');
     case 'health/rotate': return one('POST', 'healthRotate');
+    case 'health/reveal': return one('POST', 'healthReveal');
     case 'activity': return one('GET', 'activity');
     case 'ble': return one('GET', 'ble');
     case 'ble/pair': return one('POST', 'blePair');
@@ -2553,16 +2555,20 @@ async function api(req, res, path) {
     }
 
     case 'health':
-      return send(res, 200, health([...vault.entries.values()]));
+      return send(res, 200, health([...vault.entries.values()], mayReveal(sess)));
+
+    case 'healthReveal':
+      if (!mayReveal(sess)) return requestPress(res, 'reveal', token);
+      return send(res, 200, health([...vault.entries.values()], true));
 
     case 'healthRotate': {
       if (typeof b.on !== 'boolean') bad('"on" (boolean) is required');
       if (b.on && !timeValid) fail(409, 'no_time', 'Device clock is not set');
       const was = settings.rotateSince;
       settings.rotateSince = b.on ? nowSec() : 0;
-      if (b.on) logEvent('rotate_started');
-      else if (was) logEvent('rotate_ended');
-      return send(res, 200, health([...vault.entries.values()]));
+      if (b.on) logCoalesced('rotate_started', {});
+      else if (was) logCoalesced('rotate_ended', {});
+      return send(res, 200, health([...vault.entries.values()], mayReveal(sess)));
     }
 
     case 'activity':

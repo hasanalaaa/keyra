@@ -33,8 +33,8 @@ export function eventText(e: ActivityEvent, account: (id: number) => string | un
     case 'recovery_removed': return t('actRecoveryRemoved');
     case 'ble_forgot': return t('actBleForgot', { title });
     case 'ble_pairing': return t('actBlePairing');
-    case 'rotate_started': return t('actRotateStarted');
-    case 'rotate_ended': return t('actRotateEnded');
+    case 'rotate_started': return t('actRotateStarted') + times;
+    case 'rotate_ended': return t('actRotateEnded') + times;
     case 'trusted_removed': return t('actTrustedRemoved', { title });
     case 'entry_deleted': return t('actDeleted', { title });
     case 'entry_burned': return t('actBurned', { title });

@@ -439,6 +439,13 @@ async function healthFlow(base, opts) {
   await page.locator('.settings .seg').first().waitFor();
   await page.locator('.nav-row', { hasText: opts.lang === 'en' ? 'Password health' : 'صحة كلمات السر' }).click();
   await page.locator('.health-summary').waitFor();
+  // SPEC §13: with protectReveal, reused and weak wait for the reveal press; "old" does not.
+  check(!(await page.locator('.health-summary').textContent()).match(/look good|بحالة جيدة/), 'before the press it does not say all is well');
+  check((await page.locator('.health .acc-row').count()) === 1, 'only the old password is listed before the press');
+  await page.locator('.health-summary .btn').click();
+  await page.locator('.health .ready-ready').waitFor();
+  check((await button(base)) === 'approved reveal', 'checking reused and weak passwords waits for the reveal press');
+  await page.locator('.health-summary.warn').waitFor();
   // The seed: Amazon and Dropbox share a password, Router's is weak, Zain's is over a year old.
   check((await page.locator('.health .acc-row').count()) === 4, 'four flagged accounts listed');
   check(/4/.test((await page.locator('.health-summary strong').textContent()) ?? ''), 'summary counts 4 accounts');
