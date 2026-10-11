@@ -32,6 +32,7 @@ Sessions::Issued Sessions::create(int64_t nowMs, uint32_t trustId, uint32_t gene
     }
     if (s.lastUsed < target->lastUsed) target = &s;
   }
+  std::string evicted = target->used ? target->token : std::string();
   target->used = true;
   target->token = randomHex();
   target->csrf = randomHex();
@@ -40,7 +41,7 @@ Sessions::Issued Sessions::create(int64_t nowMs, uint32_t trustId, uint32_t gene
   target->generation = generation;
   target->graceUntil = {};
   lastActivity_ = nowMs;
-  return {target->token, target->csrf};
+  return {target->token, target->csrf, std::move(evicted)};
 }
 
 Sessions::Slot* Sessions::findLocked(std::string_view token) {
@@ -89,16 +90,22 @@ void Sessions::clear() {
   for (Slot& s : slots_) s = Slot{};
 }
 
-size_t Sessions::endTrusted(uint32_t trustId) {
+std::vector<std::string> Sessions::endTrusted(uint32_t trustId) {
   std::lock_guard<std::mutex> lock(mu_);
-  size_t n = 0;
+  std::vector<std::string> ended;
   for (Slot& s : slots_) {
     if (trustId != 0 && s.used && s.trustId == trustId) {
+      ended.push_back(s.token);
       s = Slot{};
-      ++n;
     }
   }
-  return n;
+  return ended;
+}
+
+bool Sessions::stillValid(std::string_view token, uint32_t generation, uint32_t currentGeneration, bool unlocked) {
+  std::lock_guard<std::mutex> lock(mu_);
+  const Slot* s = findLocked(token);
+  return unlocked && generation == currentGeneration && s && s->generation == generation;
 }
 
 size_t Sessions::size() {

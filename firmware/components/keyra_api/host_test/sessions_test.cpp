@@ -68,12 +68,13 @@ void revokingATrustedBrowserEndsOnlyItsSessions() {
   Sessions s(fakeRandom);
   auto plain = s.create(1);
   auto a = s.create(2, 7), b = s.create(3, 7), other = s.create(4, 9);
-  CHECK_EQ(s.endTrusted(7), 2u);
+  const std::vector<std::string> ended = s.endTrusted(7);
+  CHECK(ended.size() == 2 && ended[0] == a.token && ended[1] == b.token);  // to withdraw their button items
   CHECK(!s.csrfFor(a.token, 5).has_value());
   CHECK(!s.csrfFor(b.token, 5).has_value());
   CHECK(s.csrfFor(plain.token, 5).has_value());
   CHECK(s.csrfFor(other.token, 5).has_value());
-  CHECK_EQ(s.endTrusted(0), 0u);  // untrusted sessions are never matched
+  CHECK(s.endTrusted(0).empty());  // untrusted sessions are never matched
   CHECK_EQ(s.size(), 2u);
 }
 
@@ -96,6 +97,32 @@ void graceIsPerSessionAndExpires() {
   // A new session in a reused slot starts without grace.
   auto c = s.create(400);
   CHECK_EQ(s.graceLeft(c.token, 401, Sessions::Grace::Reveal), int64_t{0});
+}
+
+// Work deferred to the slow worker (a restore, a passphrase change) runs only
+// for a session that is still live in the same unlock when it gets its turn.
+void deferredWorkRechecksTheSession() {
+  Sessions s(fakeRandom);
+  const auto a = s.create(1, 7, 3), b = s.create(2, 0, 3);
+  CHECK(s.stillValid(a.token, 3, 3, true));
+  CHECK(!s.stillValid(a.token, 3, 3, false));  // locked meanwhile
+  CHECK(!s.stillValid(a.token, 3, 4, true));   // locked and unlocked again
+  CHECK(!s.stillValid("nope", 3, 3, true));
+  s.endTrusted(7);                             // its trusted browser was removed
+  CHECK(!s.stillValid(a.token, 3, 3, true));
+  CHECK(s.stillValid(b.token, 3, 3, true));
+  s.clear();                                   // lock
+  CHECK(!s.stillValid(b.token, 3, 3, true));
+}
+
+// A fifth browser pushes the least recently used session out; its token comes
+// back so what it armed can be withdrawn.
+void evictionNamesTheEvicted() {
+  Sessions s(fakeRandom);
+  const auto a = s.create(1), b = s.create(2), c = s.create(3), d = s.create(4);
+  CHECK(a.evicted.empty() && b.evicted.empty() && c.evicted.empty() && d.evicted.empty());
+  const auto e = s.create(5);
+  CHECK(e.evicted == a.token);
 }
 
 }  // namespace
@@ -137,5 +164,7 @@ int main() {
   idleTracking();
   constantTimeCompare();
   revokingATrustedBrowserEndsOnlyItsSessions();
+  deferredWorkRechecksTheSession();
+  evictionNamesTheEvicted();
   return KEYRA_TEST_RESULT();
 }

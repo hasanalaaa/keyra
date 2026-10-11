@@ -2,6 +2,8 @@
 
 #include <memory>
 #include <mutex>
+#include <string>
+#include <vector>
 
 #include "esp_log.h"
 #include "esp_random.h"
@@ -79,7 +81,7 @@ bool commitTrust(const Browser& pending) {
   } while (b.id == 0 || g_store.contains(b.id));
   const uint32_t evicted = g_store.add(b);
   if (evicted != 0) {
-    sessions().endTrusted(evicted);
+    for (const std::string& t : sessions().endTrusted(evicted)) machine().cancelOwned(t);
     ESP_LOGI(TAG, "trusted browser limit reached; forgot the least recently used one");
   }
   ESP_LOGI(TAG, "browser trusted: %s", b.name.c_str());
@@ -181,8 +183,11 @@ esp_err_t revoke(httpd_req_t* r, uint32_t id) {
     if (persistLocked() != ESP_OK) return http::sendError(r, http::k500, "storage", "Could not save");
   }
   activity::log(activity::Kind::TrustedRemoved, 0, name);
-  const size_t ended = sessions().endTrusted(id);
-  ESP_LOGI(TAG, "browser trust revoked; %u session(s) ended", unsigned(ended));
+  // Its sessions end, and so does whatever they left waiting for the button
+  // (SPEC §12.5a): a press must not run work for a browser that was removed.
+  const std::vector<std::string> ended = sessions().endTrusted(id);
+  for (const std::string& t : ended) machine().cancelOwned(t);
+  ESP_LOGI(TAG, "browser trust revoked; %u session(s) ended", unsigned(ended.size()));
   if (wasCurrent) httpd_resp_set_hdr(r, "Set-Cookie", "kt=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0");
   return http::sendEmpty(r, http::k204);
 }
