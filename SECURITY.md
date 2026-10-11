@@ -213,7 +213,7 @@ held low, to avoid latching ROM download mode.
 **Secrets reach the phone only after a press (`protectReveal`, on by default).**
 Without it, anyone who steals your phone's browser session after you unlocked
 could read every password from the app. With it, the account screen shows no
-password, 2FA secret or old password until you press Keyra's button; that press
+password, 2FA secret, notes or old password until you press Keyra's button; that press
 opens one minute of reading for the session that asked, and only for it. The
 same press is needed, outside that grace, for:
 
@@ -230,7 +230,13 @@ confirmation. The one deliberate exception is the current 2FA code, which needs
 a session but no press (a code lives 30 s and is useless without the password;
 SPEC §12.5a). Every pending press belongs to the session that armed it, so a
 second browser or a stolen session cannot swap what you are about to approve
-(409 `busy`).
+(409 `busy`); this holds for every part of an auto-type sequence, not only the
+first. A type action is bound to the version of the account it was armed for:
+if anyone edits that account before the press, the press types nothing and
+reports `entry_changed`. When a session ends without a lock (its trusted
+browser removed, or pushed out by a fifth browser), whatever it left waiting
+for the button is withdrawn, and a slow request it queued (restore, backup,
+passphrase change) is refused if the session or the unlock ended before it ran.
 
 **Lock when the computer goes away (`lockOnUsb`, on by default).** The vault
 locks about a second after the USB computer it was used with is unplugged or
@@ -315,7 +321,8 @@ exact key formats and the list of what is implemented are in
   for the press. While a request waits the button belongs to
   it, so malware that starts a request just before you press for typing could
   get that press: if the light shows the FIDO pattern when you did not ask for
-  a passkey, long-press.
+  a passkey, long-press. A press made before the request began (one that
+  waited in the queue while Keyra was busy) never counts for it.
 - **User verification is "unlocked", or the security key PIN.** By default
   Keyra reports built-in user verification and sets the UV flag because it
   never signs while locked, but the check is the master passphrase entered on
