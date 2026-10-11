@@ -47,6 +47,30 @@ TEST(envelope_shape) {
   CHECK(out.find("pw-") == std::string::npos);
 }
 
+TEST(streaming_v3_round_trip_one_byte_chunks) {
+  auto src = Rig::ready();
+  Entry e = sample("streamed", "مستخدم");
+  CHECK((*src)->put(e) == Status::Ok);
+  std::string file;
+  CHECK((*src)->exportBackupStream(kBackupPass, [&file](const char* bytes, size_t n) {
+    file.append(bytes, n);
+    return true;
+  }) == Status::Ok);
+  auto dst = Rig::ready();
+  BackupImport prepared;
+  size_t pos = 0;
+  auto source = [&file, &pos](char* out, size_t cap, size_t& got) {
+    got = std::min<size_t>(1, std::min(cap, file.size() - pos));
+    if (got) out[0] = file[pos++];
+    return true;
+  };
+  CHECK((*dst)->prepareBackupStream(kBackupPass, source, prepared) == Status::Ok);
+  size_t added = 0, updated = 0;
+  CHECK((*dst)->commitPreparedBackup(prepared, false, &added, &updated, nullptr) == Status::Ok);
+  CHECK(added == 1 && updated == 0);
+  CHECK(sorted(*dst->v).size() == 1);
+}
+
 TEST(round_trip_into_fresh_vault) {
   auto src = Rig::ready();
   Entry a = sample("حساب عربي", "مستخدم");

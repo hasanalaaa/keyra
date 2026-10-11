@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -108,12 +109,36 @@ Status checkRecovery(const RecoveryKey& key, uint32_t* retryAfterMs);
 // and `counter`, keyra_fido's signature counter (docs/research/PASSKEY-BACKUP.md).
 Status exportBackup(const std::string& backupPass, std::string& outJson, bool passkeys = false,
                     uint32_t counter = 0);
+// Emits the exact v3 JSON envelope in bounded chunks. A false sink result stops immediately.
+Status exportBackupStream(const std::string& backupPass,
+                          const std::function<bool(const char*, size_t)>& sink,
+                          bool passkeys = false, uint32_t counter = 0);
 // What a restore did with a backup's passkeys section.
 struct PasskeyRestore {
   size_t added = 0;       // records added
   bool present = false;   // the backup had a passkeys section
   uint32_t counter = 0;   // its signature counter (when present)
 };
+// Authenticated, validated backup awaiting a merge or a button-gated replace.
+// Entries remain in RAM only; dropping this object wipes their secrets.
+class BackupImport {
+ public:
+  BackupImport();
+  ~BackupImport();
+  BackupImport(BackupImport&&) noexcept;
+  BackupImport& operator=(BackupImport&&) noexcept;
+  BackupImport(const BackupImport&) = delete;
+  BackupImport& operator=(const BackupImport&) = delete;
+ private:
+  struct Impl;
+  std::unique_ptr<Impl> impl_;
+  friend class Vault;
+};
+using BackupSource = std::function<bool(char*, size_t, size_t&)>;
+Status prepareBackupStream(const std::string& backupPass, const BackupSource& source, BackupImport& out);
+Status checkPreparedBackup(const BackupImport& backup, bool replace);
+Status commitPreparedBackup(BackupImport& backup, bool replace, size_t* added, size_t* updated,
+                            PasskeyRestore* passkeys = nullptr);
 // `passkeys` gets present/counter as soon as the backup is read, even when the
 // restore then fails. With a passkeys section the FIDO counter reservation is
 // raised to fidoCounterAfterRestore(counter) after every check and before any

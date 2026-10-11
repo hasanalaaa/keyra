@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -42,6 +43,16 @@ enum class Hash { Sha1, Sha256, Sha512 };
 class Crypto {
  public:
   enum class Open { Ok, AuthFailed, Error };
+  class Aead {
+   public:
+    virtual ~Aead() = default;
+    // out has room for n + 16 bytes; produced may differ from n (PSA can buffer a block).
+    virtual bool update(const uint8_t* in, size_t n, uint8_t* out, size_t& produced) = 0;
+    // Encryption writes any final ciphertext and the separate 16-byte tag.
+    virtual bool finish(uint8_t out[16], size_t& produced, uint8_t tag[16]) = 0;
+    // Decryption releases final bytes only after authenticating the whole stream.
+    virtual Open verify(const uint8_t tag[16], uint8_t out[16], size_t& produced) = 0;
+  };
   virtual ~Crypto() = default;
   virtual bool random(uint8_t* out, size_t n) = 0;
   virtual bool pbkdf2Sha256(const std::string& pass, const uint8_t* salt, size_t saltLen,
@@ -52,6 +63,8 @@ class Crypto {
   // in = ciphertext || tag (n >= 16); out receives n - 16 bytes.
   virtual Open gcmOpen(const uint8_t key[32], const uint8_t iv[12], const uint8_t* aad,
                        size_t aadLen, const uint8_t* in, size_t n, uint8_t* out) = 0;
+  virtual std::unique_ptr<Aead> gcmStream(const uint8_t key[32], const uint8_t iv[12],
+                                           bool encrypt) = 0;
   // out must hold 64 bytes; returns digest length via outLen.
   virtual bool hmac(Hash h, const uint8_t* key, size_t keyLen, const uint8_t* msg, size_t msgLen,
                     uint8_t* out, size_t* outLen) = 0;

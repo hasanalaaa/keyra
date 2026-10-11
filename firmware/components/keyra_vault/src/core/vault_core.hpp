@@ -73,6 +73,7 @@
 #include <vector>
 
 #include "backup_format.hpp"
+#include "backup_stream.hpp"
 #include "keyra/vault.hpp"
 #include "platform.hpp"
 #include "secure_buf.hpp"
@@ -121,8 +122,15 @@ class Vault {
   Status checkRecovery(const RecoveryKey& key, uint32_t* retryAfterMs);
   Status exportBackup(const std::string& backupPass, std::string& outJson, bool passkeys = false,
                       uint32_t counter = 0);
+  Status exportBackupStream(const std::string& backupPass,
+                            const std::function<bool(const char*, size_t)>& sink,
+                            bool passkeys = false, uint32_t counter = 0);
   Status importBackup(const std::string& backupPass, const std::string& json, bool replace,
                       size_t* added, size_t* updated, PasskeyRestore* passkeys = nullptr);
+  Status prepareBackupStream(const std::string& backupPass, const BackupSource& source, BackupImport& out);
+  Status checkPreparedBackup(const BackupImport& backup, bool replace);
+  Status commitPreparedBackup(BackupImport& backup, bool replace, size_t* added, size_t* updated,
+                              PasskeyRestore* passkeys);
   Status checkBackup(const std::string& backupPass, const std::string& json, bool replace);
   Status factoryReset();
 
@@ -196,6 +204,7 @@ class Vault {
   Status fidoCounterReadLocked(uint32_t& out);
   Status fidoCounterRaiseLocked(uint32_t atLeast);
   Status requireUnlocked() const;
+  Status forEachLocked(const std::function<bool(const Entry&)>& fn);
   Status loadMeta();
   Status writeMeta(const Meta& m);
   Status writeAtomic(const std::string& path, const uint8_t* data, size_t n);
@@ -203,8 +212,10 @@ class Vault {
   Status removeStaged();     // e/*.new left by a restore that never committed
   Status settleRestore();    // finish (marker present) or discard a replace-restore
   // Decrypt, parse and validate a backup into `out`; touches nothing.
-  Status readBackup(const std::string& backupPass, const std::string& json, std::vector<Entry>& out,
+  Status readBackup(const std::string& backupPass, const std::string& json, backup::Entries& out,
                     backup::Passkeys& passkeys);
+  Status importPreparedLocked(backup::Entries& incoming, backup::Passkeys& pk, bool replace,
+                              size_t* added, size_t* updated, PasskeyRestore* passkeys);
   uint32_t calibrateIterations();
   Status deriveKey(const std::string& pass, const uint8_t salt[16], uint32_t iters, Key& out);
   Status wrapDek(const std::string& pass, uint32_t iters, const Key& dek, PassWrap& out);

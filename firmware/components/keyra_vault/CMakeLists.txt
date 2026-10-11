@@ -4,6 +4,7 @@ idf_component_register(
   SRCS
     "src/api.cpp"
     "src/core/backup_format.cpp"
+    "src/core/backup_stream.cpp"
     "src/core/entry_codec.cpp"
     "src/core/json.cpp"
     "src/core/secure_buf.cpp"

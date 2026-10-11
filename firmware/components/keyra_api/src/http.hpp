@@ -8,10 +8,9 @@
 namespace keyra::api::http {
 
 constexpr size_t kMaxBody = 64 * 1024;
-// A backup is one encrypted blob that can't be split into batches, so restore
-// gets a larger cap; it is only affordable when PSRAM backs big allocations.
-constexpr size_t kMaxRestoreBodyPsram = 2 * 1024 * 1024;
-constexpr size_t kMaxRestoreBodyInternal = 128 * 1024;
+// The streaming reader keeps only one entry JSON object and at most 1000
+// validated entries; 8 MiB admits a typical 5000-entry v3 file for safe Full.
+constexpr size_t kMaxRestoreBody = 8 * 1024 * 1024;
 
 constexpr const char* k200 = "200 OK";
 constexpr const char* k201 = "201 Created";

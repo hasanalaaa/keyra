@@ -38,6 +38,7 @@ class PsaCrypto : public Crypto {
                const uint8_t* in, size_t n, uint8_t* out) override;
   Open gcmOpen(const uint8_t key[32], const uint8_t iv[12], const uint8_t* aad, size_t aadLen,
                const uint8_t* in, size_t n, uint8_t* out) override;
+  std::unique_ptr<Aead> gcmStream(const uint8_t key[32], const uint8_t iv[12], bool encrypt) override;
   bool hmac(Hash h, const uint8_t* key, size_t keyLen, const uint8_t* msg, size_t msgLen,
             uint8_t* out, size_t* outLen) override;
 };

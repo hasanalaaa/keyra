@@ -3,8 +3,10 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <unordered_map>
 
 #include "backup_format.hpp"
+#include "backup_stream.hpp"
 #include "entry_codec.hpp"
 #include "json.hpp"
 #include "text.hpp"
@@ -77,7 +79,78 @@ struct Identity {  // merge key for imports without a matching id
   std::string title, username, url;
 };
 
+std::string identityKey(const std::string& title, const std::string& username, const std::string& url) {
+  std::string key;
+  key.reserve(title.size() + username.size() + url.size() + 30);
+  for (const std::string* field : {&title, &username, &url}) {
+    key += std::to_string(field->size());
+    key += ':';
+    key += *field;
+  }
+  return key;
+}
+
+class Base64Sink {
+ public:
+  explicit Base64Sink(const std::function<bool(const char*, size_t)>& sink) : sink_(sink) {}
+  bool write(const uint8_t* data, size_t n) {
+    static constexpr char abc[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    for (size_t i = 0; i < n; ++i) {
+      carry_[used_++] = data[i];
+      if (used_ == 3) {
+        const uint32_t x = (uint32_t(carry_[0]) << 16) | (uint32_t(carry_[1]) << 8) | carry_[2];
+        out_[count_++] = abc[(x >> 18) & 63];
+        out_[count_++] = abc[(x >> 12) & 63];
+        out_[count_++] = abc[(x >> 6) & 63];
+        out_[count_++] = abc[x & 63];
+        used_ = 0;
+        if (count_ == sizeof out_ && !flush()) return false;
+      }
+    }
+    return true;
+  }
+  bool finish() {
+    static constexpr char abc[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    if (used_) {
+      const uint32_t x = (uint32_t(carry_[0]) << 16) | (used_ == 2 ? uint32_t(carry_[1]) << 8 : 0);
+      out_[count_++] = abc[(x >> 18) & 63];
+      out_[count_++] = abc[(x >> 12) & 63];
+      out_[count_++] = used_ == 2 ? abc[(x >> 6) & 63] : '=';
+      out_[count_++] = '=';
+      used_ = 0;
+    }
+    return flush();
+  }
+ private:
+  bool flush() {
+    if (!count_) return true;
+    const bool ok = sink_(out_, count_);
+    count_ = 0;
+    return ok;
+  }
+  const std::function<bool(const char*, size_t)>& sink_;
+  uint8_t carry_[3] = {};
+  size_t used_ = 0, count_ = 0;
+  char out_[4096] = {};
+};
+
 }  // namespace
+
+struct BackupImport::Impl {
+  backup::Entries entries;
+  backup::Passkeys passkeys;
+  ~Impl() {
+    for (auto& e : entries) wipe(e);
+    for (auto& key : passkeys.keys) mem::zeroize(key.data(), key.size());
+    for (auto& record : passkeys.records)
+      if (!record.empty()) mem::zeroize(record.data(), record.size());
+  }
+};
+
+BackupImport::BackupImport() = default;
+BackupImport::~BackupImport() = default;
+BackupImport::BackupImport(BackupImport&&) noexcept = default;
+BackupImport& BackupImport::operator=(BackupImport&&) noexcept = default;
 
 uint32_t unlockDelayMs(uint32_t failures) {
   if (failures <= 4) return 0;
@@ -617,6 +690,10 @@ Status Vault::list(std::vector<Entry>& out) {
 
 Status Vault::forEach(const std::function<bool(const Entry&)>& fn) {
   std::lock_guard<std::mutex> g(m_);
+  return forEachLocked(fn);
+}
+
+Status Vault::forEachLocked(const std::function<bool(const Entry&)>& fn) {
   if (Status s = requireUnlocked(); s != Status::Ok) return s;
   for (const auto& slot : slots_) {
     // A fresh copy each time: reusing one would let a longer field reallocate
@@ -749,6 +826,16 @@ Status Vault::changePassphrase(const std::string& cur, const std::string& next, 
 
 Status Vault::exportBackup(const std::string& backupPass, std::string& outJson, bool passkeys,
                            uint32_t counter) {
+  outJson.clear();
+  return exportBackupStream(backupPass, [&outJson](const char* bytes, size_t n) {
+    outJson.append(bytes, n);
+    return true;
+  }, passkeys, counter);
+}
+
+Status Vault::exportBackupStream(const std::string& backupPass,
+                                  const std::function<bool(const char*, size_t)>& sink,
+                                  bool passkeys, uint32_t counter) {
   std::lock_guard<std::mutex> g(m_);
   if (Status s = requireUnlocked(); s != Status::Ok) return s;
   if (!text::validUtf8(backupPass) || text::codePoints(backupPass) < kMinBackupPass)
@@ -764,45 +851,65 @@ Status Vault::exportBackup(const std::string& backupPass, std::string& outJson, 
     for (const auto& p : passkeys_) pk.records.emplace_back(p.plain.data(), p.plain.data() + p.plain.size());
   }
 
-  SecureString plain;
-  plain += "{\"entries\":[";
-  for (size_t i = 0; i < slots_.size(); ++i) {
-    Entry e;
-    bool ok = codec::decode(slots_[i].plain.data(), slots_[i].plain.size(), e);
-    if (ok) {
-      if (i) plain += ',';
-      backup::writeEntry(plain, e);
-    }
-    wipe(e);
-    if (!ok) {
-      wipe(plain);
-      return Status::Corrupt;
-    }
-  }
-  plain += ']';
-  if (pk.present) backup::writePasskeys(plain, pk);
-  plain += '}';
-
-  backup::Envelope env;
-  env.iterations = meta_.pass.iterations;
+  uint8_t salt[16] = {}, iv[12] = {};
+  const uint32_t iterations = meta_.pass.iterations;
   Key key;
-  Status s = p_.crypto.random(env.salt, 16) && p_.crypto.random(env.iv, 12) ? Status::Ok
-                                                                             : Status::StorageError;
-  if (s == Status::Ok) s = deriveKey(backupPass, env.salt, env.iterations, key);
-  if (s == Status::Ok) {
-    env.data.resize(plain.size() + 16);
-    if (!p_.crypto.gcmSeal(key.data(), env.iv, nullptr, 0, bytes(plain.data()), plain.size(),
-                           env.data.data()))
-      s = Status::StorageError;
-  }
+  Status s = p_.crypto.random(salt, sizeof salt) && p_.crypto.random(iv, sizeof iv)
+                 ? Status::Ok : Status::StorageError;
+  if (s == Status::Ok) s = deriveKey(backupPass, salt, iterations, key);
+  auto op = s == Status::Ok ? p_.crypto.gcmStream(key.data(), iv, true) : nullptr;
   mem::zeroize(key.data(), key.size());
-  wipe(plain);
-  if (s == Status::Ok) outJson = backup::writeEnvelope(env);
-  return s;
+  if (!op) return Status::StorageError;
+
+  // These bytes and their order are identical to backup::writeEnvelope().
+  const std::string prefix = "{\"format\":\"keyra-backup\",\"v\":3,\"kdf\":{\"alg\":\"pbkdf2-sha256\",\"iter\":" +
+      std::to_string(iterations) + ",\"salt\":\"" + text::base64Encode(salt, sizeof salt) +
+      "\"},\"iv\":\"" + text::base64Encode(iv, sizeof iv) + "\",\"data\":\"";
+  if (!sink(prefix.data(), prefix.size())) return Status::StorageError;
+  auto b64 = std::make_unique<Base64Sink>(sink);
+  SecureBuf cipher;
+  if (!cipher.alloc(4096 + 16)) return Status::StorageError;
+  auto emitPlain = [&](const char* data, size_t n) {
+    for (size_t off = 0; off < n; off += 4096) {
+      const size_t take = std::min<size_t>(4096, n - off);
+      size_t produced = 0;
+      if (!op->update(bytes(data + off), take, cipher.data(), produced) ||
+          !b64->write(cipher.data(), produced)) return false;
+    }
+    return true;
+  };
+  if (!emitPlain("{\"entries\":[", 12)) return Status::StorageError;
+  bool sendFailed = false;
+  size_t i = 0;
+  const Status traversed = forEachLocked([&](const Entry& e) {
+    SecureString item;
+    if (i++) item += ',';
+    backup::writeEntry(item, e);
+    const bool sent = emitPlain(item.data(), item.size());
+    wipe(item);
+    if (!sent) sendFailed = true;
+    return sent;
+  });
+  if (traversed != Status::Ok) return traversed;
+  if (sendFailed) return Status::StorageError;
+  if (!emitPlain("]", 1)) return Status::StorageError;
+  if (pk.present) {
+    SecureString section;
+    backup::writePasskeys(section, pk);
+    const bool sent = emitPlain(section.data(), section.size());
+    wipe(section);
+    if (!sent) return Status::StorageError;
+  }
+  if (!emitPlain("}", 1)) return Status::StorageError;
+  uint8_t tail[16] = {}, tag[16] = {};
+  size_t produced = 0;
+  if (!op->finish(tail, produced, tag) || !b64->write(tail, produced) || !b64->write(tag, sizeof tag) ||
+      !b64->finish() || !sink("\"}", 2)) return Status::StorageError;
+  return Status::Ok;
 }
 
 Status Vault::readBackup(const std::string& backupPass, const std::string& jsonText,
-                         std::vector<Entry>& out, backup::Passkeys& passkeys) {
+                         backup::Entries& out, backup::Passkeys& passkeys) {
   out.clear();
   passkeys = backup::Passkeys{};
   backup::Envelope env;
@@ -851,13 +958,42 @@ Status Vault::readBackup(const std::string& backupPass, const std::string& jsonT
 Status Vault::checkBackup(const std::string& backupPass, const std::string& jsonText, bool replace) {
   std::lock_guard<std::mutex> g(m_);
   if (Status s = requireUnlocked(); s != Status::Ok) return s;
-  std::vector<Entry> incoming;
+  backup::Entries incoming;
   backup::Passkeys pk;
   PasskeyPlan plan;
   Status s = readBackup(backupPass, jsonText, incoming, pk);
   if (s == Status::Ok) s = planPasskeys(pk, replace, plan);
   for (auto& e : incoming) wipe(e);
   return s;
+}
+
+Status Vault::prepareBackupStream(const std::string& backupPass, const BackupSource& source,
+                                  BackupImport& out) {
+  std::lock_guard<std::mutex> g(m_);
+  if (Status s = requireUnlocked(); s != Status::Ok) return s;
+  out.impl_ = std::make_unique<BackupImport::Impl>();
+  const Status s = backup::readStream(p_.crypto, backupPass, source,
+                                      out.impl_->entries, out.impl_->passkeys);
+  if (s != Status::Ok) out.impl_.reset();
+  return s;
+}
+
+Status Vault::checkPreparedBackup(const BackupImport& backup, bool replace) {
+  std::lock_guard<std::mutex> g(m_);
+  if (Status s = requireUnlocked(); s != Status::Ok) return s;
+  if (!backup.impl_) return Status::Invalid;
+  PasskeyPlan plan;
+  return planPasskeys(backup.impl_->passkeys, replace, plan);
+}
+
+Status Vault::commitPreparedBackup(BackupImport& backup, bool replace, size_t* added,
+                                   size_t* updated, PasskeyRestore* passkeys) {
+  std::lock_guard<std::mutex> g(m_);
+  if (Status s = requireUnlocked(); s != Status::Ok) return s;
+  if (!backup.impl_) return Status::Invalid;
+  auto prepared = std::move(backup.impl_);  // the authenticated snapshot can be used only once
+  return importPreparedLocked(prepared->entries, prepared->passkeys,
+                              replace, added, updated, passkeys);
 }
 
 Status Vault::importBackup(const std::string& backupPass, const std::string& jsonText,
@@ -869,9 +1005,18 @@ Status Vault::importBackup(const std::string& backupPass, const std::string& jso
   if (Status s = requireUnlocked(); s != Status::Ok) return s;
 
   // 1. Decrypt and validate everything before touching the vault.
-  std::vector<Entry> incoming;
+  backup::Entries incoming;
   backup::Passkeys pk;
   if (Status s = readBackup(backupPass, jsonText, incoming, pk); s != Status::Ok) return s;
+  return importPreparedLocked(incoming, pk, replace, added, updated, passkeys);
+}
+
+Status Vault::importPreparedLocked(backup::Entries& incoming, backup::Passkeys& pk,
+                                    bool replace, size_t* added, size_t* updated,
+                                    PasskeyRestore* passkeys) {
+  if (added) *added = 0;
+  if (updated) *updated = 0;
+  if (passkeys) *passkeys = PasskeyRestore{};
   // Reported whatever happens next.
   if (passkeys) passkeys->present = pk.present, passkeys->counter = pk.counter;
   PasskeyPlan plan;
@@ -880,15 +1025,15 @@ Status Vault::importBackup(const std::string& backupPass, const std::string& jso
     return s;
   }
   std::vector<Identity> index;  // merge view: existing entries + those this import adds
+  std::unordered_map<uint32_t, size_t> byId;
+  std::unordered_map<std::string, size_t> byAccount;
   auto cleanup = [&] {
     for (auto& e : incoming) wipe(e);
     for (auto& x : index) wipe(x.title), wipe(x.username), wipe(x.url);
   };
 
   // 2. Plan ids so the final count is known before anything is written.
-  auto taken = [&](uint32_t id) {
-    return std::any_of(index.begin(), index.end(), [id](const Identity& x) { return x.id == id; });
-  };
+  auto taken = [&](uint32_t id) { return byId.find(id) != byId.end(); };
   auto freshId = [&](uint32_t& id) {
     for (int tries = 0; tries < 32; ++tries) {
       if (!p_.crypto.random(reinterpret_cast<uint8_t*>(&id), sizeof id)) return false;
@@ -899,6 +1044,8 @@ Status Vault::importBackup(const std::string& backupPass, const std::string& jso
   size_t nAdded = 0, nUpdated = 0;
   if (!replace) {
     index.reserve(slots_.size() + incoming.size());
+    byId.reserve(slots_.size() + incoming.size());
+    byAccount.reserve(slots_.size() + incoming.size());
     for (const auto& slot : slots_) {
       Entry e;
       if (!codec::decode(slot.plain.data(), slot.plain.size(), e)) {
@@ -907,27 +1054,26 @@ Status Vault::importBackup(const std::string& backupPass, const std::string& jso
         return Status::Corrupt;
       }
       index.push_back(Identity{e.id, e.title, e.username, e.url});
+      byId.emplace(e.id, index.size() - 1);
+      byAccount.emplace(identityKey(e.title, e.username, e.url), index.size() - 1);
       wipe(e);
     }
   }
   for (auto& e : incoming) {
     Identity* match = nullptr;
     if (!replace) {
-      auto sameAccount = [&e](const Identity& x) {
-        return x.title == e.title && x.username == e.username && x.url == e.url;
-      };
+      const std::string account = identityKey(e.title, e.username, e.url);
       // An id alone is not enough: another vault may have used it for a different account.
-      for (auto& x : index)
-        if (e.id != 0 && x.id == e.id && sameAccount(x)) {
-          match = &x;
-          break;
-        }
-      if (!match)
-        for (auto& x : index)
-          if (sameAccount(x)) {
-            match = &x;
-            break;
-          }
+      const auto idIt = byId.find(e.id);
+      if (e.id != 0 && idIt != byId.end()) {
+        Identity& candidate = index[idIt->second];
+        if (candidate.title == e.title && candidate.username == e.username && candidate.url == e.url)
+          match = &candidate;
+      }
+      if (!match) {
+        const auto accountIt = byAccount.find(account);
+        if (accountIt != byAccount.end()) match = &index[accountIt->second];
+      }
     }
     if (match) {
       e.id = match->id;
@@ -938,6 +1084,8 @@ Status Vault::importBackup(const std::string& backupPass, const std::string& jso
       return Status::StorageError;
     }
     index.push_back(Identity{e.id, e.title, e.username, e.url});
+    byId.emplace(e.id, index.size() - 1);
+    byAccount.emplace(identityKey(e.title, e.username, e.url), index.size() - 1);
     ++nAdded;
   }
   if ((replace ? 0 : slots_.size()) + nAdded > kMaxEntries) {

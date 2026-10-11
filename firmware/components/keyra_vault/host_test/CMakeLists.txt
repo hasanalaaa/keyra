@@ -17,6 +17,7 @@ set(VAULT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/..)
 add_library(keyra_vault_host STATIC
   ${VAULT_DIR}/src/api.cpp
   ${VAULT_DIR}/src/core/backup_format.cpp
+  ${VAULT_DIR}/src/core/backup_stream.cpp
   ${VAULT_DIR}/src/core/entry_codec.cpp
   ${VAULT_DIR}/src/core/json.cpp
   ${VAULT_DIR}/src/core/secure_buf.cpp
@@ -33,7 +34,7 @@ target_include_directories(keyra_vault_host PUBLIC ${VAULT_DIR}/include ${VAULT_
 target_compile_options(keyra_vault_host PUBLIC -Wall -Wextra -Werror)
 target_link_libraries(keyra_vault_host PUBLIC OpenSSL::Crypto)
 
-foreach(t vault backup totp formats sequence passkeys passkey_backup recovery activity nvs_loss)
+foreach(t vault backup backup_stream totp formats sequence passkeys passkey_backup recovery activity nvs_loss)
   add_executable(keyra_vault_test_${t} test_${t}.cpp)
   target_link_libraries(keyra_vault_test_${t} PRIVATE keyra_vault_host)
   add_test(NAME keyra_vault_${t} COMMAND keyra_vault_test_${t})

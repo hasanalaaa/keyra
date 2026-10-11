@@ -9,8 +9,8 @@
 #include <vector>
 
 #include "esp_app_desc.h"
-#include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "esp_mac.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
@@ -324,7 +324,7 @@ bool commitWifi(WifiJob& j) {
 }
 
 struct RestoreJob {
-  json::Secret passphrase, backup;
+  vault::BackupImport backup;
 };
 
 bool commitRestoreReplace(RestoreJob& j) {
@@ -332,7 +332,7 @@ bool commitRestoreReplace(RestoreJob& j) {
   vault::PasskeyRestore pk;
   // A restore with passkeys raises the FIDO counter's reservation before
   // writing anything; if it cannot, it fails with nothing changed.
-  const Status st = vault::importBackup(j.passphrase.s, j.backup.s, true, &added, &updated, &pk);
+  const Status st = vault::commitPreparedBackup(j.backup, true, &added, &updated, &pk);
   if (st != Status::Ok) {
     ESP_LOGE(TAG, "restore(replace): %s", vault::statusName(st));
     return false;
@@ -1015,7 +1015,7 @@ esp_err_t postPassphrase(Ctx& c) {
 }
 
 esp_err_t postBackup(Ctx& c) {
-  json::Secret pass, out;
+  json::Secret pass;
   esp_err_t err = ESP_OK;
   if (!requireString(c, "passphrase", pass.s, err)) return err;
   const long chars = validate::utf8Length(pass.s);
@@ -1029,14 +1029,6 @@ esp_err_t postBackup(Ctx& c) {
   uint32_t counter = 0;
   if (passkeys && !fido::signatureCounter(counter))
     return http::sendError(c.r, http::k500, "storage", "Could not read the passkey signature counter");
-  const Status st = vault::exportBackup(pass.s, out.s, passkeys, counter);
-  if (st != Status::Ok) return sendVaultError(c.r, st);
-  activity::log(activity::Kind::Backup);
-  if (const int64_t now = unixSecondsOrZero(); now != 0) {
-    if (settings::update([now](settings::Settings& s) { s.lastBackupAt = now; }) != ESP_OK)
-      ESP_LOGW(TAG, "could not record the backup time");
-  }
-
   char disposition[96];
   const time_t now = static_cast<time_t>(unixMs() / 1000);
   tm utc{};
@@ -1048,32 +1040,184 @@ esp_err_t postBackup(Ctx& c) {
   httpd_resp_set_hdr(c.r, "Content-Disposition", disposition);
   httpd_resp_set_hdr(c.r, "Cache-Control", "no-store");
   http::securityHeaders(c.r);
-  return httpd_resp_send(c.r, out.s.data(), static_cast<ssize_t>(out.s.size()));
+  bool sent = false;
+  const Status st = vault::exportBackupStream(pass.s, [&](const char* data, size_t n) {
+    sent = true;
+    return httpd_resp_send_chunk(c.r, data, static_cast<ssize_t>(n)) == ESP_OK;
+  }, passkeys, counter);
+  if (st != Status::Ok) return sent ? ESP_FAIL : sendVaultError(c.r, st);
+  if (httpd_resp_send_chunk(c.r, nullptr, 0) != ESP_OK) return ESP_FAIL;
+  activity::log(activity::Kind::Backup);
+  if (const int64_t now = unixSecondsOrZero(); now != 0) {
+    if (settings::update([now](settings::Settings& s) { s.lastBackupAt = now; }) != ESP_OK)
+      ESP_LOGW(TAG, "could not record the backup time");
+  }
+  return ESP_OK;
 }
+
+// The web client writes passphrase, backup, mode in that order. Read the
+// request one socket chunk at a time; only the backup object is fed to the
+// vault's authenticated streaming parser. No ciphertext-sized cJSON tree.
+class RestoreInput {
+ public:
+  explicit RestoreInput(httpd_req_t* r)
+      : r_(r), remaining_(r->content_len),
+        deadline_(esp_timer_get_time() + (10 + int64_t(r->content_len / 32768)) * 1000000),
+        buf_(new char[kChunk]()) {}
+  ~RestoreInput() {
+    volatile char* p = buf_.get();
+    for (size_t i = 0; i < kChunk; ++i) p[i] = 0;
+  }
+  bool ioFailed() const { return ioFailed_; }
+
+  bool parse(std::string& passphrase, std::string& mode,
+             const std::function<Status(const vault::BackupSource&)>& consume,
+             Status& backupStatus) {
+    char c;
+    if (!next(c) || c != '{') return false;
+    bool havePass = false, haveBackup = false, haveMode = false;
+    for (;;) {
+      if (!next(c)) return false;
+      if (c == '}') break;
+      std::string key;
+      if (!readString(c, key, 128) || !next(c) || c != ':' || !next(c)) return false;
+      if (key == "passphrase" && !havePass) {
+        if (!readString(c, passphrase, 8 * 1024)) return false;
+        havePass = true;
+      } else if (key == "mode" && !haveMode) {
+        if (!readString(c, mode, 64)) return false;
+        haveMode = true;
+      } else if (key == "backup" && !haveBackup && havePass && c == '{') {
+        backupStatus = streamObject(consume);
+        haveBackup = true;
+        if (backupStatus != Status::Ok) {
+          while (get(c)) {}  // consume the rest of this request before replying
+          return false;
+        }
+      } else {
+        return false;
+      }
+      if (!next(c)) return false;
+      if (c == '}') break;
+      if (c != ',') return false;
+    }
+    while (get(c)) if (!white(c)) return false;
+    return !ioFailed_ && havePass && haveBackup && haveMode;
+  }
+
+ private:
+  static bool white(char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; }
+  bool get(char& c) {
+    if (pos_ == size_) {
+      if (!remaining_) return false;
+      if (esp_timer_get_time() > deadline_) { ioFailed_ = true; return false; }
+      const size_t want = std::min(remaining_, kChunk);
+      int n = httpd_req_recv(r_, buf_.get(), want);
+      if (n == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts_ <= 3) return get(c);
+      if (n <= 0) { ioFailed_ = true; return false; }
+      timeouts_ = 0;
+      remaining_ -= size_t(n);
+      pos_ = 0;
+      size_ = size_t(n);
+    }
+    c = buf_[pos_++];
+    return true;
+  }
+  bool next(char& c) {
+    do { if (!get(c)) return false; } while (white(c));
+    return true;
+  }
+  bool readString(char opening, std::string& out, size_t max) {
+    if (opening != '"') return false;
+    json::Secret raw;
+    raw.s = "\"";
+    bool escaped = false;
+    char c;
+    while (get(c)) {
+      if (raw.s.size() >= max) return false;
+      raw.s += c;
+      if (escaped) escaped = false;
+      else if (c == '\\') escaped = true;
+      else if (c == '"') {
+        json::Ptr parsed(cJSON_ParseWithLength(raw.s.data(), raw.s.size()));
+        if (!cJSON_IsString(parsed.get())) return false;
+        out.assign(parsed->valuestring);
+        return true;
+      }
+    }
+    return false;
+  }
+  Status streamObject(const std::function<Status(const vault::BackupSource&)>& consume) {
+    bool first = true, done = false, inString = false, escaped = false;
+    int depth = 0;
+    vault::BackupSource source = [&](char* out, size_t cap, size_t& got) {
+      got = 0;
+      while (got < cap && !done) {
+        char c;
+        if (first) { c = '{'; first = false; }
+        else if (!get(c)) return false;
+        out[got++] = c;
+        if (inString) {
+          if (escaped) escaped = false;
+          else if (c == '\\') escaped = true;
+          else if (c == '"') inString = false;
+        } else if (c == '"') {
+          inString = true;
+        } else if (c == '{') {
+          ++depth;
+        } else if (c == '}' && --depth == 0) {
+          done = true;
+        }
+      }
+      return true;
+    };
+    const Status status = consume(source);
+    // An invalid envelope can fail before its closing brace; finish consuming
+    // this request so stray bytes cannot be interpreted as another request.
+    if (!done) {
+      char discard[4096];
+      size_t n = 0;
+      while (source(discard, sizeof discard, n) && n) {}
+    }
+    return ioFailed_ ? Status::StorageError : status;
+  }
+  httpd_req_t* r_;
+  size_t remaining_ = 0, pos_ = 0, size_ = 0;
+  int64_t deadline_ = 0;
+  int timeouts_ = 0;
+  bool ioFailed_ = false;
+  static constexpr size_t kChunk = 4096;
+  std::unique_ptr<char[]> buf_;
+};
 
 esp_err_t postRestore(Ctx& c) {
   auto job = std::make_shared<RestoreJob>();
-  esp_err_t err = ESP_OK;
+  json::Secret pass;
   std::string mode;
-  if (!requireString(c, "passphrase", job->passphrase.s, err) || !requireString(c, "mode", mode, err)) return err;
+  Status backupStatus = Status::Ok;
+  RestoreInput input(c.r);
+  const bool parsed = input.parse(pass.s, mode, [&](const vault::BackupSource& source) {
+    const long chars = validate::utf8Length(pass.s);
+    if (chars < 12 || pass.s.size() > kMaxPassphraseBytes) return Status::Invalid;
+    return vault::prepareBackupStream(pass.s, source, job->backup);
+  }, backupStatus);
+  if (!parsed) {
+    if (input.ioFailed()) return ESP_FAIL;
+    if (backupStatus != Status::Ok) return sendVaultError(c.r, backupStatus);
+    return badRequest(c.r, "Invalid restore request");
+  }
   if (mode != "merge" && mode != "replace") return badRequest(c.r, "mode must be \"merge\" or \"replace\"");
-  const cJSON* backup = cJSON_GetObjectItemCaseSensitive(c.body.get(), "backup");
-  if (!cJSON_IsObject(backup)) return badRequest(c.r, "\"backup\" (object) is required");
-  char* text = cJSON_PrintUnformatted(backup);
-  if (!text) return http::sendError(c.r, http::k500, "no_memory", "Out of memory");
-  job->backup.s.assign(text);
-  cJSON_free(text);
 
   if (mode == "replace") {
     // A wrong passphrase or a bad file is reported now, not after the press.
-    if (const Status st = vault::checkBackup(job->passphrase.s, job->backup.s, true); st != Status::Ok)
+    if (const Status st = vault::checkPreparedBackup(job->backup, true); st != Status::Ok)
       return sendVaultError(c.r, st);
     return sendAwaitingButton(
         c.r, machine().awaitPresence(actions::Op::RestoreReplace, [job] { return commitRestoreReplace(*job); }, c.token));
   }
   size_t added = 0, updated = 0;
   vault::PasskeyRestore pk;
-  const Status st = vault::importBackup(job->passphrase.s, job->backup.s, false, &added, &updated, &pk);
+  const Status st = vault::commitPreparedBackup(job->backup, false, &added, &updated, &pk);
   if (st != Status::Ok) return sendVaultError(c.r, st);
   activity::log(activity::Kind::Restore, 0, {}, 0, static_cast<uint32_t>(added + updated));
   json::Ptr o(cJSON_CreateObject());
@@ -1181,7 +1325,7 @@ bool takesBody(Route r) {
   switch (r) {
     case Route::Setup: case Route::Unlock: case Route::CreateEntry: case Route::UpdateEntry:
     case Route::ImportEntries: case Route::Type: case Route::PutSettings: case Route::Passphrase:
-    case Route::Backup: case Route::Restore: case Route::WifiHome: case Route::Generate:
+    case Route::Backup: case Route::WifiHome: case Route::Generate:
     case Route::BleSetOs:
     case Route::UnlockRecovery:
     case Route::PresenceCancel:
@@ -1391,8 +1535,7 @@ esp_err_t handleApi(httpd_req_t* r, Method method, std::string_view path) {
   const bool restore = path == "/api/restore";
   const size_t cap = path == "/api/update" ? update::maxImage()
                      : !restore ? http::kMaxBody
-                     : heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0 ? http::kMaxRestoreBodyPsram
-                                                                      : http::kMaxRestoreBodyInternal;
+                     : http::kMaxRestoreBody;
   if (r->content_len > cap) {
     http::sendError(r, http::k413, "too_large", "Request body too large");
     return ESP_FAIL;  // closes the socket instead of draining an oversized body

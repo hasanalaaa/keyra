@@ -42,9 +42,24 @@ Status checkRecovery(const RecoveryKey& key, uint32_t* retryAfterMs) {
 Status exportBackup(const std::string& backupPass, std::string& outJson, bool passkeys, uint32_t counter) {
   return detail::instance().exportBackup(backupPass, outJson, passkeys, counter);
 }
+Status exportBackupStream(const std::string& backupPass,
+                          const std::function<bool(const char*, size_t)>& sink,
+                          bool passkeys, uint32_t counter) {
+  return detail::instance().exportBackupStream(backupPass, sink, passkeys, counter);
+}
 Status importBackup(const std::string& backupPass, const std::string& json, bool replace,
                     size_t* added, size_t* updated, PasskeyRestore* passkeys) {
   return detail::instance().importBackup(backupPass, json, replace, added, updated, passkeys);
+}
+Status prepareBackupStream(const std::string& backupPass, const BackupSource& source, BackupImport& out) {
+  return detail::instance().prepareBackupStream(backupPass, source, out);
+}
+Status checkPreparedBackup(const BackupImport& backup, bool replace) {
+  return detail::instance().checkPreparedBackup(backup, replace);
+}
+Status commitPreparedBackup(BackupImport& backup, bool replace, size_t* added, size_t* updated,
+                            PasskeyRestore* passkeys) {
+  return detail::instance().commitPreparedBackup(backup, replace, added, updated, passkeys);
 }
 Status checkBackup(const std::string& backupPass, const std::string& json, bool replace) {
   return detail::instance().checkBackup(backupPass, json, replace);

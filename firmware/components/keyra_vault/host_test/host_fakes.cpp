@@ -5,6 +5,7 @@
 #include <openssl/rand.h>
 
 #include <memory>
+#include <climits>
 
 namespace keyra::vault::test {
 
@@ -86,6 +87,50 @@ bool OpenSslCrypto::pbkdf2Sha256(const std::string& pass, const uint8_t* salt, s
 
 namespace {
 using Ctx = std::unique_ptr<EVP_CIPHER_CTX, decltype(&EVP_CIPHER_CTX_free)>;
+
+class OpenSslAead final : public Crypto::Aead {
+ public:
+  OpenSslAead(const uint8_t key[32], const uint8_t iv[12], bool encrypt)
+      : ctx_(EVP_CIPHER_CTX_new(), EVP_CIPHER_CTX_free), encrypt_(encrypt) {
+    ok_ = ctx_ && (encrypt ? EVP_EncryptInit_ex(ctx_.get(), EVP_aes_256_gcm(), nullptr, key, iv)
+                           : EVP_DecryptInit_ex(ctx_.get(), EVP_aes_256_gcm(), nullptr, key, iv)) == 1;
+  }
+  bool ok() const { return ok_; }
+  bool update(const uint8_t* in, size_t n, uint8_t* out, size_t& produced) override {
+    int len = 0;
+    produced = 0;
+    if (!ok_ || n > INT_MAX || (n && (encrypt_ ? EVP_EncryptUpdate(ctx_.get(), out, &len, in, int(n))
+                                                  : EVP_DecryptUpdate(ctx_.get(), out, &len, in, int(n))) != 1))
+      return false;
+    produced = size_t(len);
+    return true;
+  }
+  bool finish(uint8_t out[16], size_t& produced, uint8_t tag[16]) override {
+    int len = 0;
+    produced = 0;
+    if (!ok_ || !encrypt_ || EVP_EncryptFinal_ex(ctx_.get(), out, &len) != 1) return false;
+    produced = size_t(len);
+    return EVP_CIPHER_CTX_ctrl(ctx_.get(), EVP_CTRL_GCM_GET_TAG, 16, tag) == 1;
+  }
+  Crypto::Open verify(const uint8_t tag[16], uint8_t out[16], size_t& produced) override {
+    int len = 0;
+    produced = 0;
+    if (!ok_ || encrypt_ || EVP_CIPHER_CTX_ctrl(ctx_.get(), EVP_CTRL_GCM_SET_TAG, 16,
+                                                 const_cast<uint8_t*>(tag)) != 1) return Crypto::Open::Error;
+    if (EVP_DecryptFinal_ex(ctx_.get(), out, &len) != 1) return Crypto::Open::AuthFailed;
+    produced = size_t(len);
+    return Crypto::Open::Ok;
+  }
+ private:
+  Ctx ctx_;
+  bool encrypt_ = false, ok_ = false;
+};
+}
+
+std::unique_ptr<Crypto::Aead> OpenSslCrypto::gcmStream(const uint8_t key[32], const uint8_t iv[12],
+                                                       bool encrypt) {
+  auto op = std::make_unique<OpenSslAead>(key, iv, encrypt);
+  return op->ok() ? std::move(op) : nullptr;
 }
 
 bool OpenSslCrypto::gcmSeal(const uint8_t key[32], const uint8_t iv[12], const uint8_t* aad,
