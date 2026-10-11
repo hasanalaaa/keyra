@@ -459,6 +459,7 @@ const char* codeName(Code c) {
     case Code::UnsupportedChar: return "unsupported_char";
     case Code::Failed: return "failed";
     case Code::HostChanged: return "host_changed";
+    case Code::EntryChanged: return "entry_changed";
   }
   return "failed";
 }

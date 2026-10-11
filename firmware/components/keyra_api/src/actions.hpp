@@ -48,7 +48,8 @@ enum class Op { Setup, Wifi, RestoreReplace, FactoryReset, HomeWifi, TrustBrowse
 // NoUsb: output is USB-only and no computer is plugged in. NoHost: nothing
 // connected on the selected output (auto or Bluetooth). HostChanged: the USB
 // computer the action was armed for went away before the press (SPEC §12.4).
-enum class Code { Typed, Cancelled, Expired, NoUsb, NoHost, UnsupportedChar, Failed, HostChanged };
+// EntryChanged: the account was edited after the action was armed (SPEC §5).
+enum class Code { Typed, Cancelled, Expired, NoUsb, NoHost, UnsupportedChar, Failed, HostChanged, EntryChanged };
 enum class Button { Short, Long };
 enum class Indicator { Setup, Locked, Idle, Pending, Typing, AwaitPresence, Success, Error, Off, Pairing };
 
@@ -92,6 +93,9 @@ struct TypeRequest {
   // An extension armed this for a page whose host does not match the login
   // (SPEC §9.4): that page's host, shown with the pending item. Else empty.
   std::string host{};
+  // vault::Entry::revision when armed (entry actions and sequences): the press
+  // types that version of the account or nothing (entryChanged()).
+  uint32_t revision = 0;
   uint32_t usbSession = 0;  // set by arm(): the USB connection a USB action is bound to (0 = none)
   uint32_t serial = 0;      // set by arm(): names this request in track()
 };
@@ -298,6 +302,10 @@ class HostWatch {
   int64_t usbGoneAt_ = -1;
   std::optional<BtAddr> bleUsed_;
 };
+
+// Whether the account `req` types was edited since it was armed: `current` is
+// the vault::Entry::revision read together with the values about to be typed.
+inline bool entryChanged(const TypeRequest& req, uint32_t current) { return req.revision != current; }
 
 const char* whatName(What w);
 std::optional<What> parseWhat(const std::string& s);

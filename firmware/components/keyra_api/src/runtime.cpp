@@ -139,6 +139,7 @@ Code typeJob(const actions::TypeRequest& job, const settings::Settings& s, const
 
   vault::Entry e;
   if (vault::get(job.id, e) != vault::Status::Ok) return Code::Failed;
+  if (actions::entryChanged(job, e.revision)) { vault::wipe(e); return Code::EntryChanged; }  // edited since armed
   Code c = Code::Failed;
   switch (job.what) {
     case What::Username: c = typeOne(e.username, o); break;

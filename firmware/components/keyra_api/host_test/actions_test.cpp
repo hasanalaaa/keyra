@@ -3,6 +3,7 @@
 
 #include "actions.hpp"
 #include "keyra_test.hpp"
+#include "rig.hpp"
 
 using namespace keyra::actions;
 
@@ -401,6 +402,38 @@ void names() {
   CHECK(std::string(opName(Op::BlePair)) == "ble_pair");
   CHECK(std::string(opName(Op::FactoryReset)) == "factory_reset");
   CHECK(std::string(whatName(What::Totp)) == "totp");
+  CHECK(std::string(codeName(Code::EntryChanged)) == "entry_changed");
+}
+
+// A type action is armed for one version of the account. Edited while it waits
+// (even within the same second, when `updated` stays the same), the press
+// types nothing; touch() after typing a sequence part is not an edit.
+void armedActionPinsTheEntry() {
+  auto rig = keyra::vault::test::Rig::ready();
+  keyra::vault::Vault& v = *rig->v;
+  keyra::vault::Entry e = keyra::vault::test::sample("Bank");
+  CHECK(v.put(e) == keyra::vault::Status::Ok);
+  keyra::vault::Entry armedAs;
+  CHECK(v.get(e.id, armedAs) == keyra::vault::Status::Ok);
+  TypeRequest r = req(e.id);
+  r.revision = armedAs.revision;
+  auto m = make();
+  CHECK(m.arm(r, "s").has_value());
+  keyra::vault::Entry now;
+  CHECK(v.get(e.id, now) == keyra::vault::Status::Ok && !entryChanged(r, now.revision));
+  CHECK(v.touch(e.id, 1800000000, false, nullptr) == keyra::vault::Status::Ok);
+  CHECK(v.get(e.id, now) == keyra::vault::Status::Ok && !entryChanged(r, now.revision));
+  e.password = "rm -rf ~\n";  // swapped while the user's press is awaited
+  CHECK(v.put(e) == keyra::vault::Status::Ok);
+  Decision d = m.onButton(Button::Short, true, g_now);
+  CHECK(d.effect == Effect::Run);
+  CHECK(v.get(e.id, now) == keyra::vault::Status::Ok && entryChanged(d.run, now.revision));
+  CHECK(now.updated == armedAs.updated);  // `updated` alone would not have told
+  m.typingFinished(d.run, Code::EntryChanged);
+  CHECK(m.last() && !m.last()->ok && m.last()->code == Code::EntryChanged);
+  keyra::vault::wipe(armedAs);
+  keyra::vault::wipe(now);
+  keyra::vault::wipe(e);
 }
 
 TypeRequest usbReq(uint32_t id) {
@@ -663,5 +696,6 @@ int main() {
   netOps();
   bluetoothTargetWaitsForLink();
   names();
+  armedActionPinsTheEntry();
   return KEYRA_TEST_RESULT();
 }

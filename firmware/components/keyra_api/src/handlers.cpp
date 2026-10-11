@@ -1364,6 +1364,7 @@ bool entryRequest(httpd_req_t* r, const cJSON* body, uint32_t id, actions::What 
                        (what == actions::What::Totp && e.totp.empty());
   out = {id, e.title, what, submit, target, nullptr, nullptr, 0};
   out.switchLang = switchLang;
+  out.revision = e.revision;  // an edit before the press makes it type nothing
   vault::wipe(e);
   if (missing) {
     err = badRequest(r, "Entry has no value for that field");

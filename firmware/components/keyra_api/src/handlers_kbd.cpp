@@ -171,6 +171,7 @@ bool sequenceRequest(httpd_req_t* r, const vault::Entry& e, const Target& target
     return false;
   }
   out = {e.id, e.title, actions::What::Sequence, false, target, nullptr, std::move(job), 0};
+  out.revision = e.revision;  // every part types this version of the account or nothing
   return true;
 }
 

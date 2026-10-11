@@ -165,6 +165,7 @@ class Vault {
   struct Slot {
     uint32_t id;
     SecureBuf plain;  // entry_codec encoding
+    uint32_t revision = 0;  // entries: Entry::revision (RAM only)
   };
   using Key = std::array<uint8_t, 32>;
   using KeyList = std::vector<Key, ZeroingAllocator<Key>>;  // reserved to kMaxPasskeyWrapKeys: no regrowth
@@ -202,7 +203,8 @@ class Vault {
   Status finishUnlock(Key& dek);  // dek → dek_, entries loaded, v1 meta migrated
   Status loadEntries();
   Status persist(const std::string& path, uint32_t id, const SecureBuf& plain);
-  Status store(Entry& rec);  // encode + persist + update RAM slot
+  // encode + persist + update RAM slot; `edited`: a new revision (false for touch)
+  Status store(Entry& rec, bool edited);
   Slot* find(uint32_t id);
   bool newId(uint32_t& id);
   void wipeKeys();
@@ -230,6 +232,7 @@ class Vault {
   std::vector<Slot, ZeroingAllocator<Slot>> slots_;
   std::vector<Slot, ZeroingAllocator<Slot>> passkeys_;
   bool passkeysLoaded_ = false;
+  uint32_t revisions_ = 0;  // last Entry::revision handed out; never reset, so never reused
   uint32_t failures_ = 0;
   std::atomic<uint32_t> failedBefore_{0};
   uint64_t lockedUntilMs_ = 0;
