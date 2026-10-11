@@ -16,9 +16,11 @@ class LittleFsStorage : public Storage {
   bool remove(const std::string& path) override;
   bool list(const std::string& dir, std::vector<std::string>& names) override;
   bool format() override;
+  Failure lastFailure() const override { return lastFailure_; }
 
  private:
   bool mounted_ = false;
+  Failure lastFailure_ = Failure::Other;
 };
 
 // Unlock-failure counter in NVS namespace "keyra_v".

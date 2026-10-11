@@ -21,10 +21,13 @@ class MemStorage : public Storage {
   bool dead = false;
   // Like crashAfter, but only that one operation fails (a transient I/O error).
   int failAfter = -1;
+  // Like failAfter, but models LittleFS LFS_ERR_NOSPC / VFS ENOSPC.
+  int noSpaceAfter = -1;
 
   void reboot() {
     dead = false;
     crashAfter = -1;
+    noSpaceAfter = -1;
   }
 
   bool mount() override { return !dead && mountOk; }
@@ -34,9 +37,11 @@ class MemStorage : public Storage {
   bool remove(const std::string& path) override;
   bool list(const std::string& dir, std::vector<std::string>& names) override;
   bool format() override;
+  Failure lastFailure() const override { return lastFailure_; }
 
  private:
   bool step();
+  Failure lastFailure_ = Failure::Other;
 };
 
 class MemCounter : public Counter {

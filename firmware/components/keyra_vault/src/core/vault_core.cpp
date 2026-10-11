@@ -165,6 +165,10 @@ Vault::~Vault() { lock(); }
 
 Status Vault::ready() const { return ready_ ? Status::Ok : Status::StorageError; }
 
+Status Vault::storageFailure() const {
+  return p_.storage.lastFailure() == Storage::Failure::NoSpace ? Status::Full : Status::StorageError;
+}
+
 Status Vault::requireUnlocked() const {
   if (!ready_) return Status::StorageError;
   if (!initialized_) return Status::NotInitialized;
@@ -186,7 +190,7 @@ Status Vault::init() {
     for (const auto& n : names) {
       if (!endsWith(n, ".tmp")) continue;
       std::string path = *dir ? std::string(dir) + "/" + n : n;
-      if (!p_.storage.remove(path)) return Status::StorageError;
+      if (!p_.storage.remove(path)) return storageFailure();
     }
   }
   if (Status s = settleRestore(); s != Status::Ok) return s;
@@ -299,9 +303,15 @@ Status Vault::writeMeta(const Meta& m) {
 
 Status Vault::writeAtomic(const std::string& path, const uint8_t* data, size_t n) {
   const std::string tmp = path + ".tmp";
-  if (!p_.storage.write(tmp, data, n) || !p_.storage.rename(tmp, path)) {
+  if (!p_.storage.write(tmp, data, n)) {
+    const Status failure = storageFailure();
+    p_.storage.remove(tmp);  // cleanup must not hide the original ENOSPC
+    return failure;
+  }
+  if (!p_.storage.rename(tmp, path)) {
+    const Status failure = storageFailure();
     p_.storage.remove(tmp);  // best effort; init() also sweeps leftovers
-    return Status::StorageError;
+    return failure;
   }
   return Status::Ok;
 }
@@ -310,7 +320,7 @@ Status Vault::removeAllEntryFiles() {
   std::vector<std::string> names;
   if (!p_.storage.list(kEntryDir, names)) return Status::StorageError;
   for (const auto& n : names)
-    if (!p_.storage.remove(std::string(kEntryDir) + "/" + n)) return Status::StorageError;
+    if (!p_.storage.remove(std::string(kEntryDir) + "/" + n)) return storageFailure();
   return Status::Ok;
 }
 
@@ -318,7 +328,7 @@ Status Vault::removeStaged() {
   std::vector<std::string> names;
   if (!p_.storage.list(kEntryDir, names)) return Status::StorageError;
   for (const auto& n : names)
-    if (isStaged(n) && !p_.storage.remove(std::string(kEntryDir) + "/" + n)) return Status::StorageError;
+    if (isStaged(n) && !p_.storage.remove(std::string(kEntryDir) + "/" + n)) return storageFailure();
   return removeStagedPasskeys();
 }
 
@@ -361,15 +371,15 @@ Status Vault::settleRestore() {
     // An old entry whose id the backup reuses is replaced by the rename below.
     if (parseEntryName(n, id) && std::find(keep.begin(), keep.end(), id) == keep.end() &&
         !p_.storage.remove(dir + n))
-      return Status::StorageError;
+      return storageFailure();
   }
   for (const auto& n : names) {
     if (endsWith(n, ".new") && !p_.storage.rename(dir + n, dir + n.substr(0, n.size() - 4) + ".bin"))
-      return Status::StorageError;
+      return storageFailure();
   }
   if (passkeys)
     if (Status s = settlePasskeys(keepPasskeys, keys); s != Status::Ok) return s;
-  return p_.storage.remove(kRestoreMarker) ? Status::Ok : Status::StorageError;
+  return p_.storage.remove(kRestoreMarker) ? Status::Ok : storageFailure();
 }
 
 Status Vault::deriveKey(const std::string& pass, const uint8_t salt[16], uint32_t iters, Key& out) {
@@ -416,7 +426,7 @@ Status Vault::setup(const std::string& passphrase) {
   if (Status s = removePasskeyFilesLocked(); s != Status::Ok) return s;
   if (!p_.storage.remove(kActivityPath) || !p_.storage.remove(kTokensPath) || !p_.storage.remove(kTagsPath) ||
       !p_.storage.remove(kFidoCounterPath))
-    return Status::StorageError;
+    return storageFailure();
   if (!p_.counter.store(0)) return Status::StorageError;
   failures_ = 0;
   lockedUntilMs_ = 0;
@@ -781,7 +791,7 @@ Status Vault::remove(uint32_t id) {
   if (Status s = requireUnlocked(); s != Status::Ok) return s;
   auto it = std::find_if(slots_.begin(), slots_.end(), [id](const Slot& s) { return s.id == id; });
   if (it == slots_.end()) return Status::NotFound;
-  if (!p_.storage.remove(entryPath(id))) return Status::StorageError;
+  if (!p_.storage.remove(entryPath(id))) return storageFailure();
   slots_.erase(it);  // SecureBuf wipes the plaintext
   return Status::Ok;
 }
@@ -797,7 +807,7 @@ Status Vault::touch(uint32_t id, int64_t now, bool password, bool* burned) {
   if (s == Status::Ok && password && rec.burnAfter > 0 && --rec.burnAfter == 0) {
     // Its last allowed use: gone from flash and RAM.
     wipe(rec);
-    if (!p_.storage.remove(entryPath(id))) return Status::StorageError;
+    if (!p_.storage.remove(entryPath(id))) return storageFailure();
     slots_.erase(std::find_if(slots_.begin(), slots_.end(), [id](const Slot& x) { return x.id == id; }));
     if (burned) *burned = true;
     return Status::Ok;

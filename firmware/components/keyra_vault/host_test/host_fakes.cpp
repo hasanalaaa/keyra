@@ -10,6 +10,7 @@
 namespace keyra::vault::test {
 
 bool MemStorage::step() {
+  lastFailure_ = Failure::Other;
   if (dead) return false;
   if (crashAfter == 0) {
     dead = true;
@@ -21,6 +22,12 @@ bool MemStorage::step() {
     return false;
   }
   if (failAfter > 0) --failAfter;
+  if (noSpaceAfter == 0) {
+    noSpaceAfter = -1;
+    lastFailure_ = Failure::NoSpace;
+    return false;
+  }
+  if (noSpaceAfter > 0) --noSpaceAfter;
   return true;
 }
 

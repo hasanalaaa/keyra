@@ -54,7 +54,7 @@ Status Vault::sealedWrite(const char* path, const char* aad, size_t max, const s
 Status Vault::sealedWriteLocked(const char* path, const char* aad, size_t max, const std::vector<uint8_t>& data) {
   if (Status s = requireUnlocked(); s != Status::Ok) return s;
   if (data.size() > max) return Status::Invalid;
-  if (data.empty()) return p_.storage.remove(path) ? Status::Ok : Status::StorageError;
+  if (data.empty()) return p_.storage.remove(path) ? Status::Ok : storageFailure();
   std::vector<uint8_t> file(kOverhead + data.size());
   file[0] = kVersion;
   if (!p_.crypto.random(file.data() + 1, 12)) return Status::StorageError;

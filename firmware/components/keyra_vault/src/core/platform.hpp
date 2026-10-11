@@ -16,6 +16,7 @@ namespace keyra::vault {
 class Storage {
  public:
   enum class Read { Ok, NotFound, Error };
+  enum class Failure { Other, NoSpace };
   virtual ~Storage() = default;
   virtual bool mount() = 0;  // false: unusable (never formats a partition holding data)
   virtual Read read(const std::string& path, std::vector<uint8_t>& out) = 0;
@@ -28,6 +29,9 @@ class Storage {
   virtual bool list(const std::string& dir, std::vector<std::string>& names) = 0;
   // Destroys every byte and leaves an empty, mounted filesystem. Factory reset only.
   virtual bool format() = 0;
+  // Inspect immediately after a failed mutating operation, before cleanup can
+  // overwrite errno. LittleFS maps LFS_ERR_NOSPC to ENOSPC at the VFS boundary.
+  virtual Failure lastFailure() const { return Failure::Other; }
 };
 
 // The persisted unlock-failure counter (survives reboots and factory-reset clears it).

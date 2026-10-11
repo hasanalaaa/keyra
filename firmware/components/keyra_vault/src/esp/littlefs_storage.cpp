@@ -112,22 +112,36 @@ Storage::Read LittleFsStorage::read(const std::string& path, std::vector<uint8_t
 }
 
 bool LittleFsStorage::write(const std::string& path, const uint8_t* data, size_t n) {
+  lastFailure_ = Failure::Other;
   FILE* f = std::fopen(full(path).c_str(), "wb");
-  if (!f) return false;
-  bool ok = (n == 0 || std::fwrite(data, 1, n, f) == n) && std::fflush(f) == 0 &&
-            ::fsync(fileno(f)) == 0;
+  if (!f) {
+    if (errno == ENOSPC) lastFailure_ = Failure::NoSpace;
+    return false;
+  }
+  bool ok = true;
+  int savedErrno = 0;
+  if (n && std::fwrite(data, 1, n, f) != n) { ok = false; savedErrno = errno; }
+  if (std::fflush(f) != 0) { ok = false; if (!savedErrno || errno == ENOSPC) savedErrno = errno; }
+  if (::fsync(fileno(f)) != 0) { ok = false; if (!savedErrno || errno == ENOSPC) savedErrno = errno; }
   // close() commits the littlefs file; its result matters as much as the write's.
-  ok = std::fclose(f) == 0 && ok;
+  if (std::fclose(f) != 0) { ok = false; if (!savedErrno || errno == ENOSPC) savedErrno = errno; }
+  if (!ok && savedErrno == ENOSPC) lastFailure_ = Failure::NoSpace;
   return ok;
 }
 
 bool LittleFsStorage::rename(const std::string& from, const std::string& to) {
   // lfs_rename replaces an existing target atomically.
-  return ::rename(full(from).c_str(), full(to).c_str()) == 0;
+  lastFailure_ = Failure::Other;
+  if (::rename(full(from).c_str(), full(to).c_str()) == 0) return true;
+  if (errno == ENOSPC) lastFailure_ = Failure::NoSpace;
+  return false;
 }
 
 bool LittleFsStorage::remove(const std::string& path) {
-  return ::unlink(full(path).c_str()) == 0 || errno == ENOENT;
+  lastFailure_ = Failure::Other;
+  if (::unlink(full(path).c_str()) == 0 || errno == ENOENT) return true;
+  if (errno == ENOSPC) lastFailure_ = Failure::NoSpace;
+  return false;
 }
 
 bool LittleFsStorage::list(const std::string& dir, std::vector<std::string>& names) {

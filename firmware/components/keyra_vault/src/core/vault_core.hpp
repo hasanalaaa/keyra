@@ -204,6 +204,7 @@ class Vault {
   Status fidoCounterReadLocked(uint32_t& out);
   Status fidoCounterRaiseLocked(uint32_t atLeast);
   Status requireUnlocked() const;
+  Status storageFailure() const;
   Status forEachLocked(const std::function<bool(const Entry&)>& fn);
   Status loadMeta();
   Status writeMeta(const Meta& m);
