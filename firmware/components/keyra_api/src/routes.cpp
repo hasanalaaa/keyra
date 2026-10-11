@@ -114,6 +114,7 @@ Match matchDecoded(Method m, std::string_view path) {
   }
   if (p == "entries/import") return only(m, Method::Post, Route::ImportEntries);
   if (p == "health") return only(m, Method::Get, Route::Health);
+  if (p == "health/reveal") return only(m, Method::Post, Route::HealthReveal);
   if (p == "health/rotate") return only(m, Method::Post, Route::HealthRotate);
   if (p == "activity") return only(m, Method::Get, Route::Activity);
   if (p == "ble") return only(m, Method::Get, Route::GetBle);
@@ -201,6 +202,10 @@ bool isAgent(Route r) {
 }
 
 bool isTagTap(Route r) { return r == Route::TagTap || r == Route::TagStatus; }
+
+bool adoptsClientClock(Route r, bool session) {
+  return session && !isAgent(r) && !isTagTap(r);
+}
 
 bool isTapPage(std::string_view path) { return path.size() > 3 && path.substr(0, 3) == "/t/"; }
 

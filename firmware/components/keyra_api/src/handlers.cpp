@@ -36,6 +36,10 @@
 #include "trusted.hpp"
 #include "type_request.hpp"
 #include "validate.hpp"
+#include "clock.hpp"
+#include "keyra/net.hpp"
+
+#include <sys/time.h>
 
 namespace keyra::api {
 namespace {
@@ -59,6 +63,19 @@ struct Ctx {
 };
 
 // ---------- small helpers ----------
+
+// X-Keyra-Time (SPEC §5): the device has no RTC. Callers decide whether this
+// request may set it (adoptsClientClock, or a right passphrase).
+void adoptClientClock(httpd_req_t* r) {
+  const auto client = clock::parse(http::header(r, "X-Keyra-Time", 20));
+  if (!client || !clock::shouldAdopt(unixMs(), *client, net::timeSynced())) return;
+  const timeval tv{static_cast<time_t>(*client / 1000), static_cast<suseconds_t>((*client % 1000) * 1000)};
+  if (settimeofday(&tv, nullptr) == 0) {
+    ESP_LOGI(TAG, "clock set from client");
+  } else {
+    ESP_LOGW(TAG, "settimeofday failed");
+  }
+}
 
 esp_err_t badRequest(httpd_req_t* r, const char* message) {
   return http::sendError(r, http::k400, "invalid", message);
@@ -432,6 +449,7 @@ esp_err_t getState(Ctx& c) {
 
 esp_err_t postSetup(Ctx& c) {
   if (vault::initialized()) return sendVaultError(c.r, Status::AlreadyInitialized);
+  adoptClientClock(c.r);  // an empty Keyra: nothing a wrong clock could harm yet
   auto job = std::make_shared<SetupJob>();
   esp_err_t err = ESP_OK;
   if (!requireString(c, "passphrase", job->passphrase.s, err) ||
@@ -496,6 +514,7 @@ esp_err_t postUnlock(Ctx& c) {
     return trust::requestApproval(c.r);
   }
 
+  adoptClientClock(c.r);  // the right passphrase: before the unlock is logged
   return sendSession(c.r, trustId, ktToken, logUnlock(0));
 }
 
@@ -524,6 +543,7 @@ esp_err_t postUnlockRecovery(Ctx& c) {
   if (st == Status::RateLimited) return sendRetry(c.r, http::k429, "rate_limited", "Too many attempts", retryMs);
   if (st != Status::Ok) return sendVaultError(c.r, st);
   ESP_LOGI(TAG, "unlocked with the recovery key; passphrase replaced");
+  adoptClientClock(c.r);
   return sendSession(c.r, trustId, ktToken, logUnlock(1));
 }
 
@@ -557,7 +577,11 @@ esp_err_t getActivity(Ctx& c) {
 }
 
 // SPEC §13: ids and flags only; the passwords never leave this function.
-esp_err_t getHealth(Ctx& c) {
+// Weak and reused speak about the passwords, so with protectReveal they follow
+// the reveal grace like the secrets themselves; POST …/reveal asks for it.
+esp_err_t getHealth(Ctx& c, bool ask) {
+  const bool revealed = protect::mayReveal(c.token);
+  if (ask && !revealed) return protect::requestPress(c.r, actions::Op::Reveal, c.token);
   std::vector<vault::Entry> all;
   const Status st = vault::list(all);
   if (st != Status::Ok) return sendVaultError(c.r, st);
@@ -568,7 +592,7 @@ esp_err_t getHealth(Ctx& c) {
     items.push_back({e.id, e.password, e.history.empty() ? e.created : e.history.front().changedAt});
   }
   const int64_t now = unixSecondsOrZero();
-  const health::Report rep = health::check(items, now);
+  const health::Report rep = health::check(items, now, revealed);
   const int64_t rotateSince = settings::get().rotateSince;
   const std::vector<uint32_t> toChange = rotateSince > 0 ? health::notChangedSince(items, rotateSince)
                                                           : std::vector<uint32_t>{};
@@ -578,6 +602,7 @@ esp_err_t getHealth(Ctx& c) {
   json::Ptr o(cJSON_CreateObject());
   cJSON_AddNumberToObject(o.get(), "checked", static_cast<double>(rep.checked));
   cJSON_AddBoolToObject(o.get(), "clock", now != 0);
+  cJSON_AddBoolToObject(o.get(), "revealed", revealed);
   cJSON* weak = cJSON_AddArrayToObject(o.get(), "weak");
   for (const auto& [id, lv] : rep.weak) {
     cJSON* j = cJSON_CreateObject();
@@ -618,7 +643,7 @@ esp_err_t postHealthRotate(Ctx& c) {
     return http::sendError(c.r, http::k500, "storage", "Could not save settings");
   if (on) activity::log(activity::Kind::RotateStarted);
   else if (was > 0) activity::log(activity::Kind::RotateEnded);
-  return getHealth(c);
+  return getHealth(c, false);
 }
 
 esp_err_t listEntries(Ctx& c) {
@@ -1218,7 +1243,8 @@ esp_err_t dispatch(Ctx& c) {
     case Route::Unlock: return postUnlock(c);
     case Route::Lock: return postLock(c);
     case Route::ListEntries: return listEntries(c);
-    case Route::Health: return getHealth(c);
+    case Route::Health: return getHealth(c, false);
+    case Route::HealthReveal: return getHealth(c, true);
     case Route::HealthRotate: return postHealthRotate(c);
     case Route::Activity: return getActivity(c);
     case Route::CreateEntry: return createEntry(c);
@@ -1413,6 +1439,7 @@ esp_err_t handleApi(httpd_req_t* r, Method method, std::string_view path) {
     // open account from ever auto-locking.
     if (c.match.route != Route::EntryTotp && c.match.route != Route::GetBle) sessions().activity(monoMs());
   }
+  if (adoptsClientClock(c.match.route, c.session)) adoptClientClock(r);
 
   if (takesBody(c.match.route)) {
     json::Secret raw;

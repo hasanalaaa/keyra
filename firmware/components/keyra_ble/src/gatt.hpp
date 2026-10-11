@@ -18,5 +18,7 @@ void resetLink();            // new connection: report protocol, LEDs off
 // LED and protocol writes from this connection are accepted but not kept
 // (a host being let go after another took over); BLE_HS_CONN_HANDLE_NONE ends it.
 void ignoreWrites(uint16_t conn);
+// Only the linked host's LED and protocol writes are kept (BLE_HS_CONN_HANDLE_NONE: any).
+void setOwner(uint16_t conn);
 
 }  // namespace keyra::ble::gatt

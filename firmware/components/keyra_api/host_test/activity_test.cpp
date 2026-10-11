@@ -75,23 +75,79 @@ void coalesced() {
   std::vector<Event> log;
   append(log, ev(Kind::Unlock));
   Event l = ev(Kind::AgentListed, 7, "Claude");
-  append(log, l, true);
+  append(log, l);
   l.at += 30;
-  append(log, l, true);
-  append(log, l, true);
+  append(log, l);
+  append(log, l);
   CHECK(log.size() == 2 && log.back().n == 3 && log.back().at == 1790000030);
-  append(log, ev(Kind::AgentListed, 8, "Other"), true);  // another token: a new line
-  append(log, l, true);                                   // not the newest any more
-  CHECK(log.size() == 4 && log.back().n == 1);
-  append(log, ev(Kind::AgentArmed, 5, "Claude"));         // never coalesced
+  append(log, ev(Kind::AgentListed, 8, "Other"));  // another token: a new line
+  l.at += 30;
+  append(log, l);  // still among the newest: counted, and moved to the end
+  CHECK(log.size() == 3 && log.back().id == 7 && log.back().n == 4 && log.back().at == 1790000060);
+  CHECK(log[1].id == 8);
+  append(log, ev(Kind::AgentArmed, 5, "Claude"));  // never coalesced
   append(log, ev(Kind::AgentArmed, 5, "Claude"));
-  CHECK(log.size() == 6);
+  CHECK(log.size() == 5);
+  // A refusal for another reason is its own line.
+  Event r = ev(Kind::TagRefused, 3, "Desk");
+  append(log, r);
+  r.detail = 1;
+  append(log, r);
+  CHECK(log.size() == 7 && log.back().detail == 1 && log.back().n == 1);
   CHECK(std::string(kindName(Kind::TokenCreated)) == "token_created");
   CHECK(std::string(kindName(Kind::TagCreated)) == "tag_created" && std::string(kindName(Kind::TagTapped)) == "tag_tapped");
   CHECK(std::string(kindName(Kind::TagRevoked)) == "tag_revoked" && std::string(kindName(Kind::TagRefused)) == "tag_refused");
   CHECK(std::string(kindName(Kind::AgentGenerated)) == "agent_generated");
   std::vector<Event> back;
-  CHECK(decode(encode(log), back) && back.size() == 6 && back[1].n == 3 && back[4].kind == Kind::AgentArmed);
+  CHECK(decode(encode(log), back) && back.size() == 7 && back[2].n == 4 && back[3].kind == Kind::AgentArmed);
+}
+
+bool has(const std::vector<Event>& log, Kind k) {
+  for (const Event& e : log)
+    if (e.kind == k) return true;
+  return false;
+}
+
+// What a stolen session, a token or a tag's URL can repeat without a press
+// cannot push the events that matter out of the 200 (the audit's PoC: 200
+// rotate on/off, or a token alternating list and generate, emptied the log).
+void flood() {
+  const auto start = [] {
+    std::vector<Event> log;
+    append(log, ev(Kind::Unlock));
+    append(log, ev(Kind::TokenCreated, 0, "app"));
+    append(log, ev(Kind::Revealed, 42, "Bank"));
+    return log;
+  };
+  // Rotate on/off: two lines in all.
+  std::vector<Event> log = start();
+  for (int i = 0; i < 500; ++i) append(log, ev(i % 2 ? Kind::RotateEnded : Kind::RotateStarted));
+  CHECK(log.size() == 5 && has(log, Kind::Revealed) && has(log, Kind::Unlock) && has(log, Kind::TokenCreated));
+  CHECK(log.back().n == 250);
+  // A token alternating list and generate.
+  log = start();
+  for (int i = 0; i < 500; ++i) append(log, ev(i % 2 ? Kind::AgentGenerated : Kind::AgentListed, 7, "app"));
+  CHECK(log.size() == 5 && has(log, Kind::Revealed));
+  // More distinct lines than the window: arming 300 different accounts and
+  // refusals from 50 tags. Noise is capped, the rest stays.
+  log = start();
+  for (uint32_t i = 0; i < 300; ++i) append(log, ev(Kind::AgentArmed, i + 1, "app"));
+  for (uint32_t i = 0; i < 50; ++i) append(log, ev(Kind::TagRefused, i + 1, "tag"));
+  CHECK(has(log, Kind::Revealed) && has(log, Kind::Unlock) && has(log, Kind::TokenCreated));
+  size_t noise = 0;
+  for (const Event& e : log) noise += isNoise(e.kind) ? 1 : 0;
+  CHECK(noise == kMaxNoise && log.size() == 3 + kMaxNoise);
+  CHECK(log.back().kind == Kind::TagRefused && log.back().id == 50);  // the newest noise is kept
+  // A full log of real events still drops its oldest real event, noise first.
+  log = start();
+  append(log, ev(Kind::AgentArmed, 1, "app"));
+  for (uint32_t i = 0; i < kMaxEvents; ++i) append(log, ev(Kind::Typed, i + 1));
+  CHECK(log.size() == kMaxEvents && !has(log, Kind::Unlock) && !has(log, Kind::AgentArmed));
+  CHECK(log.front().kind == Kind::Typed && log.front().id == 1);
+  // dropOldest: noise first, then the oldest.
+  std::vector<Event> two = {ev(Kind::Unlock), ev(Kind::AgentListed, 1, "a")};
+  CHECK(dropOldest(two) && two.size() == 1 && two[0].kind == Kind::Unlock);
+  CHECK(dropOldest(two) && two.empty() && !dropOldest(two));
 }
 
 // An extension's typing for another site keeps the token's name and the page's
@@ -121,6 +177,7 @@ void armedElsewhere() {
 
 int main() {
   coalesced();
+  flood();
   armedElsewhere();
   roundTrip();
   ringAndClip();

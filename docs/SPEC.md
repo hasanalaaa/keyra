@@ -56,17 +56,24 @@ Keyra/
     main/                   app_main + wiring only
     components/
       keyra_vault/          crypto, encrypted storage, TOTP, backup (+ host tests)
-      keyra_hid/            TinyUSB HID keyboard + dev CDC, typing engine (+ host tests for keymap)
+      keyra_hid/            TinyUSB HID keyboard + FIDO interface + dev CDC, typing engine over USB or Bluetooth (+ host tests for keymap)
+      keyra_ble/            Bluetooth LE keyboard (NimBLE, HID over GATT), pairing window, bonds (§8.1)
       keyra_io/             button (GPIO0) + RGB LED status
-      keyra_net/            SoftAP, DNS, mDNS, captive-probe answers
+      keyra_net/            SoftAP, home Wi-Fi station, DNS, mDNS, captive-probe answers
       keyra_api/            HTTP server, REST API, sessions, pending-action state machine, static web assets
-      keyra_fido/           USB FIDO2/U2F security key (CTAPHID, CTAP2, passkeys; §10)
+      keyra_fido/           USB FIDO2/U2F security key (CTAPHID, CTAP2, passkeys; §11)
     test/host/              host test runner (CMake + ctest, plain C++)
   web/                      Vite + Preact + TypeScript single-page app
     mock/                   Node mock of the device API (for UI dev, screenshots, e2e)
-  tools/                    devctl.py (flash/reset/log over native USB), helper scripts
-  docs/                     SPEC.md, DESIGN.md, SECURITY.md, HARDWARE.md, images/
-  README.md  LICENSE  .github/
+  android/                  Keyra for Android: access-token client with autofill (§17)
+  extension/                Keyra Companion: browser extension, Manifest V3 (§9.4)
+  tools/                    devctl.py (flash/reset/log over native USB), fido_harness.py,
+                            keyra-mcp/ (MCP server for AI agents, §17), release.sh and
+                            sign_release.sh (§14), ci_local.sh
+  docs/                     SPEC.md, DESIGN.md, HARDWARE.md, FIDO.md, IMAGE_PROMPTS.md,
+                            research/ (design notes: TOKENS, NFC-TAGS, HOST-MATCH,
+                            PASSKEY-BACKUP, ROADMAP, ...), images/
+  README.md  README.ar.md  SECURITY.md  CHANGELOG.md  CONTRIBUTING.md  LICENSE  .github/
 ```
 
 Build: `web` builds to a single gzipped `index.html` (+ icons/manifest) that the
@@ -78,7 +85,11 @@ without Node.
 
 Single ESP-IDF app, FreeRTOS tasks:
 - `httpd` (esp_http_server task) — API + static files.
-- `keyra_io` task — debounced button events (queue) + LED animations.
+- `keyra_io` task — debounced button events (queue, each stamped with the
+  time it was recognised) + LED animations. A press older than the item now
+  waiting for the button, or than the end of the last commit, does nothing:
+  it waited in the queue while the actions task was busy (a restore runs
+  seconds of PBKDF2 there) and must not approve what was armed after it.
 - `dns` task — tiny UDP DNS responder.
 - Typing runs in a dedicated `type` task so HTTP stays responsive.
 
@@ -140,7 +151,7 @@ namespace keyra::io {
 enum class Button { Short, Long };
 enum class Led { Off, Locked, Idle, Pending, Typing, Success, Error, AwaitPresence, Setup, Pairing, Fido };
 void init();                                   // LED + button task
-bool nextButton(Button& out, TickType_t wait); // event queue
+bool nextButton(Button& out, int64_t& atMs, TickType_t wait); // event queue, stamped
 void led(Led state);
 bool bootPinHigh();                            // for safe restarts
 }
@@ -166,7 +177,12 @@ Conventions
   Missing/invalid → 403 `csrf`.
 - Locked vault or missing session on a protected route → 401 `locked`.
 - Clock: clients send `X-Keyra-Time: <unix ms>` on every request; the device
-  adopts it if it has no time or drifts > 5 s (device has no RTC).
+  adopts it if it has no time or drifts > 5 s (device has no RTC), but only
+  from a request with a live session, from `POST /api/setup` while the vault
+  is not set up yet, and from
+  `POST /api/unlock` / `/api/unlock/recovery` once the passphrase or key was
+  right (before the unlock is logged). Requests without a session, access
+  tokens and tag taps never set it (`routes.cpp` `adoptsClientClock`).
 - Max 4 concurrent sessions; `lock` (or auto-lock) ends all.
 - Request bodies > 64 KiB → 413 `too_large` (import uses batches). Exception:
   `/api/restore` accepts up to 2 MiB when PSRAM is present (128 KiB without).
@@ -204,7 +220,7 @@ Routes added after v1.0, described in their sections: `/api/ble`, `/api/ble/pair
 `/api/ble/bonds/{addr}` (§8.1); `/api/wifi/scan`, `/api/wifi/home`,
 `/api/trusted[/{id}]` (§8.2); `/api/generate` (§9.1); `/api/keyboard` (§10.1);
 `/api/fido[/{id}]` (§11); `/api/recovery`, `/api/unlock/recovery`,
-`/api/presence/cancel` (§12); `/api/health`, `/api/health/rotate` (§13);
+`/api/presence/cancel` (§12); `/api/health`, `/api/health/reveal`, `/api/health/rotate` (§13);
 `/api/update`, `/api/update/check|download|apply` (§14); `/api/activity` (§15);
 `/api/tokens[/{id}]`, `/api/agent/…` (§17); `/api/tags[/{id}]`, `/api/tag/tap|status`
 and the page `GET /t/…` (§18).
@@ -284,6 +300,14 @@ the same "prepare → press the button" flow. USB stays the default.
   that window it advertises only to bonded hosts (filter accept list) and
   rejects new pairings. LE Secure Connections, bonding, "Just Works" (no
   display/keypad); max 4 bonds stored in NVS.
+- **Re-pairing by a bonded host.** A bonded host asking for new keys is a new
+  pairing, accepted only inside the window, **except** when its link is already
+  encrypted with that bond's own keys (`onRepeatPairing` in `ble.cpp`): iOS
+  renews its keys after every reconnection, and refusing it made it drop and
+  reconnect forever. Holding the old keys proves it is the bonded host, so it
+  may renew them without a press. The old bond is saved first and restored if
+  the link ends before the renewal stores a new one (`restoreBondIfLost`). A
+  host without the old keys is refused outside the window.
 - **Connect on demand (default).** Setting `bleConnect` `"on_demand"|"always"`.
   An iPhone/iPad hides its on-screen keyboard while any Bluetooth keyboard is
   connected, so by default Keyra neither advertises nor holds a link while idle:
@@ -486,7 +510,8 @@ only exactly. No public-suffix guessing, no sibling matching
 matches `host` by the rule above, at most 20; `sameUser` (only when
 `username` was sent) is true when the entry's username equals it exactly.
 Usernames and secrets are never returned, passwords are never compared (no
-password oracle). Not logged per call; counted like `agent_listed`.
+password oracle). Logged as the token's `agent_listed` (§17), counted on
+the same line as its listings rather than one line per call.
 
 **Host binding on type.** For `extension` tokens `POST /api/agent/type`
 requires `host` (the tab's host). When the entry does not match it by the host
@@ -497,7 +522,7 @@ and `state.pending` carries `host` so the phone shows the page the login is
 for.
 
 **Save or update.** `POST /api/agent/save` keeps its body and gains, for every
-kind, `replace?: id`: the press then sets that entry's username (if given)
+kind that may save (`app`, `extension`), `replace?: id`: the press then sets that entry's username (if given)
 and password, the old password goes to its history (§12) and status becomes
 `saved` with that `id`; `title`/`url` are ignored on replace. A `replace` id
 outside the scope → 404. The 202 answer carries `mode:"create"|"update"`.
@@ -759,8 +784,16 @@ itself while unlocked; the phone receives entry ids and flags, never a
 password (`keyra_api/src/health.cpp`, host-tested).
 
 - `GET /api/health` (session) →
-  `{checked, clock, weak:[{id, level}], reused:[[id…]], old:[{id, since}]}`.
+  `{checked, clock, revealed, weak:[{id, level}], reused:[[id…]], old:[{id, since}]}`.
   `checked` = entries with a password (notes-only entries are skipped).
+- **Weak and reused follow the reveal press** (§12.3). They are answers about
+  the passwords themselves: a session that can write one entry could set a
+  guess and ask whether it now "reuses" another account's password. So with
+  `protectReveal` on and no reveal grace for this session, `revealed` is false
+  and `weak` and `reused` are empty; `checked`, `old` and `rotate` are always
+  given. `POST /api/health/reveal` (session) answers like `GET /api/health`
+  inside the grace (or with protection off), else 202 and the same press as
+  `POST /api/entries/{id}/reveal`, which opens the grace for the whole session.
 - **Weak**: strength level 1 or 2 by the same estimate as the app's meter
   (`web/src/lib/strength.ts`: character pool × length, −8 bits per run of 3
   equal characters or 3-step sequence, a short common-password list forces
@@ -780,7 +813,8 @@ For when a backup, the phone or the passphrase may have leaked. `POST
 with a password whose current one was set before `since` (unknown dates
 count as not changed). Nothing per entry is stored — changing a password
 moves the old one into its history with the change time, and that is what
-takes it off the list. Starting and ending are logged (`rotate_started`,
+takes it off the list. Its answer follows the same reveal rule as `GET
+/api/health` (it never asks for the press itself). Starting and ending are logged (`rotate_started`,
 `rotate_ended`). The app asks before ending while accounts are left.
 
 ## 14. Firmware updates over the network
@@ -857,6 +891,19 @@ removed, accounts deleted. Never a password, a code or typed text.
   starts it empty.
 - The last 200 events (oldest dropped; the record is capped at 16 KiB).
   Encoding: `keyra_api/src/activity.cpp` (host-tested).
+- **Floods cannot erase it.** *Noise* is what a session, a token or a tag's
+  URL can repeat without a press or the passphrase: `rotate_started`,
+  `rotate_ended`, `agent_listed`, `agent_armed`, `agent_generated`,
+  `tag_tapped`, `tag_refused`. At most 40 noise events are kept, and when
+  room is needed (the 41st noise event, the 201st event, or the 16 KiB cap)
+  the oldest noise goes first. `rotate_*`, `agent_listed`, `agent_generated`
+  and `tag_refused` are also counted: one with the same kind, id, title and
+  detail as one of the newest 16 events adds to that event's `n` (an event
+  without one counts as 1), which moves to the end with the new time. So
+  turning "change every password" on and off, listing or generating with a
+  token, or tapping with a wrong secret cannot push an unlock, a reveal, a
+  typing or a token's creation out of the log. The stored format is
+  unchanged; this is only which events are kept.
 - `GET /api/activity` (session) →
   `{events:[{kind, at, id?, n?, detail, title?}], max}`; `at` unix seconds
   (0 = clock unknown). Kinds: `unlock` (detail 0 passphrase, 1 recovery key),
@@ -937,7 +984,7 @@ NFC tags build on.
 | POST `/api/agent/cancel` | all | → 204, or 409 `not_cancelled` when nothing of this token waits. |
 | POST `/api/agent/save` | app, extension | `{title, url?, username?, password?, replace?}` (vault limits) → 202 `{awaiting:"button", op:"agent_save", mode:"create"\|"update", expiresIn}`. Without `replace` the press creates the entry (status `saved` with its `id`); a scoped token gets the new id added to its scope while there is room. With `replace: <entry id>` (`password` required, `title`/`url` ignored) the press sets that entry's password and, when a non-empty `username` was sent, its username; the old password goes to the entry's history (§9.3) and status is `saved` with that `id`. A `replace` id outside the scope or unknown → 404 `not_found`; an entry deleted before the press → status `failed`. 403 `forbidden` for an agent token. |
 | POST `/api/agent/generate` | app, extension | Same body and answer as `POST /api/generate` (§9.1). The password is not stored: the app needs it for a sign-up form, and keeping it needs `/api/agent/save` (a press). 403 `forbidden` for an agent token. |
-| POST `/api/agent/match` | extension | `{host, username?}` (`host` as for type) → `{entries:[{id, title, host, sameUser?}]}`: the entries in scope whose URL host matches `host` by the §9.4 host rule, in vault order, at most 20. `sameUser` only when `username` was sent: true when the entry's username equals it exactly (case-sensitive). Never usernames or secrets; passwords are never compared. Logged like a list (`agent_listed`). 403 `forbidden` for other kinds. |
+| POST `/api/agent/match` | extension | `{host, username?}` (`host` as for type) → `{entries:[{id, title, host, sameUser?}]}`: the entries in scope whose URL host matches `host` by the §9.4 host rule, in vault order, at most 20. `sameUser` only when `username` was sent: true when the entry's username equals it exactly (case-sensitive). Never usernames or secrets; passwords are never compared. Logged as the token's `agent_listed`, counted with its listings (§15), not one line per call. 403 `forbidden` for other kinds. |
 
 - **The phone sees who asked.** `state.pending` (and the 202 above) carries
   `by: <token name>` when a token armed the action, and `host: <page host>`
@@ -947,8 +994,8 @@ NFC tags build on.
   phone's cancel, a lock or revoking the token ends them.
 - **Activity log** (§15) kinds: `token_created` (title = name, detail 0
   agent / 1 app / 2 extension), `token_revoked` (title), `agent_listed` (id =
-  token id, title = name, `n` = lists and matches in a row, counted on one
-  line), `agent_armed` (id = entry, title = token name, detail 0 username /
+  token id, title = name, `n` = lists and matches, counted on one line as in
+  §15), `agent_armed` (id = entry, title = token name, detail 0 username /
   1 password / 2 both / 3 code; for an extension's `anyHost` typing detail
   + 4 and title = `<token name> → <page host>`, the name shortened first so
   the host fits the 64-byte title), `agent_saved` (id = the new or updated
@@ -1017,7 +1064,9 @@ Keyra's network that arms **one account** for typing — exactly like
     chip), 409 `replayed` (a counter not above the last one), 429
     `rate_limited` `{retryAfterMs}` + `Retry-After` beyond **10 taps in any
     10 s** per tag (unknown tags and wrong secrets/MACs share one more such
-    budget), 409 `busy`, 404 `not_found` (the account is gone), 400 `invalid`
+    budget). A known tag's budget is spent before its secret or MAC is
+    checked and before anything is logged, so right, wrong and replayed taps
+    all count and a flood past it costs no crypto and no log write. 409 `busy`, 404 `not_found` (the account is gone), 400 `invalid`
     (it lost the field), 409 `no_time` (a code without a clock), 409
     `ble_disabled`.
   - `POST /api/tag/status {id, ticket}` → `{state, code?, expiresIn?}` for that
@@ -1028,6 +1077,6 @@ Keyra's network that arms **one account** for typing — exactly like
 - **Activity log** (§15) kinds: `tag_created` (title = name, detail 0 simple /
   1 secure), `tag_revoked` (title), `tag_tapped` (id = entry, title = tag
   name, detail as `agent_armed`), `tag_refused` (id = tag id, title, detail 0
-  wrong secret or MAC / 1 replayed / 2 another chip; `n` = in a row, counted on
-  one line). The typing itself is the usual `typed`. Secrets, keys and URLs are
+  wrong secret or MAC / 1 replayed / 2 another chip; `n` = how many, counted on
+  one line per tag and reason as in §15). The typing itself is the usual `typed`. Secrets, keys and URLs are
   never logged.

@@ -1,5 +1,8 @@
 #include "activity.hpp"
 
+#include <algorithm>
+#include <cstddef>
+
 namespace keyra::api::activity {
 namespace {
 
@@ -69,21 +72,53 @@ bool decode(const std::vector<uint8_t>& bytes, std::vector<Event>& out) {
   return out.size() <= kMaxEvents;
 }
 
-void append(std::vector<Event>& events, Event e, bool coalesce) {
+bool isNoise(Kind k) {
+  switch (k) {
+    case Kind::RotateStarted: case Kind::RotateEnded:
+    case Kind::AgentListed: case Kind::AgentArmed: case Kind::AgentGenerated:
+    case Kind::TagTapped: case Kind::TagRefused:
+      return true;
+    default:
+      return false;
+  }
+}
+
+bool coalesces(Kind k) {
+  return k == Kind::RotateStarted || k == Kind::RotateEnded || k == Kind::AgentListed ||
+         k == Kind::AgentGenerated || k == Kind::TagRefused;
+}
+
+bool dropOldest(std::vector<Event>& events) {
+  if (events.empty()) return false;
+  auto it = std::find_if(events.begin(), events.end(), [](const Event& e) { return isNoise(e.kind); });
+  events.erase(it != events.end() ? it : events.begin());
+  return true;
+}
+
+void append(std::vector<Event>& events, Event e) {
   e.title = clip(std::move(e.title));
-  if (coalesce) {
+  if (coalesces(e.kind)) {
     e.n = e.n == 0 ? 1 : e.n;
-    if (!events.empty()) {
-      Event& last = events.back();
-      if (last.kind == e.kind && last.id == e.id && last.title == e.title) {
-        last.n = last.n > UINT32_MAX - e.n ? UINT32_MAX : last.n + e.n;
-        if (e.at != 0) last.at = e.at;
-        return;
+    const size_t from = events.size() > kCoalesceWindow ? events.size() - kCoalesceWindow : 0;
+    for (size_t i = events.size(); i-- > from;) {
+      const Event& old = events[i];
+      if (old.kind == e.kind && old.id == e.id && old.detail == e.detail && old.title == e.title) {
+        const uint32_t n = old.n > UINT32_MAX - e.n ? UINT32_MAX : old.n + e.n;
+        if (e.at == 0) e.at = old.at;
+        e.n = n;
+        events.erase(events.begin() + static_cast<std::ptrdiff_t>(i));  // re-added below, newest
+        break;
       }
     }
   }
+  const bool noise = isNoise(e.kind);
   events.push_back(std::move(e));
-  if (events.size() > kMaxEvents) events.erase(events.begin(), events.end() - kMaxEvents);
+  if (noise) {
+    size_t count = 0;
+    for (const Event& x : events) count += isNoise(x.kind) ? 1 : 0;
+    if (count > kMaxNoise) dropOldest(events);  // the oldest noise: there is more than one
+  }
+  while (events.size() > kMaxEvents) dropOldest(events);
 }
 
 std::string elsewhereTitle(std::string_view tokenName, std::string_view pageHost) {

@@ -334,11 +334,19 @@ uint8_t Authenticator::makeCredential(const uint8_t* p, size_t n, User& user, st
 uint8_t Authenticator::assertion(const Found& f, const uint8_t rpIdHash[32], const uint8_t clientDataHash[32],
                                  uint8_t flags, bool includeUser, size_t count, const HmacSecret& hmac,
                                  std::vector<uint8_t>& out) {
+  // up=false is a platform's silent "pre-flight" (Chromium probes allow-list
+  // batches and appid fallbacks this way, then asks again with up=true): it
+  // only needs to learn that the credential is here. The credential key signs
+  // nothing without a press (SECURITY.md), so the probe gets a well-formed
+  // answer signed by a throwaway key, counter 0 and no flags: no relying party
+  // can verify it, and the counter does not move.
+  const bool probe = (flags & kFlagUp) == 0;
+  if (probe && hmac.present) return kUnsupportedOption;  // refused before the touch; kept as a guard
   // hmac-secret answers only for credentials made with it (CTAP 2.1 §12.5).
   std::vector<uint8_t> secret;
   if (hmac.present && (f.flags & cred::kFlagHmacSecret) && !hmacSecretOutput(hmac, f, secret)) return kOther;
   uint32_t counter = 0;
-  if (!counter_.next(counter)) return kOther;
+  if (!probe && !counter_.next(counter)) return kOther;
   std::vector<uint8_t> authData(rpIdHash, rpIdHash + 32);
   authData.push_back(secret.empty() ? flags : flags | kFlagEd);
   put32(authData, counter);
@@ -349,7 +357,14 @@ uint8_t Authenticator::assertion(const Found& f, const uint8_t rpIdHash[32], con
     authData.insert(authData.end(), e.out.begin(), e.out.end());
   }
   std::vector<uint8_t> der;
-  if (!sign(f.priv.data(), authData, clientDataHash, der)) return kOther;
+  if (probe) {
+    uint8_t throwaway[32], pub[65];
+    const bool ok = crypto_.p256Generate(throwaway, pub) && sign(throwaway, authData, clientDataHash, der);
+    wipe(throwaway, sizeof throwaway);
+    if (!ok) return kOther;
+  } else if (!sign(f.priv.data(), authData, clientDataHash, der)) {
+    return kOther;
+  }
 
   const bool user = includeUser && f.resident;
   // CTAP 2.0 §5.2: names only after user verification; the id is always given.
@@ -392,6 +407,8 @@ uint8_t Authenticator::getAssertion(const uint8_t* p, size_t n, User& user, int6
   if (uint8_t s = readOption(options, "up", up); s != kOk) return s;
   if (uint8_t s = readOption(options, "uv", uv); s != kOk) return s;
   if (options && options->find("rk")) return kUnsupportedOption;  // not a GetAssertion option
+  // hmac-secret secrets unlock disks and password stores: never without a press.
+  if (!up && ext && ext->find("hmac-secret")) return kUnsupportedOption;
 
   bool verified = false;
   if (uint8_t s = userVerification(pinAuth, pinProtocol, cdh->str.data(), uv, false, user, verified); s != kOk)
@@ -450,10 +467,11 @@ uint8_t Authenticator::getAssertion(const uint8_t* p, size_t n, User& user, int6
   for (auto& f : found) wipe(f.priv.data(), 32);
   if (found.empty()) return kNoCredentials;
 
-  uint8_t flags = verified ? kFlagUv : 0;
+  // No UV without UP: a probe's answer carries no flags at all (see assertion()).
+  uint8_t flags = 0;
   if (up) {
     if (uint8_t s = fromAnswer(user.waitPresence()); s != kOk) return s;
-    flags |= kFlagUp;
+    flags = kFlagUp | (verified ? kFlagUv : 0);
   }
 
   const size_t count = found.size();
@@ -644,8 +662,9 @@ uint16_t Authenticator::u2fAuthenticate(uint8_t p1, const uint8_t* body, size_t 
     wipe(f.priv.data(), 32);
     return u2f::kSwConditions;  // check-only: "this handle is ours"
   }
+  // 0x08 ("don't enforce presence") is treated as 0x03: nothing is signed without a press.
   uint8_t flags = 0;
-  if (p1 == 0x03) {
+  if (p1 == 0x03 || p1 == 0x08) {
     if (!user.takePresence()) {
       wipe(f.priv.data(), 32);
       return u2f::kSwConditions;

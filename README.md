@@ -68,9 +68,15 @@ A long press (1.5 seconds) cancels a pending action, or locks the vault if nothi
 | **Delete after typing** | Mark an account to delete itself after its password is typed once (or a set number of times): one-time recovery codes and temporary passwords clean themselves up. |
 | **Activity log** | **Settings → Activity** shows unlocks, wrong passphrase attempts, locks and why, what was typed and when, backups and more. Encrypted on Keyra, never a password, and it can't be cleared from the app. |
 | **Password health** | **Settings → Password health** lists reused, weak and year-old passwords. Keyra checks them itself; only the list of accounts reaches the phone, never a password. |
-| **Passkeys and security key (USB)** | Keyra is also a FIDO2/U2F security key: create and use passkeys, or use it as a second factor, on sites that support security keys. Press the button when the light double-blinks white. Up to 50 passkeys, listed in **Settings → Passkeys**. Not FIDO certified; see [docs/FIDO.md](docs/FIDO.md). |
+| **Passkeys and security key (USB)** | Keyra is also a FIDO2/U2F security key: create and use passkeys, or use it as a second factor, on sites that support security keys. Press the button when the light double-blinks white. Up to 50 passkeys, listed in **Settings → Passkeys**. Optional security key PIN (set from the computer), `hmac-secret` and `credProtect`; passkeys travel in encrypted backups by default. Not FIDO certified; see [docs/FIDO.md](docs/FIDO.md). |
 | **Bluetooth keyboard** | Bluetooth LE (HID over GATT) for phones, tablets and computers, with the same typing engine. Pairing only opens for 2 minutes after a button press; up to 4 devices; forget any of them from the app. |
-| **Browser extension (optional)** | Keyra Companion for Chrome, Edge, Brave and Firefox: a Keyra key in login fields lists the logins for that site, warns before typing a login on another site, fills a strong password from Keyra in sign-up forms and offers **Save to Keyra?** afterwards. Connects with one press; never sees a stored password. See [extension/README.md](extension/README.md). |
+| **Browser extension (optional)** | Keyra Companion for Chrome 116+, Edge, Brave, Opera, Vivaldi and Firefox 128+: a Keyra key in login fields lists the logins for that site, warns before typing a login on another site, fills a strong password from Keyra in sign-up forms and offers **Save to Keyra?** afterwards. Connects with one press; never sees a stored password. See [extension/README.md](extension/README.md). |
+| **Android app (optional)** | Keyra for Android (build it from `android/`): autofill suggestions that ask Keyra to type (you still press the button), **Save to Keyra**, and a password generator. It never receives a stored password. See [android/README.md](android/README.md). |
+| **Access tokens and AI agents** | **Settings → Apps and agents** makes revocable tokens for the Android app, the browser extension or an AI agent. A token can list account names and ask Keyra to type or save, never read a password, and every action still waits for your press. [`tools/keyra-mcp`](tools/keyra-mcp/README.md) lets an MCP client such as Claude Code log in this way. |
+| **NFC tags** | **Settings → NFC tags** makes stickers: tap one with your phone to get one account ready to type, then press Keyra's button. NTAG 424 DNA tags cannot be cloned. |
+| **Recovery key** | Optional. **Settings → Recovery kit** makes a key you can print or split into shares; it opens the vault again if you forget the passphrase. |
+| **Reveal only after a press** | By default passwords, 2FA secrets and backups reach the phone only after you press Keyra's button, so a stolen browser session reads nothing. |
+| **Lock when unplugged** | The vault locks about a second after the USB computer is unplugged or goes to sleep (on by default); optionally also when the Bluetooth device disconnects. |
 | **Phone-first web app** | Installable to the home screen. Search, favorites, recents and a strength meter. |
 | **Password generator** | Keyra makes new passwords with its hardware random generator: 8 to 128 characters, choose a–z / A–Z / 0–9 / symbols, minimum numbers and symbols, avoid look-alikes. Shows the exact strength in bits. Type it, type it twice (for "confirm password" fields), copy it, or save it. |
 | **Password history** | Changing a password keeps the old one: the last 10, with dates, inside the encrypted account. Reveal or copy any of them. |
@@ -80,8 +86,8 @@ A long press (1.5 seconds) cancels a pending action, or locks the vault if nothi
 | **Encrypted vault** | PBKDF2-HMAC-SHA256 (about 1.2 s on the device) and per-entry AES-256-GCM. |
 | **Unlock rate limiting** | Failed attempts are counted before the key derivation runs; power-cycling does not reset the delay. |
 | **Import** | Move from Apple Passwords, Chrome, Bitwarden or 1Password CSV exports, or move 2FA keys from a Google Authenticator export QR. |
-| **Encrypted backup** | A passphrase-protected JSON file; restore by merging or replacing. |
-| **Physical confirmation** | Typing, passkey and security-key sign-ins, setup, Wi-Fi changes, Bluetooth pairing and factory reset all need a button press. |
+| **Encrypted backup** | A passphrase-protected JSON file (format version 3) with accounts, password history and, by default, passkeys; restore by merging or replacing. Older backup files still import. |
+| **Physical confirmation** | Typing, passkey and security-key sign-ins, setup, Wi-Fi changes, Bluetooth pairing, firmware installs, saves from apps, deleting an account or passkey, changing the recovery key and factory reset all need a button press. |
 | **Home Wi-Fi (optional)** | Keyra can join your home network so `keyra.local` opens from any device on it. Each new browser there is approved once with the button. |
 | **Status LED** | Locked, ready, typing, success and error, readable at a glance. |
 | **Auto-lock** | Locks after idle (1 to 120 minutes) and zeroizes keys in RAM. |
@@ -112,7 +118,10 @@ The short version. The full threat model, cryptographic design and rate-limit sc
 - Types only after a physical button press. The computer never gets a storage or network channel from Keyra.
 - Signs passkey and security-key requests only while unlocked and after a button press; passkey keys are encrypted with the vault key ([docs/FIDO.md](docs/FIDO.md)).
 - Lets a new Bluetooth device pair only during a 2-minute window opened by a button press; the rest of the time only already-paired devices can even connect.
-- Keeps decrypted data in RAM only while unlocked, and zeroizes it on lock.
+- Keeps decrypted data in RAM only while unlocked, and zeroizes it on lock. It also locks by itself when the USB computer is unplugged or sleeps.
+- Shows passwords, 2FA secrets and backups on the phone only after a button press (**Protect reveal**, on by default), so a stolen browser session cannot read them. Deleting an account or passkey, and changing the recovery key, always need a press.
+- Gives apps, the browser extension and AI agents arm-only tokens: they can ask Keyra to type or save, never read, and each action needs a press.
+- Lets you set a recovery key (optional). Without one, a forgotten passphrase cannot be recovered; with one, it opens the vault again.
 
 **What it does not do (honest limits)**
 
@@ -121,7 +130,7 @@ The short version. The full threat model, cryptographic design and rate-limit sc
 - **Flash encryption and secure boot are optional** and off by default. They are irreversible eFuse steps ([docs/HARDWARE.md](docs/HARDWARE.md#optional-hardening-irreversible)).
 - **Keyra has not been independently audited.**
 - A keylogger on the computer can still see what Keyra types, as with any keyboard.
-- **The security key is not FIDO certified** and uses self attestation; without a secure element its keys are as safe as your passphrase. "User verification" means Keyra is unlocked, not a PIN or fingerprint for each sign-in.
+- **The security key is not FIDO certified** and uses self attestation; without a secure element its keys are as safe as your passphrase. Unless you set a security key PIN (from the computer), "user verification" means Keyra is unlocked, not a PIN or fingerprint for each sign-in.
 - **Bluetooth pairing is "Just Works"** (Keyra has no screen to show a code). Someone within radio range during the 2-minute pairing window could pair their own device, or try to sit in the middle of yours. Pair where you can see who is around, and check the device list afterwards. Details in [SECURITY.md](SECURITY.md#bluetooth).
 
 If you need to report a vulnerability, please use a **private GitHub Security Advisory** as described in [SECURITY.md](SECURITY.md#reporting-a-vulnerability).
@@ -148,9 +157,9 @@ Pin details, flashing options, enclosure ideas and the optional hardening steps:
 
 ### Option A: flash a prebuilt release
 
-1. Download the release files from the [Releases page](https://github.com/hasanalaaa/keyra/releases).
+1. Download the release files from the [Releases page](https://github.com/hasanalaaa/keyra/releases): `bootloader.bin`, `partition-table.bin`, `ota_data_initial.bin`, `keyra-firmware.bin`, `flash-offsets.txt` and `SHA256SUMS`.
 2. Put the board in download mode (hold **BOOT**, plug in the **USB** port, release **BOOT**), or use the **UART** port, which needs no button.
-3. Flash with [esptool](https://docs.espressif.com/projects/esptool/en/latest/) (offsets are from `flasher_args.json`):
+3. Flash with [esptool](https://docs.espressif.com/projects/esptool/en/latest/) (the offsets are in `flash-offsets.txt`, one of the release files):
 
 ```sh
 esptool.py --chip esp32s3 -p <PORT> --before default-reset --after hard-reset \
@@ -200,6 +209,14 @@ Keyra can also join your home network, so you can open it from any phone or lapt
 3. From any device on that network, open **http://keyra.local**. If a device cannot resolve `.local` names, use the address shown in the sheet.
 4. The first time each browser unlocks Keyra through the home network, Keyra asks you to **press its button to trust that browser**. Trusted browsers (up to 8) are listed in **Settings → Trusted browsers**, where you can remove them. Removing one signs it out.
 
+### Updating
+
+1. Join Keyra to your home Wi-Fi (see above): checking for updates needs the internet.
+2. Open **Settings → Firmware update** and tap **Check for updates**.
+3. If a newer version is listed, tap **Download and install**, then **press Keyra's button** when the sheet asks. Keyra restarts with the new version; unlock it again.
+
+Your accounts stay as they are (the vault has its own storage). Keyra accepts only firmware signed with your release key, never an older version, and if the new version fails to start it goes back to the previous one by itself. Without home Wi-Fi, **Install from a file** takes a downloaded `keyra-firmware.bin`.
+
 ### New password for a website
 
 1. On the website's sign-up or change-password page, tap the **wand** at the top of Keyra's account list. Keyra makes a password (20 characters by default; the sheet remembers your settings in this browser).
@@ -224,7 +241,7 @@ Anyone who copies a simple tag's link can ask Keyra to type that account (never 
 
 <p align="center"><img src="extension/screenshots/menu-en.png" width="49%" alt="Keyra key in a login field with the site's logins"> <img src="extension/screenshots/press-en-dark.png" width="49%" alt="Press Keyra's button card"></p>
 
-1. Build it (`npm --prefix extension ci && npm --prefix extension run build`) and load `extension/dist/chrome` in `chrome://extensions` (Developer mode → **Load unpacked**), or `extension/dist/firefox` in Firefox's `about:debugging`.
+1. Build it (`npm --prefix extension ci && npm --prefix extension run build`) and load `extension/dist/chrome` in `chrome://extensions` (Developer mode → **Load unpacked**; Chrome 116+, Edge, Brave, Opera and Vivaldi), or `extension/dist/firefox` in Firefox 128+'s `about:debugging`. Safari is not shipped.
 2. Click the Keyra button in the toolbar, enter Keyra's address and click **Connect**. A Keyra tab opens: unlock, tap **Create token** and **press Keyra's button**. The tab closes by itself.
 3. On a website, click into the login field and then the small Keyra key: pick the login and **press Keyra's button**. After a sign-up or a password change, the extension asks **Save to Keyra?** or **Update the password?** — again a press.
 
@@ -248,9 +265,16 @@ keyra/
 │   ├── partitions.csv         8 MB layout: 2 app slots + LittleFS vault
 │   └── sdkconfig.defaults / sdkconfig.release   dev and release profiles
 ├── web/                       Preact + TypeScript app, built into one gzipped file
-├── extension/                 Keyra Companion: browser extension (Manifest V3, Chrome and Firefox)
-├── tools/                     devctl.py (flash, reset, log), fido_harness.py (python-fido2 vs. the FIDO core)
+├── android/                   Keyra for Android: autofill and save through access tokens (Kotlin)
+├── extension/                 Keyra Companion: browser extension (Manifest V3; Chrome, Edge, Brave, Opera, Vivaldi, Firefox)
+├── tools/
+│   ├── keyra-mcp/             MCP server: lets an AI agent ask Keyra to type a login
+│   ├── release.sh             build, sign and publish a release
+│   ├── sign_release.sh        sign a firmware image for network updates
+│   ├── ci_local.sh            the CI jobs, run locally
+│   └── devctl.py, fido_harness.py   flash/reset/log; python-fido2 vs. the FIDO core
 ├── docs/                      SPEC.md, DESIGN.md, HARDWARE.md, FIDO.md, IMAGE_PROMPTS.md, images/
+│   └── research/              design notes: tokens, NFC tags, host matching, passkey backup, roadmap
 └── .github/                   CI, issue and PR templates
 ```
 
@@ -292,13 +316,12 @@ Ideas, not promises. Priorities follow what real users on real boards report.
 The current work plan, with what is done and what comes next, is in [docs/research/ROADMAP.md](docs/research/ROADMAP.md).
 
 - [x] 0.1: encrypted vault, USB typing, phone app (EN/AR), TOTP, import, backup, CI
-- [x] Bluetooth LE keyboard (unreleased; on the main branch)
-- [x] USB passkeys / FIDO2 + U2F security key (unreleased; on the main branch)
-- [ ] Security-key PIN (ClientPIN with the master passphrase), `hmac-secret`, passkeys in backups
+- [x] 0.2.0: Bluetooth LE keyboard, USB passkeys / FIDO2 + U2F security key, over-the-air firmware updates (signed, with rollback)
+- [x] 0.3.0: security key PIN (ClientPIN, separate from the master passphrase), `hmac-secret` and `credProtect`, passkeys in encrypted backups (format version 3)
+- [x] 0.3.0: Android app, Keyra Companion browser extension, access tokens and the agent gate (`tools/keyra-mcp`), NFC tap tags
 - [ ] Tested board matrix and a prebuilt release for each
 - [ ] Browser-based flashing from the release page
 - [ ] Printable enclosure and a purpose-built PCB
-- [ ] Over-the-air firmware updates (the partition table already has two app slots)
 - [ ] Independent security review
 
 ## FAQ
@@ -313,7 +336,7 @@ Yes, once Keyra knows the computer's system (Settings → Typing for USB, Settin
 Yes, over Bluetooth. Pair it once from **Settings → Bluetooth** (see [How it works](#how-it-works)). iPhone and iPad hide their on-screen keyboard while any Bluetooth keyboard is connected, so by default (**Connect: When typing**, recommended) Keyra connects only for each action: it shows "Connecting to your device…" for a moment, types after your press, and lets go about 20 seconds later. Choose **Always** if you prefer instant typing and do not mind the hidden on-screen keyboard. The account sheet's **Type into** picker chooses USB or a paired device; this browser remembers the choice.
 
 **I forgot my master passphrase. Can I recover my passwords?**
-No. That is the point of encryption, and there is no backdoor. You can **erase the device and start over**: on the unlock screen choose **Forgot passphrase?**, then press Keyra's button to confirm. All accounts are deleted. Restore from a backup if you have one.
+Only with a recovery key you made earlier (**Settings → Recovery kit**; make one while you still remember the passphrase). On the unlock screen choose **Use recovery key**, enter it and pick a new passphrase. Without a recovery key, no: that is the point of encryption, and there is no backdoor. You can **erase the device and start over**: on the unlock screen choose **Forgot passphrase?**, then press Keyra's button to confirm. All accounts are deleted. Restore from a backup if you have one.
 
 **Is it safe to type a password with a button press? What if the wrong window is focused?**
 The action is armed for 60 seconds and runs once on the press. Click the right field first. A long press cancels.
@@ -334,7 +357,7 @@ Not for everyday use at home: open http://keyra.local on your home network inste
 Keyra presents a keyboard and a security key to the computer. It has no storage interface and no network path to it. The computer sees what gets typed, and it can ask the security key to sign a website's challenge, which needs your button press; it can never read the vault or a key. Over Bluetooth a paired device sees a keyboard, Keyra's name and maker, and a battery level, nothing more.
 
 **Is Keyra a YubiKey replacement?**
-No. Keyra can create and use passkeys and act as a security key over USB, and for many personal accounts that works well. But a YubiKey keeps its keys in a secure chip that cannot be read out, is FIDO certified, has a PIN for every sign-in, and works over NFC. Keyra has no secure chip (its keys are as safe as your passphrase and the flash encryption setting), is not certified, treats "unlocked" as user verification, and works only by USB (phones need a USB connection). Some sites, mostly corporate ones, refuse uncertified keys. Register a second key or keep another sign-in method on every account. Details in [docs/FIDO.md](docs/FIDO.md).
+No. Keyra can create and use passkeys and act as a security key over USB, and for many personal accounts that works well. But a YubiKey keeps its keys in a secure chip that cannot be read out, is FIDO certified, asks for its PIN on every sign-in, and works over NFC. Keyra has no secure chip (its keys are as safe as your passphrase and the flash encryption setting), is not certified, treats "unlocked" as user verification unless you set an optional security key PIN, and works only by USB (phones need a USB connection). Some sites, mostly corporate ones, refuse uncertified keys. Register a second key or keep another sign-in method on every account. Details in [docs/FIDO.md](docs/FIDO.md).
 
 **Which passkey sites work?**
 Any site that accepts a USB security key or "passkey on a security key", in Chrome, Edge, Safari or Firefox on macOS, Windows and Linux. Passkeys need Keyra plugged in and unlocked; keep the phone app handy to unlock it. Encrypted backups carry the passkeys too (Settings → "Passkeys in backups", on by default), so a restored Keyra signs in where the old one did.

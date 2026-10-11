@@ -201,6 +201,48 @@ All notable changes to Keyra are documented here. The format follows
   reused by a different account is kept as a separate entry. A wrong backup
   passphrase or bad file is reported before the button press is requested.
 
+### Security
+
+- **Security key: no signature without a press** ([docs/FIDO.md](docs/FIDO.md#user-presence-and-user-verification)).
+  A CTAP2 GetAssertion with `up: false` used to be signed by the credential
+  (UP clear, UV set) and could return `hmac-secret` outputs, and U2F
+  AUTHENTICATE with "don't enforce presence" (`0x08`) signed without asking:
+  software on the computer could get signatures from an unlocked Keyra
+  without the owner. Now `up: false` with `hmac-secret` is refused
+  (`CTAP2_ERR_UNSUPPORTED_OPTION`); `up: false` alone (the browsers' silent
+  "pre-flight") still finds the credential but the answer is signed by a
+  throwaway key, with no flags and counter 0, so no site can accept it; U2F
+  `0x08` needs a press like `0x03`.
+- **Password health is no longer a password oracle** (SPEC §13). With
+  `protectReveal` on, a stolen session could save a guess in one entry and ask
+  `GET /api/health` whether it now "reuses" another account's password. The
+  weak and reused lists now need the reveal press (`revealed: false` and
+  empty lists outside the grace); `POST /api/health/reveal` asks for it.
+  Counts, old passwords and "change every password" are unchanged.
+- **The activity log cannot be flushed** (SPEC §15). A stolen session turning
+  "change every password" on and off, a token alternating list and generate
+  or arming and cancelling, or wrong tag taps could push every earlier event
+  (unlocks, reveals, token creation) out of the 200. Those repeatable
+  events are now counted on one line within the newest 16 (not only the
+  newest one), keep at most 40 lines, and are the first dropped when room
+  is needed. `activity.bin` keeps its format.
+- **A queued press approves nothing armed after it.** Presses made while the
+  button task was busy with a long confirmed action (a replacing restore) or
+  while a sequence part was typing waited in the queue and could approve,
+  cancel or lock whatever was armed next — also a security-key touch. Each
+  press now carries its time and is ignored when it is older than what waits
+  for it or than the end of the last confirmed action.
+- **NFC tag taps are limited before they are checked** (SPEC §18). A wrong
+  secret or MAC for a known tag was verified and written to the activity log
+  before any limit, and a replayed tap was never limited, so anyone on the
+  network could make Keyra check and write to flash without end. The
+  per-tag budget is now spent first, for every tap.
+- **Only a signed-in browser sets the clock** (SPEC §5). Any request,
+  including a page load from any device on the network, could set Keyra's
+  clock through `X-Keyra-Time` while NTP had not set it, shifting 2FA codes
+  and activity times. The header is now taken only with a live session, at
+  setup of an empty Keyra, or from an unlock whose passphrase was right.
+
 ## [0.2.0] - 2026-10-08
 
 Highlights:

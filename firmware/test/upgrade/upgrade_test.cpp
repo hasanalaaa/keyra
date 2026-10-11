@@ -141,7 +141,7 @@ void upgradeReadsEverything() {
   checkPasskeys(f, creds, f.counter.value);
 
   // This version writes into the old log and vault; all of it survives a reboot.
-  for (const auto& e : newEvents()) activity::append(events, e, true);
+  for (const auto& e : newEvents()) activity::append(events, e);
   CHECK(vault::activityWrite(activity::encode(events)) == vault::Status::Ok);
   vault::Entry added;
   added.title = "Added on 0.3.0";
@@ -244,7 +244,7 @@ int write030(const fs::path& in, const fs::path& out) {
   CHECK(vault::put(added) == vault::Status::Ok);
   std::vector<activity::Event> events;
   CHECK(readEvents(events));
-  for (const auto& e : newEvents()) activity::append(events, e, true);
+  for (const auto& e : newEvents()) activity::append(events, e);
   CHECK(vault::activityWrite(activity::encode(events)) == vault::Status::Ok);
 
   Fido f;

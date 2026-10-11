@@ -13,7 +13,7 @@ enum class Method { Get, Post, Put, Delete, Other };
 
 enum class Route {
   State, Setup, Unlock, Lock,
-  ListEntries, CreateEntry, ImportEntries, Health, HealthRotate, Activity, GetEntry, UpdateEntry, DeleteEntry, EntryTotp,
+  ListEntries, CreateEntry, ImportEntries, Health, HealthReveal, HealthRotate, Activity, GetEntry, UpdateEntry, DeleteEntry, EntryTotp,
   Type, TypeCancel, PresenceCancel, GetSettings, PutSettings, Passphrase, Backup, Restore, FactoryReset,
   WifiScan, WifiHome, ListTrusted, DeleteTrusted,
   GetBle, BlePair, BleForget, BleSetOs,
@@ -46,6 +46,12 @@ bool needsSession(Route r);
 bool needsCsrf(Method m, Route r);
 // /api/agent/…: authorised by `Authorization: Bearer <token>`, never by a session.
 bool isAgent(Route r);
+// Whether a request's X-Keyra-Time may set the clock (SPEC §5): only from a
+// browser holding a live session (`session`: cookie valid, vault unlocked).
+// Setup (only on an empty Keyra) and unlock (only once the passphrase was
+// right) adopt it in their handlers. Never a token, a tag or a stranger: the
+// clock decides the 2FA codes Keyra shows and types and every activity time.
+bool adoptsClientClock(Route r, bool session);
 // /api/tag/…: the tap page's calls, authorised by the tag's secret or SUN message.
 bool isTagTap(Route r);
 // GET /t/<id>/<secret> and /t/<id>?p=…&m=…: the tap page (SPEC §18), which changes nothing.

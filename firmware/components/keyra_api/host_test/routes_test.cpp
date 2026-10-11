@@ -57,10 +57,22 @@ void apiRoutes() {
   CHECK(needsSession(Route::ListPasskeys) && needsSession(Route::DeletePasskey));
   CHECK(needsCsrf(Method::Delete, Route::DeletePasskey));
 
+  // X-Keyra-Time sets the clock only with a live session (setup and unlock
+  // adopt it in their handlers, once the vault is empty or the passphrase right).
+  CHECK(adoptsClientClock(Route::ListEntries, true) && adoptsClientClock(Route::State, true));
+  CHECK(!adoptsClientClock(Route::State, false) && !adoptsClientClock(Route::Unlock, false));
+  CHECK(!adoptsClientClock(Route::UnlockRecovery, false) && !adoptsClientClock(Route::FactoryReset, false));
+  CHECK(!adoptsClientClock(Route::Setup, false));
+  CHECK(!adoptsClientClock(Route::AgentType, false) && !adoptsClientClock(Route::AgentEntries, true));
+  CHECK(!adoptsClientClock(Route::TagTap, false) && !adoptsClientClock(Route::TagStatus, true));
+
   CHECK(is(matchApi(Method::Get, "/api/health"), Route::Health));
   CHECK(matchApi(Method::Post, "/api/health").kind == K::MethodNotAllowed);
   CHECK(needsSession(Route::Health));
   CHECK(is(matchApi(Method::Post, "/api/health/rotate"), Route::HealthRotate));
+  CHECK(is(matchApi(Method::Post, "/api/health/reveal"), Route::HealthReveal));
+  CHECK(matchApi(Method::Get, "/api/health/reveal").kind == K::MethodNotAllowed);
+  CHECK(needsSession(Route::HealthReveal) && needsCsrf(Method::Post, Route::HealthReveal));
   CHECK(needsCsrf(Method::Post, Route::HealthRotate));
   CHECK(is(matchApi(Method::Get, "/api/activity"), Route::Activity));
   CHECK(matchApi(Method::Delete, "/api/activity").kind == K::MethodNotAllowed);  // the log cannot be wiped

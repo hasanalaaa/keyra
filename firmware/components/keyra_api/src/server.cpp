@@ -5,7 +5,6 @@
 #include <cstring>
 #include <string>
 
-#include "clock.hpp"
 #include "esp_check.h"
 #include "esp_log.h"
 #include "handlers.hpp"
@@ -13,7 +12,6 @@
 #include "keyra/net.hpp"
 #include "runtime.hpp"
 
-#include <sys/time.h>
 
 extern const uint8_t index_html_gz_start[] asm("_binary_index_html_gz_start");
 extern const uint8_t index_html_gz_end[] asm("_binary_index_html_gz_end");
@@ -64,17 +62,6 @@ Method toMethod(int m) {
   }
 }
 
-void adoptClientClock(httpd_req_t* r) {
-  const auto client = clock::parse(http::header(r, "X-Keyra-Time", 20));
-  if (!client || !clock::shouldAdopt(unixMs(), *client, net::timeSynced())) return;
-  const timeval tv{static_cast<time_t>(*client / 1000), static_cast<suseconds_t>((*client % 1000) * 1000)};
-  if (settimeofday(&tv, nullptr) == 0) {
-    ESP_LOGI(TAG, "clock set from client");
-  } else {
-    ESP_LOGW(TAG, "settimeofday failed");
-  }
-}
-
 esp_err_t sendProbe(httpd_req_t* r, const Probe& p) {
   httpd_resp_set_status(r, p.status);
   httpd_resp_set_type(r, p.contentType);
@@ -104,7 +91,6 @@ esp_err_t sendAsset(httpd_req_t* r, const Asset& a) {
 esp_err_t handleAny(httpd_req_t* r) {
   const char* q = std::strchr(r->uri, '?');
   const std::string_view path(r->uri, q ? static_cast<size_t>(q - r->uri) : std::strlen(r->uri));
-  adoptClientClock(r);
 
   // Captive-probe answers belong to Keyra's own Wi-Fi only; on the home network
   // the phone's real internet check must never be answered by Keyra.

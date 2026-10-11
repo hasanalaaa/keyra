@@ -163,7 +163,7 @@ void machineWaitsForEachPress() {
   auto p = m.pending();
   CHECK(p && p->req.part == 0 && p->req.seq->parts == 3);
   for (uint8_t part = 0; part < 3; ++part) {
-    actions::Decision d = m.onButton(actions::Button::Short, true);
+    actions::Decision d = m.onButton(actions::Button::Short, true, g_now);
     CHECK(d.effect == actions::Effect::Run && d.run.part == part);
     CHECK(!m.pending().has_value());
     g_now += 5000;
@@ -184,28 +184,28 @@ void waitingPartExpiresOrCancels() {
   actions::Machine m([] { return g_now; });
   actions::TypeRequest r{9, "Bank", actions::What::Sequence, false, {}, nullptr, job("a{PRESS}b"), 0};
   m.arm(r, "s");
-  actions::Decision d = m.onButton(actions::Button::Short, true);
+  actions::Decision d = m.onButton(actions::Button::Short, true, g_now);
   m.typingFinished(d.run, Code::Typed);
   g_now += actions::kExpiryMs;
   CHECK(!m.pending().has_value());
   CHECK(m.last()->code == Code::Expired);
 
   m.arm(r, "s");
-  d = m.onButton(actions::Button::Short, true);
+  d = m.onButton(actions::Button::Short, true, g_now);
   m.typingFinished(d.run, Code::Typed);
-  CHECK(m.onButton(actions::Button::Long, true).effect == actions::Effect::Cancelled);
+  CHECK(m.onButton(actions::Button::Long, true, g_now).effect == actions::Effect::Cancelled);
   CHECK(m.last()->code == Code::Cancelled);
 
   // A failed part ends the sequence.
   m.arm(r, "s");
-  d = m.onButton(actions::Button::Short, true);
+  d = m.onButton(actions::Button::Short, true, g_now);
   m.typingFinished(d.run, Code::UnsupportedChar);
   CHECK(!m.pending().has_value());
   CHECK(m.last()->code == Code::UnsupportedChar);
 
   // Something else armed while a part typed: the sequence does not come back.
   m.arm(r, "s");
-  d = m.onButton(actions::Button::Short, true);
+  d = m.onButton(actions::Button::Short, true, g_now);
   actions::TypeRequest other{1, "Mail", actions::What::Password, false, {}, nullptr, nullptr, 0};
   m.arm(other, "s");
   m.typingFinished(d.run, Code::Typed);
@@ -215,7 +215,7 @@ void waitingPartExpiresOrCancels() {
   // Lock drops a waiting sequence like any armed action.
   m.cancel();
   m.arm(r, "s");
-  d = m.onButton(actions::Button::Short, true);
+  d = m.onButton(actions::Button::Short, true, g_now);
   m.typingFinished(d.run, Code::Typed);
   m.dropSessionItems();
   CHECK(!m.pending().has_value());

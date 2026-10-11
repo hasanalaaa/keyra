@@ -143,7 +143,7 @@ esp_err_t listEntries(httpd_req_t* r, const Token& t) {
     }
     vault::wipe(e);
   }
-  activity::log({activity::Kind::AgentListed, 0, t.id, 1, 0, t.name}, true);
+  activity::log({activity::Kind::AgentListed, 0, t.id, 1, 0, t.name});
   return http::sendJson(r, http::k200, o.get());
 }
 
@@ -220,7 +220,7 @@ esp_err_t postMatch(httpd_req_t* r, const Token& t, const cJSON* body) {
     if (withUser) cJSON_AddBoolToObject(j, "sameUser", m.sameUser);
     cJSON_AddItemToArray(arr, j);
   }
-  activity::log({activity::Kind::AgentListed, 0, t.id, 1, 0, t.name}, true);
+  activity::log({activity::Kind::AgentListed, 0, t.id, 1, 0, t.name});
   return http::sendJson(r, http::k200, o.get());
 }
 
@@ -437,7 +437,7 @@ esp_err_t postSave(httpd_req_t* r, const Token& t, const cJSON* body) {
 
 esp_err_t postGenerate(httpd_req_t* r, const Token& t, const cJSON* body) {
   if (!tokens::mayWrite(t)) return http::sendError(r, http::k403, "forbidden", "This token cannot generate passwords");
-  activity::log({activity::Kind::AgentGenerated, 0, t.id, 1, 0, t.name}, true);
+  activity::log({activity::Kind::AgentGenerated, 0, t.id, 1, 0, t.name});
   return genapi::postGenerate(r, body);
 }
 

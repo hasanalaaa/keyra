@@ -13,7 +13,7 @@ std::mutex g_mu;  // read-modify-write of the one record
 
 }  // namespace
 
-void log(Event e, bool coalesce) {
+void log(Event e) {
   if (!vault::unlocked()) return;
   if (e.at == 0) e.at = unixSecondsOrZero();
   std::lock_guard<std::mutex> lock(g_mu);
@@ -26,11 +26,11 @@ void log(Event e, bool coalesce) {
     ESP_LOGW(TAG, "stored log unreadable (%s): starting a new one", vault::statusName(st));
     events.clear();
   }
-  append(events, std::move(e), coalesce);
+  append(events, std::move(e));
   std::vector<uint8_t> out = encode(events);
   // Titles are short, but 200 events of 64-byte titles would pass the vault's cap.
   while (out.size() > vault::kMaxActivityBytes && events.size() > 1) {
-    events.erase(events.begin(), events.begin() + 10 < events.end() ? events.begin() + 10 : events.end() - 1);
+    for (int i = 0; i < 10 && events.size() > 1; ++i) dropOldest(events);
     out = encode(events);
   }
   const vault::Status w = vault::activityWrite(out);

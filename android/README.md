@@ -32,7 +32,7 @@ that returns one.
   only.
 - English and Arabic (right-to-left), light and dark (follows the system).
 - No accessibility service, no Google Play Services, no runtime libraries
-  besides the Kotlin standard library (framework Views). Release APK ≈ 140 KB.
+  besides the Kotlin standard library (framework Views). The unsigned release APK is about 138 KB (138,376 bytes at 0.3.0).
 
 ## Build
 
@@ -124,10 +124,17 @@ needs mDNS resolution, which some Android versions lack — use the IP then.
 - The app does not require the screen lock to use the token (no Keystore
   user-authentication binding); anyone using the unlocked phone can arm, and
   Keyra's press is still required.
-- Matching is a heuristic (no public-suffix list; a small built-in list of
-  shared hosting suffixes such as `github.io` is never matched across). Apps
-  whose package says nothing about the site (e.g. X/Twitter) need "Choose a
-  login…" once.
+- Matching is deliberately simple (the shared rule in
+  [docs/research/HOST-MATCH.md](../docs/research/HOST-MATCH.md)): no
+  public-suffix list and no list of shared-hosting domains. In a browser a
+  login is offered when its host equals the page's host or one is a subdomain of
+  the other (`github.com` ↔ `gist.github.com`), never between siblings
+  (`mail.google.com` ↔ `accounts.google.com`). In an app, the only logins
+  offered are the ones saved from that very app (`androidapp://<package>`, kept
+  by Keyra as the login's address); package names are never used to guess a
+  site. Everything else, such as logins made on the web or for apps whose
+  package says nothing about the site (e.g. X/Twitter), is reached once through
+  "Choose a login…", and the choice can be remembered.
 - Logins saved from an app get the title of the app's package name when Android
   hides other apps' names from Keyra (package visibility); edit the title on
   the save screen.

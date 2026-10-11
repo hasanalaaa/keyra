@@ -64,11 +64,25 @@ std::vector<uint8_t> encode(const std::vector<Event>& events);
 // False on a malformed record (the caller starts a new log rather than lose
 // the ability to log); unknown kinds are kept as they are.
 bool decode(const std::vector<uint8_t>& bytes, std::vector<Event>& out);
-// Appends `e` (title clipped) and drops the oldest beyond kMaxEvents. With
-// `coalesce`, an event of the same kind, id and title as the newest one only
-// adds its n (at least 1) to that one and moves its time: a token listing
-// every few seconds cannot push the rest of the history out.
-void append(std::vector<Event>& events, Event e, bool coalesce = false);
+// Noise: what a session, a token or a tag's URL can repeat at will, without a
+// press or the passphrase (rotate on/off, token listings, generated passwords,
+// armed items it then cancels, tag taps and refusals). At most kMaxNoise of
+// them are kept, and the oldest noise goes first, so a flood cannot push an
+// unlock, a reveal, a typing or a token's creation out of the log.
+bool isNoise(Kind k);
+constexpr size_t kMaxNoise = 40;
+// The noise kinds counted rather than repeated: an event with the same kind,
+// id, title and detail as one of the newest kCoalesceWindow events adds its n
+// (at least 1) to that one, which moves to the end with the new time.
+bool coalesces(Kind k);
+constexpr size_t kCoalesceWindow = 16;
+
+// Appends `e` (title clipped), coalescing as above, then drops the oldest
+// noise beyond kMaxNoise and the oldest event beyond kMaxEvents.
+void append(std::vector<Event>& events, Event e);
+// Drops one event to make room: the oldest noise if there is any, else the
+// oldest. False when `events` is empty.
+bool dropOldest(std::vector<Event>& events);
 
 const char* kindName(Kind k);  // stable API token, e.g. "typed"
 
@@ -82,7 +96,7 @@ std::string elsewhereTitle(std::string_view tokenName, std::string_view pageHost
 // vault is unlocked; when it is locked the event is dropped (nothing can be
 // written without the key). Never fails loudly: logging must not break the
 // action it records.
-void log(Event e, bool coalesce = false);
+void log(Event e);
 void log(Kind k, uint32_t id = 0, std::string title = {}, uint8_t detail = 0, uint32_t n = 0);
 bool list(std::vector<Event>& out);  // false when the stored log cannot be read
 

@@ -264,12 +264,14 @@ struct Get {
   Bytes pinAuth;
   int proto = 2;
   Bytes hmacExt;  // encoded hmac-secret input map, empty = none
+  int up = -1;    // -1 = no "up" option, else its value
 };
 
 Bytes getReq(const Bytes& h, const Get& o) {
   const bool pin = !o.pinAuth.empty();
   cbor::Writer w;
-  w.map(2 + (o.allow.empty() ? 0 : 1) + (o.hmacExt.empty() ? 0 : 1) + (o.uv ? 1 : 0) + (pin ? 2 : 0));
+  const bool options = o.uv || o.up >= 0;
+  w.map(2 + (o.allow.empty() ? 0 : 1) + (o.hmacExt.empty() ? 0 : 1) + (options ? 1 : 0) + (pin ? 2 : 0));
   w.uint(1), w.text(o.rp);
   w.uint(2), w.bytes(h);
   if (!o.allow.empty()) {
@@ -280,7 +282,11 @@ Bytes getReq(const Bytes& h, const Get& o) {
     w.uint(4), w.map(1), w.text("hmac-secret");
     w.out.insert(w.out.end(), o.hmacExt.begin(), o.hmacExt.end());
   }
-  if (o.uv) w.uint(5), w.map(1), w.text("uv"), w.boolean(true);
+  if (options) {
+    w.uint(5), w.map((o.uv ? 1 : 0) + (o.up >= 0 ? 1 : 0));
+    if (o.up >= 0) w.text("up"), w.boolean(o.up == 1);
+    if (o.uv) w.text("uv"), w.boolean(true);
+  }
   if (pin) w.uint(6), w.bytes(o.pinAuth), w.uint(7), w.uint(o.proto);
   return w.out;
 }
@@ -504,6 +510,11 @@ void clientPinFlow(int proto) {
   g.pinAuth = p.auth(tok, cdh(6));
   CHECK(get(r, cdh(6), g, a) == ctap::kOk);
   CHECK(a.flags == 0x05 && a.user.find("name") && a.user.find("name")->text() == "hasan");
+  // A silent probe (up=false) with a valid pinAuth: no UV flag without UP, no names.
+  g.up = 0;
+  CHECK(get(r, cdh(6), g, a) == ctap::kOk);
+  CHECK(a.flags == 0x00 && a.user.find("id") && !a.user.find("name"));
+  g.up = -1;
 
   // Zero-length pinAuth with a PIN set: PIN_INVALID after the touch.
   Make probe = mo;
@@ -749,9 +760,15 @@ void hmacSecret() {
     CHECK(get(r, cdh(3), g, a) == ctap::kOk);
     CHECK(p.dec(a.ext.find("hmac-secret")->str) == expectedOutput(wrapKey, m.credId, true, salt1));
 
-    // A bad saltAuth fails before the touch.
+    // hmac-secret never answers without a press: up=false is refused, nothing asked.
     g.hmacExt = hmacInput(p, salt1, proto == 2);
+    g.up = 0;
     const int before = r.user.presenceCalls;
+    CHECK(get(r, cdh(3), g, a) == ctap::kUnsupportedOption);
+    CHECK(r.user.presenceCalls == before);
+    g.up = -1;
+
+    // A bad saltAuth fails before the touch.
     Bytes broken = g.hmacExt;
     broken[broken.size() - (proto == 2 ? 3 : 1)] ^= 1;  // last byte of saltAuth
     g.hmacExt = broken;
