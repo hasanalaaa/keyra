@@ -32,7 +32,7 @@ let host: HTMLDivElement | null = null;
 let layer: HTMLDivElement;
 /** Announces the highlighted menu item: focus stays in the page's field while arrows move. */
 let live: HTMLElement;
-let hostWatch: MutationObserver | null = null;
+let watchers: MutationObserver[] = [];
 
 // Inline and !important, so no page style sheet can make the layer see-through or move it
 // (clickjacking); only rewriting the attribute could, and that closes the layer (below).
@@ -62,8 +62,8 @@ const HOST_CSS = [
 
 /** The page changed our host element: drop everything on it and build a fresh one when next needed. */
 function dropLayer(): void {
-  hostWatch?.disconnect();
-  hostWatch = null;
+  for (const w of watchers) w.disconnect();
+  watchers = [];
   closeMenu();
   closeCard();
   hideKey();
@@ -89,8 +89,16 @@ function ensureLayer(): HTMLDivElement {
     layer = h('div', { class: 'root', dir: uiDir(), lang: uiLang() }, live);
     root.append(layer);
     if ('showPopover' in host) host.setAttribute('popover', 'manual');
-    hostWatch = new MutationObserver(dropLayer);
-    hostWatch.observe(host, { attributes: true });
+    const own = host;
+    const restyled = new MutationObserver(dropLayer);
+    restyled.observe(own, { attributes: true });
+    // Moved somewhere else in the page: drop it (a fresh one goes back under <html>).
+    const relocated = new MutationObserver(() => own.isConnected && own.parentNode !== document.documentElement && dropLayer());
+    relocated.observe(document.documentElement, { childList: true });
+    // A modal dialog the page opens goes on top of us (popovers: the beforetoggle listener in watch()).
+    const dialogs = new MutationObserver((list) => list.some((m) => m.target !== own && (m.target as Element).matches?.(':modal')) && topLayerChanged());
+    dialogs.observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ['open'] });
+    watchers = [restyled, relocated, dialogs];
   }
   document.documentElement.append(host);
   raise();
@@ -103,6 +111,7 @@ function raise(): void {
   try {
     if (host.matches(':popover-open')) host.hidePopover();
     host.showPopover();
+    raisedOver = new Set(openTopLayer());
   } catch {
     /* not in the document yet, or the browser has no top layer: z-index still applies */
   }
@@ -123,13 +132,57 @@ function fresh(box: HTMLElement): void {
   shownAt.set(box, { at: performance.now(), timer: window.setTimeout(() => box.removeAttribute('aria-disabled'), CLICK_DELAY_MS) });
 }
 
-/** True only for a person's click on our layer while it is open and fully visible. */
-function genuine(e: MouseEvent, box: Element | null): boolean {
-  if (!e.isTrusted || !host || !box?.isConnected) return false;
-  if (performance.now() - (shownAt.get(box)?.at ?? -Infinity) < CLICK_DELAY_MS) return false;
+/** Moved under the pointer: the delay starts again. */
+function moved(box: HTMLElement, left: string, top: string): void {
+  if (box.style.left === left && box.style.top === top) return;
+  const placed = !!box.style.left;
+  box.style.left = left;
+  box.style.top = top;
+  if (placed && box.isConnected) fresh(box);
+}
+
+/** The page's own top-layer elements (popovers, modal dialogs, full screen) open now. */
+function openTopLayer(): Element[] {
+  try {
+    return Array.from(document.querySelectorAll(':popover-open, :modal')).filter((el) => el !== host);
+  } catch {
+    return []; // a browser without these selectors has no top layer either
+  }
+}
+
+/** Those the layer was last raised above; anything else open may sit on top of it. */
+let raisedOver = new Set<Element>();
+
+/** The page opened something in the top layer: get above it again, and let no click through meanwhile. */
+function topLayerChanged(): void {
+  if (!host?.isConnected) return;
+  for (const b of [menuEl, cardEl, keyBtn]) if (b?.isConnected) fresh(b);
+  setTimeout(raise, 0); // after it is shown
+}
+
+/** The layer is where we put it, open, fully visible and on top, and `box` has been shown long enough. */
+function usable(box: Element | null): boolean {
+  if (!host || !box?.isConnected) return false;
   const cs = getComputedStyle(host);
-  const seen = cs.opacity === '1' && cs.visibility === 'visible' && cs.display !== 'none' && cs.filter === 'none' && cs.transform === 'none' && cs.clipPath === 'none' && cs.getPropertyValue('mask-image') === 'none';
-  if (!seen || ('showPopover' in host && !host.matches(':popover-open'))) return false;
+  const plain = cs.opacity === '1' && cs.visibility === 'visible' && cs.display !== 'none' && cs.filter === 'none' && cs.transform === 'none' && cs.clipPath === 'none' && cs.getPropertyValue('mask-image') === 'none';
+  // checkVisibility also sees an ancestor (the page's <html>) made invisible.
+  const visible = !('checkVisibility' in host) || host.checkVisibility({ opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true });
+  if (host.parentNode !== document.documentElement || !plain || !visible || ('showPopover' in host && !host.matches(':popover-open'))) {
+    dropLayer(); // the page moved, hid or closed it
+    return false;
+  }
+  if (openTopLayer().some((el) => !raisedOver.has(el))) {
+    topLayerChanged();
+    return false;
+  }
+  return performance.now() - (shownAt.get(box)?.at ?? -Infinity) >= CLICK_DELAY_MS;
+}
+
+/** True only for a person's click on our layer while it is usable. */
+function genuine(e: MouseEvent, box: Element | null): boolean {
+  if (!e.isTrusted || !usable(box)) return false;
+  const inner = e.composedPath()[0];
+  if (!(inner instanceof Node) || !box!.contains(inner)) return false;
   // A pointer click must land on the layer itself, not on something the page laid over it;
   // a keyboard one (detail 0) needs the focus inside the layer.
   return e.detail === 0 ? document.activeElement === host : document.elementFromPoint(e.clientX, e.clientY) === host;
@@ -193,8 +246,7 @@ function showKey(ctx: Ctx): void {
     );
   }
   keyCtx = ctx;
-  keyBtn.style.left = `${spot.x}px`;
-  keyBtn.style.top = `${spot.y}px`;
+  moved(keyBtn, `${spot.x}px`, `${spot.y}px`);
   if (!keyBtn.isConnected) {
     layer.append(keyBtn);
     fresh(keyBtn);
@@ -223,8 +275,7 @@ function placeMenu(): void {
   const below = innerHeight - r.bottom;
   const hgt = menuEl.offsetHeight || 260;
   const y = below >= hgt + 12 || below > r.top ? r.bottom + 6 : Math.max(8, r.top - hgt - 6);
-  menuEl.style.left = `${x}px`;
-  menuEl.style.top = `${y}px`;
+  moved(menuEl, `${x}px`, `${y}px`);
 }
 
 /** Wires the keyboard and pointer to `items`; `list` shows them unless the caller lays them out. */
@@ -375,6 +426,14 @@ function closeMenu(): void {
 
 function menuKeys(e: KeyboardEvent): boolean {
   if (!menuEl) return false;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || (e.key === 'Enter' && menuOn >= 0)) {
+    // The same gate as a click: the menu must be usable before keys pick from it.
+    if (!usable(menuEl)) {
+      e.preventDefault();
+      e.stopPropagation();
+      return true;
+    }
+  }
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     if (!menuItems.length) return true;
     const d = e.key === 'ArrowDown' ? 1 : -1;
@@ -898,6 +957,14 @@ function watch(): void {
         const f = forms.find((x) => x.root.contains(e.target as Node));
         if (f) void trigger(f.root);
       }
+    },
+    true,
+  );
+  // A popover the page opens goes on top of ours; beforetoggle comes before it shows, so no click slips in.
+  document.addEventListener(
+    'beforetoggle',
+    (e) => {
+      if (!ours(e.target) && (e as ToggleEvent).newState === 'open') topLayerChanged();
     },
     true,
   );

@@ -308,6 +308,61 @@ async function functional() {
   check((await menu(cj).locator('input[type=search]').count()) === 0 && (await card(cj).count()) === 0, 'and a click where its item was does nothing');
   await cj.close();
 
+  // The page's own top layer, moving the field, moving the layer, keys: same gate.
+  const openMenuOn = async (p) => {
+    await p.locator('#password').click();
+    await keyIcon(p).click();
+    await menu(p).locator('.item', { hasText: 'Other login…' }).waitFor();
+    await sleep(700);
+  };
+  const searchOpen = async (p) => (await menu(p).locator('input[type=search]').count()) > 0;
+  const centre = async (l) => {
+    const r = await l.boundingBox();
+    return [r.x + r.width / 2, r.y + r.height / 2];
+  };
+  const cj2 = await openSite(b, at('evil.example', '/login'));
+  await openMenuOn(cj2);
+  const [ox, oy] = await centre(menu(cj2).locator('.item', { hasText: 'Other login…' }));
+  await cj2.evaluate(() => {
+    const d = document.createElement('div');
+    d.popover = 'manual';
+    d.style.cssText = 'pointer-events:none;opacity:.01;inset:0;width:100vw;height:100vh';
+    document.body.append(d);
+    d.showPopover();
+  });
+  await cj2.mouse.click(ox, oy);
+  check(!(await searchOpen(cj2)), 'a popover the page opens over the menu stops the next click');
+  await sleep(700);
+  await cj2.mouse.click(ox, oy);
+  check(await searchOpen(cj2), 'and once Keyra is back on top, a click works again');
+  await cj2.close();
+
+  const cj3 = await openSite(b, at('evil.example', '/login'));
+  await openMenuOn(cj3);
+  await cj3.evaluate(() => {
+    document.querySelector('.demo-box').style.transform = 'translateY(-40px)';
+    dispatchEvent(new Event('scroll'));
+  });
+  await sleep(120);
+  const [mx, my] = await centre(menu(cj3).locator('.item', { hasText: 'Other login…' }));
+  await cj3.mouse.click(mx, my);
+  check(!(await searchOpen(cj3)), 'a menu the page moved under the pointer ignores the click');
+  await cj3.evaluate(() => document.body.append(document.querySelector('html > div[popover]')));
+  await sleep(100);
+  check((await menu(cj3).count()) === 0, 'moving the layer out from under <html> closes it');
+  await cj3.close();
+
+  const cj4 = await openSite(b, at('evil.example', '/login'));
+  await cj4.locator('#login_field').click();
+  await keyIcon(cj4).waitFor();
+  await cj4.keyboard.press('Alt+ArrowDown');
+  await cj4.keyboard.press('ArrowDown');
+  check((await menu(cj4).locator('.item.on').count()) === 0, 'arrow keys do nothing in a menu that just appeared');
+  await sleep(700);
+  await cj4.keyboard.press('ArrowDown');
+  check((await menu(cj4).locator('.item.on').count()) === 1, 'and pick an item once it has been shown long enough');
+  await cj4.close();
+
   // 3. Phishing guard: GitHub's login on another site only after a warning naming both hosts.
   const evil = await openSite(b, at('evil.example', '/login'));
   await evil.locator('#password').click();
