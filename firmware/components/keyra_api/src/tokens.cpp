@@ -210,6 +210,8 @@ std::vector<uint8_t> Store::serialize() const {
   return o;
 }
 
+bool Store::knownVersion(const uint8_t* data, size_t len) { return len == 0 || data[0] == kVersion; }
+
 std::optional<Store> Store::parse(const uint8_t* data, size_t len) {
   Store s;
   if (len == 0) return s;  // no record yet

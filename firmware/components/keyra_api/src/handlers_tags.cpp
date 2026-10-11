@@ -10,6 +10,7 @@
 #include "http.hpp"
 #include "keyra/vault.hpp"
 #include "psa/crypto.h"
+#include "records.hpp"
 #include "runtime.hpp"
 #include "tags.hpp"
 #include "tokens.hpp"
@@ -64,40 +65,35 @@ bool aesEncrypt(const uint8_t key[16], const uint8_t in[16], uint8_t out[16]) { 
 bool aesDecrypt(const uint8_t key[16], const uint8_t in[16], uint8_t out[16]) { return aesBlock(false, key, in, out); }
 const tags::Cipher kAes{aesEncrypt, aesDecrypt};
 
-void wipeBytes(std::vector<uint8_t>& v) {
-  for (volatile uint8_t& b : v) b = 0;
-}
-
 void remember(const tags::Store& s) {
   g_names.clear();
   for (const Tag& t : s.all()) g_names[t.id] = t.name;
 }
 
-// Caller holds g_mu.
-vault::Status loadLocked(tags::Store& out) {
-  std::vector<uint8_t> raw;
-  const vault::Status st = vault::tagsRead(raw);
-  if (st != vault::Status::Ok) return st;
-  auto parsed = tags::Store::parse(raw.data(), raw.size());
-  wipeBytes(raw);
-  if (!parsed) {
-    // Fails safe: no tag works until a new one is made (which rewrites it).
-    ESP_LOGE(TAG, "stored tags unreadable; treating as none");
-    out = tags::Store();
-    return vault::Status::Ok;
+// Caller holds g_mu. A record this firmware cannot read is an error, never "no tags".
+records::Status loadLocked(tags::Store& out) {
+  const records::Status st = records::load(out);
+  if (st != records::Status::Ok) {
+    ESP_LOGE(TAG, "reading tags: %s", records::code(st));
+    return st;
   }
-  out = std::move(*parsed);
   remember(out);
-  return vault::Status::Ok;
+  return st;
 }
 
-vault::Status saveLocked(const tags::Store& s) {
-  std::vector<uint8_t> raw = s.serialize();
-  const vault::Status st = vault::tagsWrite(raw);
-  wipeBytes(raw);
-  if (st != vault::Status::Ok) ESP_LOGE(TAG, "saving tags: %s", vault::statusName(st));
+records::Status saveLocked(const tags::Store& s) {
+  const records::Status st = records::save(s);
+  if (st != records::Status::Ok) {
+    ESP_LOGE(TAG, "saving tags: %s", records::code(st));
+    return st;
+  }
   remember(s);
   return st;
+}
+
+esp_err_t sendRecordError(httpd_req_t* r, records::Status st) {
+  return http::sendError(r, st == records::Status::Locked ? http::k401 : http::k500, records::code(st),
+                         records::message(st));
 }
 
 esp_err_t badRequest(httpd_req_t* r, const char* message) { return http::sendError(r, http::k400, "invalid", message); }
@@ -213,12 +209,12 @@ bool readNew(httpd_req_t* r, const cJSON* body, Tag& t, esp_err_t& err) {
 
 esp_err_t listTags(httpd_req_t* r) {
   tags::Store s;
-  vault::Status st;
+  records::Status st;
   {
     std::lock_guard<std::mutex> lock(g_mu);
     st = loadLocked(s);
   }
-  if (st != vault::Status::Ok) return http::sendError(r, http::k500, "storage", "Could not read the tags");
+  if (st != records::Status::Ok) return sendRecordError(r, st);
   json::Ptr o(cJSON_CreateObject());
   cJSON* arr = cJSON_AddArrayToObject(o.get(), "tags");
   for (const Tag& t : s.all()) {
@@ -238,7 +234,7 @@ esp_err_t createTag(httpd_req_t* r, const cJSON* body, const std::string& sessio
   if (!readNew(r, body, t, err)) return err;
   std::lock_guard<std::mutex> lock(g_mu);
   tags::Store s;
-  if (loadLocked(s) != vault::Status::Ok) return http::sendError(r, http::k500, "storage", "Could not read the tags");
+  if (const records::Status st = loadLocked(s); st != records::Status::Ok) return sendRecordError(r, st);
   if (s.full()) return http::sendError(r, http::k409, "tags_full", "Keyra holds at most 16 tags");
   if (!sessions().consumeGrace(session, monoMs(), Sessions::Grace::Tag))
     return protect::requestPress(r, actions::Op::TagCreate, session);
@@ -266,7 +262,7 @@ esp_err_t createTag(httpd_req_t* r, const cJSON* body, const std::string& sessio
     cJSON_AddStringToObject(keys, "file", toHex(t.fileKey.data(), t.fileKey.size()).c_str());
   }
   if (!s.add(t)) return badRequest(r, "Invalid tag");
-  if (saveLocked(s) != vault::Status::Ok) return http::sendError(r, http::k500, "storage", "Could not save");
+  if (const records::Status st = saveLocked(s); st != records::Status::Ok) return sendRecordError(r, st);
   activity::log(activity::Kind::TagCreated, 0, t.name, t.kind == tags::Kind::Secure ? 1 : 0);
   ESP_LOGI(TAG, "tag %u created (%s)", unsigned(t.id), tags::kindName(t.kind));
   cJSON_AddStringToObject(o.get(), "url", url.s.c_str());
@@ -280,10 +276,10 @@ esp_err_t deleteTag(httpd_req_t* r, uint32_t id) {
   {
     std::lock_guard<std::mutex> lock(g_mu);
     tags::Store s;
-    if (loadLocked(s) != vault::Status::Ok) return http::sendError(r, http::k500, "storage", "Could not read the tags");
+    if (const records::Status st = loadLocked(s); st != records::Status::Ok) return sendRecordError(r, st);
     if (const Tag* t = s.find(id)) name = t->name;
     if (!s.remove(id)) return http::sendError(r, http::k404, "not_found", "No such tag");
-    if (saveLocked(s) != vault::Status::Ok) return http::sendError(r, http::k500, "storage", "Could not save");
+    if (const records::Status st = saveLocked(s); st != records::Status::Ok) return sendRecordError(r, st);
     g_rate.forget(id);
     g_last.erase(id);
   }
@@ -313,7 +309,7 @@ esp_err_t tap(httpd_req_t* r, const cJSON* body) {
   {
     std::lock_guard<std::mutex> lock(g_mu);
     tags::Store s;
-    if (loadLocked(s) != vault::Status::Ok) return http::sendError(r, http::k500, "storage", "Could not read the tags");
+    if (const records::Status st = loadLocked(s); st != records::Status::Ok) return sendRecordError(r, st);
     Tag* stored = s.find(id);
     if (!stored || stored->kind != (simple ? tags::Kind::Simple : tags::Kind::Secure)) {
       // fall through to the shared refusal below, outside the lock
@@ -341,8 +337,9 @@ esp_err_t tap(httpd_req_t* r, const cJSON* body) {
           stored->lastUsed = now;
           dirty = true;
         }
-        if (dirty && saveLocked(s) != vault::Status::Ok)
-          return http::sendError(r, http::k500, "storage", "Could not save");
+        if (dirty) {
+          if (const records::Status st = saveLocked(s); st != records::Status::Ok) return sendRecordError(r, st);
+        }
         t = *stored;
       }
     }

@@ -119,6 +119,9 @@ class Store {
   // Versioned record. parse() rejects anything malformed rather than guess.
   std::vector<uint8_t> serialize() const;
   static std::optional<Store> parse(const uint8_t* data, size_t len);
+  // No record, or this firmware's version byte. False for a record a newer
+  // firmware wrote: parse() refuses it as well, but it is not damage.
+  static bool knownVersion(const uint8_t* data, size_t len);
 
  private:
   std::vector<Tag> list_;
