@@ -1,5 +1,6 @@
 #include "handlers_protect.hpp"
 
+#include "entry_fields.hpp"
 #include "esp_log.h"
 #include "http.hpp"
 #include "handlers_gen.hpp"
@@ -60,18 +61,12 @@ esp_err_t requestPress(httpd_req_t* r, actions::Op op, const std::string& token)
 
 void addEntry(cJSON* o, const vault::Entry& e, bool revealed) {
   cJSON_AddNumberToObject(o, "id", e.id);
-  cJSON_AddStringToObject(o, "title", e.title.c_str());
-  cJSON_AddStringToObject(o, "url", e.url.c_str());
-  cJSON_AddStringToObject(o, "username", e.username.c_str());
+  for (const auto& [key, value] : entryStrings(e, revealed)) cJSON_AddStringToObject(o, key, value->c_str());
   cJSON_AddBoolToObject(o, "revealed", revealed);
   cJSON_AddBoolToObject(o, "hasPassword", !e.password.empty());
   cJSON_AddBoolToObject(o, "hasTotp", !e.totp.empty());
   cJSON_AddBoolToObject(o, "hasSequence", !e.sequence.empty());
-  if (revealed) {
-    cJSON_AddStringToObject(o, "password", e.password.c_str());
-    cJSON_AddStringToObject(o, "totp", e.totp.c_str());
-  }
-  cJSON_AddStringToObject(o, "notes", e.notes.c_str());
+  cJSON_AddBoolToObject(o, "hasNotes", !e.notes.empty());
   cJSON_AddBoolToObject(o, "favorite", e.favorite);
   cJSON_AddNumberToObject(o, "created", static_cast<double>(e.created));
   cJSON_AddNumberToObject(o, "updated", static_cast<double>(e.updated));
