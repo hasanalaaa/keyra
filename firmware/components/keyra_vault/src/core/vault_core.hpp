@@ -51,6 +51,11 @@
 //              the plaintext is keyra_api's encoding (tokens.cpp)
 //   tags.bin   NFC tap tags (SPEC §18), same format with AAD "keyra/tags/v1";
 //              the plaintext is keyra_api's encoding (tags.cpp)
+//   fidoctr.bin  the FIDO signature counter's reservation (SPEC §11, keyra/vault.hpp),
+//              same format with AAD "keyra/fidoctr/v1"; plaintext u32 (LE). Absent = 0.
+//              Raised by keyra_fido before its NVS counter may pass it and by a
+//              restore with passkeys before any of them is written; never lowered.
+//              Kept by restores, passphrase changes and authenticatorReset; removed by setup.
 //   *.tmp      in-flight atomic writes (write tmp → close → rename); any found at
 //              init are leftovers of an interrupted write and are deleted.
 //
@@ -80,6 +85,7 @@ inline constexpr char kActivityPath[] = "activity.bin";
 inline constexpr size_t kMaxActivity = kMaxActivityBytes;
 inline constexpr char kTokensPath[] = "tokens.bin";
 inline constexpr char kTagsPath[] = "tags.bin";
+inline constexpr char kFidoCounterPath[] = "fidoctr.bin";
 
 class Vault {
  public:
@@ -138,8 +144,12 @@ class Vault {
   // NFC tap tags (vault_activity.cpp): one opaque record, encrypted like an entry.
   Status tagsRead(std::vector<uint8_t>& out);
   Status tagsWrite(const std::vector<uint8_t>& data);
+  // FIDO signature counter reservation (vault_activity.cpp).
+  Status fidoCounterRead(uint32_t& out);
+  Status fidoCounterRaise(uint32_t atLeast);
   // Wrong passphrases / recovery keys tried before the last successful unlock.
   uint32_t failedBeforeUnlock() const { return failedBefore_; }
+  Status nvsErased();
 
   Crypto& crypto() { return p_.crypto; }
 
@@ -179,6 +189,10 @@ class Vault {
   // One small record sealed with the DEK (activity log, tokens); an empty write removes it.
   Status sealedRead(const char* path, const char* aad, std::vector<uint8_t>& out);
   Status sealedWrite(const char* path, const char* aad, size_t max, const std::vector<uint8_t>& data);
+  Status sealedReadLocked(const char* path, const char* aad, std::vector<uint8_t>& out);  // caller holds m_
+  Status sealedWriteLocked(const char* path, const char* aad, size_t max, const std::vector<uint8_t>& data);
+  Status fidoCounterReadLocked(uint32_t& out);
+  Status fidoCounterRaiseLocked(uint32_t atLeast);
   Status requireUnlocked() const;
   Status loadMeta();
   Status writeMeta(const Meta& m);

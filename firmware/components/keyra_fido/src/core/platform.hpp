@@ -58,7 +58,8 @@ struct Record {
   std::vector<uint8_t> data;  // cred.hpp resident encoding
 };
 
-// Discoverable credentials, the wrapping keys and the ClientPIN state, held by the vault.
+// Discoverable credentials, the wrapping keys, the ClientPIN state and the
+// counter reservation, held by the vault.
 class Store {
  public:
   enum class Result { Ok, Locked, Full, NotFound, Error };
@@ -74,6 +75,10 @@ class Store {
   virtual bool pinSet() = 0;
   virtual Result pinRead(std::vector<uint8_t>& out) = 0;  // NotFound when no PIN is set
   virtual Result pinWrite(const std::vector<uint8_t>& data) = 0;
+  // The signature counter's reservation (core/counter.hpp), vault open: 0 when
+  // there is none; reserveCounter never lowers it.
+  virtual Result counterReserved(uint32_t& out) = 0;
+  virtual Result reserveCounter(uint32_t atLeast) = 0;
 };
 
 // Global signature counter; next() persists the incremented value before returning it.
@@ -82,15 +87,6 @@ class Counter {
   virtual ~Counter() = default;
   virtual bool next(uint32_t& value) = 0;
 };
-
-// A restored backup carries the counter of the Keyra it came from, which may
-// have signed again since. The counter jumps this far past the backup's so a
-// site that checks it never sees it go backwards (docs/research/PASSKEY-BACKUP.md).
-constexpr uint32_t kRestoreCounterMargin = 1000;
-inline uint32_t restoredCounter(uint32_t local, uint32_t backup) {
-  const uint32_t want = backup > UINT32_MAX - kRestoreCounterMargin ? UINT32_MAX : backup + kRestoreCounterMargin;
-  return local > want ? local : want;  // never lowered
-}
 
 // Asking the person holding Keyra (implemented by Device, which keeps the
 // USB channel alive with keepalives while it waits).

@@ -65,7 +65,10 @@ Status tokensRead(std::vector<uint8_t>& out) { return detail::instance().tokensR
 Status tokensWrite(const std::vector<uint8_t>& data) { return detail::instance().tokensWrite(data); }
 Status tagsRead(std::vector<uint8_t>& out) { return detail::instance().tagsRead(out); }
 Status tagsWrite(const std::vector<uint8_t>& data) { return detail::instance().tagsWrite(data); }
+Status fidoCounterRead(uint32_t& out) { return detail::instance().fidoCounterRead(out); }
+Status fidoCounterRaise(uint32_t atLeast) { return detail::instance().fidoCounterRaise(atLeast); }
 uint32_t failedBeforeUnlock() { return detail::instance().failedBeforeUnlock(); }
+Status nvsErased() { return detail::instance().nvsErased(); }
 
 const char* statusName(Status s) {
   switch (s) {

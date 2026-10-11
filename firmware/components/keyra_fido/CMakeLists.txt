@@ -4,6 +4,7 @@ idf_component_register(
   SRCS
     "src/core/attest.cpp"
     "src/core/cbor.cpp"
+    "src/core/counter.cpp"
     "src/core/ctap.cpp"
     "src/core/ctap_pin.cpp"
     "src/core/ctaphid.cpp"

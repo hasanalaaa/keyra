@@ -101,10 +101,13 @@ Status exportBackup(const std::string& backupPass, std::string& outJson, bool pa
 struct PasskeyRestore {
   size_t added = 0;       // records added
   bool present = false;   // the backup had a passkeys section
-  uint32_t counter = 0;   // its signature counter (when present); the caller raises its own past it
+  uint32_t counter = 0;   // its signature counter (when present)
 };
 // `passkeys` gets present/counter as soon as the backup is read, even when the
-// restore then fails (it may have added passkeys, or finish at the next unlock).
+// restore then fails. With a passkeys section the FIDO counter reservation is
+// raised to fidoCounterAfterRestore(counter) after every check and before any
+// write; if that cannot be saved the restore fails with nothing changed, so a
+// restored passkey can never sign with a counter its sites have seen.
 // replace: all old entries or all new ones, even across a power cut. With a
 // passkeys section the records and wrap keys become the backup's in the same
 // commit; without one the local passkeys stay as they are.
@@ -171,8 +174,32 @@ Status tokensWrite(const std::vector<uint8_t>& data);
 inline constexpr size_t kMaxTagsBytes = 4 * 1024;
 Status tagsRead(std::vector<uint8_t>& out);  // empty when there are none
 Status tagsWrite(const std::vector<uint8_t>& data);
-// Wrong passphrases or recovery keys tried before the latest successful unlock.
+// The FIDO signature counter's reservation (SPEC §11): "fidoctr.bin",
+// AES-256-GCM(DEK), AAD "keyra/fidoctr/v1", a u32. keyra_fido keeps the counter
+// in NVS and raises this, a block of kFidoCounterBlock values at a time, before
+// its NVS copy may pass it, so an erased NVS partition never lets the counter go
+// back. Unlocked only. Read gives 0 when there is none; raise never lowers it.
+// Not part of backups; kept by restores, passphrase changes and
+// authenticatorReset; removed by setup (it is sealed with the old DEK).
+inline constexpr uint32_t kFidoCounterBlock = 1024, kFidoRestoreMargin = 1000;
+Status fidoCounterRead(uint32_t& out);
+Status fidoCounterRaise(uint32_t atLeast);
+// What a restore raises it to: the backup's counter + kFidoRestoreMargin, then
+// a whole block on, so the counter goes past it whatever NVS holds.
+constexpr uint32_t fidoCounterAfterRestore(uint32_t backupCounter) {
+  const uint64_t v = uint64_t(backupCounter) + kFidoRestoreMargin + kFidoCounterBlock;
+  return v > UINT32_MAX ? UINT32_MAX : uint32_t(v);
+}
+
+// Wrong passphrases or recovery keys tried before the latest successful unlock
+// (the ones nvsErased() assumed included).
 uint32_t failedBeforeUnlock();
+// The NVS partition, and the unlock-failure count in it, was erased (main.cpp
+// at boot): the count becomes kFailuresAfterNvsLoss — the longest delay — unless
+// the stored one is higher, and is saved, so neither the erase nor a reboot
+// after it shortens the delay. A right passphrase resets it as usual.
+inline constexpr uint32_t kFailuresAfterNvsLoss = 14;
+Status nvsErased();
 
 const char* statusName(Status s);  // stable lowercase token, e.g. "wrong_passphrase"
 

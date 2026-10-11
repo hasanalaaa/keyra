@@ -1,6 +1,7 @@
-// Small opaque records sealed with the DEK like an entry, so they can only be
-// read or changed while unlocked: the activity log (SPEC §15), the access
-// tokens (SPEC §17) and the NFC tap tags (SPEC §18). Their content is keyra_api's business; here it is bytes.
+// Small records sealed with the DEK like an entry, so they can only be read or
+// changed while unlocked: the activity log (SPEC §15), the access tokens
+// (SPEC §17) and the NFC tap tags (SPEC §18) — keyra_api's bytes — and the
+// FIDO signature counter's reservation (SPEC §11), the vault's own u32.
 #include <cstring>
 
 #include "vault_core.hpp"
@@ -13,6 +14,8 @@ constexpr size_t kOverhead = 1 + 12 + 16;
 constexpr char kActivityAad[] = "keyra/activity/v1";
 constexpr char kTokensAad[] = "keyra/tokens/v1";
 constexpr char kTagsAad[] = "keyra/tags/v1";
+constexpr char kFidoCounterAad[] = "keyra/fidoctr/v1";
+constexpr size_t kFidoCounterBytes = 4;  // u32 LE
 
 const uint8_t* bytes(const char* s) { return reinterpret_cast<const uint8_t*>(s); }
 
@@ -20,6 +23,10 @@ const uint8_t* bytes(const char* s) { return reinterpret_cast<const uint8_t*>(s)
 
 Status Vault::sealedRead(const char* path, const char* aad, std::vector<uint8_t>& out) {
   std::lock_guard<std::mutex> g(m_);
+  return sealedReadLocked(path, aad, out);
+}
+
+Status Vault::sealedReadLocked(const char* path, const char* aad, std::vector<uint8_t>& out) {
   out.clear();
   if (Status s = requireUnlocked(); s != Status::Ok) return s;
   std::vector<uint8_t> file;
@@ -41,6 +48,10 @@ Status Vault::sealedRead(const char* path, const char* aad, std::vector<uint8_t>
 
 Status Vault::sealedWrite(const char* path, const char* aad, size_t max, const std::vector<uint8_t>& data) {
   std::lock_guard<std::mutex> g(m_);
+  return sealedWriteLocked(path, aad, max, data);
+}
+
+Status Vault::sealedWriteLocked(const char* path, const char* aad, size_t max, const std::vector<uint8_t>& data) {
   if (Status s = requireUnlocked(); s != Status::Ok) return s;
   if (data.size() > max) return Status::Invalid;
   if (data.empty()) return p_.storage.remove(path) ? Status::Ok : Status::StorageError;
@@ -68,5 +79,34 @@ Status Vault::tokensWrite(const std::vector<uint8_t>& data) {
 Status Vault::tagsRead(std::vector<uint8_t>& out) { return sealedRead(kTagsPath, kTagsAad, out); }
 
 Status Vault::tagsWrite(const std::vector<uint8_t>& data) { return sealedWrite(kTagsPath, kTagsAad, kMaxTagsBytes, data); }
+
+Status Vault::fidoCounterReadLocked(uint32_t& out) {
+  out = 0;
+  std::vector<uint8_t> b;
+  if (Status s = sealedReadLocked(kFidoCounterPath, kFidoCounterAad, b); s != Status::Ok) return s;
+  if (b.empty()) return Status::Ok;  // none yet
+  if (b.size() != kFidoCounterBytes) return Status::Corrupt;
+  out = uint32_t(b[0]) | uint32_t(b[1]) << 8 | uint32_t(b[2]) << 16 | uint32_t(b[3]) << 24;
+  return Status::Ok;
+}
+
+Status Vault::fidoCounterRaiseLocked(uint32_t atLeast) {
+  uint32_t cur = 0;
+  if (Status s = fidoCounterReadLocked(cur); s != Status::Ok) return s;
+  if (cur >= atLeast) return Status::Ok;  // never lowered
+  const std::vector<uint8_t> b = {uint8_t(atLeast), uint8_t(atLeast >> 8), uint8_t(atLeast >> 16),
+                                  uint8_t(atLeast >> 24)};
+  return sealedWriteLocked(kFidoCounterPath, kFidoCounterAad, kFidoCounterBytes, b);
+}
+
+Status Vault::fidoCounterRead(uint32_t& out) {
+  std::lock_guard<std::mutex> g(m_);
+  return fidoCounterReadLocked(out);
+}
+
+Status Vault::fidoCounterRaise(uint32_t atLeast) {
+  std::lock_guard<std::mutex> g(m_);
+  return fidoCounterRaiseLocked(atLeast);
+}
 
 }  // namespace keyra::vault

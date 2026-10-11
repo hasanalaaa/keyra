@@ -98,6 +98,7 @@ void coalesced() {
   CHECK(std::string(kindName(Kind::TagCreated)) == "tag_created" && std::string(kindName(Kind::TagTapped)) == "tag_tapped");
   CHECK(std::string(kindName(Kind::TagRevoked)) == "tag_revoked" && std::string(kindName(Kind::TagRefused)) == "tag_refused");
   CHECK(std::string(kindName(Kind::AgentGenerated)) == "agent_generated");
+  CHECK(std::string(kindName(Kind::NvsReset)) == "nvs_reset" && !isNoise(Kind::NvsReset));
   std::vector<Event> back;
   CHECK(decode(encode(log), back) && back.size() == 7 && back[2].n == 4 && back[3].kind == Kind::AgentArmed);
 }

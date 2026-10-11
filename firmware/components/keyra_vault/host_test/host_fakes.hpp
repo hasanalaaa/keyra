@@ -83,5 +83,8 @@ struct HeapStats {
   size_t dirtyFrees;  // blocks freed with non-zero bytes (must stay 0)
 };
 HeapStats heapStats();
+// The storage behind the free functions (host_platform.cpp), for injecting failures.
+MemStorage& hostStorage();
+void failNextWrite();  // the next write, rename or remove fails once
 
 }  // namespace keyra::vault::test

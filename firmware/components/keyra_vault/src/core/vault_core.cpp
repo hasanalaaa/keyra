@@ -341,7 +341,8 @@ Status Vault::setup(const std::string& passphrase) {
   // could never be decrypted with the new key.
   if (Status s = removeAllEntryFiles(); s != Status::Ok) return s;
   if (Status s = removePasskeyFilesLocked(); s != Status::Ok) return s;
-  if (!p_.storage.remove(kActivityPath) || !p_.storage.remove(kTokensPath) || !p_.storage.remove(kTagsPath))
+  if (!p_.storage.remove(kActivityPath) || !p_.storage.remove(kTokensPath) || !p_.storage.remove(kTagsPath) ||
+      !p_.storage.remove(kFidoCounterPath))
     return Status::StorageError;
   if (!p_.counter.store(0)) return Status::StorageError;
   failures_ = 0;
@@ -852,7 +853,7 @@ Status Vault::importBackup(const std::string& backupPass, const std::string& jso
   std::vector<Entry> incoming;
   backup::Passkeys pk;
   if (Status s = readBackup(backupPass, jsonText, incoming, pk); s != Status::Ok) return s;
-  // Known from here on whatever happens next: the caller raises its counter on any outcome.
+  // Reported whatever happens next.
   if (passkeys) passkeys->present = pk.present, passkeys->counter = pk.counter;
   PasskeyPlan plan;
   if (Status s = planPasskeys(pk, replace, plan); s != Status::Ok) {
@@ -924,6 +925,15 @@ Status Vault::importBackup(const std::string& backupPass, const std::string& jso
     cleanup();
     return Status::Full;
   }
+
+  // The restored passkeys' sites have seen counters up to the backup's (and
+  // more, if the Keyra it came from signed since): reserve past them before any
+  // of them can reach flash. Nothing is written yet if this fails.
+  if (pk.present)
+    if (Status s = fidoCounterRaiseLocked(fidoCounterAfterRestore(pk.counter)); s != Status::Ok) {
+      cleanup();
+      return s;
+    }
 
   // 3a. Replace: stage the new set beside the old one, then commit with one
   // atomic marker write (see settleRestore). A failure or power cut before the
@@ -1011,6 +1021,16 @@ Status Vault::importBackup(const std::string& backupPass, const std::string& jso
   if (added) *added = nAdded;
   if (updated) *updated = nUpdated;
   if (passkeys) passkeys->added = plan.records.size();
+  return Status::Ok;
+}
+
+Status Vault::nvsErased() {
+  std::lock_guard<std::mutex> g(m_);
+  uint32_t stored = 0;
+  if (!p_.counter.load(stored)) return Status::StorageError;
+  if (stored < kFailuresAfterNvsLoss && !p_.counter.store(kFailuresAfterNvsLoss)) return Status::StorageError;
+  failures_ = std::max(stored, kFailuresAfterNvsLoss);
+  lockedUntilMs_ = p_.clock.monotonicMs() + unlockDelayMs(failures_);
   return Status::Ok;
 }
 
