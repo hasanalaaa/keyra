@@ -2,7 +2,7 @@
 
 /** `sequence` (SPEC §10.4): the entry's own sequence, else settings.bothSequence, else the built-in Both order. */
 export type TypeWhat = 'username' | 'password' | 'both' | 'totp' | 'sequence';
-export type ResultCode = 'typed' | 'cancelled' | 'expired' | 'no_usb' | 'no_host' | 'unsupported_char' | 'failed' | 'host_changed';
+export type ResultCode = 'typed' | 'cancelled' | 'expired' | 'no_usb' | 'no_host' | 'unsupported_char' | 'failed' | 'host_changed' | 'entry_changed';
 
 export interface Pending {
   kind: 'type';
@@ -265,7 +265,9 @@ export interface Entry {
   hasSequence?: boolean; // SPEC §10.4; the sequence itself only when revealed
   password?: string;
   totp?: string;
-  notes: string;
+  /** SPEC §12.3: only when revealed, like the password (it often holds recovery codes). */
+  notes?: string;
+  hasNotes: boolean;
   favorite: boolean;
   created: number;
   updated: number;

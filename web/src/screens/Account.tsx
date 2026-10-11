@@ -274,6 +274,8 @@ function ActionError({ code, retry, copy, edit, close }: { code: ErrorCode; retr
     return <ErrorCard icon="clock" tone="warn" title={t('errExpiredTitle')} body={t('errExpiredBody')} primary={{ label: t('tryAgain'), run: retry }} ghost={{ label: t('close'), run: close }} />;
   if (code === 'host_changed')
     return <ErrorCard icon="usb" tone="warn" title={t('errHostChangedTitle')} body={t('errHostChangedBody')} primary={{ label: t('tryAgain'), run: retry }} ghost={{ label: t('close'), run: close }} />;
+  if (code === 'entry_changed')
+    return <ErrorCard icon="triangle-alert" tone="warn" title={t('errEntryChangedTitle')} body={t('errEntryChangedBody')} primary={{ label: t('tryAgain'), run: retry }} ghost={{ label: t('close'), run: close }} />;
   if (code === 'unsupported_char')
     return <ErrorCard icon="triangle-alert" tone="err" title={t('errUnsupportedTitle')} body={t('errUnsupportedBody')} primary={{ label: t('copyPassword'), run: copy }} ghost={{ label: t('editAccount'), run: edit }} />;
   return <ErrorCard icon="triangle-alert" tone="err" title={t('errFailedTitle')} body={t('errFailedBody')} primary={{ label: t('tryAgain'), run: retry }} ghost={{ label: t('close'), run: close }} />;
@@ -392,6 +394,16 @@ function Details({ entry, reveal }: { entry: Entry | null; reveal: () => Promise
             {entry.url}
           </span>
           <CopyButton value={() => entry.url} />
+        </div>
+      )}
+      {/* SPEC §12.3: hidden like the password until the press; the row says there is something to reveal. */}
+      {!entry.revealed && entry.hasNotes && (
+        <div class="kv-row" data-testid="notes-hidden">
+          <span class="kv-label">{t('notes')}</span>
+          <span class="kv-value">
+            <span class="masked">••••••••••</span>
+          </span>
+          <IconButton icon="eye" label={t('showNotes')} onClick={() => void reveal()} />
         </div>
       )}
       {entry.notes && (

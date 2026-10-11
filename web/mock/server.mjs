@@ -226,10 +226,13 @@ function arm(req) {
   if (!takeSlot(requester, false)) fail(409, 'busy', BUSY);
   req.usbSession = req.target.kind === 'usb' && host.usb ? usbSession : 0;
   req.serial = ++serialSeq;
+  // Like TypeRequest::revision: every put or restore stores a new entry object, so the
+  // object armed for is the version the press may type (entry_changed otherwise).
+  if (req.id) req.entry = vault.entries.get(req.id);
   machine.slot = { kind: 'type', req, deadline: Date.now() + EXPIRY_MS, owner: requester };
   syncDemand();
   autoPress(machine.slot);
-  const { serial: _s, usbSession: _u, ...view } = req;
+  const { serial: _s, usbSession: _u, entry: _e, ...view } = req;
   return { ...view, target: targetText(req.target), expiresIn: EXPIRY_MS };
 }
 
@@ -321,6 +324,7 @@ function press(kind) {
         if (t.kind === 'none') code = 'no_host';
         else if (t.kind === 'usb' && !host.usb) code = 'no_usb';
         else if (t.kind === 'ble' && ble.connected !== t.addr) code = 'no_host';
+        else if (s.req.entry && vault?.entries.has(s.req.id) && vault.entries.get(s.req.id) !== s.req.entry) code = 'entry_changed';
         else if (text === null) code = 'failed';
         else if (s.req.what !== 'probe' && !typeable(text, layoutFor(t), { tabEnter: true })) code = 'unsupported_char';
         // Machine::typingFinished: a sequence part typed fine with more to come is armed again
@@ -1369,9 +1373,11 @@ function getEntry(id) {
 // SPEC §12.3: the entry with secrets, or without them (hasPassword/hasTotp, history dates only).
 function entryView(e, revealed) {
   // A custom sequence may hold literal secrets: it follows the password (SPEC §10.4).
-  const { password, totp, history, sequence, ...rest } = e;
-  if (revealed) return { ...rest, revealed, hasPassword: !!password, hasTotp: !!totp, hasSequence: !!sequence, password, totp, sequence: sequence ?? '', history };
-  return { ...rest, revealed, hasPassword: !!password, hasTotp: !!totp, hasSequence: !!sequence, history: history.map((h) => ({ changedAt: h.changedAt })) };
+  // Notes often hold recovery codes or PINs: they follow the password too (entry_fields.hpp).
+  const { password, totp, history, sequence, notes, ...rest } = e;
+  const has = { hasPassword: !!password, hasTotp: !!totp, hasSequence: !!sequence, hasNotes: !!notes };
+  if (revealed) return { ...rest, revealed, ...has, password, totp, notes, sequence: sequence ?? '', history };
+  return { ...rest, revealed, ...has, history: history.map((h) => ({ changedAt: h.changedAt })) };
 }
 
 // SPEC §12.3: a press grants what it was asked for — reveal for 60 s, or one backup / one recovery-key change.
@@ -2288,8 +2294,9 @@ async function api(req, res, path) {
     }
 
     case 'typeCancel': {
+      // Like Machine::cancel(owner): only this session's own action; another's stays armed.
       const s = machine.slot;
-      if (s?.kind === 'type') {
+      if (s?.kind === 'type' && requester && s.owner === requester) {
         endCancelled(s);
         machine.slot = null;
         syncDemand();

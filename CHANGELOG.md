@@ -6,6 +6,14 @@ All notable changes to Keyra are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **The web app shows hidden notes and the new typing result.** An account's
+  notes appear as a masked row with a show button until the reveal press, and
+  a press that typed nothing because the account was edited since the request
+  (`entry_changed`) says so in the web app and the extension, in Arabic and
+  English.
+
 ### Fixed
 
 - **A press made before a passkey request no longer approves it.** A press

@@ -84,7 +84,10 @@ export function useTypeAction(id: number, free: 'test' | 'text' | 'probe' = 'tes
         setOutcome({ kind: 'typed' });
         navigator.vibrate?.(12);
         void loadEntries();
-      } else setOutcome({ kind: 'error', code: last.code });
+      } else {
+        setOutcome({ kind: 'error', code: last.code });
+        if (last.code === 'entry_changed') void loadEntries(); // show the edited account before a retry
+      }
       return;
     }
     if (d.pending) {

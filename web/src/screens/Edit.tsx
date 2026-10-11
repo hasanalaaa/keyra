@@ -46,7 +46,7 @@ export function EditAccount({ id }: { id?: number }) {
       .then((e) => {
         if (!live) return;
         if (!e) return ctl.current?.close(); // cancelled or not pressed: nothing to edit
-        const v: EntryInput = { title: e.title, url: e.url, username: e.username, password: e.password ?? '', totp: e.totp ?? '', notes: e.notes, favorite: e.favorite, burnAfter: e.burnAfter ?? 0, sequence: e.sequence ?? '' };
+        const v: EntryInput = { title: e.title, url: e.url, username: e.username, password: e.password ?? '', totp: e.totp ?? '', notes: e.notes ?? '', favorite: e.favorite, burnAfter: e.burnAfter ?? 0, sequence: e.sequence ?? '' };
         setInitial(v);
         setForm(v);
       })

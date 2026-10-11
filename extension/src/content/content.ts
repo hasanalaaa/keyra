@@ -739,12 +739,13 @@ function failedCard(code: string, retry?: () => void): void {
     no_usb: ['failNoUsbTitle', 'failNoUsbBody', 'plug'],
     no_host: ['failNoHostTitle', 'failNoHostBody', 'alert'],
     host_changed: ['failHostChangedTitle', 'failHostChangedBody', 'plug'],
+    entry_changed: ['failEntryChangedTitle', 'failEntryChangedBody', 'alert'],
     unsupported_char: ['failUnsupportedTitle', 'failUnsupportedBody', 'alert'],
   };
   const m = map[code];
   setTarget(null);
   showCard({
-    badge: badge(m?.[2] ?? 'alert', code === 'no_usb' || code === 'host_changed' ? 'warn' : 'err'),
+    badge: badge(m?.[2] ?? 'alert', code === 'no_usb' || code === 'host_changed' || code === 'entry_changed' ? 'warn' : 'err'),
     title: m ? t(m[0]) : t('failTitle'),
     body: m ? t(m[1]) : t('failBody', { code }),
     role: 'alert',

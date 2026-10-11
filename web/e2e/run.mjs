@@ -528,6 +528,60 @@ async function burnFlow(base, opts) {
   await ctx.close();
 }
 
+// ---------- Hidden notes and typing what was armed (SPEC §5, §12.3) ----------
+
+/** A second browser session, outside the page: its cookie and CSRF token. */
+async function otherSession(base) {
+  const r = await fetch(`${base}/api/unlock`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ passphrase: PASS }) });
+  check(r.status === 200, `second session unlocks (${r.status})`);
+  const cookie = (r.headers.get('set-cookie') ?? '').split(';')[0];
+  return { cookie, csrf: (await r.json()).csrf };
+}
+
+async function notesFlow(base, opts) {
+  const { ctx, page, tag } = await open(base, opts);
+  console.log(`notes ${tag || '(phone, ar, light)'}`);
+  await page.locator('input[type=password]').waitFor();
+  await unlockUi(page);
+  const id = (await pageApi(page, 'GET', '/api/entries')).body.entries.find((e) => e.title === 'Router').id;
+  const before = (await pageApi(page, 'GET', `/api/entries/${id}`)).body;
+  check(before.revealed === false && before.hasNotes === true && !('notes' in before), 'notes stay on Keyra until the press');
+
+  // The row is there, masked, until the press.
+  await row(page, 'Router').click();
+  const hidden = page.locator('[data-testid=notes-hidden]');
+  await hidden.waitFor();
+  check(!(await page.locator('.notes').count()), 'no notes text before the press');
+  await shot(page, `account-notes-hidden${tag}`);
+  await hidden.locator('.icon-btn').click();
+  await page.locator('.ready-ready').waitFor();
+  check((await button(base)) === 'approved reveal', 'button approves the reveal');
+  await page.locator('.notes', { hasText: 'TP-Link' }).waitFor({ timeout: 5000 });
+  check(!(await hidden.count()), 'the masked row gives way to the notes');
+
+  // Edited while the press is awaited: the press types nothing.
+  await page.locator('.act-both').click();
+  await page.locator('.ready-ready').waitFor();
+  check((await pageApi(page, 'PUT', `/api/entries/${id}`, { password: 'admin-5678' })).status === 200, 'edited while armed');
+  check((await button(base)) === 'typing both · Router', 'the press is taken');
+  await page.locator('.ready-error', { hasText: L(opts, 'The account changed', 'تغيّر الحساب') }).waitFor({ timeout: 5000 });
+  const last = (await pageApi(page, 'GET', '/api/state')).body.last;
+  check(last.code === 'entry_changed' && !last.ok, `result is entry_changed (${last.code})`);
+  await shot(page, `type-entry-changed${tag}`);
+
+  // Another session cannot withdraw this session's action; this one can.
+  await page.locator('.ready-error button').first().click(); // try again
+  await page.locator('.ready-ready').waitFor();
+  const other = await otherSession(base);
+  const r = await fetch(`${base}/api/type/cancel`, { method: 'POST', headers: { cookie: other.cookie, 'X-Keyra-CSRF': other.csrf } });
+  check(r.status === 204, `cancel answers 204 (${r.status})`);
+  check((await pageApi(page, 'GET', '/api/state')).body.pending?.id === id, "another session's cancel leaves it armed");
+  check((await pageApi(page, 'POST', '/api/type/cancel')).status === 204, 'own cancel');
+  check((await pageApi(page, 'GET', '/api/state')).body.pending === null, 'own cancel withdraws it');
+  console.log('  ✓ notes flow passed');
+  await ctx.close();
+}
+
 // ---------- Auto-type sequences (SPEC §10.4): {PRESS} splits typing into parts, one press each ----------
 
 async function sequenceFlow(base, opts) {
@@ -1576,6 +1630,8 @@ try {
   await activityFlow(await startMock(), { lang: 'en', dark: true });
   await burnFlow(await startMock(), {});
   await burnFlow(await startMock(), { lang: 'en', dark: true });
+  await notesFlow(await startMock(), {});
+  await notesFlow(await startMock(), { lang: 'en', dark: true });
   await sequenceFlow(await startMock(), {});
   await sequenceFlow(await startMock(), { lang: 'en', dark: true });
   await updateFlow(await startMock({ MOCK_HOME_ONLINE: '1' }), {});
