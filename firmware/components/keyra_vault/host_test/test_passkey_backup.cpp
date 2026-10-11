@@ -293,8 +293,11 @@ TEST(old_marker_and_salt_formats_still_work) {
   char bin[16], staged[16];
   std::snprintf(bin, sizeof bin, "e/%08x.bin", e.id);
   std::snprintf(staged, sizeof staged, "e/%08x.new", e.id);
-  r->storage.files[staged] = r->storage.files[bin];
-  r->storage.files.erase(bin);
+  const std::string from = bucketLayout() ? bucket::path(bucket::of(e.id)) : bin;
+  const std::string to = bucketLayout() ? bucket::stagedPath(bucket::of(e.id)) : staged;
+  CHECK(r->storage.files.count(from) == 1);
+  r->storage.files[to] = r->storage.files[from];
+  r->storage.files.erase(from);
   std::vector<uint8_t> marker{1};
   for (int i = 0; i < 4; ++i) marker.push_back(uint8_t(e.id >> (8 * i)));
   r->storage.files["restore.commit"] = marker;

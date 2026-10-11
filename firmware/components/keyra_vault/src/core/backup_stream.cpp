@@ -21,8 +21,8 @@ bool space(char c) { return c == ' ' || c == '\n' || c == '\r' || c == '\t'; }
 // member. Only one entry JSON object is held while validating the stream.
 class PlainReader {
  public:
-  PlainReader(int64_t version, Entries& entries, Passkeys& passkeys)
-      : version_(version), entries_(entries), passkeys_(passkeys) {}
+  PlainReader(int64_t version, size_t maxEntries, Entries& entries, Passkeys& passkeys)
+      : version_(version), maxEntries_(maxEntries), entries_(entries), passkeys_(passkeys) {}
   ~PlainReader() { wipe(item_); }
 
   bool write(const uint8_t* bytes, size_t n) {
@@ -62,7 +62,7 @@ class PlainReader {
       wipe(e);
       return false;
     }
-    if (entries_.size() == kMaxEntries) {
+    if (entries_.size() == maxEntries_) {
       full_ = true;
       wipe(e);
     } else {
@@ -133,6 +133,7 @@ class PlainReader {
     return false;
   }
   int64_t version_;
+  size_t maxEntries_;
   Entries& entries_;
   Passkeys& passkeys_;
   State state_ = State::Prefix;
@@ -170,7 +171,7 @@ struct Pending {
 
 }  // namespace
 
-Status readStream(Crypto& crypto, const std::string& passphrase, const Source& source,
+Status readStream(Crypto& crypto, const std::string& passphrase, const Source& source, size_t maxEntries,
                   Entries& entries, Passkeys& passkeys) {
   Pending pending;
   SecureBuf chunk, cipherBuf, plainBuf;
@@ -246,8 +247,8 @@ Status readStream(Crypto& crypto, const std::string& passphrase, const Source& s
         if (derived) op = crypto.gcmStream(key, env.iv, false);
         mem::zeroize(key, sizeof key);
         if (!derived || !op) return Status::StorageError;
-        pending.entries.reserve(kMaxEntries);  // no reallocation of secret strings
-        plain = std::make_unique<PlainReader>(env.version, pending.entries, pending.passkeys);
+        pending.entries.reserve(maxEntries);  // no reallocation of secret strings
+        plain = std::make_unique<PlainReader>(env.version, maxEntries, pending.entries, pending.passkeys);
         prefix.clear();
         state = State::Data;
       } else if (state == State::Data) {

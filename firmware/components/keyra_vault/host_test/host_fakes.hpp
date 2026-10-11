@@ -11,6 +11,13 @@
 
 namespace keyra::vault::test {
 
+// The power of one flash chip: two filesystems on it (the partition and the
+// 16 MB tail) lose it together.
+struct PowerRail {
+  int crashAfter = -1;
+  bool dead = false;
+};
+
 class MemStorage : public Storage {
  public:
   std::map<std::string, std::vector<uint8_t>> files;
@@ -19,6 +26,8 @@ class MemStorage : public Storage {
   // simulated power cut; -1 = never. After the cut every call fails until reboot().
   int crashAfter = -1;
   bool dead = false;
+  // When set, crashAfter/dead are the rail's, shared with other storages.
+  PowerRail* rail = nullptr;
   // Like crashAfter, but only that one operation fails (a transient I/O error).
   int failAfter = -1;
   // Like failAfter, but models LittleFS LFS_ERR_NOSPC / VFS ENOSPC.
@@ -28,9 +37,11 @@ class MemStorage : public Storage {
     dead = false;
     crashAfter = -1;
     noSpaceAfter = -1;
+    if (rail) *rail = PowerRail{};
   }
+  bool off() const { return rail ? rail->dead : dead; }
 
-  bool mount() override { return !dead && mountOk; }
+  bool mount() override { return !off() && mountOk; }
   Read read(const std::string& path, std::vector<uint8_t>& out) override;
   bool write(const std::string& path, const uint8_t* data, size_t n) override;
   bool rename(const std::string& from, const std::string& to) override;

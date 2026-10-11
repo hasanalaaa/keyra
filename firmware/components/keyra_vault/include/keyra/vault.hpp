@@ -244,8 +244,24 @@ const char* statusName(Status s);  // stable lowercase token, e.g. "wrong_passph
 void wipe(std::string& s);
 void wipe(Entry& e);
 
+// Storage location (docs/SPEC.md §6.1). On a board with 16 MB of flash the
+// vault moves once from the "vault" partition to a second filesystem in the
+// upper 8 MB, with entries packed into bucket files; the count limit follows.
+// maxEntries(): kMaxEntriesBuckets there, kMaxEntriesFiles in the partition.
+inline constexpr size_t kMaxEntriesFiles = 1000, kMaxEntriesBuckets = 5000;
+size_t maxEntries();
+// The move is pending: a 16 MB board whose vault is still in the partition.
+bool migrationPending();
+// Copies, verifies and commits the move, then erases the partition. Call only
+// once the running firmware is confirmed (no rollback can follow) and before
+// anything else uses the vault. `tick` runs between file operations.
+Status migrate(const std::function<void()>& tick);
+// The firmware version that moved the vault ("" if it was not moved): no
+// update may install an older one, which could not find it.
+std::string movedBy();
+
 // Field limits in bytes (UTF-8); put()/importBackup() return Invalid beyond them.
-inline constexpr size_t kMaxEntries = 1000, kMaxHistory = 10, kMaxBurnAfter = 99;
+inline constexpr size_t kMaxHistory = 10, kMaxBurnAfter = 99;
 inline constexpr size_t kMaxTitle = 128, kMaxUrl = 512, kMaxUsername = 256, kMaxPassword = 256,
                         kMaxTotp = 512, kMaxNotes = 2048, kMaxSequence = 256;
 inline constexpr size_t kMinBackupPass = 12;

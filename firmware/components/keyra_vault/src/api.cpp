@@ -11,6 +11,10 @@ Vault& instance();  // defined by the platform file
 }
 
 Status init() { return detail::instance().init(); }
+size_t maxEntries() { return detail::instance().maxEntries(); }
+bool migrationPending() { return detail::instance().migrationPending(); }
+Status migrate(const std::function<void()>& tick) { return detail::instance().migrate(tick); }
+std::string movedBy() { return detail::instance().movedBy(); }
 bool initialized() { return detail::instance().initialized(); }
 bool unlocked() { return detail::instance().unlocked(); }
 uint32_t unlockGeneration() { return detail::instance().generation(); }

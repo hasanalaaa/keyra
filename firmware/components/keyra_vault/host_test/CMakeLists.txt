@@ -18,6 +18,7 @@ add_library(keyra_vault_host STATIC
   ${VAULT_DIR}/src/api.cpp
   ${VAULT_DIR}/src/core/backup_format.cpp
   ${VAULT_DIR}/src/core/backup_stream.cpp
+  ${VAULT_DIR}/src/core/bucket.cpp
   ${VAULT_DIR}/src/core/entry_codec.cpp
   ${VAULT_DIR}/src/core/json.cpp
   ${VAULT_DIR}/src/core/secure_buf.cpp
@@ -35,6 +36,16 @@ target_compile_options(keyra_vault_host PUBLIC -Wall -Wextra -Werror)
 target_link_libraries(keyra_vault_host PUBLIC OpenSSL::Crypto)
 
 foreach(t vault backup backup_stream nospace totp formats sequence passkeys passkey_backup recovery activity nvs_loss)
+  add_executable(keyra_vault_test_${t} test_${t}.cpp)
+  target_link_libraries(keyra_vault_test_${t} PRIVATE keyra_vault_host)
+  add_test(NAME keyra_vault_${t} COMMAND keyra_vault_test_${t})
+  # The same tests on layout 2: entries in bucket files, as in the 16 MB tail (rig.hpp).
+  add_test(NAME keyra_vault_${t}_buckets COMMAND keyra_vault_test_${t})
+  set_tests_properties(keyra_vault_${t}_buckets PROPERTIES ENVIRONMENT KEYRA_VAULT_LAYOUT=buckets)
+endforeach()
+
+# Layout-specific: the move to the 16 MB tail, and bucket files themselves.
+foreach(t migrate buckets)
   add_executable(keyra_vault_test_${t} test_${t}.cpp)
   target_link_libraries(keyra_vault_test_${t} PRIVATE keyra_vault_host)
   add_test(NAME keyra_vault_${t} COMMAND keyra_vault_test_${t})

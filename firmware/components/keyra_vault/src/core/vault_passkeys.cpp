@@ -55,11 +55,11 @@ const uint8_t* bytes(const char* s) { return reinterpret_cast<const uint8_t*>(s)
 
 Status Vault::removePasskeyFilesLocked() {
   std::vector<std::string> names;
-  if (!p_.storage.list(kDir, names)) return Status::StorageError;
+  if (!fs_->list(kDir, names)) return Status::StorageError;
   for (const auto& n : names)
-    if (!p_.storage.remove(std::string(kDir) + "/" + n)) return storageFailure();
-  if (!p_.storage.remove(kKeysPath)) return storageFailure();
-  return p_.storage.remove(kPinPath) ? Status::Ok : storageFailure();
+    if (!fs_->remove(std::string(kDir) + "/" + n)) return storageFailure();
+  if (!fs_->remove(kKeysPath)) return storageFailure();
+  return fs_->remove(kPinPath) ? Status::Ok : storageFailure();
 }
 
 Status Vault::persistPasskey(const std::string& path, uint32_t id, const uint8_t* data, size_t n) {
@@ -76,12 +76,12 @@ Status Vault::loadPasskeysLocked() {
   if (passkeysLoaded_) return Status::Ok;
   passkeys_.clear();
   std::vector<std::string> names;
-  if (!p_.storage.list(kDir, names)) return Status::StorageError;
+  if (!fs_->list(kDir, names)) return Status::StorageError;
   std::vector<uint8_t> file;
   for (const auto& name : names) {
     uint32_t id;
     if (!parseName(name, id)) continue;
-    if (p_.storage.read(recordPath(id), file) != Storage::Read::Ok) return Status::StorageError;
+    if (fs_->read(recordPath(id), file) != Storage::Read::Ok) return Status::StorageError;
     if (file.size() < kOverhead || file[0] != kVersion) return Status::Corrupt;
     SecureBuf plain;
     if (!plain.alloc(file.size() - kOverhead)) return Status::StorageError;
@@ -148,7 +148,7 @@ Status Vault::passkeyRemove(uint32_t id) {
   if (Status s = loadPasskeysLocked(); s != Status::Ok) return s;
   auto it = std::find_if(passkeys_.begin(), passkeys_.end(), [id](const Slot& s) { return s.id == id; });
   if (it == passkeys_.end()) return Status::NotFound;
-  if (!p_.storage.remove(recordPath(id))) return storageFailure();
+  if (!fs_->remove(recordPath(id))) return storageFailure();
   passkeys_.erase(it);
   return Status::Ok;
 }
@@ -157,7 +157,7 @@ Status Vault::readWrapKeysLocked(KeyList& out, bool create) {
   out.clear();
   out.reserve(kMaxPasskeyWrapKeys);
   std::vector<uint8_t> file;
-  switch (p_.storage.read(kKeysPath, file)) {
+  switch (fs_->read(kKeysPath, file)) {
     case Storage::Read::Error: return Status::StorageError;
     case Storage::Read::NotFound: {
       if (!create) return Status::Ok;
@@ -296,14 +296,14 @@ Status Vault::stagePasskeys(const backup::Passkeys& in, std::vector<uint32_t>& i
 
 Status Vault::removeStagedPasskeys() {
   std::vector<std::string> names;
-  if (!p_.storage.list(kDir, names)) return Status::StorageError;
+  if (!fs_->list(kDir, names)) return Status::StorageError;
   for (const auto& n : names)
-    if ((endsWith(n, ".new") || endsWith(n, ".new.tmp")) && !p_.storage.remove(std::string(kDir) + "/" + n))
+    if ((endsWith(n, ".new") || endsWith(n, ".new.tmp")) && !fs_->remove(std::string(kDir) + "/" + n))
       return storageFailure();
   // Checked first: this runs at every init and unlock, which should not write.
-  if (!p_.storage.list("", names)) return Status::StorageError;
+  if (!fs_->list("", names)) return Status::StorageError;
   if (std::find(names.begin(), names.end(), kStagedKeysPath) == names.end()) return Status::Ok;
-  return p_.storage.remove(kStagedKeysPath) ? Status::Ok : storageFailure();
+  return fs_->remove(kStagedKeysPath) ? Status::Ok : storageFailure();
 }
 
 // The passkey half of settleRestore; idempotent in the same way.
@@ -311,26 +311,26 @@ Status Vault::settlePasskeys(const std::vector<uint32_t>& keep, bool keys) {
   passkeys_.clear();
   passkeysLoaded_ = false;
   std::vector<std::string> names;
-  if (!p_.storage.list(kDir, names)) return Status::StorageError;
+  if (!fs_->list(kDir, names)) return Status::StorageError;
   for (const auto& n : names) {
     uint32_t id;
     if (parseName(n, id) && std::find(keep.begin(), keep.end(), id) == keep.end() &&
-        !p_.storage.remove(std::string(kDir) + "/" + n))
+        !fs_->remove(std::string(kDir) + "/" + n))
       return storageFailure();
   }
   for (const auto& n : names) {
     uint32_t id;
-    if (parseName(n, id, ".new") && !p_.storage.rename(stagedRecordPath(id), recordPath(id)))
+    if (parseName(n, id, ".new") && !fs_->rename(stagedRecordPath(id), recordPath(id)))
       return storageFailure();
   }
-  if (!keys) return p_.storage.remove(kKeysPath) ? Status::Ok : storageFailure();
+  if (!keys) return fs_->remove(kKeysPath) ? Status::Ok : storageFailure();
   std::vector<uint8_t> staged;
-  switch (p_.storage.read(kStagedKeysPath, staged)) {
+  switch (fs_->read(kStagedKeysPath, staged)) {
     case Storage::Read::NotFound: return Status::Ok;  // renamed by an earlier, interrupted settle
     case Storage::Read::Error: return Status::StorageError;
     case Storage::Read::Ok: break;
   }
-  return p_.storage.rename(kStagedKeysPath, kKeysPath) ? Status::Ok : storageFailure();
+  return fs_->rename(kStagedKeysPath, kKeysPath) ? Status::Ok : storageFailure();
 }
 
 Status Vault::passkeyReset() {
@@ -346,7 +346,7 @@ bool Vault::fidoPinSet() {
   std::lock_guard<std::mutex> g(m_);
   if (!ready_ || !initialized_) return false;
   std::vector<uint8_t> file;
-  return p_.storage.read(kPinPath, file) == Storage::Read::Ok;
+  return fs_->read(kPinPath, file) == Storage::Read::Ok;
 }
 
 Status Vault::fidoPinRead(std::vector<uint8_t>& out) {
@@ -354,7 +354,7 @@ Status Vault::fidoPinRead(std::vector<uint8_t>& out) {
   out.clear();
   if (Status s = requireUnlocked(); s != Status::Ok) return s;
   std::vector<uint8_t> file;
-  switch (p_.storage.read(kPinPath, file)) {
+  switch (fs_->read(kPinPath, file)) {
     case Storage::Read::NotFound: return Status::NotFound;
     case Storage::Read::Error: return Status::StorageError;
     case Storage::Read::Ok: break;
@@ -374,7 +374,7 @@ Status Vault::fidoPinWrite(const std::vector<uint8_t>& data) {
   std::lock_guard<std::mutex> g(m_);
   if (Status s = requireUnlocked(); s != Status::Ok) return s;
   if (data.size() > kMaxFidoPinRecord) return Status::Invalid;
-  if (data.empty()) return p_.storage.remove(kPinPath) ? Status::Ok : storageFailure();
+  if (data.empty()) return fs_->remove(kPinPath) ? Status::Ok : storageFailure();
   std::vector<uint8_t> file(kOverhead + data.size());
   file[0] = kVersion;
   if (!p_.crypto.random(file.data() + 1, 12) ||

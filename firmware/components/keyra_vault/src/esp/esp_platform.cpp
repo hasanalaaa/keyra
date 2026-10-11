@@ -3,6 +3,7 @@
 #include "core/secure_buf.hpp"
 #include "core/vault_core.hpp"
 #include "esp_adapters.hpp"
+#include "esp_app_desc.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -69,11 +70,14 @@ void mem::zeroize(void* p, size_t n) { mbedtls_platform_zeroize(p, n); }
 
 namespace detail {
 Vault& instance() {
-  static esp::LittleFsStorage storage;
+  static esp::LittleFsStorage storage("vault", "/vault", {"e", "f"});
+  // 16 MB boards: the vault's home after its one-time move (docs/SPEC.md §6.1).
+  static esp::LittleFsStorage tail(esp::kTailLabel, "/vaulttail", {"e", "f", "b"});
   static esp::NvsCounter counter;
   static esp::PsaCrypto crypto;
   static esp::EspClock clock;
-  static Vault vault(Platform{storage, counter, crypto, clock}, Vault::Options{});
+  static Vault vault(Platform{storage, counter, crypto, clock, esp::registerTail() ? &tail : nullptr},
+                     Vault::Options{0, esp_app_get_description()->version});
   return vault;
 }
 }  // namespace detail

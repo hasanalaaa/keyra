@@ -11,12 +11,14 @@ namespace keyra::vault::test {
 
 bool MemStorage::step() {
   lastFailure_ = Failure::Other;
-  if (dead) return false;
-  if (crashAfter == 0) {
-    dead = true;
+  int& crash = rail ? rail->crashAfter : crashAfter;
+  bool& isDead = rail ? rail->dead : dead;
+  if (isDead) return false;
+  if (crash == 0) {
+    isDead = true;
     return false;
   }
-  if (crashAfter > 0) --crashAfter;
+  if (crash > 0) --crash;
   if (failAfter == 0) {
     failAfter = -1;
     return false;
@@ -32,7 +34,7 @@ bool MemStorage::step() {
 }
 
 Storage::Read MemStorage::read(const std::string& path, std::vector<uint8_t>& out) {
-  if (dead) return Read::Error;
+  if (off()) return Read::Error;
   auto it = files.find(path);
   if (it == files.end()) return Read::NotFound;
   out = it->second;
@@ -42,7 +44,7 @@ Storage::Read MemStorage::read(const std::string& path, std::vector<uint8_t>& ou
 bool MemStorage::write(const std::string& path, const uint8_t* data, size_t n) {
   if (!step()) {
     // Power cut mid-write: a torn prefix is what may reach flash.
-    if (dead) files[path].assign(data, data + n / 2);
+    if (off()) files[path].assign(data, data + n / 2);
     return false;
   }
   files[path].assign(data, data + n);
@@ -65,7 +67,7 @@ bool MemStorage::remove(const std::string& path) {
 }
 
 bool MemStorage::list(const std::string& dir, std::vector<std::string>& names) {
-  if (dead) return false;
+  if (off()) return false;
   names.clear();
   const std::string prefix = dir.empty() ? "" : dir + "/";
   for (const auto& f : files) {
