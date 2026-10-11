@@ -158,8 +158,8 @@ by host tests in `firmware/components/keyra_vault/host_test/`.
 | Iteration count | Calibrated on the device at setup to take about 1.2 s; never below 60,000 and capped at 2,000,000. Stored in the vault metadata. |
 | Data key (DEK) | Random 256-bit key. The KEK wraps it with AES-256-GCM (AAD `keyra/meta/v1`); only the wrapped DEK is stored (`meta.bin`). |
 | Changing passphrase | Re-wraps the DEK only. Entries are not re-encrypted. |
-| Entries | One file per entry: AES-256-GCM under the DEK, random 96-bit IV per write, 128-bit tag, AAD `keyra/e/v1/<id>`. Binding the ID prevents swapping one entry's ciphertext into another's file. |
-| Password history | Up to 10 previous passwords and the time each was replaced live **inside** the entry's encrypted plaintext (format 2), so flash holds no history metadata in the clear. Only the vault adds to it, when an update changes the password; clients cannot write or erase it. Entries written by earlier firmware (format 1) are read as-is and rewritten as format 2 on their next change. |
+| Entries | One file per entry: AES-256-GCM under the DEK, random 96-bit IV per write, 128-bit tag, AAD `keyra/e/v1/<id>`, where `<id>` is the entry id as 8 hex digits. Binding the ID prevents swapping one entry's ciphertext into another's file. |
+| Entry format and password history | The encrypted plaintext of an entry is a compact length-prefixed record, currently **format 4**: id, favorite flag, created, updated and last-used times, then title, URL, username, password, 2FA secret and notes; up to 10 previous passwords, each with the time it was replaced; the auto-type sequence; and the "burn after" use counter (0 to 99, 0 = keep). All of it lives **inside** the encrypted plaintext, so flash holds no history or counter in the clear. Only the vault adds to the history, when an update changes the password; clients cannot write or erase it. Entries written by earlier firmware (formats 1 to 3: no history, no sequence, no counter) are read as-is, with the missing fields empty, and rewritten as format 4 on their next change. |
 | Storage | LittleFS on a dedicated `vault` partition. Mount failure never auto-formats. |
 | Firmware updates | Secure Boot V2 RSA-3072 signatures checked by the running firmware before an image can be booted; older versions refused; installed only after a button press; rolled back if the new image fails its first boot (SPEC §14). No eFuses: someone holding the board can still flash it by USB. The signing key stays with the owner, outside the repository. |
 | Backup | Separate backup passphrase (at least 12 characters), PBKDF2-HMAC-SHA256 with a fresh salt and AES-256-GCM, written as JSON (`keyra-backup`, version 3: accounts with password history and, unless you turned it off, the passkeys; versions 1 and 2 files still import). Treat the file as sensitive. |
@@ -266,8 +266,11 @@ same button rule applies: nothing is typed over Bluetooth without a press.
   bonding. Keys are stored in NVS. At most **4** devices; when full, Keyra refuses
   new pairings instead of silently forgetting an old device, and you forget one in
   the app (`DELETE /api/ble/bonds/{addr}`). Factory reset forgets all of them.
-- Every HID characteristic (report map, keystrokes, LED report) requires an
-  encrypted link, and Keyra sends keystrokes only to a **bonded** device on an
+- The HID *description* (Report Map, HID Information, Report References and the
+  readable Protocol Mode) can be read before pairing: Apple and Espressif hosts
+  read it first to recognise a keyboard and do not retry after an "insufficient
+  encryption" error. It contains no secret. Keystroke reports and the LED
+  report require an encrypted link (as do all writes), and Keyra sends keystrokes only to a **bonded** device on an
   encrypted link that has subscribed to keyboard reports.
 
 **What it does not protect against.**
