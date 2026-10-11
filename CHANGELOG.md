@@ -6,6 +6,15 @@ All notable changes to Keyra are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-11
+
+Highlights:
+- Bluetooth: the iPhone stays paired and reconnects at once; Caps Lock is known
+- Keyra Companion browser extension: fill by typing, save and update prompts
+- Android app and access tokens for apps and AI agents (Agent Gate)
+- NFC tap tags; security-key PIN, hmac-secret; passkeys in backups
+- Security fixes from a full review of the device, app and extension
+
 ### Added
 
 - **Keyra Companion, the browser extension** (SPEC §9.4, [extension/README.md](extension/README.md)):
@@ -464,5 +473,7 @@ First public release.
   release profile with HID only and logging off.
 - Host test suite (vault, TOTP, key map, action state machine) and CI.
 
-[Unreleased]: https://github.com/hasanalaaa/keyra/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/hasanalaaa/keyra/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/hasanalaaa/keyra/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/hasanalaaa/keyra/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/hasanalaaa/keyra/releases/tag/v0.1.0
