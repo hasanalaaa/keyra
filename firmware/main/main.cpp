@@ -3,6 +3,8 @@
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "keyra/ble.hpp"
 #include "keyra/api.hpp"
 #include "keyra/fido.hpp"
@@ -57,8 +59,27 @@ extern "C" void app_main() {
   keyra::io::init();
   // A vault that fails to mount must not stop the device: the API reports it and
   // factory reset (button-gated) stays reachable.
-  const keyra::vault::Status vs = keyra::vault::init();
+  keyra::vault::Status vs = keyra::vault::init();
   if (vs != keyra::vault::Status::Ok) ESP_LOGE(TAG, "vault init: %s", keyra::vault::statusName(vs));
+  // On a 16 MB board the vault moves once to the upper 8 MB (SPEC §6.1): only
+  // on a confirmed firmware, so no rollback can land on one that cannot see it
+  // (a just-installed update moves it at the boot after its probation), and
+  // here, before anything else can use the vault. Until it has moved
+  // completely the partition stays the vault, untouched.
+  if (vs == keyra::vault::Status::Ok && keyra::vault::migrationPending() && keyra::api::imageConfirmed()) {
+    ESP_LOGW(TAG, "moving the vault to the upper 8 MiB of flash");
+    unsigned steps = 0;
+    const keyra::vault::Status ms = keyra::vault::migrate([&steps] {
+      if (++steps % 8 == 0) vTaskDelay(1);  // let the idle tasks run (task watchdog)
+    });
+    if (ms == keyra::vault::Status::Ok) {
+      ESP_LOGW(TAG, "vault moved (%u steps)", steps);
+    } else {
+      ESP_LOGE(TAG, "vault move: %s", keyra::vault::statusName(ms));
+    }
+    vs = keyra::vault::init();
+    if (vs != keyra::vault::Status::Ok) ESP_LOGE(TAG, "vault init: %s", keyra::vault::statusName(vs));
+  }
   keyra::hid::init(kDevCdc);
   // The security key is an extra: typing keeps working if its task cannot start.
   if (!keyra::fido::start()) ESP_LOGE(TAG, "FIDO security key unavailable");

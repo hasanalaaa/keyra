@@ -19,6 +19,11 @@ int main() {
   CHECK(!mayInstall("0.1.9", "0.1.10"));
   CHECK(!mayInstall("garbage", "0.1.0"));  // unknown versions are refused
   CHECK(!mayInstall("0.2.0", "dev"));
+  // The floor a moved vault sets (SPEC §6.1): none, met, missed, unreadable.
+  CHECK(mayInstallOver("0.1.0", ""));
+  CHECK(mayInstallOver("0.4.0", "0.4.0") && mayInstallOver("0.5.1", "0.4.0"));
+  CHECK(!mayInstallOver("0.3.3", "0.4.0") && !mayInstallOver("garbage", "0.4.0"));
+  CHECK(mayInstallOver("0.3.3", "dev"));  // a floor that is not a version never blocks updates
   CHECK(fromTag("v0.2.0") == "0.2.0");
   CHECK(fromTag("0.2.0") == "0.2.0");
   CHECK(fromTag("V1.0.0-rc2") == "1.0.0-rc2");

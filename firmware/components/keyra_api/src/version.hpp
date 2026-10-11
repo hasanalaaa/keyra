@@ -16,6 +16,13 @@ std::optional<std::array<int, 3>> parse(std::string_view v);
 // stolen session cannot bring back an older, signed but vulnerable firmware.
 bool mayInstall(std::string_view next, std::string_view running);
 
+// The floor a vault moved to the 16 MB tail sets (SPEC §6.1): `next` must not
+// be older than the firmware that moved it. An empty floor (not moved) allows
+// anything; a floor that does not parse is ignored, since refusing every
+// update would leave a device that is updated only over the air stuck; the
+// running version, which mayInstall() also checks, is never below it.
+bool mayInstallOver(std::string_view next, std::string_view floor);
+
 // A GitHub release tag ("v0.2.0" or "0.2.0") as a version, or empty when the
 // tag is not one.
 std::string fromTag(std::string_view tag);

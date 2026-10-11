@@ -370,6 +370,9 @@ esp_err_t getState(Ctx& c) {
   cJSON_AddBoolToObject(dev, "powerDip", esp_reset_reason() == ESP_RST_BROWNOUT);
   cJSON_AddBoolToObject(o.get(), "initialized", vault::initialized());
   cJSON_AddBoolToObject(o.get(), "unlocked", vault::unlocked());
+  // How many accounts this Keyra holds at most: 5000 once the vault is in the
+  // 16 MB tail, else 1000 (SPEC §6.1).
+  cJSON_AddNumberToObject(o.get(), "maxEntries", static_cast<double>(vault::maxEntries()));
   cJSON_AddBoolToObject(o.get(), "session", c.session);
   cJSON_AddNumberToObject(o.get(), "autoLockMin", s.autoLockMin);
   // Titles of pending/finished actions are only shown to an unlocked session.

@@ -25,5 +25,7 @@ void addState(cJSON* state);
 // After a boot into a just-installed image: keep it when `healthy`, otherwise
 // mark it invalid and reboot into the previous firmware. No-op on a normal boot.
 void confirmBoot(bool healthy);
+// The running image is confirmed (ESP_OTA_IMG_VALID): no rollback can follow.
+bool imageConfirmed();
 
 }  // namespace keyra::api::update

@@ -29,6 +29,11 @@ bool mayInstall(std::string_view next, std::string_view running) {
   return n && r && *n >= *r;
 }
 
+bool mayInstallOver(std::string_view next, std::string_view floor) {
+  if (floor.empty() || !parse(floor)) return true;
+  return mayInstall(next, floor);
+}
+
 std::string fromTag(std::string_view tag) {
   if (!tag.empty() && (tag.front() == 'v' || tag.front() == 'V')) tag.remove_prefix(1);
   return parse(tag) ? std::string(tag) : std::string();

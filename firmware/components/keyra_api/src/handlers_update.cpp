@@ -16,6 +16,7 @@
 #include "freertos/task.h"
 #include "http.hpp"
 #include "keyra/net.hpp"
+#include "keyra/vault.hpp"
 #include "runtime.hpp"
 #include "sdkconfig.h"
 #include "version.hpp"
@@ -110,6 +111,9 @@ class Stage {
       return "bad_image";
     const char* running = esp_app_get_description()->version;
     if (!version::mayInstall(next.version, running)) return "downgrade";
+    // A vault moved to the 16 MB tail is invisible to firmware older than the
+    // one that moved it (SPEC §6.1): never below that, whatever runs now.
+    if (!version::mayInstallOver(next.version, vault::movedBy())) return "downgrade";
     version = next.version;
     ESP_LOGI(TAG, "%s verified and staged in %s (running %s)", next.version, part_->label, running);
     std::lock_guard<std::mutex> lock(g_mu);
@@ -469,6 +473,12 @@ void addState(cJSON* state) {
   cJSON_AddNumberToObject(u, "total", static_cast<double>(g_total));
   cJSON_AddStringToObject(u, "version", g_version.c_str());
   cJSON_AddStringToObject(u, "error", g_error.c_str());
+}
+
+bool imageConfirmed() {
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  esp_ota_img_states_t state;
+  return running != nullptr && esp_ota_get_state_partition(running, &state) == ESP_OK && state == ESP_OTA_IMG_VALID;
 }
 
 void confirmBoot(bool healthy) {
