@@ -7,12 +7,19 @@
 #include <string_view>
 
 #include "actions.hpp"
+#include "keyra/vault.hpp"
 
 namespace keyra::api::seqrun {
 
-// Field values, read from the vault for each part (wiped by the owner).
+// Field values, read from the vault for each part. They wipe themselves, so
+// no return path of the code that fills them can leave a password behind.
 struct Fields {
   std::string username, password, totp;
+  ~Fields() {
+    vault::wipe(username);
+    vault::wipe(password);
+    vault::wipe(totp);
+  }
 };
 
 class Keys {

@@ -101,21 +101,19 @@ class HidKeys final : public seqrun::Keys {
 };
 
 Code runSequence(const actions::TypeRequest& job, const vault::Entry& e, const hid::Options& o) {
-  seqrun::Fields f;
+  seqrun::Fields f;  // wiped on every return
   f.username = e.username;
   f.password = e.password;
-  char code[11] = {};
   if (seqrun::needs(*job.seq).totp) {
-    if (!timeValid() || !totp::code(e.totp, unixMs() / 1000, code, nullptr, nullptr)) return Code::Failed;
-    f.totp = code;
+    char code[11] = {};
+    const bool ok = timeValid() && totp::code(e.totp, unixMs() / 1000, code, nullptr, nullptr);
+    if (ok) f.totp = code;
     std::memset(code, 0, sizeof code);
+    if (!ok) return Code::Failed;
   }
   HidKeys keys(o);
   Code c = job.part == 0 ? seqrun::checkAll(*job.seq, f, keys) : Code::Typed;
   if (c == Code::Typed) c = seqrun::runPart(*job.seq, job.part, f, keys);
-  vault::wipe(f.username);
-  vault::wipe(f.password);
-  vault::wipe(f.totp);
   return c;
 }
 
