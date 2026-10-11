@@ -6,6 +6,29 @@ All notable changes to Keyra are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **5000 accounts on boards with 16 MB of flash.** The vault moves once, at
+  the first start after this firmware has passed its probation, from the
+  `vault` partition to a second LittleFS in the unused upper 8 MB of the flash
+  (registered at run time; the partition table and bootloader do not change).
+  There, accounts are packed into 128 bucket files, so unlocking reads 128
+  files instead of one per account: about 0.2–0.8 s for 1000 typical
+  accounts (was 1–3 minutes) and 0.5–1.8 s for 5000 (estimated from flash
+  counts, see docs/research/CAPACITY.md). The move copies the encrypted files
+  as they are (no passphrase needed), reads every byte back, and only then
+  commits with one atomic write; a power cut before that leaves the vault
+  where it was, untouched. Afterwards the old partition is erased and holds
+  only a marker that any older firmware reads as `corrupt`. 8 MB boards keep
+  today's layout and the limit of 1000. `GET /api/state` reports `maxEntries`.
+  That first start takes about one to five minutes longer than usual.
+
+### Changed
+
+- **No going back below the moving version.** Once the vault has moved, the
+  updater refuses any firmware older than the one that moved it (`downgrade`),
+  since an older firmware cannot see the vault there.
+
 ## [0.3.3] - 2026-10-11
 
 Highlights:

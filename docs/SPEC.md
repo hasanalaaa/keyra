@@ -194,7 +194,7 @@ Conventions
 
 | Method & path | Auth | Body → Response |
 |---|---|---|
-| GET `/api/state` | none | `{device:{name,version,model,mac}, initialized, unlocked, session:bool, autoLockMin, host:{usb, ble, capsLock, output, bleTarget, connecting, usbOs?}` (§8.1, §10.5; `usbOs` with a session only)`, pending:Pending\|null, last:Result\|null, presence:{awaiting:bool, op:string\|null, expiresIn:ms, result:{op, ok:bool, code:"done"\|"failed"\|"expired"\|"cancelled", at:ms_ago}\|null}, net?` (§8.2)`, timeValid:bool, graceMs` (§12.3)`, update?` (§14, session only)`, nvsReset?` (below)`}` — polled ~1 s while something is pending, else ~5 s |
+| GET `/api/state` | none | `{device:{name,version,model,mac}, initialized, unlocked, maxEntries` (§6.1)`, session:bool, autoLockMin, host:{usb, ble, capsLock, output, bleTarget, connecting, usbOs?}` (§8.1, §10.5; `usbOs` with a session only)`, pending:Pending\|null, last:Result\|null, presence:{awaiting:bool, op:string\|null, expiresIn:ms, result:{op, ok:bool, code:"done"\|"failed"\|"expired"\|"cancelled", at:ms_ago}\|null}, net?` (§8.2)`, timeValid:bool, graceMs` (§12.3)`, update?` (§14, session only)`, nvsReset?` (below)`}` — polled ~1 s while something is pending, else ~5 s |
 | POST `/api/setup` | none, only if !initialized | `{passphrase, wifiPassword, deviceName?}` → 202 `{awaiting:"button", expiresIn}`; completes when the button is pressed (watch `state.presence` / `state.initialized`). passphrase 10–128 chars; wifiPassword 8–63 printable ASCII and ≠ `keyra1234`. The client then calls unlock. AP restarts with the new password ~3 s after commit. |
 | POST `/api/unlock` | none | `{passphrase}` → 200 `{csrf, failedAttempts, nvsReset?}` (§15, below) / 401 `{error:"wrong", retryAfterMs}` / 429 `{error:"rate_limited", retryAfterMs}` / 202 trust the browser first (§8.2) |
 | POST `/api/lock` | session | → 204 |
@@ -280,8 +280,9 @@ Static: `GET /` → `index.html` (gzip, `Cache-Control: no-cache`); `/assets/<na
 - Master passphrase → PBKDF2-HMAC-SHA256 (salt 16 B, iterations calibrated at
   setup to ≈1.2 s on the device, min 60 000) → KEK. A random 256-bit DEK is
   wrapped by the KEK (AES-256-GCM). Changing the passphrase re-wraps the DEK only.
-- Each entry is its own file, AES-256-GCM(DEK, random 96-bit IV, AAD =
-  `"keyra/e/v1/" + id`). Writes are atomic (temp file + rename on LittleFS).
+- Each entry is its own sealed record, AES-256-GCM(DEK, random 96-bit IV, AAD =
+  `"keyra/e/v1/" + id`): one file each in the `vault` partition, packed into
+  bucket files in the 16 MB tail (§6.1). Writes are atomic (temp file + rename on LittleFS).
 - Unlock attempts: failure counter persisted in NVS **before** the KDF runs;
   delay = 0 for the first 4 failures, then 2^(n-4) s capped at 15 min.
 - RAM: decrypted entries only while unlocked; keys and plaintext buffers are
@@ -298,6 +299,63 @@ Static: `GET /` → `index.html` (gzip, `Cache-Control: no-cache`); `/assets/<na
   no secure element; flash encryption/secure boot are optional eFuse steps
   documented but not enabled by default.
 
+### 6.1 Where the vault lives (8 and 16 MB boards)
+
+Measurements and the reasoning: docs/research/CAPACITY.md.
+
+- **8 MB boards** keep the vault in the `vault` partition, one file per entry
+  (layout 1, `e/<id>.bin`), at most 1000 entries (`kMaxEntriesFiles`).
+- **Boards whose flash chip reports ≥ 16 MB** (`esp_flash_get_physical_size`)
+  register the upper 8 MB (0x800000–0xFFFFFF, label `vaulttail`) at run time
+  with `esp_partition_register_external` and mount a second LittleFS there.
+  IDF limits flash access to the size in the bootloader header (8 MB, so one
+  image serves both board sizes; the bootloader never changes over the air), so
+  `keyra_vault/src/esp/flash_tail.cpp` raises `esp_flash_default_chip->size` to
+  16 MB first, in that one function and only on such a chip. The vault moves
+  there once and then holds up to 5000 entries (`kMaxEntriesBuckets`; `GET
+  /api/state` → `maxEntries`).
+- **Layout 2** (the tail) keeps every file of layout 1 at the same path and
+  the same format, except entries, which go into 128 bucket files:
+  `b/<kk>.bin`, kk = id mod 128 as two lowercase hex digits, =
+  `u8 version=1 | u32 count | count × (u32 id | u32 len | record[len])` (LE),
+  each record exactly the bytes `e/<id>.bin` would hold, ids non-zero,
+  ascending and in their bucket. An entry write rewrites its bucket (temp file
+  + rename); a bucket that does not parse fails the unlock (`corrupt`) and is
+  never rewritten. A replace-restore stages whole buckets (`b/<kk>.new`) under
+  the same `restore.commit` marker; finishing it removes the buckets none of
+  the listed ids fall in and renames the staged ones. `vault.home` =
+  `"KYRH" | u8 1 | u8 n | firmware version[n]` marks the filesystem as the
+  vault in layout 2 and names the firmware that moved it; `old.erased` says
+  the partition has been dealt with.
+- **The move** (`vault::migrate`, at boot in `main.cpp` before anything else
+  uses the vault, only when the running image is `ESP_OTA_IMG_VALID`, so no
+  rollback can return to a firmware that cannot see it): (1) list every file
+  in the partition (root, `e/`, `f/`); refuse if anything is in flight; (2)
+  format (erase) the tail; (3) copy every file as it is and every entry into
+  its bucket, reading each back at once; (4) read every file back again and
+  check the tail holds exactly these; (5) write `vault.home` (temp + rename):
+  the single commit; (6) in the partition, write a tombstone `meta.bin`
+  (`"KYR1" | 0x7f | "moved"`), erase every sector, write the tombstone again,
+  then `old.erased` on the tail. Ciphertext only: no passphrase. Before (5)
+  the partition is the vault and nothing in it has changed; a cut or error
+  leaves it so, and the next boot starts over. After (5) the tail is the
+  vault; step (6) is redone at every boot until `old.erased` exists, before
+  anything writes to the tail. Stale ciphertext must not survive: the DEK never
+  changes and would open entries deleted since.
+- **Choosing at boot:** the tail mounts and has `vault.home` → it is the vault.
+  Otherwise, a tombstone in the partition means the tail was lost (or a
+  factory reset was cut short): `corrupt`, and only a factory reset goes on
+  (it erases both regions and starts an empty vault in the tail). Otherwise
+  the partition is the vault.
+- **Going back.** The updater refuses images older than the firmware named in
+  `vault.home` (`downgrade`, §14). An older firmware that boots anyway (the
+  other OTA slot, if the current image became unbootable) finds only the
+  tombstone and reports `corrupt`: it shows no stale vault and offers no setup
+  over it; its factory reset clears only the partition, and the moved vault
+  is there again once a firmware that knows the tail runs (which leaves the
+  partition alone after `old.erased`). Going below the moving version on
+  purpose means a restore from backup.
+
 ## 7. Builds
 
 - `firmware`: `idf.py build` (dev profile: `sdkconfig.defaults`, HID+CDC with
@@ -306,6 +364,8 @@ Static: `GET /` → `index.html` (gzip, `Cache-Control: no-cache`); `/assets/<na
   (HID only, logs off).
 - Partition table (8 MB baseline, works on 16 MB):
   `nvs 0x9000 24K · otadata 8K · phy_init 4K · app0 3M · app1 3M · vault (littlefs) rest (≥1.5 MB)`.
+  On a 16 MB board the upper 8 MB is not in the table; the firmware registers
+  it at run time (§6.1).
 - `web`: `npm run build` → `firmware/components/keyra_api/www/`.
 - `firmware/test/host`: `cmake -S . -B build && cmake --build build && ctest` — vault core, TOTP, keymap, action state machine.
 
@@ -889,6 +949,8 @@ press of its button; a new image that fails its first boot is rolled back.
   never enters the repository. Losing the key means updates by USB only.
 - **Versions.** `PROJECT_VER` (`MAJOR.MINOR.PATCH`); an image older than the
   running one is refused (`downgrade`), the same version may be reinstalled.
+  Once the vault has moved to the 16 MB tail, so is an image older than the
+  firmware that moved it (§6.1).
   The image must be a Keyra app (`project_name` "keyra").
 - **Sources.** (a) `POST /api/update` with the image as the body (≤ one app
   partition, 3 MiB), streamed into the idle OTA partition. (b) `POST
