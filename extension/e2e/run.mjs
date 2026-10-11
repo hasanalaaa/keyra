@@ -419,8 +419,11 @@ async function functional() {
   await ns2.locator('#password').press('Enter');
   await card(ns2).getByText('Save to Keyra?').waitFor({ timeout: 6000 });
   await card(ns2).locator('button', { hasText: 'Never for this site' }).click();
-  const st = await b.sw.evaluate(() => chrome.storage.local.get('settings'));
-  check(st.settings?.never?.includes('newsite.example'), '"Never for this site" remembers the host');
+  // The service worker stores it after the click returns.
+  check(
+    await waitFor(async () => (await b.sw.evaluate(() => chrome.storage.local.get('settings'))).settings?.never?.includes('newsite.example'), 'the never-list write'),
+    '"Never for this site" remembers the host',
+  );
   await ns2.close();
   await ns.close();
 
