@@ -62,11 +62,11 @@ std::optional<Pending> Machine::arm(TypeRequest req, const std::string& owner) {
   return view(req_, kExpiryMs, owner_);
 }
 
-bool Machine::cancel() {
+bool Machine::cancel(const std::string& owner) {
   std::lock_guard<std::mutex> lock(mu_);
   const int64_t now = now_();
   expireLocked(now);
-  if (kind_ != Kind::Type) return false;
+  if (kind_ != Kind::Type || owner.empty() || owner != owner_) return false;
   lastLocked(req_, Code::Cancelled, now);
   clearSlotLocked();
   return true;

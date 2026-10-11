@@ -205,7 +205,7 @@ Conventions
 | POST `/api/entries/import` | session | `{entries:[…≤50]}` → `{added, skipped}` (duplicate = same title+username+url) |
 | GET `/api/entries/{id}/totp` | session | → `{code, period, remaining}` / 409 `no_time` / 404 |
 | POST `/api/type` | session | `{id, what:"username"\|"password"\|"both"\|"totp"\|"sequence", submit?, target?, switchLang?}`, `{text, repeat?, separator?}` (§9.2), `{test:true}` or `{probe:true}` (§10.3) → 202 `{pending}`; replaces this session's own pending item, 409 `busy` while another session's waits (§12.5a). An entry action types the version of the account it was armed for: edited before the press (by anyone), it types nothing and ends `entry_changed` |
-| POST `/api/type/cancel` | session | → 204 |
+| POST `/api/type/cancel` | session | → 204; withdraws this session's own waiting action only (another session's stays armed) |
 | GET `/api/settings` | session | → `{deviceName, wifiSsid, autoLockMin, keyDelayMs, bothSeparator:"tab"\|"enter", submitAfterBoth:bool, ledBrightness, bleEnabled, output, bleConnect, protectReveal, passkeysInBackup, lockOnUsb, lockOnBle, lastBackupAt, homeWifi:{enabled, ssid}, apMode, osUsb, layoutUsb, layoutBle, bothSequence}` |
 | PUT `/api/settings` | session | partial of the above (+ optional `wifiPassword`; `homeWifi` goes through `/api/wifi/home`, `lastBackupAt` is set by backups) → 200 settings. Changing `wifiSsid`/`wifiPassword`, turning `protectReveal` off or `passkeysInBackup` on (op `passkeys_backup_on`), requires presence → 202 `{awaiting:"button"}` |
 | POST `/api/passphrase` | session | `{current, next}` → 204 / 401 `{error:"wrong", retryAfterMs}` / 429 `rate_limited` |

@@ -903,7 +903,7 @@ esp_err_t postPresenceCancel(Ctx& c) {
 }
 
 esp_err_t postTypeCancel(Ctx& c) {
-  machine().cancel();
+  machine().cancel(c.token);  // this session's own action only (SPEC §12.5a)
   return http::sendEmpty(c.r, http::k204);
 }
 

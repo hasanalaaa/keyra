@@ -131,7 +131,7 @@ void detectorWorks() {
 }
 
 void wipedOnEveryPath() {
-  wipedAfter("cancel", [](Machine& m) { CHECK(m.cancel()); });
+  wipedAfter("cancel", [](Machine& m) { CHECK(m.cancel("s")); });
   wipedAfter("expiry", [](Machine& m) {
     g_now += kExpiryMs;
     CHECK(!m.pending().has_value());

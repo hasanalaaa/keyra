@@ -25,6 +25,9 @@ All notable changes to Keyra are documented here. The format follows
   report `entry_changed`, instead of typing the new values.
 - **Notes need the reveal press.** With "Protect reveal" on, an account's notes
   are no longer sent before the press; `hasNotes` says whether there are any.
+- **One session can no longer cancel another's typing.** `POST /api/type/cancel`
+  withdrew whatever action was waiting, whoever armed it; it now withdraws only
+  the calling session's own action.
 
 ## [0.3.0] - 2026-10-11
 

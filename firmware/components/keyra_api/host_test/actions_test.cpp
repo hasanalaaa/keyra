@@ -67,11 +67,17 @@ void longPressCancelsThenLocks() {
 
 void cancelEndpoint() {
   auto m = make();
-  CHECK(!m.cancel());
+  CHECK(!m.cancel("s"));
   m.arm(req(5), "s");
-  CHECK(m.cancel());
+  // Another session (or none) cannot withdraw it: the slot and last stay as they were.
+  CHECK(!m.cancel("other") && !m.cancel(""));
+  CHECK(m.pending().has_value() && !m.last().has_value());
+  CHECK(m.cancel("s"));
   CHECK(m.last()->code == Code::Cancelled);
   CHECK(!m.pending().has_value());
+  // A presence op is not a type action: this route leaves it alone.
+  m.awaitPresence(Op::Backup, [] { return true; }, "s");
+  CHECK(!m.cancel("s") && m.presence().has_value());
 }
 
 void presenceApproveRunsCommitOnce() {
@@ -130,7 +136,7 @@ void unauthenticatedOpsNeverDisplace() {
   m.arm(req(12), "s");
   CHECK(!m.tryAwaitPresence(Op::FactoryReset, [] { return true; }).has_value());
   CHECK(m.pending().has_value());
-  m.cancel();
+  m.cancel("s");
   CHECK(m.tryAwaitPresence(Op::Setup, [] { return true; })->expiresIn == kExpiryMs);
   CHECK(!m.tryAwaitPresence(Op::Setup, [] { return true; }).has_value());
   Decision d = m.onButton(Button::Short, false, g_now);
@@ -244,7 +250,7 @@ void tokenTracksItsOwnRequest() {
   // Later results by others leave this one readable.
   for (int i = 0; i < 3; ++i) {
     m.arm(req(9), "sessionA");
-    m.cancel();
+    m.cancel("sessionA");
   }
   CHECK(m.track(s1).stage == Stage::Finished && m.track(s1).code == Code::NoUsb);
 
@@ -349,7 +355,7 @@ void netOps() {
   // displaces a pending action and survives a lock.
   m.arm(req(13), "s");
   CHECK(!m.tryAwaitPresence(Op::TrustBrowser, [] { return true; }).has_value());
-  m.cancel();
+  m.cancel("s");
   CHECK(m.tryAwaitPresence(Op::TrustBrowser, [] { return true; }).has_value());
   m.dropSessionItems();
   CHECK(m.presence() && m.presence()->op == Op::TrustBrowser);
@@ -613,7 +619,8 @@ void pressIsBoundToItsRequester() {
   CHECK(m.arm(req(2), "alice"));  // a type action of hers replaces her op too
   CHECK(m.opResult()->op == Op::Recovery && m.opResult()->code == OpCode::Cancelled);
   CHECK(!m.awaitPresence(Op::Backup, [] { return true; }, "mallory"));  // and is hers alone
-  CHECK(m.cancel());
+  CHECK(!m.cancel("mallory"));  // nor can she withdraw it
+  CHECK(m.cancel("alice"));
 
   // Items armed without a session (setup, factory reset, trust) belong to nobody.
   CHECK(m.tryAwaitPresence(Op::Setup, [] { return true; }));
