@@ -6,6 +6,14 @@ All notable changes to Keyra are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-12
+
+Highlights:
+- One press of Keyra's button approves one request: this account, this browser, once
+- "Show, then edit" is still one press; another account asks again
+- Every request waiting for the button has its own id, so apps follow and cancel exactly theirs
+- An activity log that can no longer be read is kept aside, never written over
+
 ### Added
 
 - **Request ids (SPEC §12.6a).** Every answer that starts a wait for the
