@@ -36,7 +36,7 @@ data class AgentStatus(
 
 /**
  * A request now waiting for the press: how long Keyra waits, in ms, and the id that names it
- * (SPEC §12.6a; null from firmware before 0.5, which then answers status for the newest request).
+ * (SPEC §12.6a; null from firmware before 0.4.1, which then answers status for the newest request).
  */
 data class Armed(val expiresInMs: Long, val requestId: String?)
 
@@ -94,7 +94,7 @@ class KeyraApi(
         return answer { armed(call("POST", "type", body)) }
     }
 
-    /** With [requestId]: that request of this token; without: its newest one (as before 0.5). */
+    /** With [requestId]: that request of this token; without: its newest one (as before 0.4.1). */
     fun status(requestId: String? = null): AgentStatus = answer {
         val rid = requestIdOf(requestId)
         val o = call("GET", if (rid != null) "status?requestId=$rid" else "status")

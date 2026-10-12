@@ -9,7 +9,7 @@ import app.keyra.android.api.State
 
 /**
  * Counts down to Keyra's deadline and polls the status of this request (its requestId, SPEC
- * §12.6a; the token's newest request on firmware before 0.5) until it is final.
+ * §12.6a; the token's newest request on firmware before 0.4.1) until it is final.
  * Polls every 2 s: the token budget is 10 requests per 10 s (SPEC §17). Main thread only.
  */
 class PressWaiter(private val api: KeyraApi, private val listener: Listener, private val requestId: String? = null) {

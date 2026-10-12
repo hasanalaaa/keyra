@@ -116,7 +116,7 @@ async function listLogins(args) {
 
 // One request at a time: a second one armed by the same token would replace the first on
 // Keyra (it ends "cancelled", code "superseded"). Each request is followed by its own
-// requestId (SPEC §12.6a); firmware before 0.5 has none, and then GET /status answers with
+// requestId (SPEC §12.6a); firmware before 0.4.1 has none, and then GET /status answers with
 // the token's last request, which this lock keeps unambiguous too.
 let typing = false;
 
@@ -152,7 +152,7 @@ async function armAndWait(args) {
   return 'expired';
 }
 
-/** The requestId of a 202 answer (firmware 0.5+), or null from older firmware. */
+/** The requestId of a 202 answer (firmware 0.4.1+), or null from older firmware. */
 function requestIdOf(armed) {
   const r = armed?.requestId;
   return typeof r === 'string' && /^[0-9a-f]{32}$/.test(r) ? r : null;

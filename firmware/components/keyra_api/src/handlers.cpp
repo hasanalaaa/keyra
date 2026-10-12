@@ -609,6 +609,7 @@ esp_err_t getActivity(Ctx& c) {
     cJSON_AddItemToArray(arr, j);
   }
   cJSON_AddNumberToObject(o.get(), "max", static_cast<double>(activity::kMaxEvents));
+  if (vault::activityAside()) cJSON_AddTrueToObject(o.get(), "aside");
   return http::sendJson(c.r, http::k200, o.get());
 }
 

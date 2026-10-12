@@ -107,6 +107,7 @@ export function ActivitySheet({ onClose }: { onClose: () => void }) {
   const app = useApp();
   const [events, setEvents] = useState<ActivityEvent[] | null>(null);
   const [max, setMax] = useState(200);
+  const [aside, setAside] = useState(false);
 
   useEffect(() => {
     api
@@ -114,6 +115,7 @@ export function ActivitySheet({ onClose }: { onClose: () => void }) {
       .then((r) => {
         setEvents(r.events);
         setMax(r.max);
+        setAside(r.aside === true);
       })
       .catch((e) => {
         setEvents([]);
@@ -124,6 +126,7 @@ export function ActivitySheet({ onClose }: { onClose: () => void }) {
   return (
     <Sheet title={t('activityRow')} size="md" onClose={onClose}>
       <div class="form activity">
+        {aside && <p class="callout">{t('activityAside')}</p>}
         {events === null ? (
           <p class="waiting-row" role="status">
             <Spinner />

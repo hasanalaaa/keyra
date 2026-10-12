@@ -247,7 +247,7 @@ export const api = {
   updateDownload: () => json<{ downloading: boolean }>('POST', '/update/download'),
   updateApply: () => json<Awaiting & { version: string }>('POST', '/update/apply'),
   healthRotate: (on: boolean) => json<Health>('POST', '/health/rotate', { on }),
-  activity: () => json<{ events: ActivityEvent[]; max: number }>('GET', '/activity'),
+  activity: () => json<{ events: ActivityEvent[]; max: number; aside?: boolean }>('GET', '/activity'),
   tokens: () => json<{ tokens: AccessToken[]; max: number }>('GET', '/tokens'),
   /** 201 → the new token with its secret, shown once; 202 → press Keyra's button, then call again (SPEC §17). */
   createToken: (t: { name: string; kind: AccessToken['kind']; scope: AccessToken['scope'] }) =>

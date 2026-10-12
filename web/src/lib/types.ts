@@ -94,7 +94,7 @@ export interface DeviceState {
   presence: Presence;
   net?: NetState; // absent on firmware before v1.1
   timeValid: boolean;
-  /** Always 0 since 0.5: a press approves one request, not a time window (SPEC §12.5b). */
+  /** Always 0 since 0.4.1: a press approves one request, not a time window (SPEC §12.5b). */
   graceMs?: number;
   /** SPEC §12.6a: present when the poll named a requestId (GET /api/state?requestId=…). */
   request?: RequestStatus;

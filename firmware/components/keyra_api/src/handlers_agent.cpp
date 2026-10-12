@@ -299,7 +299,7 @@ const char* saveState(actions::OpCode c) {
   return "failed";
 }
 
-// Without a requestId: the token's newest request (as before 0.5). With one:
+// Without a requestId: the token's newest request (as before 0.4.1). With one:
 // that request of this token, or state "none" — another token's id is unknown here.
 esp_err_t getStatus(httpd_req_t* r, const Token& t) {
   const std::string requestId = http::query(r, "requestId", 32);

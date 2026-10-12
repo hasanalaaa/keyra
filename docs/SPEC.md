@@ -874,7 +874,7 @@ account screen unusable.
 
 ### 12.5b One press, one request
 
-Since 0.5 a press approves exactly one request, never a time window (0.4 and
+Since 0.4.1 a press approves exactly one request, never a time window (0.4.0 and
 earlier let the session read every account's secrets for 60 s after one
 reveal press). The approval is bound to:
 
@@ -930,7 +930,7 @@ sessionStorage, so the same tab can still withdraw its op after a reload.
 
 ### 12.6a Request ids
 
-Since 0.5 every answer that starts a wait for the button carries
+Since 0.4.1 every answer that starts a wait for the button carries
 `requestId`: 128 random bits from the hardware RNG as 32 lowercase hex
 characters, made when the item is armed (`actions::Machine`, host-tested). It
 names that one request, so a client can follow and withdraw exactly what it
@@ -962,7 +962,7 @@ Status, for the owner only:
   decides; a `requestId` that is not that tap's gives `none`.
 
 Cancel, for the owner only (an optional `requestId` in the body; without it
-everything works as before 0.5, which older clients rely on):
+everything works as before 0.4.1, which older clients rely on):
 - `POST /api/type/cancel {requestId?}` (§5), `POST /api/agent/cancel
   {requestId?}` (§17), `POST /api/presence/cancel {op, cancel, requestId?}`
   (§12.6).
@@ -1120,7 +1120,7 @@ removed, accounts deleted. Never a password, a code or typed text.
   typing or a token's creation out of the log. The stored format is
   unchanged; this is only which events are kept.
 - `GET /api/activity` (session) →
-  `{events:[{kind, at, id?, n?, detail, title?}], max}`; `at` unix seconds
+  `{events:[{kind, at, id?, n?, detail, title?}], max, aside?}`; `at` unix seconds
   (0 = clock unknown). Kinds: `unlock` (detail 0 passphrase, 1 recovery key),
   `failed_unlocks` (n), `lock` (detail 0 manual, 1 idle, 2 USB gone, 3
   Bluetooth host gone, 4 Keyra's button), `typed` / `text_typed` (detail 0
@@ -1134,6 +1134,13 @@ removed, accounts deleted. Never a password, a code or typed text.
   `unknown` for a kind this firmware does not name.
 - There is no endpoint to clear it: a borrowed or stolen session cannot hide
   what it did.
+- **An unreadable log is never written over.** When `activity.bin` fails its
+  check (or does not decode), the next event first renames it, byte for byte,
+  to `activity.bad` and starts a new log; `GET /api/activity` then adds
+  `aside: true` and the app says so. Only one is kept: if a second log turns
+  unreadable while `activity.bad` exists, nothing more is logged (it is not
+  overwritten). A read that fails for another reason (flash error) logs
+  nothing and changes nothing. A new setup or factory reset removes both.
 - `POST /api/unlock` and `/api/unlock/recovery` answer
   `{csrf, failedAttempts}`; the app warns once when it is above 0.
 

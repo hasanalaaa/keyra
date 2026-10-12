@@ -794,7 +794,7 @@ void presenceCancelWithRequestId() {
   CHECK(!m.presence().has_value());
 }
 
-// Old clients send no requestId: everything works as before 0.5.
+// Old clients send no requestId: everything works as before 0.4.1.
 void oldClientsWithoutRequestId() {
   auto m = makeIds();
   m.arm(req(1), "s");

@@ -79,7 +79,7 @@ export interface Client {
   state(): Promise<DeviceState>;
   entries(): Promise<Login[]>;
   match(host: string, username?: string): Promise<Login[]>;
-  /** `requestId`: names this request (SPEC §12.6a); absent from firmware before 0.5. */
+  /** `requestId`: names this request (SPEC §12.6a); absent from firmware before 0.4.1. */
   type(req: { id: number; what: What; host: string; anyHost?: boolean }): Promise<{ expiresIn: number; requestId?: string }>;
   /** With a requestId: that request of this token; without: its newest one. */
   status(requestId?: string): Promise<Status>;

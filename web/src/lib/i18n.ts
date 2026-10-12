@@ -533,6 +533,7 @@ const en = {
   // Trusted browsers
   activityRow: 'Activity',
   activityNone: 'Nothing yet. Unlocking, typing, showing passwords and backups appear here.',
+  activityAside: 'An earlier log could not be read. Keyra kept it unchanged on the device and started this one.',
   activityFoot: "Keyra keeps the last {max} events, encrypted, and never a password. Only a factory reset clears it.",
   actUnlock: 'Unlocked',
   actUnlockRecovery: 'Unlocked with the recovery key',
@@ -1348,6 +1349,7 @@ const ar: Record<Key, string> = {
 
   activityRow: 'سجل النشاط',
   activityNone: 'لا شيء بعد. يظهر هنا فتح الخزنة والكتابة وإظهار كلمات السر والنسخ الاحتياطية.',
+  activityAside: 'تعذّرت قراءة سجل سابق، فاحتفظ به Keyra كما هو على الجهاز وبدأ هذا السجل.',
   activityFoot: 'يحتفظ Keyra بآخر {max} حدث، مشفّرة، ولا يحفظ أي كلمة سر. لا يمسحها إلا مسح الجهاز.',
   actUnlock: 'فُتحت الخزنة',
   actUnlockRecovery: 'فُتحت بمفتاح الاسترداد',

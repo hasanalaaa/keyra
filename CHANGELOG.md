@@ -30,6 +30,9 @@ All notable changes to Keyra are documented here. The format follows
   creation and removal (now two separate approvals), access tokens and NFC
   tags (bound to the exact request body) follow the same rule.
   `state.graceMs` stays and is always 0.
+- **Activity log (SPEC §15).** A log that can no longer be read is kept
+  aside unchanged (`activity.bad`) instead of being written over, and a new
+  one starts; `GET /api/activity` says `aside: true` and the app shows a note.
 - **Web app.** One press shows the whole account (password, 2FA, notes, old
   passwords) until its sheet closes; "show, then edit" stays one press; the
   next opening asks again. Password health keeps the weak and reused it was
