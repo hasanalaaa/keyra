@@ -6,6 +6,14 @@ All notable changes to Keyra are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-10-12
+
+Highlights:
+- Home Wi-Fi connects reliably: a join no longer cuts itself off before the router gives an address
+- A mesh node that gives no address is skipped for the next one
+- Back online within 30 s after a router reboot, with a stronger signal to the router
+- Bluetooth: phones reconnect in about a second, and a press while connecting is kept
+
 ### Fixed
 
 - **Home Wi-Fi often failed to connect.** A join had 20 s in all, but with
