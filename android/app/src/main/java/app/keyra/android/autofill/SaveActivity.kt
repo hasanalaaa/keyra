@@ -33,6 +33,7 @@ class SaveActivity : Activity(), PressWaiter.Listener {
     private var password = ""
     private var url = ""
     private var waiter: PressWaiter? = null
+    private var requestId: String? = null // of the request waiting for the press (SPEC §12.6a)
     private var api: KeyraApi? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -84,16 +85,18 @@ class SaveActivity : Activity(), PressWaiter.Listener {
         Keyra.async({ api.save(title, url, u, p) }) { r ->
             if (isDestroyed) return@async
             password = "" // sent; Keyra holds it until the press or the timeout
-            r.onSuccess {
+            r.onSuccess { armed ->
                 panel.waiting(R.string.press_body_save)
-                waiter = PressWaiter(api, this).also { w -> w.start(it) }
+                requestId = armed.requestId
+                waiter = PressWaiter(api, this, armed.requestId).also { w -> w.start(armed.expiresInMs) }
             }.onFailure { onFinished(null, it) }
         }
     }
 
     private fun cancel() {
         val api = api ?: return finish()
-        Keyra.async({ api.cancel() }) { r ->
+        val rid = requestId
+        Keyra.async({ api.cancel(rid) }) { r ->
             if (isDestroyed) return@async
             r.onFailure { onFinished(null, it) }
         }

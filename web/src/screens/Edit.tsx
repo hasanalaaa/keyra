@@ -9,6 +9,7 @@ import { Icon } from '../components/Icon';
 import { SequenceEditor, sequenceError } from '../components/SequenceEditor';
 import { ApiError, api } from '../lib/api';
 import { usePresence, usePressGate } from '../lib/actions';
+import { takeOver } from '../lib/revealed';
 import { errorText, isLockedError } from '../lib/errors';
 import { takeDraftPassword } from '../lib/draft';
 import { toTypeable, untypeable } from '../lib/generator';
@@ -36,13 +37,14 @@ export function EditAccount({ id }: { id?: number }) {
   const ctl = useRef<SheetCtl | null>(null);
   const after = useRef<() => void>(() => back(id ? `/a/${id}` : '/'));
 
-  // Editing shows the password: one press of Keyra's button (SPEC §12.3), none inside the grace minute.
+  // Editing shows the password: one press of Keyra's button (SPEC §12.3, §12.5b), unless the
+  // account sheet that opened this editor had just revealed it.
   const gate = usePressGate('reveal');
   useEffect(() => {
     if (!id) return;
     let live = true;
-    gate
-      .run(() => api.reveal(id))
+    const handed = takeOver(id);
+    (handed ? Promise.resolve(handed) : gate.run(() => api.reveal(id)))
       .then((e) => {
         if (!live) return;
         if (!e) return ctl.current?.close(); // cancelled or not pressed: nothing to edit

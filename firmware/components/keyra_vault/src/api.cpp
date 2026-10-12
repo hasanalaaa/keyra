@@ -81,6 +81,8 @@ Status fidoPinRead(std::vector<uint8_t>& out) { return detail::instance().fidoPi
 Status fidoPinWrite(const std::vector<uint8_t>& data) { return detail::instance().fidoPinWrite(data); }
 Status activityRead(std::vector<uint8_t>& out) { return detail::instance().activityRead(out); }
 Status activityWrite(const std::vector<uint8_t>& data) { return detail::instance().activityWrite(data); }
+Status activitySetAside() { return detail::instance().activitySetAside(); }
+bool activityAside() { return detail::instance().activityAside(); }
 Status tokensRead(std::vector<uint8_t>& out) { return detail::instance().tokensRead(out); }
 Status tokensWrite(const std::vector<uint8_t>& data) { return detail::instance().tokensWrite(data); }
 Status tagsRead(std::vector<uint8_t>& out) { return detail::instance().tagsRead(out); }

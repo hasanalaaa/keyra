@@ -3,6 +3,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { api, hasCsrf, isAwaiting, setLockedHandler, forgetSession, type Awaiting, type Unlocked } from './api';
 import { detectLang, setLang, t, type Lang, type LangPref } from './i18n';
 import type { BleInfo, DeviceState, EntrySummary } from './types';
+import { dropHandOver } from './revealed';
 
 export type ThemePref = 'auto' | 'light' | 'dark';
 export type LockReason = 'idle' | 'button' | 'manual' | 'session' | 'unplugged' | null;
@@ -151,6 +152,7 @@ function lockReasonNow(d: DeviceState | null): LockReason {
 function becameLocked(d: DeviceState | null): void {
   if (!state.authed) return;
   forgetSession();
+  dropHandOver();
   setState({ authed: false, lockReason: lockReasonNow(d), entries: null, ble: null, backupAt: null, bothSequence: '' });
   manualLock = false;
 }
@@ -158,6 +160,17 @@ function becameLocked(d: DeviceState | null): void {
 // ---------- polling ----------
 
 let fastHolds = 0;
+// SPEC §12.6a: the request this tab waits on; each poll asks where it stands.
+let tracked: string | null = null;
+
+/** Polls ask about `requestId` until the returned release function is called. */
+export function trackRequest(requestId: string): () => void {
+  tracked = requestId;
+  pollNow();
+  return () => {
+    if (tracked === requestId) tracked = null;
+  };
+}
 let inFlight = false;
 let rerun = false;
 let timer: ReturnType<typeof setTimeout> | undefined;
@@ -193,7 +206,7 @@ export async function pollNow(): Promise<void> {
   inFlight = true;
   try {
     const sent = Date.now();
-    const d = await api.state();
+    const d = await api.state(tracked);
     const authed = d.unlocked && d.session && hasCsrf();
     if (state.authed && !authed) becameLocked(d);
     const linkChanged = state.device?.host.ble !== d.host.ble;

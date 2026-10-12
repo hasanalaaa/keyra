@@ -472,8 +472,8 @@ Status Vault::setup(const std::string& passphrase) {
   // could never be decrypted with the new key.
   if (Status s = removeAllEntryFiles(); s != Status::Ok) return s;
   if (Status s = removePasskeyFilesLocked(); s != Status::Ok) return s;
-  if (!fs_->remove(kActivityPath) || !fs_->remove(kTokensPath) || !fs_->remove(kTagsPath) ||
-      !fs_->remove(kFidoCounterPath))
+  if (!fs_->remove(kActivityPath) || !fs_->remove(kActivityAsidePath) || !fs_->remove(kTokensPath) ||
+      !fs_->remove(kTagsPath) || !fs_->remove(kFidoCounterPath))
     return storageFailure();
   if (!p_.counter.store(0)) return Status::StorageError;
   failures_ = 0;

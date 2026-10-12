@@ -66,6 +66,7 @@ esp_err_t remove(httpd_req_t* r, uint32_t id, const std::string& token) {
   cJSON_AddStringToObject(o.get(), "awaiting", "button");
   cJSON_AddStringToObject(o.get(), "op", actions::opName(actions::Op::DeletePasskey));
   cJSON_AddStringToObject(o.get(), "cancel", armed->cancel.c_str());
+  cJSON_AddStringToObject(o.get(), "requestId", armed->requestId.c_str());
   cJSON_AddNumberToObject(o.get(), "expiresIn", static_cast<double>(armed->expiresIn));
   return http::sendJson(r, http::k202, o.get());
 }

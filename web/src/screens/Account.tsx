@@ -16,6 +16,7 @@ import { t, type Key } from '../lib/i18n';
 import { go, replace } from '../lib/router';
 import { setState, toast, useApp } from '../lib/store';
 import { hostOf } from '../lib/csv';
+import { handOver } from '../lib/revealed';
 import { shortDate } from '../lib/wifi';
 import type { Entry, OldPassword, Totp, TypeWhat } from '../lib/types';
 
@@ -40,7 +41,9 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
   const hostTarget = resolveTarget(chosen, app.device?.host.output ?? null, app.ble);
   const startAction = (what: TypeWhat) => void action.start(what, chosen ?? undefined);
   const totpRef = useRef<Totp | null>(null);
-  // SPEC §12.3: secrets arrive only after a press of Keyra's button (then 60 s without one).
+  // SPEC §12.3, §12.5b: secrets arrive only after a press of Keyra's button. One press reveals
+  // this account (password, 2FA, notes, old passwords, sequence) once; they stay in this
+  // sheet's state until it closes, and the next opening asks again.
   const gate = usePressGate('reveal');
   const reveal = async (): Promise<Entry | null> => {
     if (entry?.revealed) return entry;
@@ -50,6 +53,8 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
       return full;
     } catch (err) {
       if (!isLockedError(err)) toast(errorText(err), 'error');
+      // Edited after the press was asked for: show the new version before another try.
+      if (err instanceof ApiError && err.code === 'entry_changed') void api.entry(id).then(setEntry, () => undefined);
       return null;
     }
   };
@@ -101,6 +106,11 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
   if (missing || !e) return missing ? <p class="callout center pad">{t('genericError')}</p> : <div class="detail-skel" />;
 
   const host = hostOf(e.url);
+  // What this sheet already revealed goes to the editor: "show, then edit" is one press.
+  const edit = () => {
+    if (entry?.revealed) handOver(entry);
+    go(`/a/${id}/edit`);
+  };
   const toggleFav = async () => {
     const fav = !e.favorite;
     const prev = app.entries;
@@ -168,7 +178,7 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
       />
     );
   } else if (phase.kind === 'error') {
-    area = <ActionError code={phase.code} retry={() => startAction(what)} copy={() => copyOrReveal(what)} edit={() => go(`/a/${id}/edit`)} close={action.dismiss} />;
+    area = <ActionError code={phase.code} retry={() => startAction(what)} copy={() => copyOrReveal(what)} edit={edit} close={action.dismiss} />;
   } else {
     area = (
       <div class="actions">
@@ -219,7 +229,7 @@ export function AccountView({ id, mode }: { id: number; mode: 'sheet' | 'pane' }
         </div>
         <div class="acc-tools">
           <IconButton icon="star" label={t('favorite')} pressed={e.favorite} onClick={() => void toggleFav()} class="star-btn" />
-          <IconButton icon="pencil" label={t('edit')} onClick={() => go(`/a/${id}/edit`)} />
+          <IconButton icon="pencil" label={t('edit')} onClick={edit} />
         </div>
       </header>
       <div class="action-area">{area}</div>

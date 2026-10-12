@@ -199,3 +199,53 @@ test('two concurrent type requests are never mistaken for each other', async () 
     s.child.kill();
   }
 });
+
+/** A token's own call to Keyra, like keyra-mcp makes (SPEC §17). */
+async function agent(token, method, path, body) {
+  const res = await fetch(`${BASE}/api/agent${path}`, {
+    method,
+    headers: { Authorization: `Bearer ${token}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  return { status: res.status, body: res.status === 204 ? null : await res.json() };
+}
+
+// SPEC §12.6a: keyra-mcp follows its own request by requestId, so a newer request of the same
+// token (another agent sharing it) is reported as what it is, never as this one's outcome.
+test('a request replaced by a newer one is followed by its own requestId', async () => {
+  const entries = (await api('GET', '/api/entries')).body.entries;
+  const github = entries.find((e) => e.title === 'GitHub');
+  const tok = await createToken('Superseded test', [github.id]);
+  const other = await createToken('Other agent', [github.id]);
+  const s = mcp(tok.token);
+  try {
+    const first = s.tool('keyra_type_login', { id: github.id, what: 'password' });
+    await waitFor(async () => (await api('GET', '/api/state')).body.pending?.by === 'Superseded test');
+    // The same token arms again from elsewhere: the first request is replaced.
+    const newer = await agent(tok.token, 'POST', '/type', { id: github.id, what: 'username' });
+    assert.equal(newer.status, 202);
+    assert.match(newer.body.requestId, /^[0-9a-f]{32}$/);
+    assert.equal((await first).content[0].text, 'denied: replaced by a newer request');
+    // Status and cancel by requestId act only for the token that armed it.
+    const rid = newer.body.requestId;
+    assert.equal((await agent(other.token, 'GET', `/status?requestId=${rid}`)).body.state, 'none');
+    const foreign = await agent(other.token, 'POST', '/cancel', { requestId: rid });
+    assert.equal(foreign.status, 409);
+    assert.equal(foreign.body.error, 'not_cancelled');
+    assert.equal((await agent(tok.token, 'GET', `/status?requestId=${rid}`)).body.state, 'armed');
+    // A stale id cannot cancel the newer request.
+    const third = await agent(tok.token, 'POST', '/type', { id: github.id, what: 'password' });
+    const stale = await agent(tok.token, 'POST', '/cancel', { requestId: rid });
+    assert.equal(stale.status, 409);
+    assert.equal(stale.body.error, 'superseded');
+    assert.equal((await agent(tok.token, 'GET', `/status?requestId=${rid}`)).body.code, 'superseded');
+    // Older clients: no requestId, the token's newest request, as before.
+    assert.equal((await agent(tok.token, 'GET', '/status')).body.requestId, third.body.requestId);
+    assert.equal((await agent(tok.token, 'POST', '/cancel')).status, 204);
+    assert.equal((await agent(tok.token, 'GET', `/status?requestId=${third.body.requestId}`)).body.state, 'cancelled');
+    // A malformed id is refused.
+    assert.equal((await agent(other.token, 'GET', '/status?requestId=nope')).status, 400); // (the other token: this one is near its rate limit)
+  } finally {
+    s.child.kill();
+  }
+});

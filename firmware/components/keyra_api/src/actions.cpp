@@ -21,17 +21,45 @@ uint32_t Machine::nextSerialLocked() {
   return lastSerial_;
 }
 
-void Machine::finishedLocked(uint32_t serial, bool presence, Code code, OpCode opCode) {
+void Machine::finishedLocked(uint32_t serial, bool presence, Code code, OpCode opCode, bool superseded) {
   if (serial == 0) return;
-  finished_[finishedNext_] = {serial, presence, code, opCode};
+  finished_[finishedNext_] = {serial, presence, code, opCode, superseded};
   finishedNext_ = (finishedNext_ + 1) % finished_.size();
 }
 
-void Machine::lastLocked(const TypeRequest& req, Code code, int64_t at) {
+void Machine::lastLocked(const TypeRequest& req, Code code, int64_t at, bool superseded) {
   hasLast_ = true;
   last_ = {code == Code::Typed, code, 0, req.title, req.what};
   lastAt_ = at;
-  finishedLocked(req.serial, false, code, OpCode::Failed);
+  finishedLocked(req.serial, false, code, OpCode::Failed, superseded);
+}
+
+std::string Machine::issueLocked(uint32_t serial, const std::string& owner) {
+  std::string id = token_ ? token_() : std::string();
+  if (id.empty()) return id;  // no generator (some host tests): nothing to track by
+  issued_[issuedNext_] = {serial, id, owner};
+  issuedNext_ = (issuedNext_ + 1) % issued_.size();
+  return id;
+}
+
+const Machine::Issued* Machine::findIssuedLocked(const std::string& requestId, const std::string& caller) const {
+  if (requestId.empty()) return nullptr;
+  const Issued* found = nullptr;
+  for (const Issued& i : issued_) {  // every slot, compared in constant time
+    if (i.serial == 0 || i.requestId.size() != requestId.size()) continue;
+    uint8_t diff = 0;
+    for (size_t k = 0; k < requestId.size(); ++k) diff |= static_cast<uint8_t>(i.requestId[k] ^ requestId[k]);
+    if (diff == 0) found = &i;
+  }
+  if (!found || (!found->owner.empty() && found->owner != caller)) return nullptr;
+  return found;
+}
+
+Machine::Withdraw Machine::staleLocked(uint32_t serial) const {
+  for (const Finished& f : finished_) {
+    if (f.serial == serial && f.superseded) return Withdraw::Superseded;
+  }
+  return Withdraw::NotCancelled;
 }
 
 bool Machine::takeSlotLocked(const std::string& owner, int64_t now, bool presence) {
@@ -40,9 +68,9 @@ bool Machine::takeSlotLocked(const std::string& owner, int64_t now, bool presenc
   if (kind_ == Kind::None) return true;
   if (owner.empty() || owner != owner_) return false;
   if (kind_ == Kind::Type) {
-    lastLocked(req_, Code::Cancelled, now);
+    lastLocked(req_, Code::Cancelled, now, true);
   } else {
-    recordOpLocked(op_, OpCode::Cancelled, now);
+    recordOpLocked(op_, OpCode::Cancelled, now, true);
   }
   clearSlotLocked();
   return true;
@@ -57,20 +85,53 @@ std::optional<Pending> Machine::arm(TypeRequest req, const std::string& owner) {
   req_ = std::move(req);
   req_.usbSession = req_.target.kind == Target::Kind::Usb && usbMounted_ ? usbSession_ : 0;
   req_.serial = serial_ = nextSerialLocked();
+  req_.requestId = requestId_ = issueLocked(serial_, owner_);
   deadline_ = now + kExpiryMs;
   freshFrom_ = now;
   return view(req_, kExpiryMs, owner_);
 }
 
-bool Machine::cancel(const std::string& caller, const std::function<bool(const std::string& owner)>& foreign) {
+Machine::Withdraw Machine::cancel(const std::string& caller,
+                                  const std::function<bool(const std::string& owner)>& foreign,
+                                  const std::string& requestId) {
   std::lock_guard<std::mutex> lock(mu_);
   const int64_t now = now_();
   expireLocked(now);
-  if (kind_ != Kind::Type || caller.empty()) return false;
-  if (caller != owner_ && (owner_.empty() || !foreign || !foreign(owner_))) return false;
+  if (caller.empty()) return Withdraw::NotCancelled;
+  const auto mayCancel = [&](const std::string& owner) {
+    return caller == owner || (!owner.empty() && foreign && foreign(owner));
+  };
+  if (!requestId.empty()) {
+    // Someone else's id answers like an unknown one: no hint that it exists.
+    const Issued* i = findIssuedLocked(requestId, caller);
+    if (!i && foreign) {
+      for (const Issued& j : issued_) {
+        if (j.serial != 0 && j.requestId == requestId && !j.owner.empty() && foreign(j.owner)) i = &j;
+      }
+    }
+    if (!i || !mayCancel(i->owner)) return Withdraw::NotCancelled;
+    if (kind_ != Kind::Type || serial_ != i->serial) return staleLocked(i->serial);
+  }
+  if (kind_ != Kind::Type || !mayCancel(owner_)) return Withdraw::NotCancelled;
   lastLocked(req_, Code::Cancelled, now);
   clearSlotLocked();
-  return true;
+  return Withdraw::Cancelled;
+}
+
+Machine::Withdraw Machine::cancelOwnedRequest(const std::string& owner, const std::string& requestId) {
+  std::lock_guard<std::mutex> lock(mu_);
+  const int64_t now = now_();
+  expireLocked(now);
+  const Issued* i = owner.empty() ? nullptr : findIssuedLocked(requestId, owner);
+  if (!i || i->owner != owner) return Withdraw::NotCancelled;
+  if (kind_ == Kind::None || serial_ != i->serial) return staleLocked(i->serial);
+  if (kind_ == Kind::Type) {
+    lastLocked(req_, Code::Cancelled, now);
+  } else {
+    recordOpLocked(op_, OpCode::Cancelled, now);
+  }
+  clearSlotLocked();
+  return Withdraw::Cancelled;
 }
 
 bool Machine::cancelOwned(const std::string& owner) {
@@ -92,17 +153,26 @@ bool Machine::cancelOwned(const std::string& owner) {
   return true;
 }
 
-bool Machine::cancelPresence(Op op, const std::string& token) {
+Machine::Withdraw Machine::cancelPresence(Op op, const std::string& token, const std::string& requestId) {
   std::lock_guard<std::mutex> lock(mu_);
   const int64_t now = now_();
   expireLocked(now);
-  if (kind_ != Kind::Presence || op_ != op || cancelToken_.empty() || token.size() != cancelToken_.size()) return false;
+  if (!requestId.empty() && (kind_ != Kind::Presence || requestId != requestId_)) {
+    // The cancel token is the authorisation here: the id alone only says the
+    // request is gone, and only to whoever holds it.
+    for (const Issued& i : issued_) {
+      if (i.serial != 0 && i.requestId == requestId) return staleLocked(i.serial);
+    }
+    return Withdraw::NotCancelled;
+  }
+  if (kind_ != Kind::Presence || op_ != op || cancelToken_.empty() || token.size() != cancelToken_.size())
+    return Withdraw::NotCancelled;
   uint8_t diff = 0;  // constant time over the token
   for (size_t i = 0; i < token.size(); ++i) diff |= static_cast<uint8_t>(token[i] ^ cancelToken_[i]);
-  if (diff != 0) return false;
+  if (diff != 0) return Withdraw::NotCancelled;
   recordOpLocked(op, OpCode::Cancelled, now);
   clearSlotLocked();  // drops the commit: nothing runs on a later press
-  return true;
+  return Withdraw::Cancelled;
 }
 
 std::optional<Machine::Armed> Machine::awaitPresence(Op op, Commit commit, const std::string& owner) {
@@ -115,9 +185,10 @@ std::optional<Machine::Armed> Machine::awaitPresence(Op op, Commit commit, const
   commit_ = std::move(commit);
   cancelToken_ = token_ ? token_() : std::string();
   serial_ = nextSerialLocked();
+  requestId_ = issueLocked(serial_, owner_);
   deadline_ = now + kExpiryMs;
   freshFrom_ = now;
-  return Armed{kExpiryMs, cancelToken_, serial_};
+  return Armed{kExpiryMs, cancelToken_, serial_, requestId_};
 }
 
 void Machine::dropSessionItems() {
@@ -244,6 +315,7 @@ void Machine::typingFinished(const TypeRequest& req, Code code) {
       req_ = req;
       ++req_.part;
       serial_ = req_.serial;
+      requestId_ = req_.requestId;
       deadline_ = now + kExpiryMs;
       freshFrom_ = now;  // {PRESS} means a new press, not one made while typing
       return;
@@ -279,16 +351,29 @@ std::optional<OpResult> Machine::opResult() {
 
 // Every presence op that ends without running (cancelled, expired, replaced)
 // comes through here while it is still in the slot, so serial_ is its serial.
-void Machine::recordOpLocked(Op op, OpCode code, int64_t at) {
+void Machine::recordOpLocked(Op op, OpCode code, int64_t at, bool superseded) {
   opResult_ = OpResult{op, code, 0};
   opResultAt_ = at;
-  if (kind_ == Kind::Presence) finishedLocked(serial_, true, Code::Failed, code);
+  if (kind_ == Kind::Presence) finishedLocked(serial_, true, Code::Failed, code, superseded);
 }
 
 Machine::Track Machine::track(uint32_t serial) {
   std::lock_guard<std::mutex> lock(mu_);
   const int64_t now = now_();
   expireLocked(now);
+  return trackLocked(serial, now);
+}
+
+std::optional<Machine::Track> Machine::trackRequest(const std::string& requestId, const std::string& caller) {
+  std::lock_guard<std::mutex> lock(mu_);
+  const int64_t now = now_();
+  expireLocked(now);
+  const Issued* i = findIssuedLocked(requestId, caller);
+  if (!i) return std::nullopt;
+  return trackLocked(i->serial, now);
+}
+
+Machine::Track Machine::trackLocked(uint32_t serial, int64_t now) {
   Track t;
   if (serial == 0) return t;
   if (kind_ != Kind::None && serial_ == serial) {
@@ -311,6 +396,7 @@ Machine::Track Machine::track(uint32_t serial) {
     t.presence = f.presence;
     t.code = f.code;
     t.opCode = f.opCode;
+    t.superseded = f.superseded;
     return t;
   }
   return t;
@@ -373,6 +459,7 @@ void Machine::clearSlotLocked() {
   req_ = {};          // drops the slot's hold on any free text (wiped with the last one)
   commit_ = nullptr;  // destroys captured secrets of a dropped presence op
   cancelToken_.clear();
+  requestId_.clear();
   owner_.clear();
   serial_ = 0;
   deadline_ = 0;
@@ -381,6 +468,38 @@ void Machine::clearSlotLocked() {
 void Machine::flashLocked(Indicator ind, int64_t now, int64_t ms) {
   flash_ = ind;
   flashUntil_ = now + ms;
+}
+
+bool validRequestId(const std::string& s) {
+  if (s.size() != 32) return false;
+  for (char c : s) {
+    if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
+  }
+  return true;
+}
+
+const char* trackState(const Machine::Track& t) {
+  using Stage = Machine::Track::Stage;
+  switch (t.stage) {
+    case Stage::Unknown: return "none";
+    case Stage::Armed: return "armed";
+    case Stage::Connecting:
+    case Stage::Running: return "waiting";
+    case Stage::Finished: break;
+  }
+  if (t.presence) return opCodeName(t.opCode);
+  switch (t.code) {
+    case Code::Typed: return "typed";
+    case Code::Cancelled: return "cancelled";
+    case Code::Expired: return "expired";
+    default: return "failed";
+  }
+}
+
+const char* trackCode(const Machine::Track& t) {
+  if (t.stage != Machine::Track::Stage::Finished) return nullptr;
+  if (t.superseded) return "superseded";
+  return t.presence ? opCodeName(t.opCode) : codeName(t.code);
 }
 
 const char* whatName(What w) {

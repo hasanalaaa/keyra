@@ -15,8 +15,8 @@ namespace keyra::api {
 
 constexpr size_t kMaxSessions = 4;
 constexpr size_t kTokenBytes = 32;
-// After a press, the session that asked may see secrets for this long (SPEC §12.3).
-constexpr int64_t kGraceMs = 60000;
+// A press approves one request; the session must make it within this long (SPEC §12.5b).
+constexpr int64_t kApprovalMs = 30000;
 
 // Length-revealing but content-constant-time comparison (tokens have fixed length).
 bool constantTimeEqual(std::string_view a, std::string_view b);
@@ -39,18 +39,27 @@ class Sessions {
   // if the vault was locked without clear() (an internal lock).
   std::optional<std::string> csrfFor(std::string_view token, int64_t nowMs, uint32_t generation = 0);
   void clear();
-  // What a press let this session do (SPEC §12.3). A press grants the one it
-  // was asked for: revealing secrets for 60 s, or one backup / one recovery-key
-  // change, which use their press up (consumeGrace).
-  // Token: create one access token (SPEC §17), used up like Recovery.
-  // Tag: create one NFC tap tag (SPEC §18), used up the same way.
-  enum class Grace { Reveal, Backup, Recovery, Token, Tag };
-  // Starts that grace for this live session; false when it is gone.
-  bool grantGrace(std::string_view token, int64_t nowMs, Grace g);
-  // Milliseconds of that grace left for this session (0 = none or unknown token).
-  int64_t graceLeft(std::string_view token, int64_t nowMs, Grace g);
-  // True (and the grace ends) when this session has that grace now.
-  bool consumeGrace(std::string_view token, int64_t nowMs, Grace g);
+  // What one press approved (SPEC §12.5b): exactly one request of this
+  // session, named by what it does, the resource and, for an account, the
+  // version of it the press was asked for. Used up by that request, never by
+  // another one, and gone after kApprovalMs, with the session, or when the
+  // session's next press approves something else.
+  struct Approval {
+    enum class Purpose : uint8_t { RevealEntry, RevealHealth, Backup, RecoveryCreate, RecoveryRemove, TokenCreate, TagCreate };
+    Purpose purpose = Purpose::RevealEntry;
+    uint32_t resource = 0;  // RevealEntry: the entry id
+    uint32_t revision = 0;  // RevealEntry: vault::Entry::revision when the press was asked for
+    std::string request;    // TokenCreate/TagCreate: digest of the request body, so the press approves that one
+  };
+  enum class Redeem { Ok, None, Changed };
+  // Stores `a` for this live session (replacing an unused one); false when the session is gone.
+  bool approve(std::string_view token, int64_t nowMs, Approval a);
+  // Ok (and the approval is used up) when this session holds an unexpired
+  // approval for exactly `want`. Changed (and it is dropped) when it names the
+  // same request but another revision of the account: the account was edited
+  // after the press was asked for. None otherwise; an approval for something
+  // else stays for its own request.
+  Redeem redeem(std::string_view token, int64_t nowMs, const Approval& want);
   // Revoking a trusted browser ends the sessions it opened; returns their
   // tokens, so what they left waiting for the button can be withdrawn too.
   std::vector<std::string> endTrusted(uint32_t trustId);
@@ -71,7 +80,8 @@ class Sessions {
     int64_t lastUsed = 0;
     uint32_t trustId = 0;
     uint32_t generation = 0;
-    std::array<int64_t, 5> graceUntil{};  // by Grace
+    std::optional<Approval> approval;
+    int64_t approvalUntil = 0;
   };
   Slot* findLocked(std::string_view token);
   std::string randomHex();

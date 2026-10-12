@@ -156,8 +156,8 @@ if (nvsReset) {
   lockedUntil = Date.now() + (Number(process.env.MOCK_NVS_DELAY_MS) || 900_000);
 }
 let lastActivity = Date.now();
-const sessions = new Map(); // token → { csrf, lastUsed, trustId, grace: { reveal|backup|recovery: until } }
-const GRACE_MS = 60000; // SPEC §12.3: after a press, this session may see secrets this long
+const sessions = new Map(); // token → { csrf, lastUsed, trustId, approval: { purpose, resource, entry, request, until } | null }
+const APPROVAL_MS = 30000; // SPEC §12.5b: a press approves one request, to be made within this long
 let usbSeen = false; // a computer was plugged in since the unlock (charger-only never locks)
 let usbSession = 1; // bumps on every plug-in; a USB action is bound to the one it was armed on
 const trusted = new Map(); // sha256(kt) → { id, name, created, lastSeen }
@@ -183,11 +183,57 @@ const machine = {
 
 // Machine::track (SPEC §17): every armed item gets a serial; how it ended is kept by serial.
 let serialSeq = 0;
-const outcomes = new Map(); // serial → { code, presence }
-function noteOutcome(serial, code, presence) {
+const outcomes = new Map(); // serial → { code, presence, superseded }
+function noteOutcome(serial, code, presence, superseded = false) {
   if (!serial) return;
-  outcomes.set(serial, { code, presence });
-  if (outcomes.size > 8) outcomes.delete(outcomes.keys().next().value);
+  outcomes.set(serial, { code, presence, superseded });
+  if (outcomes.size > 16) outcomes.delete(outcomes.keys().next().value);
+}
+
+// SPEC §12.6a, like Machine::issueLocked: each armed item gets a requestId for its owner.
+const issued = new Map(); // requestId → { serial, owner }
+function issue(serial, owner) {
+  const id = randomBytes(16).toString('hex');
+  issued.set(id, { serial, owner });
+  if (issued.size > 16) issued.delete(issued.keys().next().value);
+  return id;
+}
+const REQUEST_ID = /^[0-9a-f]{32}$/;
+/** The optional requestId of a body or query: '' when absent, 400 when malformed. */
+function requestIdOf(v) {
+  if (v === undefined || v === null || v === '') return '';
+  if (typeof v !== 'string' || !REQUEST_ID.test(v)) bad('"requestId" must be the id from the 202 answer');
+  return v;
+}
+const slotSerial = (s) => (s ? (s.kind === 'type' ? s.req.serial : s.serial) : 0);
+/** Like Machine::trackLocked: { stage, presence, code?, superseded?, expiresIn? } for a serial. */
+function trackSerial(serial) {
+  expire();
+  const s = machine.slot;
+  if (s && slotSerial(s) === serial) {
+    const connecting = s.kind === 'type' && s.req.target.kind === 'ble' && ble.connected !== s.req.target.addr;
+    return { stage: connecting ? 'connecting' : 'armed', presence: s.kind === 'presence', expiresIn: s.deadline - Date.now() };
+  }
+  if ((machine.typing && machine.typingSerial === serial) || (machine.running && machine.runningSerial === serial)) return { stage: 'running', presence: !!machine.running && machine.runningSerial === serial };
+  const o = outcomes.get(serial);
+  return o ? { stage: 'finished', ...o } : { stage: 'unknown' };
+}
+/** actions.cpp trackState / trackCode for /api/state's `request`. */
+function requestView(requestId, caller) {
+  const i = issued.get(requestId);
+  const t = i && (!i.owner || i.owner === caller) ? trackSerial(i.serial) : { stage: 'unknown' };
+  const out = { requestId };
+  if (t.stage === 'unknown') return { ...out, state: 'none' };
+  out.kind = t.presence ? 'presence' : 'type';
+  if (t.stage === 'armed' || t.stage === 'connecting') return { ...out, state: t.stage === 'armed' ? 'armed' : 'waiting', expiresIn: t.expiresIn };
+  if (t.stage === 'running') return { ...out, state: 'waiting' };
+  const state = t.presence ? t.code : ['typed', 'cancelled', 'expired'].includes(t.code) ? t.code : 'failed';
+  return { ...out, state, code: t.superseded ? 'superseded' : t.code };
+}
+/** Superseded (409) when that request was replaced by a newer one of its owner, else not_cancelled. */
+function failStale(serial) {
+  if (outcomes.get(serial)?.superseded) fail(409, 'superseded', 'A newer request replaced this one; it was not cancelled');
+  fail(409, 'not_cancelled', 'Nothing of yours is waiting for the button');
 }
 
 function expire(now = Date.now()) {
@@ -219,19 +265,19 @@ function takeSlot(owner, presence) {
   const s = machine.slot;
   if (!s) return true;
   if (!owner || owner !== s.owner) return false;
-  endCancelled(s);
+  endCancelled(s, true);
   machine.slot = null;
   return true;
 }
 
-/** Records a waiting item as cancelled (type → last, presence → opResult). */
-function endCancelled(s) {
+/** Records a waiting item as cancelled (type → last, presence → opResult); `superseded`: replaced by its owner. */
+function endCancelled(s, superseded = false) {
   if (s.kind === 'type') {
     machine.last = { ok: false, code: 'cancelled', at: Date.now(), title: s.req.title, what: s.req.what };
-    noteOutcome(s.req.serial, 'cancelled', false);
+    noteOutcome(s.req.serial, 'cancelled', false, superseded);
   } else {
     machine.opResult = { op: s.op, code: 'cancelled', at: Date.now() };
-    noteOutcome(s.serial, 'cancelled', true);
+    noteOutcome(s.serial, 'cancelled', true, superseded);
   }
 }
 
@@ -241,13 +287,14 @@ function arm(req) {
   if (!takeSlot(requester, false)) fail(409, 'busy', BUSY);
   req.usbSession = req.target.kind === 'usb' && host.usb ? usbSession : 0;
   req.serial = ++serialSeq;
+  req.requestId = issue(req.serial, requester);
   // Like TypeRequest::revision: every put or restore stores a new entry object, so the
   // object armed for is the version the press may type (entry_changed otherwise).
   if (req.id) req.entry = vault.entries.get(req.id);
   machine.slot = { kind: 'type', req, deadline: Date.now() + EXPIRY_MS, owner: requester };
   syncDemand();
   autoPress(machine.slot);
-  const { serial: _s, usbSession: _u, entry: _e, ...view } = req;
+  const { serial: _s, usbSession: _u, entry: _e, requestId: _r, ...view } = req;
   return { ...view, target: targetText(req.target), expiresIn: EXPIRY_MS };
 }
 
@@ -259,7 +306,8 @@ function awaitPresence(op, commit, { tryOnly = false } = {}) {
     fail(409, 'busy', BUSY);
   }
   // Like Machine::cancelPresence: only the requester gets the token that withdraws it.
-  machine.slot = { kind: 'presence', op, commit, deadline: Date.now() + EXPIRY_MS, cancel: randomBytes(16).toString('hex'), owner, serial: ++serialSeq };
+  const serial = ++serialSeq;
+  machine.slot = { kind: 'presence', op, commit, deadline: Date.now() + EXPIRY_MS, cancel: randomBytes(16).toString('hex'), owner, serial, requestId: issue(serial, owner) };
   autoPress(machine.slot);
   return EXPIRY_MS;
 }
@@ -1056,7 +1104,7 @@ function strengthLevel(pw) {
   return b < 36 ? 1 : b < 60 ? 2 : b < 80 ? 3 : 4;
 }
 
-/** SPEC §13: weak and reused speak about the passwords, so they follow the reveal grace. */
+/** SPEC §13: weak and reused speak about the passwords, so they need the reveal press. */
 function health(entries, revealed) {
   const now = timeValid ? nowSec() : 0;
   const withPw = entries.filter((e) => e.password);
@@ -1388,7 +1436,7 @@ const validPassphrase = (s) => typeof s === 'string' && [...s].length >= 10 && [
 const validWifi = (s) => typeof s === 'string' && s.length >= 8 && s.length <= 63 && /^[\x20-\x7e]+$/.test(s) && s !== 'keyra1234';
 const validName = (s) => typeof s === 'string' && s.length > 0 && Buffer.byteLength(s) <= 32 && !/[\x00-\x1f\x7f]/.test(s);
 const str = (b, k) => (typeof b[k] === 'string' ? b[k] : bad(`"${k}" (string) is required`));
-const awaiting = (res, expiresIn) => send(res, 202, { awaiting: 'button', expiresIn, cancel: machine.slot?.cancel ?? '' });
+const awaiting = (res, expiresIn) => send(res, 202, { awaiting: 'button', expiresIn, cancel: machine.slot?.cancel ?? '', requestId: machine.slot?.requestId ?? '' });
 const busy409 = () => fail(409, 'busy', "Keyra is waiting for another request; long-press its button to cancel it");
 
 function getEntry(id) {
@@ -1405,23 +1453,30 @@ function entryView(e, revealed) {
   return { ...rest, revealed, ...has, history: history.map((h) => ({ changedAt: h.changedAt })) };
 }
 
-// SPEC §12.3: a press grants what it was asked for — reveal for 60 s, or one backup / one recovery-key change.
-const graceLeft = (sess, op = 'reveal') => (sess ? Math.max(0, (sess.grace?.[op] ?? 0) - Date.now()) : 0);
-function consumeGrace(sess, op) {
-  if (graceLeft(sess, op) <= 0) return false;
-  sess.grace[op] = 0;
-  return true;
+// SPEC §12.5b, like Sessions::redeem: a press approves one request of one session — this purpose,
+// this resource, this version of the account (the entry object, as for type actions), this body.
+// 'ok' uses it up; 'changed' (dropped) when the account was edited since; 'none' otherwise.
+function redeem(sess, want) {
+  const a = sess?.approval;
+  if (!a) return 'none';
+  if (Date.now() >= a.until) {
+    sess.approval = null;
+    return 'none';
+  }
+  if (a.purpose !== want.purpose || (a.resource ?? 0) !== (want.resource ?? 0) || (a.request ?? '') !== (want.request ?? '')) return 'none';
+  sess.approval = null;
+  return a.entry === want.entry ? 'ok' : 'changed';
 }
-const mayReveal = (sess) => !settings.protectReveal || graceLeft(sess) > 0;
-const mayBackup = (sess) => !settings.protectReveal || consumeGrace(sess, 'backup');
-/** Arms `op`; the press opens this session's grace for that op only. */
-function requestPress(res, op, token) {
+const unprotected = () => !settings.protectReveal;
+const mayBackup = (sess) => unprotected() || redeem(sess, { purpose: 'backup' }) === 'ok';
+/** Arms `op`; the press approves `want` for this session only. */
+function requestPress(res, op, token, want) {
   const exp = awaitPresence(op, () => {
     const s = sessions.get(token);
     if (!s) return false;
-    s.grace = { ...s.grace, [op]: Date.now() + GRACE_MS };
+    s.approval = { ...want, until: Date.now() + APPROVAL_MS };
   });
-  return send(res, 202, { awaiting: 'button', op, expiresIn: exp, cancel: machine.slot?.cancel ?? '' });
+  return send(res, 202, { awaiting: 'button', op, expiresIn: exp, cancel: machine.slot?.cancel ?? '', requestId: machine.slot?.requestId ?? '' });
 }
 
 /** A new session for this browser (+ the renewed trust cookie). */
@@ -1441,7 +1496,7 @@ function issueSession(res, req, known, how = 0) {
   }
   const tok = randomBytes(32).toString('hex');
   const csrf = randomBytes(32).toString('hex');
-  sessions.set(tok, { csrf, lastUsed: Date.now(), trustId: known?.id ?? 0, grace: {} });
+  sessions.set(tok, { csrf, lastUsed: Date.now(), trustId: known?.id ?? 0, approval: null });
   const cookies = [`ks=${tok}; HttpOnly; SameSite=Strict; Path=/`];
   if (known) cookies.push(`kt=${cookie(req, 'kt')}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000`);
   return send(res, 200, { csrf, failedAttempts, ...(nvs ? { nvsReset: nvs } : {}) }, { 'Set-Cookie': cookies });
@@ -1464,7 +1519,7 @@ function trustRequest(res, req) {
     { tryOnly: true },
   );
   if (exp === null) busy409();
-  return send(res, 202, { awaiting: 'button', op: 'trust_browser', expiresIn: exp, cancel: machine.slot?.cancel ?? '' }, { 'Set-Cookie': `kt=${kt}; HttpOnly; SameSite=Strict; Path=/` });
+  return send(res, 202, { awaiting: 'button', op: 'trust_browser', expiresIn: exp, cancel: machine.slot?.cancel ?? '', requestId: machine.slot?.requestId ?? '' }, { 'Set-Cookie': `kt=${kt}; HttpOnly; SameSite=Strict; Path=/` });
 }
 
 function throttle() {
@@ -1489,7 +1544,16 @@ const RATE_WINDOW_MS = 10000;
 const TOKEN_RE = /^keyra_[a-z2-7]{32}$/;
 const TOKEN_KINDS = ['agent', 'app', 'extension']; // index = kind byte in tokens.bin and token_created detail
 const tokenRate = new Map(); // token id (0 = unrecognised) → request times
-const tokenLast = new Map(); // token id → { serial, save, id, title?, what? }
+const tokenLast = new Map(); // token id → [{ serial, save, id, title?, what?, requestId }], newest last (SPEC §12.6a)
+function rememberToken(id, rec) {
+  const q = tokenLast.get(id) ?? [];
+  q.push(rec);
+  while (q.length > 4) q.shift();
+  tokenLast.set(id, q);
+}
+function savedAs(tokenId, serial, id) {
+  for (const q of tokenLast.get(tokenId) ?? []) if (q.serial === serial) q.id = id;
+}
 
 function base32Encode(buf) {
   const A = 'abcdefghijklmnopqrstuvwxyz234567';
@@ -1597,10 +1661,11 @@ function logCoalesced(kind, { id, title, detail = 0 }) {
 const TYPE_STATE = { typed: 'typed', cancelled: 'cancelled', expired: 'expired' };
 const SAVE_STATE = { done: 'saved', cancelled: 'cancelled', expired: 'expired', failed: 'failed' };
 
-/** handlers_agent.cpp getStatus, by the serial of this token's last request. */
-function agentStatus(t) {
+/** handlers_agent.cpp getStatus: this token's newest request, or the one named by `requestId`. */
+function agentStatus(t, requestId = '') {
   expire();
-  const last = tokenLast.get(t.id);
+  const list = tokenLast.get(t.id) ?? [];
+  const last = requestId ? list.find((q) => q.requestId === requestId) : list[list.length - 1];
   if (!last) return { state: 'none' };
   const out = { request: last.save ? 'save' : 'type' };
   const s = machine.slot;
@@ -1611,10 +1676,11 @@ function agentStatus(t) {
   } else if ((machine.typing && machine.typingSerial === last.serial) || (machine.running && machine.runningSerial === last.serial)) {
     out.state = 'waiting';
   } else if (o) {
-    if (last.save) out.state = SAVE_STATE[o.code] ?? 'failed';
-    else Object.assign(out, { state: TYPE_STATE[o.code] ?? 'failed', code: o.code });
+    if (last.save) Object.assign(out, { state: SAVE_STATE[o.code] ?? 'failed' }, o.superseded ? { code: 'superseded' } : {});
+    else Object.assign(out, { state: TYPE_STATE[o.code] ?? 'failed', code: o.superseded ? 'superseded' : o.code });
   } else out.state = 'none';
   if (last.id) out.id = last.id;
+  if (last.requestId) out.requestId = last.requestId;
   if (!last.save) Object.assign(out, { title: last.title, what: last.what });
   return out;
 }
@@ -1649,7 +1715,7 @@ function armEntry(id, what, targetIn, submitIn, host) {
 
 const MAX_TAGS = 16;
 const tagRate = new Map(); // tag id (0 = unknown tag, wrong secret or MAC) → tap times
-const tagLast = new Map(); // tag id → { serial, ticket }
+const tagLast = new Map(); // tag id → { serial, ticket, requestId }
 const simTags = new Map(); // tag id → the simulated NTAG 424 DNA: { uid, ctr }
 const TAG_HOST = 'keyra.local';
 
@@ -1719,10 +1785,10 @@ function simulateSun(t, ctr) {
 }
 
 /** handlers_tags.cpp status, by the ticket the tap answered with. */
-function tagStatus(id, ticket) {
+function tagStatus(id, ticket, requestId) {
   expire();
   const last = tagLast.get(id);
-  if (!last || last.ticket !== ticket) return { state: 'none' };
+  if (!last || last.ticket !== ticket || (requestId && requestId !== last.requestId)) return { state: 'none' };
   const s = machine.slot;
   const o = outcomes.get(last.serial);
   if (s?.kind === 'type' && s.req.serial === last.serial) {
@@ -1767,7 +1833,9 @@ async function api(req, res, path) {
   }
 
   let b = {};
-  if (BODY.has(m.route)) {
+  // Cancels take an optional body (a requestId, SPEC §12.6a); older clients send none.
+  const optionalBody = (m.route === 'typeCancel' || m.route === 'agentCancel') && Number(req.headers['content-length'] || 0) > 0;
+  if (BODY.has(m.route) || optionalBody) {
     const raw = await readBody(req, cap);
     try {
       b = JSON.parse(raw);
@@ -1783,6 +1851,7 @@ async function api(req, res, path) {
 
   switch (m.route) {
     case 'state': {
+      const stateRid = requestIdOf(new URL(req.url, 'http://keyra').searchParams.get('requestId'));
       const s = machine.slot;
       return send(res, 200, {
         device: { ...device, name: settings.deviceName, powerDip: process.env.MOCK_POWER_DIP === '1' },
@@ -1825,7 +1894,8 @@ async function api(req, res, path) {
           via,
         },
         timeValid,
-        graceMs: session ? graceLeft(sess) : 0,
+        graceMs: 0, // SPEC §12.5b: no reveal window any more; kept for older clients
+        ...(stateRid ? { request: requestView(stateRid, session ? token : '') } : {}),
         ...(nvsReset ? { nvsReset } : {}),
         ...(session && fw.phase !== 'idle' ? { update: fwState() } : {}),
       });
@@ -1894,7 +1964,7 @@ async function api(req, res, path) {
       return send(res, 200, { enabled: !!vault.recovery, created: vault.recovery?.created ?? 0 });
 
     case 'createRecovery': {
-      if (!consumeGrace(sess, 'recovery')) return requestPress(res, 'recovery', token);
+      if (redeem(sess, { purpose: 'recovery_create' }) !== 'ok') return requestPress(res, 'recovery', token, { purpose: 'recovery_create' });
       const key = randomBytes(20).toString('hex');
       vault.recovery = { key, created: nowSec() };
       logEvent('recovery_created');
@@ -1902,7 +1972,7 @@ async function api(req, res, path) {
     }
 
     case 'deleteRecovery':
-      if (!consumeGrace(sess, 'recovery')) return requestPress(res, 'recovery', token);
+      if (redeem(sess, { purpose: 'recovery_remove' }) !== 'ok') return requestPress(res, 'recovery', token, { purpose: 'recovery_remove' });
       if (!vault.recovery) fail(404, 'not_found', 'No recovery key');
       vault.recovery = null;
       logEvent('recovery_removed');
@@ -1916,11 +1986,16 @@ async function api(req, res, path) {
       return send(res, 200, { entries: [...vault.entries.values()].map(summary) });
 
     case 'get':
-      return send(res, 200, entryView(getEntry(m.id), mayReveal(sess)));
+      return send(res, 200, entryView(getEntry(m.id), unprotected()));
 
     case 'reveal': {
       const e = getEntry(m.id);
-      if (!mayReveal(sess)) return requestPress(res, 'reveal', token);
+      if (!unprotected()) {
+        const want = { purpose: 'reveal_entry', resource: e.id, entry: e };
+        const got = redeem(sess, want);
+        if (got === 'changed') fail(409, 'entry_changed', 'The account changed after the press was asked for');
+        if (got === 'none') return requestPress(res, 'reveal', token, want);
+      }
       logEvent('revealed', { id: e.id, title: e.title });
       return send(res, 200, entryView(e, true));
     }
@@ -1960,7 +2035,7 @@ async function api(req, res, path) {
         vault.entries.delete(id);
         logEvent('entry_deleted', { id, title: gone.title });
       });
-      return send(res, 202, { awaiting: 'button', op: 'delete_entry', expiresIn: exp, cancel: machine.slot?.cancel ?? '' });
+      return send(res, 202, { awaiting: 'button', op: 'delete_entry', expiresIn: exp, cancel: machine.slot?.cancel ?? '', requestId: machine.slot?.requestId ?? '' });
     }
 
     case 'import': {
@@ -2022,11 +2097,11 @@ async function api(req, res, path) {
         if (b.separator !== undefined && b.separator !== 'tab' && b.separator !== 'enter') bad('separator must be "tab" or "enter"');
         const req = { id: 0, title: null, what: 'text', submit: false, target, text: b.text, twice: b.repeat === 2, enterBetween: b.separator === 'enter' };
         const { text: _t, twice: _w, enterBetween: _e, ...pending } = arm(req);
-        return send(res, 202, { pending: { kind: 'type', ...pending } });
+        return send(res, 202, { pending: { kind: 'type', ...pending }, requestId: machine.slot.req.requestId });
       }
-      if (b.test) return send(res, 202, { pending: { kind: 'type', ...arm({ id: 0, title: 'Keyra test', what: 'test', submit: false, target }) } });
+      if (b.test) return send(res, 202, { pending: { kind: 'type', ...arm({ id: 0, title: 'Keyra test', what: 'test', submit: false, target }) }, requestId: machine.slot.req.requestId });
       // Layout Doctor (SPEC §10.3).
-      if (b.probe) return send(res, 202, { pending: { kind: 'type', ...arm({ id: 0, title: 'Keyboard check', what: 'probe', submit: false, target }) } });
+      if (b.probe) return send(res, 202, { pending: { kind: 'type', ...arm({ id: 0, title: 'Keyboard check', what: 'probe', submit: false, target }) }, requestId: machine.slot.req.requestId });
       if (!Number.isInteger(b.id) || b.id < 1 || b.id > 0xffffffff) bad('"id" (entry id) is required');
       if (!['username', 'password', 'both', 'totp', 'sequence'].includes(b.what)) bad('"what" must be username, password, both, totp or sequence');
       if (b.submit !== undefined && typeof b.submit !== 'boolean') bad('"submit" must be a boolean');
@@ -2041,7 +2116,7 @@ async function api(req, res, path) {
         if ((needs('username') && !e.username) || (needs('password') && !e.password) || (needs('totp') && !e.totp)) bad('Entry has no value for a field its sequence types');
         if (needs('totp') && !timeValid) fail(409, 'no_time', 'Device clock is not set');
         const p = arm({ id: e.id, title: e.title, what: 'sequence', submit: false, target, seq, part: 0 });
-        return send(res, 202, { pending: { kind: 'type', ...pendingView(p), expiresIn: p.expiresIn, target: p.target } });
+        return send(res, 202, { pending: { kind: 'type', ...pendingView(p), expiresIn: p.expiresIn, target: p.target }, requestId: machine.slot.req.requestId });
       }
       const missing =
         (b.what === 'username' && !e.username) ||
@@ -2050,7 +2125,7 @@ async function api(req, res, path) {
         (b.what === 'totp' && !e.totp);
       if (missing) bad('Entry has no value for that field');
       if (b.what === 'totp' && !timeValid) fail(409, 'no_time', 'Device clock is not set');
-      return send(res, 202, { pending: { kind: 'type', ...arm({ id: e.id, title: e.title, what: b.what, submit, target }) } });
+      return send(res, 202, { pending: { kind: 'type', ...arm({ id: e.id, title: e.title, what: b.what, submit, target }) }, requestId: machine.slot.req.requestId });
     }
 
     case 'generate': {
@@ -2071,8 +2146,14 @@ async function api(req, res, path) {
       // Like Machine::cancelPresence: only the named op, and nothing runs later.
       if (typeof b.op !== 'string') bad('op must name a presence operation');
       if (typeof b.cancel !== 'string') bad('cancel must be the token from the 202 answer');
+      const rid = requestIdOf(b.requestId);
       expire();
       const s = machine.slot;
+      if (rid && !(s?.kind === 'presence' && s.requestId === rid)) {
+        const i = issued.get(rid);
+        if (i) failStale(i.serial);
+        fail(409, 'not_cancelled', 'Nothing of yours is waiting for the button');
+      }
       if (!(s?.kind === 'presence' && s.op === b.op && s.cancel && safeEqual(b.cancel, s.cancel)))
         fail(409, 'not_cancelled', 'Nothing of yours is waiting for the button');
       endCancelled(s);
@@ -2096,7 +2177,7 @@ async function api(req, res, path) {
       }
       vault.tokens ??= [];
       if (vault.tokens.length >= MAX_TOKENS) fail(409, 'tokens_full', 'Keyra holds at most 8 access tokens');
-      if (!consumeGrace(sess, 'token_create')) return requestPress(res, 'token_create', token);
+      if (redeem(sess, { purpose: 'token_create', request: JSON.stringify(b) }) !== 'ok') return requestPress(res, 'token_create', token, { purpose: 'token_create', request: JSON.stringify(b) });
       const secret = 'keyra_' + base32Encode(randomBytes(20));
       let id;
       do id = randomBytes(4).readUInt32BE();
@@ -2143,7 +2224,7 @@ async function api(req, res, path) {
       }
       vault.tags ??= [];
       if (vault.tags.length >= MAX_TAGS) fail(409, 'tags_full', 'Keyra holds at most 16 tags');
-      if (!consumeGrace(sess, 'tag_create')) return requestPress(res, 'tag_create', token);
+      if (redeem(sess, { purpose: 'tag_create', request: JSON.stringify(b) }) !== 'ok') return requestPress(res, 'tag_create', token, { purpose: 'tag_create', request: JSON.stringify(b) });
       let id;
       do id = randomBytes(4).readUInt32BE();
       while (!id || vault.tags.some((x) => x.id === id));
@@ -2207,14 +2288,15 @@ async function api(req, res, path) {
       requester = `tag:${tag.id}`;
       const { e, p } = armEntry(tag.entry, tag.what, tag.target || undefined, undefined);
       const ticket = randomBytes(4).readUInt32BE() || 1;
-      tagLast.set(tag.id, { serial: machine.slot.req.serial, ticket });
+      tagLast.set(tag.id, { serial: machine.slot.req.serial, ticket, requestId: machine.slot.req.requestId });
       logEvent('tag_tapped', { id: e.id, title: tag.name, detail: WHATS.indexOf(tag.what) });
-      return send(res, 202, { state: 'armed', title: e.title, what: tag.what, expiresIn: p.expiresIn, ticket });
+      return send(res, 202, { state: 'armed', title: e.title, what: tag.what, expiresIn: p.expiresIn, ticket, requestId: machine.slot.req.requestId });
     }
 
     case 'tagStatus':
       if (!Number.isInteger(b.id) || !Number.isInteger(b.ticket)) bad('"id" and "ticket" are required');
-      return send(res, 200, tagStatus(b.id, b.ticket));
+      if (b.requestId !== undefined && typeof b.requestId !== 'string') bad('"requestId" must be a string');
+      return send(res, 200, tagStatus(b.id, b.ticket, b.requestId));
 
     case 'agentEntries': {
       const list = [...vault.entries.values()].filter((e) => inScope(bearer, e.id)).map((e) => ({ id: e.id, title: e.title, host: urlHost(e.url) }));
@@ -2239,18 +2321,22 @@ async function api(req, res, path) {
       }
       // Only a login typed on another site's page carries the page host (phone pill, activity log).
       const { e, p } = armEntry(b.id, b.what, b.target, b.submit, anyHost ? host : undefined);
-      tokenLast.set(bearer.id, { serial: machine.slot.req.serial, save: false, id: e.id, title: e.title, what: b.what });
+      rememberToken(bearer.id, { serial: machine.slot.req.serial, save: false, id: e.id, title: e.title, what: b.what, requestId: machine.slot.req.requestId });
       const what = ['username', 'password', 'both', 'totp'].indexOf(b.what);
       logEvent('agent_armed', anyHost ? { id: e.id, title: `${bearer.name} → ${host}`, detail: what + 4 } : { id: e.id, title: bearer.name, detail: what });
-      return send(res, 202, { pending: { kind: 'type', ...p, by: bearer.name }, expiresIn: p.expiresIn });
+      return send(res, 202, { pending: { kind: 'type', ...p, by: bearer.name }, expiresIn: p.expiresIn, requestId: machine.slot.req.requestId });
     }
 
     case 'agentStatus':
-      return send(res, 200, agentStatus(bearer));
+      return send(res, 200, agentStatus(bearer, requestIdOf(new URL(req.url, 'http://keyra').searchParams.get('requestId'))));
 
     case 'agentCancel': {
       expire();
       const s = machine.slot;
+      const rid = requestIdOf(b.requestId);
+      const i = rid ? issued.get(rid) : null;
+      if (rid && (!i || i.owner !== `token:${bearer.id}`)) fail(409, 'not_cancelled', 'Nothing of this token is waiting for the button');
+      if (i && slotSerial(s) !== i.serial) failStale(i.serial);
       if (!s || s.owner !== `token:${bearer.id}`) fail(409, 'not_cancelled', 'Nothing of this token is waiting for the button');
       endCancelled(s);
       machine.slot = null;
@@ -2278,13 +2364,12 @@ async function api(req, res, path) {
           const e = { ...old, username: b.username || old.username, password: b.password, updated: now };
           if (old.password && old.password !== b.password) e.history = [{ password: old.password, changedAt: now }, ...old.history].slice(0, MAX_HISTORY);
           vault.entries.set(id, e);
-          const last = tokenLast.get(tokenId);
-          if (last?.serial === serial) last.id = id;
+          savedAs(tokenId, serial, id);
           logEvent('agent_saved', { id, title: name, detail: 1 });
         });
         const serial = machine.slot.serial;
-        tokenLast.set(tokenId, { serial, save: true, id: 0 });
-        return send(res, 202, { awaiting: 'button', op: 'agent_save', expiresIn: exp, mode: 'update' });
+        rememberToken(tokenId, { serial, save: true, id: 0, requestId: machine.slot.requestId });
+        return send(res, 202, { awaiting: 'button', op: 'agent_save', expiresIn: exp, mode: 'update', requestId: machine.slot.requestId });
       }
       if (!b.title) bad('"title" (string) is required');
       const exp = awaitPresence('agent_save', () => {
@@ -2292,15 +2377,14 @@ async function api(req, res, path) {
         const id = freshId();
         const now = nowSec();
         vault.entries.set(id, { id, title: b.title, url: b.url ?? '', username: b.username ?? '', password: b.password ?? '', totp: '', notes: '', sequence: '', favorite: false, created: now, updated: now, lastUsed: 0, history: [], burnAfter: 0 });
-        const last = tokenLast.get(tokenId);
-        if (last?.serial === serial) last.id = id;
+        savedAs(tokenId, serial, id);
         const t = vault.tokens?.find((x) => x.id === tokenId);
         if (t && t.scope !== 'all' && t.scope.length < MAX_SCOPE) t.scope.push(id);
         logEvent('agent_saved', { id, title: name });
       });
       const serial = machine.slot.serial;
-      tokenLast.set(tokenId, { serial, save: true, id: 0 });
-      return send(res, 202, { awaiting: 'button', op: 'agent_save', expiresIn: exp, mode: 'create' });
+      rememberToken(tokenId, { serial, save: true, id: 0, requestId: machine.slot.requestId });
+      return send(res, 202, { awaiting: 'button', op: 'agent_save', expiresIn: exp, mode: 'create', requestId: machine.slot.requestId });
     }
 
     case 'agentMatch': {
@@ -2330,7 +2414,14 @@ async function api(req, res, path) {
       // Like postTypeCancel: this session's own action, or one a token or tag armed;
       // another session's stays armed (409, like presence/cancel).
       const s = machine.slot;
-      const mine = s?.kind === 'type' && requester && (s.owner === requester || /^(token|tag):/.test(s.owner));
+      const rid = requestIdOf(b.requestId);
+      const mayCancel = (owner) => !!requester && (owner === requester || /^(token|tag):/.test(owner));
+      if (rid) {
+        const i = issued.get(rid);
+        if (!i || !mayCancel(i.owner)) fail(409, 'not_cancelled', 'Nothing of yours is waiting for the button');
+        if (!(s?.kind === 'type' && s.req.serial === i.serial)) failStale(i.serial);
+      }
+      const mine = s?.kind === 'type' && mayCancel(s.owner);
       if (!mine) fail(409, 'not_cancelled', 'Nothing of yours is waiting for the button');
       endCancelled(s);
       machine.slot = null;
@@ -2466,7 +2557,7 @@ async function api(req, res, path) {
     case 'backup': {
       const pass = str(b, 'passphrase');
       if ([...pass].length < 12 || Buffer.byteLength(pass) > 1024) bad('backup passphrase must be at least 12 characters');
-      if (!mayBackup(sess)) return requestPress(res, 'backup', token);
+      if (!mayBackup(sess)) return requestPress(res, 'backup', token, { purpose: 'backup' });
       settings.lastBackupAt = nowSec();
       const d = new Date();
       const ymd = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
@@ -2539,7 +2630,7 @@ async function api(req, res, path) {
         settings.homeWifi = { enabled: b.enabled, ssid: ssid || cur.ssid, password: b.password || cur.password };
         applyHome();
       });
-      return send(res, 202, { awaiting: 'button', op: 'home_wifi', expiresIn: exp, cancel: machine.slot?.cancel ?? '' });
+      return send(res, 202, { awaiting: 'button', op: 'home_wifi', expiresIn: exp, cancel: machine.slot?.cancel ?? '', requestId: machine.slot?.requestId ?? '' });
     }
 
     case 'trusted': {
@@ -2592,14 +2683,14 @@ async function api(req, res, path) {
           lockAll();
         }, 2000);
       });
-      return send(res, 202, { awaiting: 'button', op: 'update', expiresIn: exp, cancel: machine.slot?.cancel ?? '', version });
+      return send(res, 202, { awaiting: 'button', op: 'update', expiresIn: exp, cancel: machine.slot?.cancel ?? '', requestId: machine.slot?.requestId ?? '', version });
     }
 
     case 'health':
-      return send(res, 200, health([...vault.entries.values()], mayReveal(sess)));
+      return send(res, 200, health([...vault.entries.values()], unprotected()));
 
     case 'healthReveal':
-      if (!mayReveal(sess)) return requestPress(res, 'reveal', token);
+      if (!unprotected() && redeem(sess, { purpose: 'reveal_health' }) !== 'ok') return requestPress(res, 'reveal', token, { purpose: 'reveal_health' });
       return send(res, 200, health([...vault.entries.values()], true));
 
     case 'healthRotate': {
@@ -2609,7 +2700,7 @@ async function api(req, res, path) {
       settings.rotateSince = b.on ? nowSec() : 0;
       if (b.on) logCoalesced('rotate_started', {});
       else if (was) logCoalesced('rotate_ended', {});
-      return send(res, 200, health([...vault.entries.values()], mayReveal(sess)));
+      return send(res, 200, health([...vault.entries.values()], unprotected()));
     }
 
     case 'activity':
@@ -2628,7 +2719,7 @@ async function api(req, res, path) {
         if (!unlocked || !vault?.passkeys.delete(id)) return false;
         console.log(`[mock] passkey ${id} deleted`);
       });
-      return send(res, 202, { awaiting: 'button', op: 'delete_passkey', expiresIn: exp, cancel: machine.slot?.cancel ?? '' });
+      return send(res, 202, { awaiting: 'button', op: 'delete_passkey', expiresIn: exp, cancel: machine.slot?.cancel ?? '', requestId: machine.slot?.requestId ?? '' });
     }
 
     case 'untrust': {

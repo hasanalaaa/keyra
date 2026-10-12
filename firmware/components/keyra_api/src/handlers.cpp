@@ -122,6 +122,7 @@ esp_err_t sendAwaitingButton(httpd_req_t* r, const std::optional<actions::Machin
   if (op) cJSON_AddStringToObject(o.get(), "op", op);
   cJSON_AddNumberToObject(o.get(), "expiresIn", static_cast<double>(armed->expiresIn));
   cJSON_AddStringToObject(o.get(), "cancel", armed->cancel.c_str());
+  cJSON_AddStringToObject(o.get(), "requestId", armed->requestId.c_str());
   return http::sendJson(r, http::k202, o.get());
 }
 
@@ -358,6 +359,9 @@ bool commitRestoreReplace(RestoreJob& j) {
 // ---------- endpoints ----------
 
 esp_err_t getState(Ctx& c) {
+  const std::string requestId = http::query(c.r, "requestId", 32);
+  if (!requestId.empty() && !actions::validRequestId(requestId))
+    return badRequest(c.r, "\"requestId\" must be the id from the 202 answer");
   const settings::Settings s = settings::get();
   json::Ptr o(cJSON_CreateObject());
   cJSON* dev = cJSON_AddObjectToObject(o.get(), "device");
@@ -442,9 +446,22 @@ esp_err_t getState(Ctx& c) {
   cJSON_AddBoolToObject(o.get(), "timeValid", timeValid());
   // Settings storage was erased at boot and no unlock has logged it yet (SPEC §5).
   if (const auto reset = nvsreset::pending()) cJSON_AddStringToObject(o.get(), "nvsReset", nvsreset::name(*reset));
-  // Reveal grace left for this session (SPEC §12.3); 0 without a session.
-  cJSON_AddNumberToObject(o.get(), "graceMs",
-                          c.session ? static_cast<double>(sessions().graceLeft(c.token, monoMs(), Sessions::Grace::Reveal)) : 0);
+  // Always 0: a press approves one request, not a time window (SPEC §12.5b).
+  // Kept so clients made for the reveal window still read a number.
+  cJSON_AddNumberToObject(o.get(), "graceMs", 0);
+  // ?requestId=…: where that request of this caller stands (SPEC §12.6a).
+  if (!requestId.empty()) {
+    cJSON* rq = cJSON_AddObjectToObject(o.get(), "request");
+    cJSON_AddStringToObject(rq, "requestId", requestId.c_str());
+    const auto tr = machine().trackRequest(requestId, c.session ? c.token : std::string());
+    const actions::Machine::Track t = tr.value_or(actions::Machine::Track{});
+    if (tr && t.stage != actions::Machine::Track::Stage::Unknown)
+      cJSON_AddStringToObject(rq, "kind", t.presence ? "presence" : "type");
+    cJSON_AddStringToObject(rq, "state", actions::trackState(t));
+    if (const char* code = actions::trackCode(t)) cJSON_AddStringToObject(rq, "code", code);
+    if (t.stage == actions::Machine::Track::Stage::Armed || t.stage == actions::Machine::Track::Stage::Connecting)
+      cJSON_AddNumberToObject(rq, "expiresIn", static_cast<double>(t.expiresInMs));
+  }
   return http::sendJson(c.r, http::k200, o.get());
 }
 
@@ -592,15 +609,21 @@ esp_err_t getActivity(Ctx& c) {
     cJSON_AddItemToArray(arr, j);
   }
   cJSON_AddNumberToObject(o.get(), "max", static_cast<double>(activity::kMaxEvents));
+  if (vault::activityAside()) cJSON_AddTrueToObject(o.get(), "aside");
   return http::sendJson(c.r, http::k200, o.get());
 }
 
 // SPEC §13: ids and flags only; the passwords never leave this function.
-// Weak and reused speak about the passwords, so with protectReveal they follow
-// the reveal grace like the secrets themselves; POST …/reveal asks for it.
+// Weak and reused speak about the passwords, so with protectReveal they need
+// a press like the secrets themselves: POST …/reveal asks for one, which
+// approves that one answer (SPEC §12.5b).
 esp_err_t getHealth(Ctx& c, bool ask) {
-  const bool revealed = protect::mayReveal(c.token);
-  if (ask && !revealed) return protect::requestPress(c.r, actions::Op::Reveal, c.token);
+  using protect::Purpose;
+  bool revealed = protect::unprotected();
+  if (ask && !revealed) {
+    revealed = protect::redeem(c.token, {Purpose::RevealHealth, 0, 0, {}}) == Sessions::Redeem::Ok;
+    if (!revealed) return protect::requestPress(c.r, actions::Op::Reveal, c.token, {Purpose::RevealHealth, 0, 0, {}});
+  }
   std::vector<vault::Entry> all;
   const Status st = vault::list(all);
   if (st != Status::Ok) return sendVaultError(c.r, st);
@@ -685,16 +708,23 @@ esp_err_t listEntries(Ctx& c) {
   return http::sendJsonText(c.r, http::k200, body);
 }
 
-// GET: secrets only inside the reveal grace (or with protection off).
-// POST …/reveal: the same, but asks for the button first when needed (SPEC §12.3).
+// GET: secrets only with protection off. POST …/reveal: asks for the button
+// first when needed; the press approves this session reading this version of
+// this account once (SPEC §12.3, §12.5b).
 esp_err_t getEntry(Ctx& c, bool ask) {
+  using protect::Purpose;
   vault::Entry e;
   const Status st = vault::get(c.match.id, e);
   if (st != Status::Ok) return sendVaultError(c.r, st);
-  const bool revealed = protect::mayReveal(c.token);
+  bool revealed = protect::unprotected();
   if (ask && !revealed) {
-    vault::wipe(e);
-    return protect::requestPress(c.r, actions::Op::Reveal, c.token);
+    const protect::Approval want{Purpose::RevealEntry, e.id, e.revision, {}};
+    const Sessions::Redeem got = protect::redeem(c.token, want);
+    if (got != Sessions::Redeem::Ok) vault::wipe(e);
+    if (got == Sessions::Redeem::Changed)
+      return http::sendError(c.r, http::k409, "entry_changed", "The account changed after the press was asked for");
+    if (got == Sessions::Redeem::None) return protect::requestPress(c.r, actions::Op::Reveal, c.token, want);
+    revealed = true;
   }
   if (ask) activity::log(activity::Kind::Revealed, e.id, e.title);
   json::Ptr o(cJSON_CreateObject());
@@ -833,7 +863,28 @@ esp_err_t sendPending(httpd_req_t* r, const std::optional<actions::Pending>& pen
   if (!pending) return sendBusy(r);
   json::Ptr o(cJSON_CreateObject());
   typereq::addPending(cJSON_AddObjectToObject(o.get(), "pending"), *pending);
+  // Beside `pending`, not in it: state.pending is shown to every session (SPEC §12.6a).
+  cJSON_AddStringToObject(o.get(), "requestId", pending->req.requestId.c_str());
   return http::sendJson(r, http::k202, o.get());
+}
+
+// The optional "requestId" of a cancel body (SPEC §12.6a): false when it is
+// there but malformed (the 400 is sent).
+bool readRequestId(Ctx& c, std::string& out, esp_err_t& err) {
+  if (json::getString(c.body.get(), "requestId", out) == Field::BadType ||
+      (!out.empty() && !actions::validRequestId(out))) {
+    err = badRequest(c.r, "\"requestId\" must be the id from the 202 answer");
+    return false;
+  }
+  return true;
+}
+
+esp_err_t sendWithdraw(Ctx& c, actions::Machine::Withdraw w) {
+  using W = actions::Machine::Withdraw;
+  if (w == W::Cancelled) return http::sendEmpty(c.r, http::k204);
+  if (w == W::Superseded)
+    return http::sendError(c.r, http::k409, "superseded", "A newer request replaced this one; it was not cancelled");
+  return http::sendError(c.r, http::k409, "not_cancelled", "Nothing of yours is waiting for the button");
 }
 
 esp_err_t postType(Ctx& c) {
@@ -889,19 +940,21 @@ esp_err_t postPresenceCancel(Ctx& c) {
     return badRequest(c.r, "op must name a presence operation");
   if (json::getString(c.body.get(), "cancel", token) != Field::Ok || token.size() > 64)
     return badRequest(c.r, "cancel must be the token from the 202 answer");
+  std::string requestId;
+  esp_err_t err = ESP_OK;
+  if (!readRequestId(c, requestId, err)) return err;
   // Without the token handed to the requester, nothing happens: a stranger
   // could otherwise free the slot and arm their own op for the user's press.
-  if (!machine().cancelPresence(*actions::parseOp(op), token))
-    return http::sendError(c.r, http::k409, "not_cancelled", "Nothing of yours is waiting for the button");
-  return http::sendEmpty(c.r, http::k204);
+  return sendWithdraw(c, machine().cancelPresence(*actions::parseOp(op), token, requestId));
 }
 
 esp_err_t postTypeCancel(Ctx& c) {
+  std::string requestId;
+  esp_err_t err = ESP_OK;
+  if (!readRequestId(c, requestId, err)) return err;
   // This session's own action, or one a token or tag armed; never another session's (SPEC §12.5a).
   const auto foreign = [](const std::string& o) { return tokens::ownerId(o) != 0 || tags::ownerId(o) != 0; };
-  if (!machine().cancel(c.token, foreign))
-    return http::sendError(c.r, http::k409, "not_cancelled", "Nothing of yours is waiting for the button");
-  return http::sendEmpty(c.r, http::k204);
+  return sendWithdraw(c, machine().cancel(c.token, foreign, requestId));
 }
 
 esp_err_t getSettings(Ctx& c) {
@@ -1026,7 +1079,8 @@ esp_err_t postBackup(Ctx& c) {
     return badRequest(c.r, "backup passphrase must be at least 12 characters");
   if (!vault::unlocked()) return sendVaultError(c.r, Status::Locked);
   // The whole vault leaves the device: a press first (SPEC §12.3); the client retries.
-  if (!protect::mayBackup(c.token)) return protect::requestPress(c.r, actions::Op::Backup, c.token);
+  if (!protect::mayBackup(c.token))
+    return protect::requestPress(c.r, actions::Op::Backup, c.token, {protect::Purpose::Backup, 0, 0, {}});
   // The setting, not the request, decides (docs/research/PASSKEY-BACKUP.md).
   const bool passkeys = settings::get().passkeysInBackup;
   uint32_t counter = 0;
@@ -1342,6 +1396,9 @@ bool takesBody(Route r) {
   }
 }
 
+// Old clients send no body at all; a body may carry a requestId (SPEC §12.6a).
+bool optionalBody(Route r) { return r == Route::TypeCancel || r == Route::AgentCancel; }
+
 bool isSlow(Route r) {
   // WifiScan blocks for seconds while the radio scans.
   // Update streams a whole firmware image into flash.
@@ -1590,11 +1647,13 @@ esp_err_t handleApi(httpd_req_t* r, Method method, std::string_view path) {
   }
   if (adoptsClientClock(c.match.route, c.session)) adoptClientClock(r);
 
-  if (takesBody(c.match.route)) {
+  if (takesBody(c.match.route) || (optionalBody(c.match.route) && r->content_len > 0)) {
     json::Secret raw;
     if (http::readBody(r, raw.s) != ESP_OK) return ESP_FAIL;
     c.body.reset(cJSON_ParseWithLength(raw.s.data(), raw.s.size()));
     if (!cJSON_IsObject(c.body.get())) return badRequest(r, "Body must be a JSON object");
+  } else if (optionalBody(c.match.route)) {
+    c.body.reset(cJSON_CreateObject());
   }
   return isSlow(c.match.route) ? deferToWorker(c) : dispatch(c);
 }

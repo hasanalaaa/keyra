@@ -24,6 +24,15 @@ export function issueCount(h: Health): number {
   return new Set([...h.weak.map((w) => w.id), ...h.reused.flat(), ...h.old.map((o) => o.id)]).size;
 }
 
+/**
+ * SPEC §12.5b: the reveal press approved one answer. Starting or ending "change every password"
+ * answers without weak and reused (no press); the ones already shown still hold, so keep them.
+ */
+export function keepRevealed(prev: Health | null, next: Health): Health {
+  if (!prev?.revealed || next.revealed !== false) return next;
+  return { ...next, revealed: true, weak: prev.weak, reused: prev.reused };
+}
+
 export function HealthSheet({ onClose }: { onClose: () => void }) {
   const app = useApp();
   const [h, setH] = useState<Health | null>(null);
@@ -45,7 +54,8 @@ export function HealthSheet({ onClose }: { onClose: () => void }) {
     setConfirm(null);
     setBusy(true);
     try {
-      setH(await api.healthRotate(on));
+      const next = await api.healthRotate(on);
+      setH((prev) => keepRevealed(prev, next));
       toast(t(on ? 'rotateStarted' : 'rotateEnded'), 'ok');
     } catch (e) {
       if (!isLockedError(e)) toast(errorText(e), 'error');

@@ -196,6 +196,13 @@ Status fidoPinWrite(const std::vector<uint8_t>& data);
 inline constexpr size_t kMaxActivityBytes = 16 * 1024;
 Status activityRead(std::vector<uint8_t>& out);  // empty when nothing was logged
 Status activityWrite(const std::vector<uint8_t>& data);
+// A log that cannot be read is never written over (SPEC §15): it is renamed to
+// "activity.bad", kept as it is, so a new log can start. Ok: moved. NotFound:
+// no log. Invalid: an earlier one is already kept there, so nothing moved (the
+// caller must not write over the unreadable log then). Unlocked only.
+Status activitySetAside();
+// Whether an unreadable log was kept aside (until a new setup or factory reset).
+bool activityAside();
 // Access tokens (SPEC §17): like the activity log, one opaque record of at most
 // kMaxTokensBytes ("tokens.bin", AAD "keyra/tokens/v1") that keyra_api owns.
 // Not part of backups; kept across passphrase changes and restores; gone with

@@ -20,10 +20,20 @@ void log(Event e) {
   std::vector<uint8_t> raw;
   std::vector<Event> events;
   const vault::Status st = vault::activityRead(raw);
-  // An unreadable log is started again rather than block logging for good.
-  if (st != vault::Status::Ok || !decode(raw, events)) {
-    if (st == vault::Status::Locked) return;
-    ESP_LOGW(TAG, "stored log unreadable (%s): starting a new one", vault::statusName(st));
+  if (st == vault::Status::Locked) return;
+  if (st != vault::Status::Ok && st != vault::Status::Corrupt) {
+    ESP_LOGW(TAG, "read failed (%s): event not logged", vault::statusName(st));
+    return;  // maybe passing (flash): never write over a log that may still be fine
+  }
+  // An unreadable log is kept aside as it is (SPEC §15) and a new one started;
+  // a second one is not, so it stays unwritten rather than overwritten.
+  if (st == vault::Status::Corrupt || !decode(raw, events)) {
+    const vault::Status a = vault::activitySetAside();
+    if (a != vault::Status::Ok) {
+      ESP_LOGW(TAG, "stored log unreadable, not set aside (%s): event not logged", vault::statusName(a));
+      return;
+    }
+    ESP_LOGW(TAG, "stored log unreadable: kept as activity.bad, starting a new one");
     events.clear();
   }
   append(events, std::move(e));

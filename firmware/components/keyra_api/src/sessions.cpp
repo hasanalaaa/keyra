@@ -39,7 +39,8 @@ Sessions::Issued Sessions::create(int64_t nowMs, uint32_t trustId, uint32_t gene
   target->lastUsed = nowMs;
   target->trustId = trustId;
   target->generation = generation;
-  target->graceUntil = {};
+  target->approval.reset();
+  target->approvalUntil = 0;
   lastActivity_ = nowMs;
   return {target->token, target->csrf, std::move(evicted)};
 }
@@ -54,27 +55,29 @@ Sessions::Slot* Sessions::findLocked(std::string_view token) {
   return found;
 }
 
-bool Sessions::grantGrace(std::string_view token, int64_t nowMs, Grace g) {
+bool Sessions::approve(std::string_view token, int64_t nowMs, Approval a) {
   std::lock_guard<std::mutex> lock(mu_);
   Slot* s = findLocked(token);
   if (!s) return false;
-  s->graceUntil[static_cast<size_t>(g)] = nowMs + kGraceMs;
+  s->approval = std::move(a);
+  s->approvalUntil = nowMs + kApprovalMs;
   return true;
 }
 
-int64_t Sessions::graceLeft(std::string_view token, int64_t nowMs, Grace g) {
+Sessions::Redeem Sessions::redeem(std::string_view token, int64_t nowMs, const Approval& want) {
   std::lock_guard<std::mutex> lock(mu_);
   Slot* s = findLocked(token);
-  const int64_t until = s ? s->graceUntil[static_cast<size_t>(g)] : 0;
-  return nowMs < until ? until - nowMs : 0;
-}
-
-bool Sessions::consumeGrace(std::string_view token, int64_t nowMs, Grace g) {
-  std::lock_guard<std::mutex> lock(mu_);
-  Slot* s = findLocked(token);
-  if (!s || nowMs >= s->graceUntil[static_cast<size_t>(g)]) return false;
-  s->graceUntil[static_cast<size_t>(g)] = 0;
-  return true;
+  if (!s || !s->approval) return Redeem::None;
+  if (nowMs >= s->approvalUntil) {
+    s->approval.reset();
+    return Redeem::None;
+  }
+  const Approval& a = *s->approval;
+  if (a.purpose != want.purpose || a.resource != want.resource || !constantTimeEqual(a.request, want.request))
+    return Redeem::None;
+  const bool same = a.revision == want.revision;
+  s->approval.reset();
+  return same ? Redeem::Ok : Redeem::Changed;
 }
 
 std::optional<std::string> Sessions::csrfFor(std::string_view token, int64_t nowMs, uint32_t generation) {

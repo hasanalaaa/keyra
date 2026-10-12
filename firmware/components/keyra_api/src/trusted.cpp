@@ -144,6 +144,7 @@ esp_err_t requestApproval(httpd_req_t* r) {
   cJSON_AddStringToObject(o.get(), "awaiting", "button");
   cJSON_AddStringToObject(o.get(), "op", "trust_browser");
   cJSON_AddStringToObject(o.get(), "cancel", armed->cancel.c_str());
+  cJSON_AddStringToObject(o.get(), "requestId", armed->requestId.c_str());
   cJSON_AddNumberToObject(o.get(), "expiresIn", static_cast<double>(armed->expiresIn));
   return http::sendJson(r, http::k202, o.get());
 }

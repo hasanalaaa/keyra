@@ -70,6 +70,29 @@ Status Vault::activityWrite(const std::vector<uint8_t>& data) {
   return sealedWrite(kActivityPath, kActivityAad, kMaxActivity, data);
 }
 
+Status Vault::activitySetAside() {
+  std::lock_guard<std::mutex> g(m_);
+  if (Status s = requireUnlocked(); s != Status::Ok) return s;
+  std::vector<uint8_t> probe;
+  switch (fs_->read(kActivityAsidePath, probe)) {
+    case Storage::Read::Ok: return Status::Invalid;  // keep the first one: never overwrite it
+    case Storage::Read::Error: return Status::StorageError;
+    case Storage::Read::NotFound: break;
+  }
+  switch (fs_->read(kActivityPath, probe)) {
+    case Storage::Read::NotFound: return Status::NotFound;
+    case Storage::Read::Error: return Status::StorageError;
+    case Storage::Read::Ok: break;
+  }
+  return fs_->rename(kActivityPath, kActivityAsidePath) ? Status::Ok : storageFailure();
+}
+
+bool Vault::activityAside() {
+  std::lock_guard<std::mutex> g(m_);
+  std::vector<uint8_t> probe;
+  return fs_ != nullptr && fs_->read(kActivityAsidePath, probe) == Storage::Read::Ok;
+}
+
 Status Vault::tokensRead(std::vector<uint8_t>& out) { return sealedRead(kTokensPath, kTokensAad, out); }
 
 Status Vault::tokensWrite(const std::vector<uint8_t>& data) {

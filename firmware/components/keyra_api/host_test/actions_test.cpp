@@ -1,4 +1,5 @@
 #include <string>
+#include <cstdio>
 #include <memory>
 
 #include "actions.hpp"
@@ -8,6 +9,8 @@
 using namespace keyra::actions;
 
 namespace {
+
+bool withdrew(keyra::actions::Machine::Withdraw w) { return w == keyra::actions::Machine::Withdraw::Cancelled; }
 
 int64_t g_now = 1000;
 Machine make() { return Machine([] { return g_now; }); }
@@ -69,23 +72,23 @@ void cancelEndpoint() {
   // Like postTypeCancel: an access token's or a tap tag's item is not another session's.
   const auto foreign = [](const std::string& o) { return o.rfind("token:", 0) == 0 || o.rfind("tag:", 0) == 0; };
   auto m = make();
-  CHECK(!m.cancel("s", foreign));  // nothing waiting
+  CHECK(!withdrew(m.cancel("s", foreign)));  // nothing waiting
   // 1. Another session (or none) cannot withdraw it: the slot and last stay as they were.
   m.arm(req(5), "other");
-  CHECK(!m.cancel("s", foreign) && !m.cancel("", foreign));
+  CHECK(!withdrew(m.cancel("s", foreign)) && !withdrew(m.cancel("", foreign)));
   CHECK(m.pending() && m.pending()->req.id == 5 && !m.last().has_value());
   // 2. Its own action: withdrawn.
-  CHECK(m.cancel("other", foreign));
+  CHECK(withdrew(m.cancel("other", foreign)));
   CHECK(m.last()->code == Code::Cancelled);
   CHECK(!m.pending().has_value());
   // 3. One a token or a tag armed (shown on the session's screen): the session may withdraw it.
   m.arm(req(6), "token:3");
-  CHECK(m.cancel("s", foreign) && !m.pending().has_value());
+  CHECK(withdrew(m.cancel("s", foreign)) && !m.pending().has_value());
   m.arm(req(7), "tag:2");
-  CHECK(m.cancel("s", foreign) && !m.pending().has_value());
+  CHECK(withdrew(m.cancel("s", foreign)) && !m.pending().has_value());
   // A presence op is not a type action: this route leaves it alone.
   m.awaitPresence(Op::Backup, [] { return true; }, "s");
-  CHECK(!m.cancel("s", foreign) && m.presence().has_value());
+  CHECK(!withdrew(m.cancel("s", foreign)) && m.presence().has_value());
 }
 
 void presenceApproveRunsCommitOnce() {
@@ -144,7 +147,7 @@ void unauthenticatedOpsNeverDisplace() {
   m.arm(req(12), "s");
   CHECK(!m.tryAwaitPresence(Op::FactoryReset, [] { return true; }).has_value());
   CHECK(m.pending().has_value());
-  m.cancel("s", nullptr);
+  withdrew(m.cancel("s", nullptr));
   CHECK(m.tryAwaitPresence(Op::Setup, [] { return true; })->expiresIn == kExpiryMs);
   CHECK(!m.tryAwaitPresence(Op::Setup, [] { return true; }).has_value());
   Decision d = m.onButton(Button::Short, false, g_now);
@@ -258,7 +261,7 @@ void tokenTracksItsOwnRequest() {
   // Later results by others leave this one readable.
   for (int i = 0; i < 3; ++i) {
     m.arm(req(9), "sessionA");
-    m.cancel("sessionA", nullptr);
+    withdrew(m.cancel("sessionA", nullptr));
   }
   CHECK(m.track(s1).stage == Stage::Finished && m.track(s1).code == Code::NoUsb);
 
@@ -363,7 +366,7 @@ void netOps() {
   // displaces a pending action and survives a lock.
   m.arm(req(13), "s");
   CHECK(!m.tryAwaitPresence(Op::TrustBrowser, [] { return true; }).has_value());
-  m.cancel("s", nullptr);
+  withdrew(m.cancel("s", nullptr));
   CHECK(m.tryAwaitPresence(Op::TrustBrowser, [] { return true; }).has_value());
   m.dropSessionItems();
   CHECK(m.presence() && m.presence()->op == Op::TrustBrowser);
@@ -585,18 +588,18 @@ void testCancelPresence() {
   bool ran = false;
   const std::string tok = m.awaitPresence(Op::FactoryReset, [&] { ran = true; return true; }, "s")->cancel;
   CHECK(tok == "tok1");
-  CHECK(!m.cancelPresence(Op::Setup, tok));           // another op: untouched
-  CHECK(!m.cancelPresence(Op::FactoryReset, ""));     // a stranger without the token
-  CHECK(!m.cancelPresence(Op::FactoryReset, "tok2"));
+  CHECK(!withdrew(m.cancelPresence(Op::Setup, tok)));           // another op: untouched
+  CHECK(!withdrew(m.cancelPresence(Op::FactoryReset, "")));     // a stranger without the token
+  CHECK(!withdrew(m.cancelPresence(Op::FactoryReset, "tok2")));
   CHECK(m.presence().has_value());
-  CHECK(m.cancelPresence(Op::FactoryReset, tok));
+  CHECK(withdrew(m.cancelPresence(Op::FactoryReset, tok)));
   CHECK(!m.presence().has_value());
   const Decision d = m.onButton(Button::Short, true, g_now);
   CHECK(d.effect != Effect::Approve);
   CHECK(!ran);
   // A new op gets a new token; the old one cancels nothing.
   m.awaitPresence(Op::FactoryReset, [] { return true; }, "s");
-  CHECK(!m.cancelPresence(Op::FactoryReset, tok));
+  CHECK(!withdrew(m.cancelPresence(Op::FactoryReset, tok)));
   CHECK(parseOp("factory_reset") == Op::FactoryReset);
   CHECK(!parseOp("nope"));
 }
@@ -627,8 +630,8 @@ void pressIsBoundToItsRequester() {
   CHECK(m.arm(req(2), "alice"));  // a type action of hers replaces her op too
   CHECK(m.opResult()->op == Op::Recovery && m.opResult()->code == OpCode::Cancelled);
   CHECK(!m.awaitPresence(Op::Backup, [] { return true; }, "mallory"));  // and is hers alone
-  CHECK(!m.cancel("mallory", nullptr));  // nor can she withdraw it
-  CHECK(m.cancel("alice", nullptr));
+  CHECK(!withdrew(m.cancel("mallory", nullptr)));  // nor can she withdraw it
+  CHECK(withdrew(m.cancel("alice", nullptr)));
 
   // Items armed without a session (setup, factory reset, trust) belong to nobody.
   CHECK(m.tryAwaitPresence(Op::Setup, [] { return true; }));
@@ -680,7 +683,175 @@ void stalePressesDoNothing() {
   CHECK(s.onButton(Button::Short, true, g_now).effect == Effect::Run);
 }
 
+// ---------- requestId (SPEC §12.6a) ----------
+
+using W = Machine::Withdraw;
+using Stage = Machine::Track::Stage;
+
+// Distinct 32-hex ids, like the device's 128 random bits.
+Machine makeIds() {
+  return Machine([] { return g_now; }, [] {
+    static unsigned n = 0;
+    char b[33];
+    std::snprintf(b, sizeof b, "%032x", ++n);
+    return std::string(b);
+  });
+}
+
+void requestIdsAreIssuedAndTracked() {
+  auto m = makeIds();
+  const auto p = m.arm(req(7), "s");
+  CHECK(p && validRequestId(p->req.requestId));
+  const auto t = m.trackRequest(p->req.requestId, "s");
+  CHECK(t && t->stage == Stage::Armed && !t->presence && t->expiresInMs == kExpiryMs);
+  CHECK(std::string(trackState(*t)) == "armed" && trackCode(*t) == nullptr);
+  // Only for its owner: another session or a token learns nothing.
+  CHECK(!m.trackRequest(p->req.requestId, "other").has_value());
+  CHECK(!m.trackRequest(p->req.requestId, "").has_value());
+  CHECK(!m.trackRequest("00000000000000000000000000000063", "s").has_value());  // unknown
+  CHECK(!m.trackRequest("", "s").has_value());
+  // Pressed and typed: it reports its own outcome.
+  Decision d = m.onButton(Button::Short, true, g_now);
+  CHECK(d.effect == Effect::Run && d.run.requestId == p->req.requestId);
+  CHECK(m.trackRequest(p->req.requestId, "s")->stage == Stage::Running);
+  m.typingFinished(d.run, Code::Typed);
+  const auto done = m.trackRequest(p->req.requestId, "s");
+  CHECK(done && done->stage == Stage::Finished && std::string(trackState(*done)) == "typed" &&
+        std::string(trackCode(*done)) == "typed");
+  // A presence op without an owner (setup) is tracked by whoever holds its id.
+  const auto a = m.tryAwaitPresence(Op::Setup, [] { return true; });
+  CHECK(a && validRequestId(a->requestId) && a->requestId != p->req.requestId);
+  const auto ta = m.trackRequest(a->requestId, "");
+  CHECK(ta && ta->presence && ta->stage == Stage::Armed);
+  CHECK(m.trackRequest(a->requestId, "s").has_value());
+  g_now += kExpiryMs;
+  const auto te = m.trackRequest(a->requestId, "");
+  CHECK(te && std::string(trackState(*te)) == "expired" && std::string(trackCode(*te)) == "expired");
+}
+
+void staleRequestIdIsSuperseded() {
+  auto m = makeIds();
+  const auto first = m.arm(req(1), "s");
+  const auto second = m.arm(req(2), "s");  // the same session replaces its own action
+  CHECK(first && second && first->req.requestId != second->req.requestId);
+  const auto t = m.trackRequest(first->req.requestId, "s");
+  CHECK(t && t->superseded && std::string(trackState(*t)) == "cancelled" &&
+        std::string(trackCode(*t)) == "superseded");
+  // Cancelling the old one does nothing to the new one.
+  CHECK(m.cancel("s", nullptr, first->req.requestId) == W::Superseded);
+  CHECK(m.pending() && m.pending()->req.id == 2);
+  CHECK(m.cancel("s", nullptr, second->req.requestId) == W::Cancelled);
+  CHECK(!m.pending().has_value());
+  CHECK(m.cancel("s", nullptr, second->req.requestId) == W::NotCancelled);  // already gone, not superseded
+  // A cancelled (not replaced) request is not "superseded".
+  const auto t2 = m.trackRequest(second->req.requestId, "s");
+  CHECK(t2 && !t2->superseded && std::string(trackCode(*t2)) == "cancelled");
+}
+
+void cancelByRequestIdIsForItsOwner() {
+  auto m = makeIds();
+  const auto foreign = [](const std::string& o) { return o.rfind("token:", 0) == 0; };
+  const auto p = m.arm(req(3), "alice");
+  CHECK(m.cancel("mallory", foreign, p->req.requestId) == W::NotCancelled);
+  CHECK(m.pending().has_value());
+  CHECK(m.cancel("alice", foreign, p->req.requestId) == W::Cancelled);
+  // An action a token armed: any session may withdraw it, as without a requestId.
+  const auto tp = m.arm(req(4), "token:9");
+  CHECK(m.cancel("alice", foreign, tp->req.requestId) == W::Cancelled);
+  // A token cancels only its own request by id.
+  const auto tq = m.arm(req(5), "token:9");
+  CHECK(m.cancelOwnedRequest("token:8", tq->req.requestId) == W::NotCancelled);
+  CHECK(m.pending().has_value());
+  CHECK(m.cancelOwnedRequest("token:9", tq->req.requestId) == W::Cancelled);
+  CHECK(!m.pending().has_value());
+}
+
+void tokenRequestIdsAcrossTypeAndSave() {
+  auto m = makeIds();
+  const auto typing = m.arm(req(6), "token:1");
+  const auto save = m.awaitPresence(Op::AgentSave, [] { return true; }, "token:1");  // replaces its typing
+  CHECK(typing && save);
+  CHECK(m.cancelOwnedRequest("token:1", typing->req.requestId) == W::Superseded);
+  CHECK(m.presence() && m.presence()->awaiting);  // the save is untouched
+  const auto ts = m.trackRequest(save->requestId, "token:1");
+  CHECK(ts && ts->presence && ts->stage == Stage::Armed);
+  CHECK(m.cancelOwnedRequest("token:1", save->requestId) == W::Cancelled);
+  const auto done = m.trackRequest(save->requestId, "token:1");
+  CHECK(done && std::string(trackState(*done)) == "cancelled" && !done->superseded);
+}
+
+void presenceCancelWithRequestId() {
+  auto m = makeIds();
+  const auto a = m.awaitPresence(Op::Reveal, [] { return true; }, "s");
+  const auto b = m.awaitPresence(Op::Backup, [] { return true; }, "s");  // replaces the reveal
+  CHECK(a && b && a->requestId != b->requestId);
+  CHECK(m.cancelPresence(Op::Reveal, a->cancel, a->requestId) == W::Superseded);
+  CHECK(m.cancelPresence(Op::Backup, b->cancel, a->requestId) == W::Superseded);  // wrong id: nothing
+  CHECK(m.presence() && m.presence()->op == Op::Backup);
+  CHECK(m.cancelPresence(Op::Backup, "wrong", b->requestId) == W::NotCancelled);  // the token still decides
+  CHECK(m.cancelPresence(Op::Backup, b->cancel, "00000000000000000000000000000063") == W::NotCancelled);
+  CHECK(m.cancelPresence(Op::Backup, b->cancel, b->requestId) == W::Cancelled);
+  CHECK(!m.presence().has_value());
+}
+
+// Old clients send no requestId: everything works as before 0.4.1.
+void oldClientsWithoutRequestId() {
+  auto m = makeIds();
+  m.arm(req(1), "s");
+  CHECK(m.cancel("s", nullptr) == W::Cancelled);
+  const auto a = m.awaitPresence(Op::Backup, [] { return true; }, "s");
+  CHECK(m.cancelPresence(Op::Backup, a->cancel) == W::Cancelled);
+  m.arm(req(2), "token:3");
+  CHECK(m.cancelOwned("token:3"));
+  // And a machine without an id generator issues none, tracks none.
+  auto plain = make();
+  const auto p = plain.arm(req(1), "s");
+  CHECK(p && p->req.requestId.empty() && !plain.trackRequest("", "s").has_value());
+}
+
+void sequenceKeepsItsRequestId() {
+  auto m = makeIds();
+  auto job = std::make_shared<SeqJob>();
+  job->parts = 2;
+  TypeRequest r = req(9, What::Sequence);
+  r.seq = job;
+  const auto p = m.arm(std::move(r), "s");
+  Decision d = m.onButton(Button::Short, true, g_now);
+  m.typingFinished(d.run, Code::Typed);  // part 1 typed, part 2 armed again
+  CHECK(m.pending() && m.pending()->req.part == 1);
+  const auto t = m.trackRequest(p->req.requestId, "s");
+  CHECK(t && t->stage == Stage::Armed);
+  CHECK(m.cancel("s", nullptr, p->req.requestId) == W::Cancelled);
+}
+
+void requestIdShape() {
+  CHECK(validRequestId("0123456789abcdef0123456789abcdef"));
+  CHECK(!validRequestId("0123456789ABCDEF0123456789abcdef"));  // lowercase only
+  CHECK(!validRequestId("0123456789abcdef0123456789abcde"));
+  CHECK(!validRequestId("0123456789abcdef0123456789abcdeg"));
+  CHECK(!validRequestId(""));
+  Machine::Track t;
+  CHECK(std::string(trackState(t)) == "none" && trackCode(t) == nullptr);
+  t.stage = Stage::Connecting;
+  CHECK(std::string(trackState(t)) == "waiting");
+  t.stage = Stage::Finished;
+  t.presence = true;
+  t.opCode = OpCode::Done;
+  CHECK(std::string(trackState(t)) == "done" && std::string(trackCode(t)) == "done");
+  t.presence = false;
+  t.code = Code::EntryChanged;
+  CHECK(std::string(trackState(t)) == "failed" && std::string(trackCode(t)) == "entry_changed");
+}
+
 int main() {
+  requestIdsAreIssuedAndTracked();
+  staleRequestIdIsSuperseded();
+  cancelByRequestIdIsForItsOwner();
+  tokenRequestIdsAcrossTypeAndSave();
+  presenceCancelWithRequestId();
+  oldClientsWithoutRequestId();
+  sequenceKeepsItsRequestId();
+  requestIdShape();
   stalePressesDoNothing();
   tokenTracksItsOwnRequest();
   pendingCarriesPageHost();

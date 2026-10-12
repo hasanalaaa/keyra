@@ -6,6 +6,38 @@ All notable changes to Keyra are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Request ids (SPEC §12.6a).** Every answer that starts a wait for the
+  button carries `requestId` (128 random bits, hex). `GET /api/state?requestId=`,
+  `GET /api/agent/status?requestId=`, and the cancels (`/api/type/cancel`,
+  `/api/agent/cancel`, `/api/presence/cancel`, with `{requestId}` in the body)
+  act on exactly that request and only for its owner. A request replaced by a
+  newer one of the same owner reports `code: "superseded"`, and a cancel with
+  its id answers 409 `superseded` without touching the newer one. Without a
+  `requestId` everything works as before, so older extensions, Android apps
+  and agents keep working. The web app, the extension, the Android app and
+  keyra-mcp now follow their own request by its id.
+
+### Changed
+
+- **One press, one request (SPEC §12.5b).** A press of Keyra's button no
+  longer opens 60 seconds of reading every account's secrets. It approves
+  exactly the one request that asked for it — this account (and this version
+  of it), this session — and that request uses it up, within 30 seconds. A
+  reveal for another account, from another browser, or after the account was
+  edited (409 `entry_changed`) needs its own press. Backups, recovery-key
+  creation and removal (now two separate approvals), access tokens and NFC
+  tags (bound to the exact request body) follow the same rule.
+  `state.graceMs` stays and is always 0.
+- **Activity log (SPEC §15).** A log that can no longer be read is kept
+  aside unchanged (`activity.bad`) instead of being written over, and a new
+  one starts; `GET /api/activity` says `aside: true` and the app shows a note.
+- **Web app.** One press shows the whole account (password, 2FA, notes, old
+  passwords) until its sheet closes; "show, then edit" stays one press; the
+  next opening asks again. Password health keeps the weak and reused it was
+  shown when "change every password" is switched.
+
 ## [0.4.0] - 2026-10-12
 
 Highlights:

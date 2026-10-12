@@ -114,8 +114,10 @@ async function listLogins(args) {
   return rows.map((e) => `${e.id}: ${e.title}${e.host ? ` (${e.host})` : ''}`).join('\n');
 }
 
-// Keyra answers GET /api/agent/status with a token's *last* request, so a second request
-// armed while the first waits would make either call report the other's outcome.
+// One request at a time: a second one armed by the same token would replace the first on
+// Keyra (it ends "cancelled", code "superseded"). Each request is followed by its own
+// requestId (SPEC §12.6a); firmware before 0.4.1 has none, and then GET /status answers with
+// the token's last request, which this lock keeps unambiguous too.
 let typing = false;
 
 async function typeLogin(args) {
@@ -134,19 +136,26 @@ async function armAndWait(args) {
   if (typeof args.submit === 'boolean') body.submit = args.submit;
   if (typeof args.target === 'string') body.target = args.target;
   const armed = await callPatient('POST', '/type', body);
+  const rid = requestIdOf(armed);
   const deadline = Date.now() + (armed.expiresIn ?? 60000) + 5000;
   while (Date.now() < deadline) {
     await sleep(POLL_MS);
-    const s = await callPatient('GET', '/status');
+    const s = await callPatient('GET', rid ? `/status?requestId=${rid}` : '/status');
     if (s.state === 'typed') return 'typed';
     if (s.state === 'expired') return 'expired';
-    if (s.state === 'cancelled') return 'denied';
+    if (s.state === 'cancelled') return s.code === 'superseded' ? 'denied: replaced by a newer request' : 'denied';
     if (s.state === 'failed') return `denied: Keyra could not type (${s.code ?? 'failed'})`;
     if (s.state === 'none') return 'denied';
   }
-  // Keyra stopped answering about it: withdraw it so a later press types nothing.
-  await call('POST', '/cancel').catch(() => {});
+  // Keyra stopped answering about it: withdraw it (only it) so a later press types nothing.
+  await call('POST', '/cancel', rid ? { requestId: rid } : undefined).catch(() => {});
   return 'expired';
+}
+
+/** The requestId of a 202 answer (firmware 0.4.1+), or null from older firmware. */
+function requestIdOf(armed) {
+  const r = armed?.requestId;
+  return typeof r === 'string' && /^[0-9a-f]{32}$/.test(r) ? r : null;
 }
 
 async function callTool(name, args) {
