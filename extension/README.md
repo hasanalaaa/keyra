@@ -160,4 +160,4 @@ Layout: `src/background.ts` (service worker: API client, token, pairing,
 pending saves), `src/content/` (in-page UI), `src/popup/`, `src/forms.ts` (form
 detection), `src/host.ts` (host rule), `src/api.ts`, `src/strings.ts` (English
 and Arabic; `build.mjs` writes `_locales`). Icons come from
-`docs/images/icon.png` (`npm run icons`).
+`docs/brand/logo/` (`npm run icons`).
