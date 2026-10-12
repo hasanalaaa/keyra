@@ -6,6 +6,13 @@ All notable changes to Keyra are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-10-12
+
+Highlights:
+- The Android app can choose where Keyra types: the computer on USB, this phone or another Bluetooth device
+- Pair a phone from the Android app, after a press of Keyra's button
+- Android autofill types into the phone itself, never into a computer on USB
+
 ### Added
 
 - **Where to type, for apps (SPEC §17).** `GET /api/agent/targets` lists where
