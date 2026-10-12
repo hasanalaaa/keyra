@@ -71,26 +71,35 @@ export function icon(name: IconName, size = 20, cls = ''): SVGElement {
   return svg;
 }
 
-/** Keyra's mark (DESIGN §1.3): a key whose bow is a ring. `tile` adds the blue rounded square. */
+// The Contour (docs/brand/BRAND.md §2): a shield drawn as one line, open at the top-right edge. Under 48 px
+// the bold geometry (wider gap, stroke 8) keeps the gap readable. It never mirrors in RTL.
+const CONTOUR = 'M72.3 31.37L75.5 33V44C75.5 60 64 73 50 80C36 73 24.5 60 24.5 44V33L50 20L63.8 27.04';
+const CONTOUR_BOLD = 'M73.5 31.98L75.5 33V44C75.5 60 64 73 50 80C36 73 24.5 60 24.5 44V33L50 20L62.5 26.37';
+
+/** The mark. `tile` sets it in ivory on the graphite app tile (icon-small.svg); otherwise it is drawn in currentColor. */
 export function logo(size: number, tile = true): SVGElement {
-  const svg = svgEl('svg', { viewBox: '0 0 64 64', width: size, height: size, 'aria-hidden': 'true', class: 'logo' });
-  if (tile) svg.append(svgEl('rect', { width: 64, height: 64, rx: 16, fill: '#0B57F0' }));
-  const g = svgEl('g', { fill: 'none', stroke: tile ? '#fff' : 'currentColor', 'stroke-width': 6, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' });
-  g.append(svgEl('circle', { cx: 32, cy: 22, r: 9 }), svgEl('path', { d: 'M32 31v19M32 41h9M32 50h6' }));
-  svg.append(g);
+  const bold = size < 48;
+  const svg = svgEl('svg', { viewBox: tile ? '0 0 100 100' : '14 14 72 72', width: size, height: size, 'aria-hidden': 'true', class: 'logo' });
+  const line = svgEl('path', { d: bold ? CONTOUR_BOLD : CONTOUR, fill: 'none', stroke: tile ? '#F2F2EF' : 'currentColor', 'stroke-width': bold ? 8.5 : 5, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' });
+  if (tile) {
+    svg.append(
+      svgEl('rect', { width: 100, height: 100, rx: 22.5, fill: '#141518' }),
+      svgEl('rect', { x: 1, y: 1, width: 98, height: 98, rx: 21.5, fill: 'none', stroke: '#fff', 'stroke-opacity': 0.12, 'stroke-width': 2 }),
+    );
+    if (bold) line.setAttribute('transform', 'translate(50 50) scale(1.12) translate(-50 -50)');
+  }
+  svg.append(line);
   return svg;
 }
 
-// Monogram (DESIGN §4.3): deterministic colour from the title, never a network icon.
-const PALETTE = ['#C2410C', '#B45309', '#4D7C0F', '#15803D', '#0F766E', '#0E7490', '#1D4ED8', '#6D28D9', '#A21CAF', '#BE185D', '#B91C1C', '#475569'];
-
-function fnv1a(s: string): number {
-  let x = 0x811c9dc5;
-  for (const ch of s) {
-    x ^= ch.codePointAt(0)!;
-    x = Math.imul(x, 0x01000193) >>> 0;
-  }
-  return x >>> 0;
+/**
+ * The Contour as the press indicator (BRAND §5): the bold line closed by its gap segment, so the
+ * stylesheet can breathe the gap open (`wait`) or close it (`done`) with stroke-dash* on pathLength 100.
+ */
+export function contour(state: 'wait' | 'done', size = 40): SVGElement {
+  const svg = svgEl('svg', { viewBox: '14 14 72 72', width: size, height: size, 'aria-hidden': 'true', class: `contour ${state}` });
+  svg.append(svgEl('path', { d: `${CONTOUR_BOLD}L73.5 31.98`, pathLength: 100 }));
+  return svg;
 }
 
 export function monogramLetter(title: string): string {
@@ -100,9 +109,10 @@ export function monogramLetter(title: string): string {
   return c.toLocaleUpperCase('en');
 }
 
+// Monogram: the first letter in ink on a neutral tile (monochrome brand), never a network icon.
 export function monogram(title: string, size = 32): HTMLElement {
   const letter = monogramLetter(title);
-  const el = h('span', { class: 'mono', 'aria-hidden': 'true', style: `--m:${PALETTE[fnv1a(title.trim().toLowerCase().normalize('NFKC')) % 12]};--s:${size}px` });
+  const el = h('span', { class: 'mono', 'aria-hidden': 'true', style: `--s:${size}px` });
   if (letter) el.textContent = letter;
   else el.append(logo(Math.round(size * 0.6), false));
   return el;

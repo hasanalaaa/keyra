@@ -40,7 +40,8 @@ Every screen, in Arabic and English, light and dark, is in [screenshots/](screen
   **Type into this page**, the generator, and settings (show the key in fields,
   offer to save, the never-save list, disconnect).
 - Arabic and English (from the browser's language), right-to-left, light and
-  dark, in Keyra's design (Quiet Glass, Readex Pro in the popup).
+  dark, in Keyra's brand ([Graphite & Ivory](../docs/brand/BRAND.md): monochrome, the Contour
+  breathing in blue only while Keyra waits for its button; Readex Pro in the popup).
 
 ## Install
 

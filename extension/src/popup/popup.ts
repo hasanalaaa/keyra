@@ -62,8 +62,8 @@ function header(): HTMLElement {
   const [k, tone] = STATUS[state.reach];
   return h(
     'header',
-    { class: 'bar glass' },
-    logo(28),
+    { class: 'bar' },
+    logo(20, false),
     h('span', { class: 'brand' }, 'Keyra'),
     h('span', { class: `pill pill-${tone}`, role: 'status', 'data-testid': 'reach' }, h('span', { class: 'dot' }), t(k)),
   );

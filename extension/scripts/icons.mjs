@@ -1,20 +1,30 @@
-// Toolbar and store icons from the owner's app icon art (docs/images/icon.png, 1024², full-bleed),
-// rounded like the logo tile (DESIGN §1.3: radius 25 %). Run after replacing that file: `npm run icons`.
+// Toolbar and store icons from the logo sources in docs/brand/logo (BRAND.md §2): the flat, bold
+// icon-small.svg for 16 and 32 px, the app tile icon.svg for 48 and 128 px. Run after changing those
+// files: `npm run icons`. Renders with resvg (a devDependency), then quantizes with pngquant when it is on PATH.
 import { Resvg } from '@resvg/resvg-js';
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-const src = fileURLToPath(new URL('../../docs/images/icon.png', import.meta.url));
-const out = fileURLToPath(new URL('../icons/', import.meta.url));
-mkdirSync(out, { recursive: true });
+const logo = (name) => fileURLToPath(new URL(`../../docs/brand/logo/${name}`, import.meta.url));
+const out = (name) => fileURLToPath(new URL(`../icons/${name}`, import.meta.url));
+mkdirSync(out(''), { recursive: true });
 
-const b64 = readFileSync(src).toString('base64');
-const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024">
-<defs><clipPath id="c"><rect width="1024" height="1024" rx="232"/></clipPath></defs>
-<image clip-path="url(#c)" width="1024" height="1024" xlink:href="data:image/png;base64,${b64}"/></svg>`;
-
-for (const size of [16, 32, 48, 128]) {
-  const png = new Resvg(svg, { fitTo: { mode: 'width', value: size } }).render().asPng();
-  writeFileSync(`${out}icon-${size}.png`, png);
+const jobs = [[16, 'icon-small.svg'], [32, 'icon-small.svg'], [48, 'icon.svg'], [128, 'icon.svg']];
+let quantize = true;
+for (const [size, src] of jobs) {
+  const png = new Resvg(readFileSync(logo(src), 'utf8'), { fitTo: { mode: 'width', value: size } }).render().asPng();
+  const name = out(`icon-${size}.png`);
+  if (quantize) {
+    try {
+      writeFileSync(name, execFileSync('pngquant', ['--quality=80-95', '--speed=1', '--strip', '-'], { input: png }));
+      continue;
+    } catch (e) {
+      if (e.code !== 'ENOENT') throw e;
+      quantize = false;
+      console.warn('pngquant not found: writing unquantized PNGs');
+    }
+  }
+  writeFileSync(name, png);
 }
 console.log('icons written to extension/icons/');

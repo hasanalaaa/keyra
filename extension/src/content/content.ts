@@ -6,7 +6,7 @@ import { ext } from '../ext';
 import { findForms, roleOf, snapshot, submitterOf, whatFor, type FieldRole, type LoginForm } from '../forms';
 import { hostMatches, isKeyraHost, normalizeHost } from '../host';
 import { t, uiDir, uiLang, type Key } from '../i18n';
-import { h, icon, logo, monogram, svgEl, type IconName } from '../ui/dom';
+import { contour, h, icon, logo, monogram, type IconName } from '../ui/dom';
 import { CSS } from './style';
 
 declare const __SHADOW__: ShadowRootMode;
@@ -328,7 +328,7 @@ function menuShell(...children: (Node | null)[]): HTMLElement {
 }
 
 function menuHead(): HTMLElement {
-  return h('div', { class: 'menu-head' }, logo(16), 'Keyra', h('span', { class: 'host ltr', dir: 'ltr' }, pageHost()));
+  return h('div', { class: 'menu-head' }, logo(16, false), 'Keyra', h('span', { class: 'host ltr', dir: 'ltr' }, pageHost()));
 }
 
 function inlineError(f: Failure): HTMLElement {
@@ -537,7 +537,12 @@ function closeCard(): void {
 }
 
 function badge(ic: IconName, tone: 'ok' | 'warn' | 'err' | 'info'): HTMLElement {
-  return h('span', { class: `badge-round tone-${tone}` }, icon(ic, 24));
+  return h('span', { class: `badge-round tone-${tone}` }, icon(ic, 20));
+}
+
+/** Done: the Contour closes its gap and turns ink (BRAND §5). */
+function doneBadge(): HTMLElement {
+  return h('span', { class: 'ring tone-ok' }, contour('done'));
 }
 
 function spinnerBadge(): HTMLElement {
@@ -613,14 +618,10 @@ function setTarget(field: HTMLElement | null): void {
   placeTarget();
 }
 
-function ring(expiresIn: number, total: number): HTMLElement {
-  const svg = svgEl('svg', { viewBox: '0 0 48 48', width: 48, height: 48 });
-  const c = (cls: string) => svgEl('circle', { cx: 24, cy: 24, r: 18, fill: 'none', 'stroke-width': 4, 'stroke-linecap': 'round', class: cls });
-  svg.append(c('halo'), c('track'), c('prog'));
-  const prog = svg.lastChild as SVGElement;
-  // Drains clockwise over the 60 s, started where the device's clock already is (DESIGN §4.11).
-  prog.setAttribute('style', `animation-duration:${total}ms;animation-delay:-${Math.max(0, total - expiresIn)}ms;--d:${total}ms`);
-  return h('span', { class: 'ring' }, svg, h('span', { class: 'glyph' }, logo(24, false)));
+/** A hairline that drains over the 60 s, started where the device's clock already is. */
+function drain(expiresIn: number, total: number): HTMLElement {
+  const at = `-${Math.max(0, total - expiresIn)}ms`;
+  return h('div', { class: 'drain', 'aria-hidden': 'true' }, h('i', { style: `animation-duration:${total}ms;animation-delay:${at};--d:${total}ms;--at:${at}` }));
 }
 
 const fmt = (ms: number) => {
@@ -640,17 +641,18 @@ interface PressOpts {
 function pressCard(o: PressOpts): void {
   const total = Math.max(60_000, o.expiresIn);
   const deadline = Date.now() + o.expiresIn;
-  const rg = ring(o.expiresIn, total);
+  const bar = drain(o.expiresIn, total);
   const count = h('span', { class: 'count', 'aria-hidden': 'true' }, fmt(o.expiresIn));
   const sr = h('span', { class: 'sr', 'aria-live': 'polite' });
   showCard({
-    badge: rg,
+    badge: h('span', { class: 'ring' }, contour('wait')),
     title: t('pressTitle'),
     body: o.body,
     closable: false,
     role: 'status',
     extra: [
-      h('div', { style: 'display:flex;align-items:center;gap:8px' }, h('span', { class: 'chip' }, h('bdi', { dir: 'auto' }, o.chip)), count),
+      h('div', { class: 'meta' }, h('span', { class: 'chip' }, h('bdi', { dir: 'auto' }, o.chip)), count),
+      bar,
       o.anyHost ? h('div', { class: 'notice' }, icon('alert', 16), h('span', {}, t('pressFor', { host: pageHost() }))) : null,
       h('p', { class: 'hint' }, t('pressHold')),
       sr,
@@ -664,7 +666,7 @@ function pressCard(o: PressOpts): void {
       count.textContent = fmt(left);
       const warn = left <= 10_000;
       count.classList.toggle('warn', warn);
-      rg.classList.toggle('warn', warn);
+      bar.classList.toggle('warn', warn);
       const s = Math.ceil(left / 1000);
       if (s === 30 || s === 10 || s === 5) sr.textContent = fmt(left);
     }, 250),
@@ -699,10 +701,10 @@ async function poll(o: PressOpts): Promise<void> {
     }
     case 'typed':
       setTarget(null);
-      return void showCard({ badge: badge('check', 'ok'), title: t('typedTitle'), body: t('typedBody'), role: 'status', autoClose: 1900 });
+      return void showCard({ badge: doneBadge(), title: t('typedTitle'), body: t('typedBody'), role: 'status', autoClose: 1900 });
     case 'saved':
       return void showCard({
-        badge: badge('check', 'ok'),
+        badge: doneBadge(),
         title: o.mode === 'update' ? t('updatedTitle') : t('savedTitle'),
         body: o.mode === 'update' ? t('updatedBody') : t('savedBody'),
         role: 'status',
@@ -853,7 +855,7 @@ async function trigger(root: Element | null): Promise<void> {
 function showSave(card: SaveCard): void {
   const update = card.mode === 'update';
   showCard({
-    badge: h('span', { class: 'badge-round tone-info' }, logo(28)),
+    badge: h('span', { class: 'badge-tile' }, logo(40)),
     title: update ? t('updateTitle', { title: card.title }) : t('saveTitle'),
     body: update ? t('updateBody') : undefined,
     onClose: () => void decide('later'),
