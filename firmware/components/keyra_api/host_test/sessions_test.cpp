@@ -78,25 +78,83 @@ void revokingATrustedBrowserEndsOnlyItsSessions() {
   CHECK_EQ(s.size(), 2u);
 }
 
-// SPEC §12.3: a press opens a 60 s reveal window for the session that asked only.
-void graceIsPerSessionAndExpires() {
+using A = Sessions::Approval;
+using P = Sessions::Approval::Purpose;
+using R = Sessions::Redeem;
+
+// SPEC §12.5b: one press approves one request: this account, this version of
+// it, this session. It is used up by that request and by nothing else.
+void approvalIsOneShot() {
+  Sessions s(fakeRandom);
+  auto a = s.create(1);
+  const A entry5{P::RevealEntry, 5, 9, {}};
+  CHECK(s.redeem(a.token, 10, entry5) == R::None);  // nothing approved yet
+  CHECK(s.approve(a.token, 100, entry5));
+  CHECK(s.redeem(a.token, 101, entry5) == R::Ok);
+  CHECK(s.redeem(a.token, 102, entry5) == R::None);  // used up
+}
+
+void approvalIsForItsRequesterOnly() {
   Sessions s(fakeRandom);
   auto a = s.create(1), b = s.create(1);
-  CHECK_EQ(s.graceLeft(a.token, 10, Sessions::Grace::Reveal), int64_t{0});
-  CHECK(s.grantGrace(a.token, 100, Sessions::Grace::Reveal));
-  CHECK_EQ(s.graceLeft(a.token, 100, Sessions::Grace::Reveal), kGraceMs);
-  CHECK_EQ(s.graceLeft(a.token, 100 + kGraceMs - 1, Sessions::Grace::Reveal), int64_t{1});
-  CHECK_EQ(s.graceLeft(a.token, 100 + kGraceMs, Sessions::Grace::Reveal), int64_t{0});
-  CHECK_EQ(s.graceLeft(b.token, 200, Sessions::Grace::Reveal), int64_t{0});  // another browser
-  CHECK(!s.grantGrace("nope", 1, Sessions::Grace::Reveal));
-  CHECK_EQ(s.graceLeft(a.csrf, 200, Sessions::Grace::Reveal), int64_t{0});  // the CSRF token is not a session
-  CHECK(s.grantGrace(b.token, 300, Sessions::Grace::Reveal));
-  s.clear();  // lock ends every grace with its session
-  CHECK_EQ(s.graceLeft(b.token, 301, Sessions::Grace::Reveal), int64_t{0});
-  CHECK(!s.grantGrace(b.token, 302, Sessions::Grace::Reveal));
-  // A new session in a reused slot starts without grace.
-  auto c = s.create(400);
-  CHECK_EQ(s.graceLeft(c.token, 401, Sessions::Grace::Reveal), int64_t{0});
+  const A entry5{P::RevealEntry, 5, 9, {}};
+  CHECK(s.approve(a.token, 100, entry5));
+  CHECK(s.redeem(b.token, 101, entry5) == R::None);  // another browser
+  CHECK(s.redeem(a.csrf, 101, entry5) == R::None);   // the CSRF token is not a session
+  CHECK(s.redeem("nope", 101, entry5) == R::None);
+  CHECK(s.redeem(a.token, 102, entry5) == R::Ok);    // still there for its own session
+  CHECK(!s.approve("nope", 1, entry5));
+}
+
+void approvalIsForItsEntryAndPurposeOnly() {
+  Sessions s(fakeRandom);
+  auto a = s.create(1);
+  CHECK(s.approve(a.token, 100, {P::RevealEntry, 5, 9, {}}));
+  CHECK(s.redeem(a.token, 101, {P::RevealEntry, 6, 9, {}}) == R::None);  // another account
+  CHECK(s.redeem(a.token, 101, {P::RevealHealth, 0, 0, {}}) == R::None);            // another purpose
+  CHECK(s.redeem(a.token, 101, {P::Backup, 0, 0, {}}) == R::None);
+  CHECK(s.redeem(a.token, 102, {P::RevealEntry, 5, 9, {}}) == R::Ok);    // a miss did not use it up
+  // Creating and removing the recovery key are two requests.
+  CHECK(s.approve(a.token, 200, {P::RecoveryCreate, 0, 0, {}}));
+  CHECK(s.redeem(a.token, 201, {P::RecoveryRemove, 0, 0, {}}) == R::None);
+  CHECK(s.redeem(a.token, 202, {P::RecoveryCreate, 0, 0, {}}) == R::Ok);
+  // A token or tag: the same body only.
+  CHECK(s.approve(a.token, 300, {P::TokenCreate, 0, 0, "digest-1"}));
+  CHECK(s.redeem(a.token, 301, {P::TokenCreate, 0, 0, "digest-2"}) == R::None);
+  CHECK(s.redeem(a.token, 301, {P::TagCreate, 0, 0, "digest-1"}) == R::None);
+  CHECK(s.redeem(a.token, 302, {P::TokenCreate, 0, 0, "digest-1"}) == R::Ok);
+}
+
+void approvalForAnEditedEntryIsChanged() {
+  Sessions s(fakeRandom);
+  auto a = s.create(1);
+  CHECK(s.approve(a.token, 100, {P::RevealEntry, 5, 9, {}}));
+  CHECK(s.redeem(a.token, 101, {P::RevealEntry, 5, 10, {}}) == R::Changed);  // edited after the request
+  CHECK(s.redeem(a.token, 102, {P::RevealEntry, 5, 9, {}}) == R::None);       // dropped, not kept for later
+}
+
+void approvalExpires() {
+  Sessions s(fakeRandom);
+  auto a = s.create(1);
+  CHECK(s.approve(a.token, 100, {P::Backup, 0, 0, {}}));
+  CHECK(s.redeem(a.token, 100 + kApprovalMs, {P::Backup, 0, 0, {}}) == R::None);
+  CHECK(s.approve(a.token, 200, {P::Backup, 0, 0, {}}));
+  CHECK(s.redeem(a.token, 200 + kApprovalMs - 1, {P::Backup, 0, 0, {}}) == R::Ok);
+}
+
+void approvalEndsWithTheSession() {
+  Sessions s(fakeRandom);
+  auto a = s.create(1);
+  CHECK(s.approve(a.token, 100, {P::Backup, 0, 0, {}}));
+  s.clear();  // lock
+  CHECK(s.redeem(a.token, 101, {P::Backup, 0, 0, {}}) == R::None);
+  auto b = s.create(200);  // a new session in a reused slot starts without one
+  CHECK(s.redeem(b.token, 201, {P::Backup, 0, 0, {}}) == R::None);
+  // A newer press replaces an unused approval.
+  CHECK(s.approve(b.token, 300, {P::RevealEntry, 1, 1, {}}));
+  CHECK(s.approve(b.token, 301, {P::RevealEntry, 2, 1, {}}));
+  CHECK(s.redeem(b.token, 302, {P::RevealEntry, 1, 1, {}}) == R::None);
+  CHECK(s.redeem(b.token, 302, {P::RevealEntry, 2, 1, {}}) == R::Ok);
 }
 
 // Work deferred to the slow worker (a restore, a passphrase change) runs only
@@ -136,28 +194,14 @@ void testGenerationTiesSessionToUnlock() {
   CHECK(!s.csrfFor(a.token, 2, 2).has_value());
 }
 
-// A press grants what it was for: reveal grace does not cover a backup or a
-// recovery-key change, and those are used up by one request.
-void graceIsPerOperation() {
-  using G = Sessions::Grace;
-  Sessions s(fakeRandom);
-  auto a = s.create(1);
-  CHECK(s.grantGrace(a.token, 100, G::Reveal));
-  CHECK_EQ(s.graceLeft(a.token, 101, G::Backup), int64_t{0});
-  CHECK(!s.consumeGrace(a.token, 101, G::Recovery));
-  CHECK(s.grantGrace(a.token, 200, G::Backup));
-  CHECK(s.consumeGrace(a.token, 201, G::Backup));
-  CHECK(!s.consumeGrace(a.token, 202, G::Backup));  // single use
-  CHECK(s.graceLeft(a.token, 203, G::Reveal) > 0);  // the reveal grace is untouched
-  CHECK(s.grantGrace(a.token, 300, G::Recovery));
-  CHECK(!s.consumeGrace(a.token, 300 + kGraceMs, G::Recovery));  // expired
-  CHECK(!s.consumeGrace("nope", 301, G::Recovery));
-}
-
 int main() {
-  graceIsPerOperation();
+  approvalIsOneShot();
+  approvalIsForItsRequesterOnly();
+  approvalIsForItsEntryAndPurposeOnly();
+  approvalForAnEditedEntryIsChanged();
+  approvalExpires();
+  approvalEndsWithTheSession();
   testGenerationTiesSessionToUnlock();
-  graceIsPerSessionAndExpires();
   issuesDistinctHexTokens();
   evictsLeastRecentlyUsedBeyondFour();
   clearEndsAll();

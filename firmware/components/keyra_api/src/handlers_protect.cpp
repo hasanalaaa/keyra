@@ -1,27 +1,20 @@
 #include "handlers_protect.hpp"
 
+#include <cstring>
+
 #include "entry_fields.hpp"
 #include "esp_log.h"
 #include "http.hpp"
 #include "handlers_gen.hpp"
 #include "keyra/settings.hpp"
 #include "activity.hpp"
+#include "psa/crypto.h"
 #include "runtime.hpp"
 
 namespace keyra::api::protect {
 namespace {
 
 const char* TAG = "protect";
-
-using Grace = Sessions::Grace;
-
-Grace graceFor(actions::Op op) {
-  return op == actions::Op::Backup        ? Grace::Backup
-         : op == actions::Op::Recovery    ? Grace::Recovery
-         : op == actions::Op::TokenCreate ? Grace::Token
-         : op == actions::Op::TagCreate   ? Grace::Tag
-                                          : Grace::Reveal;
-}
 
 std::string toHex(const uint8_t* p, size_t n) {
   static constexpr char kHex[] = "0123456789abcdef";
@@ -35,18 +28,33 @@ std::string toHex(const uint8_t* p, size_t n) {
 
 }  // namespace
 
-bool mayReveal(const std::string& token) {
-  return !settings::get().protectReveal || sessions().graceLeft(token, monoMs(), Grace::Reveal) > 0;
+bool unprotected() { return !settings::get().protectReveal; }
+
+Sessions::Redeem redeem(const std::string& token, const Approval& want) {
+  return sessions().redeem(token, monoMs(), want);
 }
 
 bool mayBackup(const std::string& token) {
-  return !settings::get().protectReveal || sessions().consumeGrace(token, monoMs(), Grace::Backup);
+  return unprotected() || redeem(token, {Purpose::Backup, 0, 0, {}}) == Sessions::Redeem::Ok;
 }
 
-esp_err_t requestPress(httpd_req_t* r, actions::Op op, const std::string& token) {
+std::string bodyDigest(const cJSON* body) {
+  std::string out(32, '\0');
+  char* text = cJSON_PrintUnformatted(body);
+  size_t len = 0;
+  const bool ok = text && psa_crypto_init() == PSA_SUCCESS &&
+                  psa_hash_compute(PSA_ALG_SHA_256, reinterpret_cast<const uint8_t*>(text), std::strlen(text),
+                                   reinterpret_cast<uint8_t*>(out.data()), out.size(), &len) == PSA_SUCCESS &&
+                  len == out.size();
+  cJSON_free(text);
+  if (!ok) ESP_LOGE(TAG, "could not digest the request");
+  return ok ? out : std::string();
+}
+
+esp_err_t requestPress(httpd_req_t* r, actions::Op op, const std::string& token, Approval a) {
   // The token is copied into the commit; it is a session id, not a secret of the vault.
-  const Grace g = graceFor(op);
-  const auto armed = machine().awaitPresence(op, [token, g] { return sessions().grantGrace(token, monoMs(), g); }, token);
+  const auto armed = machine().awaitPresence(
+      op, [token, a = std::move(a)] { return sessions().approve(token, monoMs(), a); }, token);
   if (!armed) {
     return http::sendError(r, http::k409, "busy",
                            "Keyra is waiting for another request; long-press its button to cancel it");
@@ -97,7 +105,8 @@ esp_err_t getRecovery(httpd_req_t* r) {
 // Always needs its own press (whatever the reveal setting), used up by one
 // change: the key opens the vault.
 esp_err_t createRecovery(httpd_req_t* r, const std::string& token) {
-  if (!sessions().consumeGrace(token, monoMs(), Grace::Recovery)) return requestPress(r, actions::Op::Recovery, token);
+  if (redeem(token, {Purpose::RecoveryCreate, 0, 0, {}}) != Sessions::Redeem::Ok)
+    return requestPress(r, actions::Op::Recovery, token, {Purpose::RecoveryCreate, 0, 0, {}});
   vault::RecoveryKey key{};
   const int64_t now = unixSecondsOrZero();
   const vault::Status st = vault::createRecovery(now, key);
@@ -116,7 +125,8 @@ esp_err_t createRecovery(httpd_req_t* r, const std::string& token) {
 }
 
 esp_err_t deleteRecovery(httpd_req_t* r, const std::string& token) {
-  if (!sessions().consumeGrace(token, monoMs(), Grace::Recovery)) return requestPress(r, actions::Op::Recovery, token);
+  if (redeem(token, {Purpose::RecoveryRemove, 0, 0, {}}) != Sessions::Redeem::Ok)
+    return requestPress(r, actions::Op::Recovery, token, {Purpose::RecoveryRemove, 0, 0, {}});
   const vault::Status st = vault::removeRecovery();
   if (st == vault::Status::NotFound) return http::sendError(r, http::k404, "not_found", "No recovery key");
   if (st != vault::Status::Ok) return http::sendError(r, http::k500, "storage", "Could not remove the recovery key");

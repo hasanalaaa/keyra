@@ -156,8 +156,8 @@ if (nvsReset) {
   lockedUntil = Date.now() + (Number(process.env.MOCK_NVS_DELAY_MS) || 900_000);
 }
 let lastActivity = Date.now();
-const sessions = new Map(); // token → { csrf, lastUsed, trustId, grace: { reveal|backup|recovery: until } }
-const GRACE_MS = 60000; // SPEC §12.3: after a press, this session may see secrets this long
+const sessions = new Map(); // token → { csrf, lastUsed, trustId, approval: { purpose, resource, entry, request, until } | null }
+const APPROVAL_MS = 30000; // SPEC §12.5b: a press approves one request, to be made within this long
 let usbSeen = false; // a computer was plugged in since the unlock (charger-only never locks)
 let usbSession = 1; // bumps on every plug-in; a USB action is bound to the one it was armed on
 const trusted = new Map(); // sha256(kt) → { id, name, created, lastSeen }
@@ -1056,7 +1056,7 @@ function strengthLevel(pw) {
   return b < 36 ? 1 : b < 60 ? 2 : b < 80 ? 3 : 4;
 }
 
-/** SPEC §13: weak and reused speak about the passwords, so they follow the reveal grace. */
+/** SPEC §13: weak and reused speak about the passwords, so they need the reveal press. */
 function health(entries, revealed) {
   const now = timeValid ? nowSec() : 0;
   const withPw = entries.filter((e) => e.password);
@@ -1405,21 +1405,28 @@ function entryView(e, revealed) {
   return { ...rest, revealed, ...has, history: history.map((h) => ({ changedAt: h.changedAt })) };
 }
 
-// SPEC §12.3: a press grants what it was asked for — reveal for 60 s, or one backup / one recovery-key change.
-const graceLeft = (sess, op = 'reveal') => (sess ? Math.max(0, (sess.grace?.[op] ?? 0) - Date.now()) : 0);
-function consumeGrace(sess, op) {
-  if (graceLeft(sess, op) <= 0) return false;
-  sess.grace[op] = 0;
-  return true;
+// SPEC §12.5b, like Sessions::redeem: a press approves one request of one session — this purpose,
+// this resource, this version of the account (the entry object, as for type actions), this body.
+// 'ok' uses it up; 'changed' (dropped) when the account was edited since; 'none' otherwise.
+function redeem(sess, want) {
+  const a = sess?.approval;
+  if (!a) return 'none';
+  if (Date.now() >= a.until) {
+    sess.approval = null;
+    return 'none';
+  }
+  if (a.purpose !== want.purpose || (a.resource ?? 0) !== (want.resource ?? 0) || (a.request ?? '') !== (want.request ?? '')) return 'none';
+  sess.approval = null;
+  return a.entry === want.entry ? 'ok' : 'changed';
 }
-const mayReveal = (sess) => !settings.protectReveal || graceLeft(sess) > 0;
-const mayBackup = (sess) => !settings.protectReveal || consumeGrace(sess, 'backup');
-/** Arms `op`; the press opens this session's grace for that op only. */
-function requestPress(res, op, token) {
+const unprotected = () => !settings.protectReveal;
+const mayBackup = (sess) => unprotected() || redeem(sess, { purpose: 'backup' }) === 'ok';
+/** Arms `op`; the press approves `want` for this session only. */
+function requestPress(res, op, token, want) {
   const exp = awaitPresence(op, () => {
     const s = sessions.get(token);
     if (!s) return false;
-    s.grace = { ...s.grace, [op]: Date.now() + GRACE_MS };
+    s.approval = { ...want, until: Date.now() + APPROVAL_MS };
   });
   return send(res, 202, { awaiting: 'button', op, expiresIn: exp, cancel: machine.slot?.cancel ?? '' });
 }
@@ -1441,7 +1448,7 @@ function issueSession(res, req, known, how = 0) {
   }
   const tok = randomBytes(32).toString('hex');
   const csrf = randomBytes(32).toString('hex');
-  sessions.set(tok, { csrf, lastUsed: Date.now(), trustId: known?.id ?? 0, grace: {} });
+  sessions.set(tok, { csrf, lastUsed: Date.now(), trustId: known?.id ?? 0, approval: null });
   const cookies = [`ks=${tok}; HttpOnly; SameSite=Strict; Path=/`];
   if (known) cookies.push(`kt=${cookie(req, 'kt')}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000`);
   return send(res, 200, { csrf, failedAttempts, ...(nvs ? { nvsReset: nvs } : {}) }, { 'Set-Cookie': cookies });
@@ -1825,7 +1832,7 @@ async function api(req, res, path) {
           via,
         },
         timeValid,
-        graceMs: session ? graceLeft(sess) : 0,
+        graceMs: 0, // SPEC §12.5b: no reveal window any more; kept for older clients
         ...(nvsReset ? { nvsReset } : {}),
         ...(session && fw.phase !== 'idle' ? { update: fwState() } : {}),
       });
@@ -1894,7 +1901,7 @@ async function api(req, res, path) {
       return send(res, 200, { enabled: !!vault.recovery, created: vault.recovery?.created ?? 0 });
 
     case 'createRecovery': {
-      if (!consumeGrace(sess, 'recovery')) return requestPress(res, 'recovery', token);
+      if (redeem(sess, { purpose: 'recovery_create' }) !== 'ok') return requestPress(res, 'recovery', token, { purpose: 'recovery_create' });
       const key = randomBytes(20).toString('hex');
       vault.recovery = { key, created: nowSec() };
       logEvent('recovery_created');
@@ -1902,7 +1909,7 @@ async function api(req, res, path) {
     }
 
     case 'deleteRecovery':
-      if (!consumeGrace(sess, 'recovery')) return requestPress(res, 'recovery', token);
+      if (redeem(sess, { purpose: 'recovery_remove' }) !== 'ok') return requestPress(res, 'recovery', token, { purpose: 'recovery_remove' });
       if (!vault.recovery) fail(404, 'not_found', 'No recovery key');
       vault.recovery = null;
       logEvent('recovery_removed');
@@ -1916,11 +1923,16 @@ async function api(req, res, path) {
       return send(res, 200, { entries: [...vault.entries.values()].map(summary) });
 
     case 'get':
-      return send(res, 200, entryView(getEntry(m.id), mayReveal(sess)));
+      return send(res, 200, entryView(getEntry(m.id), unprotected()));
 
     case 'reveal': {
       const e = getEntry(m.id);
-      if (!mayReveal(sess)) return requestPress(res, 'reveal', token);
+      if (!unprotected()) {
+        const want = { purpose: 'reveal_entry', resource: e.id, entry: e };
+        const got = redeem(sess, want);
+        if (got === 'changed') fail(409, 'entry_changed', 'The account changed after the press was asked for');
+        if (got === 'none') return requestPress(res, 'reveal', token, want);
+      }
       logEvent('revealed', { id: e.id, title: e.title });
       return send(res, 200, entryView(e, true));
     }
@@ -2096,7 +2108,7 @@ async function api(req, res, path) {
       }
       vault.tokens ??= [];
       if (vault.tokens.length >= MAX_TOKENS) fail(409, 'tokens_full', 'Keyra holds at most 8 access tokens');
-      if (!consumeGrace(sess, 'token_create')) return requestPress(res, 'token_create', token);
+      if (redeem(sess, { purpose: 'token_create', request: JSON.stringify(b) }) !== 'ok') return requestPress(res, 'token_create', token, { purpose: 'token_create', request: JSON.stringify(b) });
       const secret = 'keyra_' + base32Encode(randomBytes(20));
       let id;
       do id = randomBytes(4).readUInt32BE();
@@ -2143,7 +2155,7 @@ async function api(req, res, path) {
       }
       vault.tags ??= [];
       if (vault.tags.length >= MAX_TAGS) fail(409, 'tags_full', 'Keyra holds at most 16 tags');
-      if (!consumeGrace(sess, 'tag_create')) return requestPress(res, 'tag_create', token);
+      if (redeem(sess, { purpose: 'tag_create', request: JSON.stringify(b) }) !== 'ok') return requestPress(res, 'tag_create', token, { purpose: 'tag_create', request: JSON.stringify(b) });
       let id;
       do id = randomBytes(4).readUInt32BE();
       while (!id || vault.tags.some((x) => x.id === id));
@@ -2466,7 +2478,7 @@ async function api(req, res, path) {
     case 'backup': {
       const pass = str(b, 'passphrase');
       if ([...pass].length < 12 || Buffer.byteLength(pass) > 1024) bad('backup passphrase must be at least 12 characters');
-      if (!mayBackup(sess)) return requestPress(res, 'backup', token);
+      if (!mayBackup(sess)) return requestPress(res, 'backup', token, { purpose: 'backup' });
       settings.lastBackupAt = nowSec();
       const d = new Date();
       const ymd = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
@@ -2596,10 +2608,10 @@ async function api(req, res, path) {
     }
 
     case 'health':
-      return send(res, 200, health([...vault.entries.values()], mayReveal(sess)));
+      return send(res, 200, health([...vault.entries.values()], unprotected()));
 
     case 'healthReveal':
-      if (!mayReveal(sess)) return requestPress(res, 'reveal', token);
+      if (!unprotected() && redeem(sess, { purpose: 'reveal_health' }) !== 'ok') return requestPress(res, 'reveal', token, { purpose: 'reveal_health' });
       return send(res, 200, health([...vault.entries.values()], true));
 
     case 'healthRotate': {
@@ -2609,7 +2621,7 @@ async function api(req, res, path) {
       settings.rotateSince = b.on ? nowSec() : 0;
       if (b.on) logCoalesced('rotate_started', {});
       else if (was) logCoalesced('rotate_ended', {});
-      return send(res, 200, health([...vault.entries.values()], mayReveal(sess)));
+      return send(res, 200, health([...vault.entries.values()], unprotected()));
     }
 
     case 'activity':

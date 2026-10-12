@@ -6,6 +6,22 @@ All notable changes to Keyra are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **One press, one request (SPEC §12.5b).** A press of Keyra's button no
+  longer opens 60 seconds of reading every account's secrets. It approves
+  exactly the one request that asked for it — this account (and this version
+  of it), this session — and that request uses it up, within 30 seconds. A
+  reveal for another account, from another browser, or after the account was
+  edited (409 `entry_changed`) needs its own press. Backups, recovery-key
+  creation and removal (now two separate approvals), access tokens and NFC
+  tags (bound to the exact request body) follow the same rule.
+  `state.graceMs` stays and is always 0.
+- **Web app.** One press shows the whole account (password, 2FA, notes, old
+  passwords) until its sheet closes; "show, then edit" stays one press; the
+  next opening asks again. Password health keeps the weak and reused it was
+  shown when "change every password" is switched.
+
 ## [0.4.0] - 2026-10-12
 
 Highlights:

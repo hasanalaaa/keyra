@@ -217,14 +217,15 @@ held low, to avoid latching ROM download mode.
 Without it, anyone who steals your phone's browser session after you unlocked
 could read every password from the app. With it, the account screen shows no
 password, 2FA secret, notes or old password until you press Keyra's button; that press
-opens one minute of reading for the session that asked, and only for it. The
-same press is needed, outside that grace, for:
+shows that one account, once, to the session that asked, and only to it (SPEC
+§12.5b: the approval is bound to the account, its version and the session, and
+is used up by that one answer). A press of its own is needed for:
 
 - **downloading a backup** (single use, while `protectReveal` is on),
 - **creating, replacing or removing the recovery key** (always, single use),
 - **deleting an account or a passkey** (always; the press runs the deletion),
 - **seeing which accounts share a password or have a weak one** in Password
-  health (the same one-minute grace; otherwise a stolen session could save a
+  health (one answer per press; otherwise a stolen session could save a
   guess and ask whether it matches another account's password),
 - **turning `protectReveal` off**, and **turning "Passkeys in backups" on**.
 

@@ -227,7 +227,7 @@ esp_err_t listTags(httpd_req_t* r) {
 }
 
 // Like an access token (SPEC §17): the first call asks for a press, the same
-// call again within 60 s creates the tag and shows its URL or keys once.
+// call again (same body) within 30 s creates the tag and shows its URL or keys once.
 esp_err_t createTag(httpd_req_t* r, const cJSON* body, const std::string& session) {
   Tag t;
   esp_err_t err = ESP_OK;
@@ -236,8 +236,10 @@ esp_err_t createTag(httpd_req_t* r, const cJSON* body, const std::string& sessio
   tags::Store s;
   if (const records::Status st = loadLocked(s); st != records::Status::Ok) return sendRecordError(r, st);
   if (s.full()) return http::sendError(r, http::k409, "tags_full", "Keyra holds at most 16 tags");
-  if (!sessions().consumeGrace(session, monoMs(), Sessions::Grace::Tag))
-    return protect::requestPress(r, actions::Op::TagCreate, session);
+  const protect::Approval want{protect::Purpose::TagCreate, 0, 0, protect::bodyDigest(body)};
+  if (want.request.empty()) return http::sendError(r, http::k500, "crypto", "Could not check the request");
+  if (protect::redeem(session, want) != Sessions::Redeem::Ok)
+    return protect::requestPress(r, actions::Op::TagCreate, session, want);
 
   do {
     esp_fill_random(&t.id, sizeof t.id);

@@ -978,15 +978,15 @@ async function generatorFlow(base, opts) {
   check((await page.locator('.history-row').count()) === 1, 'one old password');
   await page.locator('.history-row .icon-btn').first().click(); // reveal
   await page.waitForTimeout(400);
-  await button(base); // secrets reach the phone only after a press (SPEC §12.3); it opens a short grace window
+  await button(base); // secrets reach the phone only after a press (SPEC §12.3); it reveals this account once (§12.5b)
   await page.waitForFunction((pw) => (document.querySelector('.history-row .kv-value')?.textContent ?? '').trim() === pw, pw1, { timeout: 5000 }).catch(() => {});
   check(((await page.locator('.history-row .kv-value').textContent()) ?? '').trim() === pw1, 'history holds the first password');
   await page.locator('.details .kv-row', { hasText: /Password|كلمة المرور/ }).locator('.icon-btn').first().click();
   check((await page.locator('.details .secret').first().textContent())?.trim() === pw2, 'current password is the second one');
   await shot(page, `account-history${tag}`);
 
-  // The Edit form's inline generator.
-  await page.evaluate(() => (location.hash = location.hash + '/edit'));
+  // The Edit form's inline generator. Opened from the sheet that revealed the account: no second press (§12.5b).
+  await page.locator(`.icon-btn[aria-label="${L(opts, 'Edit', 'تعديل')}"]`).first().click();
   await page.locator('.gen-toggle').click();
   await page.waitForFunction(() => (document.querySelector('.gen-inline .gen-preview')?.textContent ?? '').trim().length === 32);
   const pw3 = ((await page.locator('.gen-inline .gen-preview').textContent()) ?? '').trim();

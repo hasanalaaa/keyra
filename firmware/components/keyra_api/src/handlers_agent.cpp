@@ -566,8 +566,8 @@ esp_err_t listTokens(httpd_req_t* r) {
   return http::sendJson(r, http::k200, o.get());
 }
 
-// Like the recovery key (SPEC §12.5a): the first call asks for a press, the
-// same call again within 60 s creates the token and shows it once.
+// Like the recovery key (SPEC §12.5b): the first call asks for a press, the
+// same call again (same body) within 30 s creates the token and shows it once.
 esp_err_t createToken(httpd_req_t* r, const cJSON* body, const std::string& session) {
   Token t;
   esp_err_t err = ESP_OK;
@@ -576,8 +576,10 @@ esp_err_t createToken(httpd_req_t* r, const cJSON* body, const std::string& sess
   tokens::Store s;
   if (const records::Status st = loadLocked(s); st != records::Status::Ok) return sendRecordError(r, st);
   if (s.full()) return http::sendError(r, http::k409, "tokens_full", "Keyra holds at most 8 access tokens");
-  if (!sessions().consumeGrace(session, monoMs(), Sessions::Grace::Token))
-    return protect::requestPress(r, actions::Op::TokenCreate, session);
+  const protect::Approval want{protect::Purpose::TokenCreate, 0, 0, protect::bodyDigest(body)};
+  if (want.request.empty()) return http::sendError(r, http::k500, "crypto", "Could not check the request");
+  if (protect::redeem(session, want) != Sessions::Redeem::Ok)
+    return protect::requestPress(r, actions::Op::TokenCreate, session, want);
 
   uint8_t raw[tokens::kSecretBytes];
   esp_fill_random(raw, sizeof raw);

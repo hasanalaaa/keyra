@@ -3,6 +3,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { api, hasCsrf, isAwaiting, setLockedHandler, forgetSession, type Awaiting, type Unlocked } from './api';
 import { detectLang, setLang, t, type Lang, type LangPref } from './i18n';
 import type { BleInfo, DeviceState, EntrySummary } from './types';
+import { dropHandOver } from './revealed';
 
 export type ThemePref = 'auto' | 'light' | 'dark';
 export type LockReason = 'idle' | 'button' | 'manual' | 'session' | 'unplugged' | null;
@@ -151,6 +152,7 @@ function lockReasonNow(d: DeviceState | null): LockReason {
 function becameLocked(d: DeviceState | null): void {
   if (!state.authed) return;
   forgetSession();
+  dropHandOver();
   setState({ authed: false, lockReason: lockReasonNow(d), entries: null, ble: null, backupAt: null, bothSequence: '' });
   manualLock = false;
 }

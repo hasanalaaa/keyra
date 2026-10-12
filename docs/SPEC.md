@@ -194,13 +194,13 @@ Conventions
 
 | Method & path | Auth | Body → Response |
 |---|---|---|
-| GET `/api/state` | none | `{device:{name,version,model,mac}, initialized, unlocked, maxEntries` (§6.1)`, session:bool, autoLockMin, host:{usb, ble, capsLock, output, bleTarget, connecting, usbOs?}` (§8.1, §10.5; `usbOs` with a session only)`, pending:Pending\|null, last:Result\|null, presence:{awaiting:bool, op:string\|null, expiresIn:ms, result:{op, ok:bool, code:"done"\|"failed"\|"expired"\|"cancelled", at:ms_ago}\|null}, net?` (§8.2)`, timeValid:bool, graceMs` (§12.3)`, update?` (§14, session only)`, nvsReset?` (below)`}` — polled ~1 s while something is pending, else ~5 s |
+| GET `/api/state` | none | `{device:{name,version,model,mac}, initialized, unlocked, maxEntries` (§6.1)`, session:bool, autoLockMin, host:{usb, ble, capsLock, output, bleTarget, connecting, usbOs?}` (§8.1, §10.5; `usbOs` with a session only)`, pending:Pending\|null, last:Result\|null, presence:{awaiting:bool, op:string\|null, expiresIn:ms, result:{op, ok:bool, code:"done"\|"failed"\|"expired"\|"cancelled", at:ms_ago}\|null}, net?` (§8.2)`, timeValid:bool, graceMs` (always 0 since 0.5, §12.5b)`, update?` (§14, session only)`, nvsReset?` (below)`}` — polled ~1 s while something is pending, else ~5 s |
 | POST `/api/setup` | none, only if !initialized | `{passphrase, wifiPassword, deviceName?}` → 202 `{awaiting:"button", expiresIn}`; completes when the button is pressed (watch `state.presence` / `state.initialized`). passphrase 10–128 chars; wifiPassword 8–63 printable ASCII and ≠ `keyra1234`. The client then calls unlock. AP restarts with the new password ~3 s after commit. |
 | POST `/api/unlock` | none | `{passphrase}` → 200 `{csrf, failedAttempts, nvsReset?}` (§15, below) / 401 `{error:"wrong", retryAfterMs}` / 429 `{error:"rate_limited", retryAfterMs}` / 202 trust the browser first (§8.2) |
 | POST `/api/lock` | session | → 204 |
 | GET `/api/entries` | session | → `{entries:[{id,title,url,username,favorite,hasPassword,hasTotp,hasSequence,updated,lastUsed,burnAfter}]}` (no secrets) |
-| GET `/api/entries/{id}` | session | → the entry with `hasPassword`, `hasTotp`, `hasSequence`, `hasNotes`; `password`, `totp`, `notes`, old passwords and `sequence` only when `revealed` (§12.3) |
-| POST `/api/entries/{id}/reveal` | session | → 200 the revealed entry, or 202 press first (§12.3) |
+| GET `/api/entries/{id}` | session | → the entry with `hasPassword`, `hasTotp`, `hasSequence`, `hasNotes`; `password`, `totp`, `notes`, old passwords and `sequence` only when `revealed` (only with `protectReveal` off, §12.3) |
+| POST `/api/entries/{id}/reveal` | session | → 200 the revealed entry, or 202 press first, then the same call once more (§12.3, §12.5b); 409 `entry_changed` when the account was edited between the request and the call that uses the press |
 | POST `/api/entries` | session | entry (no id) → 201 `{id}` |
 | PUT `/api/entries/{id}` | session | partial entry → 200 `{id}` |
 | DELETE `/api/entries/{id}` | session | → 202 `{awaiting:"button", op:"delete_entry", expiresIn, cancel}` (404 if unknown, 409 `busy` §12.5a); the press removes it (only if still unlocked and still there, else `failed`) |
@@ -819,9 +819,9 @@ Version 1 files migrate on the next unlock.
 With `protectReveal` on (default), `GET /api/entries/{id}` returns no password,
 2FA secret, notes or old passwords (`revealed:false`, `hasPassword`, `hasTotp`,
 `hasNotes`, history dates). Notes are treated like the password because they
-often hold recovery codes or PINs. `POST /api/entries/{id}/reveal` → 202 press → the session that
-asked may read secrets for 60 s (`state.graceMs`). Downloading a backup and
-changing the recovery key need the same press. Turning `protectReveal` off
+often hold recovery codes or PINs. `POST /api/entries/{id}/reveal` → 202 press → the same call
+again answers that account with all its secrets, once (§12.5b). Downloading a backup and
+changing the recovery key need a press of their own. Turning `protectReveal` off
 needs a press; turning it on applies at once. Deleting an account
 (`delete_entry`) or a passkey (`delete_passkey`) always needs a press,
 whatever `protectReveal` says; the press runs the deletion itself. Typing never needs it: the
@@ -862,15 +862,56 @@ The security key (§11) gets the same care: a FIDO request remembers when it
 began, and a press made before that (one that waited in the button queue)
 neither approves nor refuses it.
 
-A press grants what it was asked for, to that session only: `reveal` opens
-60 s of reading secrets; `backup` allows one backup download and `recovery`
-one recovery-key change — each used up by that request, never by a reveal
-grace.
+A press grants what it was asked for, to that session only, once (§12.5b).
 
 Deliberate exception: `GET /api/entries/{id}/totp` (the current 2FA code)
 needs a session but no press. A code lives 30 s and is useless without the
 password, which does need one; asking for a press every 30 s would make the
 account screen unusable.
+
+### 12.5b One press, one request
+
+Since 0.5 a press approves exactly one request, never a time window (0.4 and
+earlier let the session read every account's secrets for 60 s after one
+reveal press). The approval is bound to:
+
+| Request (op in the 202) | Approval | Used by |
+|---|---|---|
+| `POST /api/entries/{id}/reveal` (`reveal`) | that entry id **and** the version of the account when the press was asked for (`vault::Entry::revision`, RAM only, as for `entry_changed` in §5) | the same call for that entry |
+| `POST /api/health/reveal` (`reveal`) | weak and reused, once | the same call |
+| `POST /api/backup` (`backup`) | one backup download | the same call (any backup passphrase: it is never kept) |
+| `POST /api/recovery` / `DELETE /api/recovery` (`recovery`) | creating, or removing, the recovery key — two different requests | the same call |
+| `POST /api/tokens` (`token_create`), `POST /api/tags` (`tag_create`) | SHA-256 of the request body | the same call with the same body |
+
+Rules (`keyra_api/src/sessions.cpp` `Sessions::redeem`, host-tested):
+- **Requester.** The approval belongs to the session that asked (its cookie);
+  another session, a token, or the CSRF value never use it. Lock, a new
+  setup, a removed trusted browser or an evicted session drop it. Tokens and
+  tags never get one: what they arm runs on the press itself.
+- **One use.** The call it approves uses it up; the next call asks again.
+- **Short.** It must be used within **30 s** of the press; after that the call
+  asks for a new press.
+- **Nothing else.** A call for another entry, another purpose or another
+  body does not use it (and does not spend it): it asks for its own press. A
+  newer press of the same session replaces an unused approval.
+- **Changed account.** When the entry's version differs from the one the
+  press was asked for, the call answers 409 `entry_changed` and the approval
+  is dropped: the user approved showing the account as it was.
+- Everything that was already per request stays so: type actions (§5), the
+  presence ops that run their own commit on the press (delete, restore,
+  Wi‑Fi, update, …) and the agent and tag requests (§17, §18).
+- `state.graceMs` stays in `/api/state` for older clients and is always 0.
+
+**The web app.** One reveal is one operation — "show this account": the one
+answer carries the password, 2FA secret, notes, old passwords and sequence,
+so showing and copying them in the open account sheet needs no further press;
+they live in that sheet's memory and are gone when it closes. Opening the
+editor from that sheet hands the revealed account to it (in memory, once, at
+most 30 s; `web/src/lib/revealed.ts`), so "show, then edit" stays one press;
+opening the editor any other way asks for its own press. Password health keeps
+the weak and reused it was shown when "change every password" is switched
+(that answer carries no secrets). Each new opening asks again: strictly one
+press per secret operation.
 
 ### 12.6 Withdrawing a press request
 
@@ -903,11 +944,11 @@ password (`keyra_api/src/health.cpp`, host-tested).
 - **Weak and reused follow the reveal press** (§12.3). They are answers about
   the passwords themselves: a session that can write one entry could set a
   guess and ask whether it now "reuses" another account's password. So with
-  `protectReveal` on and no reveal grace for this session, `revealed` is false
-  and `weak` and `reused` are empty; `checked`, `old` and `rotate` are always
-  given. `POST /api/health/reveal` (session) answers like `GET /api/health`
-  inside the grace (or with protection off), else 202 and the same press as
-  `POST /api/entries/{id}/reveal`, which opens the grace for the whole session.
+  `protectReveal` on, `GET /api/health` (and `POST /api/health/rotate`) have
+  `revealed` false and `weak` and `reused` empty; `checked`, `old` and
+  `rotate` are always given. `POST /api/health/reveal` (session) answers with
+  them after a press (op `reveal`) that approves that one answer (§12.5b), or
+  at once with protection off.
 - **Weak**: strength level 1 or 2 by the same estimate as the app's meter
   (`web/src/lib/strength.ts`: character pool × length, −8 bits per run of 3
   equal characters or 3-step sequence, a short common-password list forces
@@ -1086,7 +1127,7 @@ NFC tags build on.
 - **Managing** (session + CSRF, like every other session route):
   - `GET /api/tokens` → `{tokens:[metadata…], max:8}`
   - `POST /api/tokens {name, kind, scope}` → 202 press (op `token_create`,
-    §12.5a) → the same call again within 60 s → 201 `{token, …metadata}`.
+    §12.5a) → the same call again (same body) within 30 s → 201 `{token, …metadata}` (§12.5b).
     Checked before the press: 400 `invalid` (name, kind, scope; a scope id
     that is not an account), 409 `tokens_full`.
   - `DELETE /api/tokens/{id}` → 204 (no press; 404 `not_found`). Whatever the
@@ -1168,7 +1209,7 @@ Keyra's network that arms **one account** for typing — exactly like
   - `GET /api/tags` → `{tags:[{id, name, kind, entry, what, target, created,
     lastUsed, bound?, counter?}], max:16}` — never a secret or key.
   - `POST /api/tags {name, kind, entry, what, target?}` → 202 press (op
-    `tag_create`, §12.5a) → the same call again within 60 s → 201 `{…metadata,
+    `tag_create`, §12.5a) → the same call again (same body) within 30 s (§12.5b) → 201 `{…metadata,
     url, keys?:{meta, file}}` (`url`: a simple tag's full URL with its secret,
     or a secure tag's template with zeros where the tag mirrors `p` and `m`;
     `keys`: 32 hex digits each, secure only), shown once. Checked before the

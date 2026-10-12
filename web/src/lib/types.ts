@@ -81,7 +81,7 @@ export interface DeviceState {
   presence: Presence;
   net?: NetState; // absent on firmware before v1.1
   timeValid: boolean;
-  /** SPEC §12.3: reveal grace left for this session after a press (ms). */
+  /** Always 0 since 0.5: a press approves one request, not a time window (SPEC §12.5b). */
   graceMs?: number;
   /** SPEC §5: the settings storage (NVS) was erased at boot; shown until an unlock logs it. */
   nvsReset?: NvsReset;
