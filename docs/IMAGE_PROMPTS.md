@@ -1,142 +1,89 @@
-# Image prompts (for the owner)
+# Image and video prompts (for the owner)
 
-This file is for the repository owner. The README and GitHub page expect a few
-images. Generate them with ChatGPT using the prompts below, then save each file under
-the exact name and size listed.
+The logo, banner, how-it-works strip and social card are drawn in code (`docs/brand/`). Photographs and the
+press video are what code cannot make. Generate them with the prompts below and hand the files to the agent.
 
-**هذا الملف لصاحب المشروع.** يحتاج المشروع إلى بعض الصور. انسخ كل وصف (Prompt) إلى ChatGPT،
-ثم احفظ الصورة بالاسم والحجم المكتوبين تماماً داخل `docs/images/`.
+**هذا الملف لصاحب المشروع.** الشعار والبنر ورسم «كيف يعمل» وصورة المشاركة مرسومة بالكود. الباقي صور
+فوتوغرافية وفيديو، وهذي ما يسويها الكود. انسخ كل prompt كما هو (بالإنكليزية لأن النتيجة أفضل).
 
-## كيف تعمل / How to use
+## طريقة الاستخدام
 
-1. افتح **محادثة جديدة** في ChatGPT واستخدم نفس المحادثة للصور السبع كلها حتى يبقى شكل الجهاز موحداً.
-   (Use one chat for all seven so the product looks the same everywhere.)
-2. ابدأ بالصورة **(c) شكل الجهاز**، لأن باقي الصور تعتمد على تصميمه. في الصور التالية ابدأ رسالتك بالعبارة:
-   `Using the same Keyra product design:` ثم الصق الوصف.
-   (Generate (c) first; prefix later prompts with that sentence.)
-3. **الأوصاف تبقى بالإنجليزية** لأن النتيجة أفضل. لا تترجمها.
-4. إذا ظهرت حروف أو كتابة مشوّهة في الصورة، أرسل هذه الجملة في نفس المحادثة:
-   `Remove all text and lettering from the image completely; keep everything else identical.`
-   (The real text is added later in HTML or Figma.)
-5. بعض الصور تحتاج **قصاً وتغيير حجم** بعد التوليد (مكتوب تحت كل صورة). على macOS:
-   `magick input.png -gravity center -crop 1536x614+0+0 -resize 1600x640 output.png`
-   (needs ImageMagick: `brew install imagemagick`). أو استخدم أي برنامج صور.
-6. احفظ الملفات في `docs/images/` بالأسماء أدناه بالضبط، ثم أخبر الوكيل ليرتبها في الـ README.
+1. **الصور:** الأفضل Gemini (Nano Banana Pro) واختَر الدقة **4K** ونسبة **16:9**. إذا استخدمت ChatGPT اختر
+   أكبر حجم أفقي (1536×1024) والوكيل يقصّها ويكبّرها.
+2. **كل الصور بنفس المحادثة**، وابدأ بالصورة 1. بعدها ابدأ كل رسالة بـ:
+   `Same Keyra device, same materials and lighting as before:` ثم الصق الـ prompt.
+3. إذا طلع أي نص أو شعار مشوّه بالصورة أرسل:
+   `Remove every letter, logo and marking from the device and the scene; keep everything else identical.`
+4. **الفيديو:** Veo بـ Gemini، نسبة 16:9، أعلى دقة متاحة (1080p أو 4K)، 8 ثواني، بدون صوت.
+5. أرسل الملفات للوكيل كما هي. هو يسمّيها ويضغطها ويحطها بالصفحة مع عبارة
+   «Concept render» لأن الجهاز الحقيقي اليوم لوحة ESP32-S3 مكشوفة، وهذا التصميم تصوّر لعلبة مستقبلية.
 
-| # | الملف / File | الحجم النهائي / Final size | أين يظهر / Where it is used |
+| # | الملف | الحجم | مكانه |
 |---|---|---|---|
-| a | `docs/images/icon.png` | 1024 × 1024 | أيقونة التطبيق |
-| b | `docs/images/hero.png` | 1600 × 640 | أعلى الـ README |
-| c | `docs/images/device.png` | 1536 × 1024 | شكل الجهاز في الـ README |
-| d | `docs/images/social.png` | 1280 × 640 | معاينة المشاركة على GitHub (Social preview) |
-| e | `docs/images/how-it-works.png` | 1536 × 1024 | قسم "كيف يعمل" |
-| f | `docs/images/phone-dark.png` | 1024 × 1536 | صورة الهاتف (الوضع الداكن) |
-| g | `docs/images/social.png` | 1280 × 640 | **نفس (d)**؛ أوصاف بديلة أدناه إن لم تعجبك النتيجة |
+| 1 | `docs/images/hero-light.jpg` | 16:9، 4K | أعلى الصفحة، الوضع الفاتح |
+| 2 | `docs/images/hero-dark.jpg` | 16:9، 4K | أعلى الصفحة، الوضع الداكن |
+| 3 | `docs/images/press.jpg` | 16:9، 4K | قسم «كيف يعمل» |
+| 4 | `docs/images/desk.jpg` | 16:9، 4K | قسم «لماذا Keyra» |
+| 5 | `docs/images/press.mp4` | 16:9، 8 ث | فيديو الضغطة تحت «كيف يعمل» |
 
-بعد رفع الصورة (d)، فعّل المعاينة من: **Repository → Settings → General → Social preview → Upload an image**.
-GitHub يوصي بـ 1280 × 640 بكسل وبحجم أقل من 1 MB.
+Brand reference for every prompt (already written into each one): graphite `#16171A`, ivory `#F2F2EF`,
+warm paper `#F4F3EF`, and exactly one colour: the LED's blue `#2F6BFF`. Calm, precise, premium, real.
 
 ---
 
-## Style (already inside every prompt)
-
-Palette: Keyra Blue `#0B57F0`, light blue `#6C9CFF`, LED blue `#2F6BFF`, ink black `#080A10`,
-panel `#12151D`, paper `#F3F4F8`, white `#FFFFFF`, success green `#4ADE80` (only for the "typed" moment).
-Look: calm, premium, restrained, soft studio light, matte materials. Avoid padlock or hacker clichés,
-neon clutter, circuit-board textures, stock people, real brand logos, watermarks.
-
----
-
-## (a) App icon: `docs/images/icon.png` (1024 × 1024)
+## 1. Hero, light — `docs/images/hero-light.jpg`
 
 ```
-Design a 1024×1024 app icon, full-bleed square (no rounded corners, no border, no mockup, no shadow outside the canvas).
-Background: a smooth diagonal gradient from #4B86FF at the top-left to #0A47D8 at the bottom-right, very subtle, no noise.
-Centre: a single bold white key glyph made of simple geometric strokes with perfectly round line caps — a ring-shaped bow (a circle outline) at the top,
-a straight vertical shaft descending from the ring, and two short rectangular teeth pointing to the right, the lower tooth slightly shorter.
-The glyph is about 52% of the canvas height, optically centred, stroke thickness about 11.5% of the glyph height, pure white #FFFFFF.
-Add a very soft drop shadow under the glyph (dark blue, 35% opacity, large blur) and a faint white highlight fading from the top edge over the top 40% of the canvas (14% opacity).
-Flat, crisp vector look like a modern iOS app icon. ABSOLUTELY NO TEXT, letters, numbers or extra symbols anywhere.
+Ultra-realistic studio product photograph, 16:9 landscape, highest resolution and detail, shot on a medium-format camera with a 100 mm macro lens at f/5.6, perfectly sharp focus on the device.
+
+Subject: "Keyra", a small hardware password vault the size of a USB stick: a slim rectangular bar about 58 mm long, 22 mm wide and 9 mm thick, with softly radiused edges and corners. Body machined from bead-blasted anodized aluminium in deep graphite (#16171A), fine satin texture, crisp chamfer catching a thin line of light. A USB-C plug in polished graphite steel at one short end. On the top face, one flush circular push button in matte warm ivory ceramic (#F2F2EF), 9 mm across, set in the middle of a hairline-thin light ring that glows a soft, even LED blue (#2F6BFF), with a faint blue bloom on the aluminium around it. That ring is the only colour in the entire image. No text, no logo, no screws, no stickers, no visible electronics.
+
+Scene: the device lies at a slight angle (about 20°) on a sheet of warm ivory paper (#F4F3EF) with a very subtle paper grain, placed on the left third of the frame. Large calm negative space on the right two thirds for a headline. One large soft key light from the upper left, a gentle fill from the right, a long, soft, natural contact shadow. Minimal, quiet, expensive, in the visual language of Apple, Teenage Engineering, Leica and Nothing product photography.
+
+Avoid: text, lettering, logos, reflections of people, extra objects, plants, coffee cups, hands, neon, glowing blue backgrounds, gradients, circuit boards, padlocks, shields, keys, cartoon or 3D-render look, oversaturated colours, depth-of-field blur on the device itself.
 ```
 
-## (b) README hero banner: `docs/images/hero.png` (final 1600 × 640)
-
-توليد: اطلب صورة عريضة 1536×1024 ثم قص الوسط: `magick in.png -gravity center -crop 1536x614+0+0 -resize 1600x640 hero.png`
+## 2. Hero, dark — `docs/images/hero-dark.jpg`
 
 ```
-Wide cinematic hero banner for a product called Keyra, generated in landscape. IMPORTANT composition rule: keep every important element inside the horizontal
-centre band that is 60% of the image height (the top and bottom 20% will be cropped away) and leave the left 22% and right 22% of the width calm and almost empty,
-because a headline will be placed there later.
-Scene: a deep ink background (#080A10) fading to #12151D with one soft blue glow (#2F6BFF at 25% opacity, very large radius) behind the product.
-Centre-right: a small matte graphite USB security key (a slim rounded-rectangle device about the size of a lighter, colour #1B1F2A, USB-C plug at one end,
-a single round translucent button on top with a gently glowing ring of blue light #2F6BFF, a tiny debossed key glyph — a circle with a vertical stem and two teeth — next to it),
-plugged into the side of a thin silver laptop (generic, no logo) that is only partly visible at the edge. Centre-left of the device, a floating smartphone
-(generic black glass phone, no logo) seen from a slight angle, its screen showing an abstract dark interface: a large blue ring #6C9CFF with a white key symbol inside
-and a few soft grey rounded bars as placeholder rows — NO readable text on the screen, only abstract shapes.
-Thin light-blue curved line (#6C9CFF, 1.5 px) linking phone, device and laptop to suggest "wireless setup, typed into your computer".
-Style: realistic soft 3D product render, shallow depth of field, very soft reflections, premium and calm. NO text, NO letters, NO logos, NO watermark anywhere in the image.
+Same Keyra device, same materials and lighting as before: ultra-realistic studio product photograph, 16:9 landscape, highest resolution and detail, 100 mm macro lens at f/5.6.
+
+The graphite Keyra stick lies at a slight angle on a slab of matte dark graphite slate (#0B0C0E) with a faint natural stone texture, on the left third of the frame. Low-key lighting: one narrow soft strip light from the upper left drawing a precise highlight along the device's top chamfer and the edge of the ivory button; everything else falls into deep, clean shadow. The thin LED ring around the ivory button glows soft blue (#2F6BFF) and casts a delicate blue glow on the aluminium and a faint reflection on the slate. That ring is the only colour in the image. Large dark negative space on the right two thirds for a headline.
+
+Mood: night, calm, precise, premium. Avoid: text, logos, extra objects, smoke, neon, blue background light, lens flares, sparkles, circuit patterns, padlocks, CGI look.
 ```
 
-## (c) Product render: `docs/images/device.png` (1536 × 1024, no crop)
-
-ابدأ بهذه الصورة. إذا لم تُكتب كلمة Keyra بشكل صحيح، اترك السطح فارغاً.
+## 3. The press, macro — `docs/images/press.jpg`
 
 ```
-Studio product photograph-style 3D render of a tiny hardware password key named Keyra, on a seamless light background (#F3F4F8) with a soft long contact shadow, 3/4 front view slightly from above.
-The device: a minimal slim capsule-shaped enclosure about 55 mm long, matte anodised graphite (#1B1F2A) with ultra-fine texture, softly rounded corners, one flush USB-C plug (silver) protruding from one end.
-On top: ONE round pill-shaped translucent button, frosted milky-white glass, with a soft ring of electric blue light (#2F6BFF) glowing around it and a faint glow cast on the surface below.
-Beside the button, a small debossed key symbol (a circle outline with a vertical stem and two small teeth to the right), and on the lower edge the single word "Keyra" debossed in a clean rounded geometric sans-serif,
-spelled exactly K-e-y-r-a, small and subtle. No other text, no markings, no screws, no extra ports, no cable, no logo other than this.
-Lighting: large softbox from top-left, gentle rim light, realistic materials, crisp but soft edges, 50 mm lens look, shallow depth of field.
-Compose with the device filling about 60% of the width, centred, plenty of clean background around it. If the word "Keyra" cannot be spelled correctly, leave the surface blank instead of guessing.
+Same Keyra device, same materials and lighting as before: ultra-realistic macro photograph, 16:9 landscape, highest resolution, 100 mm macro lens at f/4, focus exactly on the button.
+
+A human index finger (natural skin, short clean nail, no jewellery) presses the ivory ceramic button on the top of the graphite Keyra stick, seen from a low three-quarter angle. The thin LED ring around the button glows bright soft blue (#2F6BFF), lighting the edge of the fingertip with a faint blue rim. The device rests on warm ivory paper (#F4F3EF); the background falls off to a soft, warm, out-of-focus ivory. One soft key light from the upper left. Calm, tactile, intimate: the moment of the press.
+
+Avoid: text, logos, other fingers in odd positions, extra hands, rings, nail polish, motion blur, neon, sparkles, CGI look.
 ```
 
-## (d) Social preview: `docs/images/social.png` (final 1280 × 640)
-
-توليد عريض 1536×1024 ثم: `magick in.png -gravity center -crop 1536x768+0+0 -resize 1280x640 social.png`
-(العنوان "Keyra" يُضاف لاحقاً في المساحة الفارغة بين النصفين.)
+## 4. On the desk — `docs/images/desk.jpg`
 
 ```
-Social-sharing card background in landscape, generated wide. Composition rule: all important content inside the central 2:1 band (the top and bottom 17% of the image will be cropped);
-keep a 10% margin from the left and right edges.
-Left half: a large rounded-square app tile (squircle) coloured with a diagonal blue gradient #4B86FF → #0A47D8, containing a bold white key glyph (a ring-shaped bow, a vertical shaft, two small teeth to the right, round line caps), with a soft shadow.
-Right half: the matte graphite (#1B1F2A) slim USB key with a glowing blue (#2F6BFF) ring button on top, tilted 12 degrees, floating slightly above a very soft blue glow; behind it a very faint, large, thin blue ring (#6C9CFF at 20% opacity) as a motif.
-Background: deep ink #080A10 with a subtle radial glow of #0B57F0 at 15% opacity from the top-centre. Between the two halves leave empty space — a title will be placed there later.
-Style: crisp, premium, minimal, soft 3D with matte materials. NO text, NO letters, NO numbers, NO watermark.
+Same Keyra device, same materials and lighting as before: ultra-realistic editorial photograph, 16:9 landscape, highest resolution, 50 mm lens at f/2.8.
+
+A minimal, light oak desk in soft morning daylight from a window on the left. A closed-bezel silver laptop seen from the side and slightly behind, its screen turned mostly away from the camera, softly out of focus. The graphite Keyra stick is plugged into the laptop's USB-C port, in sharp focus, its thin LED ring glowing soft blue (#2F6BFF). Next to it on the desk, slightly out of focus, a phone lying face up whose screen shows only a calm dark interface with no readable text. Warm ivory and graphite tones, lots of air, nothing else on the desk.
+
+Avoid: readable text anywhere, logos (including on the laptop and phone), people, mugs, plants, cables in a mess, neon, CGI look.
 ```
 
-## (e) How it works: `docs/images/how-it-works.png` (1536 × 1024, no crop)
+## 5. Video: the press — `docs/images/press.mp4` (Veo, 8 seconds)
 
 ```
-A clean three-step explainer illustration, landscape, three equal rounded panels side by side (radius large, panel colour #12151D on a #080A10 background, 1 px hairline border rgba(255,255,255,0.09), thin gaps between panels).
-Style: soft matte 3D "clay" objects, calm, minimal, consistent lighting from the top-left, palette limited to #0B57F0, #6C9CFF, #2F6BFF, #F3F4F8, #12151D and a touch of success green #4ADE80 in panel 3 only.
-Panel 1 — "Plug in": a small slim graphite USB key with a pulsing blue ring button plugged into the side of a thin silver laptop (generic, no logo); on the laptop screen a blank login form with an empty field and a cursor.
-Panel 2 — "Pick": a generic black phone shown upright; its screen shows an abstract dark list of rounded rows with coloured square avatars, and a big blue pill button highlighted with a fingertip about to tap it. NO readable text on the screen — only abstract bars.
-Panel 3 — "Press": a close view of a finger pressing the round glowing button of the Keyra key; above it the laptop's login field now filled with a row of dots (●●●●●●●●) and a small green check badge #4ADE80.
-At the top-centre of each panel place only a small circled digit: 1, 2, 3 (white digit in a #0B57F0 circle). Use NO other text anywhere — no words, no captions, no labels, no logos. If any digit is malformed, regenerate with the digits removed.
-Thin light-blue connector arrows (#6C9CFF) between the panels, pointing left to right.
-```
+Ultra-realistic 8-second product film, 16:9, highest available resolution, 24 fps, no music, no voice, no text on screen, one continuous shot, no cuts.
 
-## (f) Dark phone mockup: `docs/images/phone-dark.png` (1024 × 1536, no crop)
+Scene: a small graphite aluminium USB-C stick ("Keyra", 58 mm long, softly radiused edges, one flush matte ivory circular button in the middle of its top face, surrounded by a hairline-thin LED ring) is plugged into the side of a silver laptop on a warm ivory desk. Soft daylight from the left. In the soft-focus background, the laptop screen shows a simple sign-in box with an empty password field and a blinking cursor; no readable words.
 
-```
-Portrait product mockup: a single generic modern smartphone (black glass, thin bezels, no brand, no logo, no visible notch text) floating at a slight 8-degree angle, centred, on a deep ink background (#080A10) with a soft blue radial glow (#2F6BFF at 20% opacity) behind it and a gentle floor reflection.
-The phone screen shows a dark-mode app (screen background #080A10, card surfaces #12151D): at the top a small centred rounded-square blue logo tile with a white key glyph;
-in the middle a large circular progress ring (stroke 10 px, #6C9CFF, about 70% filled, clockwise) with a soft pulsing blue halo (#2F6BFF), a white-blue key glyph in its centre;
-below the ring two short horizontal rounded bars in light grey (#B1B8C8 and #8D95A8) as placeholder title and subtitle, then a small pill chip (#202B41 fill) with a short bar inside, and a full-width ghost-style rounded button outline.
-CRITICAL: the screen must contain NO readable text, NO letters, NO numbers — only abstract bars and shapes (real screenshots with real Arabic/English text will be composited later).
-Style: photorealistic 3D render, crisp screen, subtle glass reflections, premium and calm. NO watermark.
-```
+0–2 s: the camera slowly pushes in toward the stick. The LED ring breathes soft blue (#2F6BFF), fading up and down once every 1.2 seconds, calm and even.
+2–4 s: a human index finger enters from the right and presses the ivory button once, firmly, then lifts away.
+4–6 s: the instant it is pressed, in the background the password field fills from left to right with round dots, one by one, quickly and smoothly, as if typed by a keyboard. The LED ring stops breathing and glows a steady soft green for one second.
+6–8 s: the LED ring fades to off. The camera settles, still and quiet, on the stick in sharp focus.
 
-## (g) GitHub social preview
-
-الصورة **(d)** أعلاه هي معاينة المشاركة، وهي مغطاة بالفعل. إن أردت نسخة بديلة أبسط (أيقونة + جهاز على خلفية داكنة،
-بمساحة فارغة واسعة للعنوان)، استخدم هذا الوصف وسمّها `docs/images/social.png` (استبدل (d)):
-
-```
-Minimal wide social card background, generated in landscape 1536×1024; keep all important content inside the central 2:1 band (top and bottom 17% will be cropped) with 10% side margins.
-Dead centre, a single slim matte graphite (#1B1F2A) USB key with one round frosted-glass button ringed by electric blue light (#2F6BFF), seen straight from above, perfectly symmetrical, floating over a very soft blue glow.
-Behind it, a very large thin concentric blue ring (#6C9CFF at 18% opacity) centred on the key, like a radar pulse, fading outward.
-Background: deep ink #080A10 with a faint radial glow of #0B57F0 at 12% opacity from the top-centre. Leave the left and right thirds almost empty — a title and a tagline will be added later.
-Style: crisp, premium, calm, soft 3D, matte materials. NO text, NO letters, NO numbers, NO logos, NO watermark.
+Style: premium, calm, tactile; Apple and Nothing product films; real physics, real reflections on the aluminium, gentle shallow depth of field. Avoid: readable text, logos, extra hands, sparkles, neon, glitch effects, fast cuts, camera shake, CGI look.
 ```

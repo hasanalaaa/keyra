@@ -1,22 +1,21 @@
 <div align="center">
 
-<img src="docs/images/hero.png" alt="Keyra: a pocket password vault that types for you" width="100%">
+<a href="#readme">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/readme/banner-dark.svg">
+    <img src="docs/brand/readme/banner-light.svg" width="100%" alt="Keyra: the password vault you can hold. It types only when you press its button.">
+  </picture>
+</a>
 
-# Keyra
+<h3>Your passwords stay on the device.<br>Keyra types them for you, only when you press its button.</h3>
 
-**A pocket hardware password vault. Your passwords stay on the device, you manage them from your phone, and Keyra types them for you only when you press its button.**
+<a href="#how-it-works">How it works</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#quick-start">Quick start</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#security-model">Security</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#hardware">Hardware</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#faq">FAQ</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="README.ar.md">العربية</a>
+<br><br>
 
-[![CI](https://github.com/hasanalaaa/keyra/actions/workflows/ci.yml/badge.svg)](https://github.com/hasanalaaa/keyra/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-0B57F0.svg)](LICENSE)
-[![ESP-IDF 6.0](https://img.shields.io/badge/ESP--IDF-6.0-E7352C.svg)](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/)
-[![Platform: ESP32-S3](https://img.shields.io/badge/platform-ESP32--S3-2F6BFF.svg)](docs/HARDWARE.md)
-
-[How it works](#how-it-works) ·
-[Quick start](#quick-start) ·
-[Security](#security-model) ·
-[Hardware](#hardware) ·
-[FAQ](#faq) ·
-[بالعربي](README.ar.md)
+<a href="https://github.com/hasanalaaa/keyra/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/hasanalaaa/keyra/ci.yml?branch=main&style=flat-square&label=CI&labelColor=3A3B40&color=16171A"></a>
+<a href="https://github.com/hasanalaaa/keyra/releases"><img alt="Release" src="https://img.shields.io/github/v/release/hasanalaaa/keyra?style=flat-square&labelColor=3A3B40&color=16171A"></a>
+<a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-16171A?style=flat-square&labelColor=3A3B40"></a>
+<a href="docs/HARDWARE.md"><img alt="ESP32-S3" src="https://img.shields.io/badge/ESP32--S3-ESP--IDF%206.0-16171A?style=flat-square&labelColor=3A3B40"></a>
 
 </div>
 
@@ -45,9 +44,10 @@ Keyra is a convenience-and-isolation device, not a magic shield. Read the [secur
 
 ## How it works
 
-<div align="center">
-<img src="docs/images/how-it-works.png" alt="Plug in, pick an account on your phone, press the button" width="100%">
-</div>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/brand/readme/how-it-works-dark.svg">
+  <img src="docs/brand/readme/how-it-works-light.svg" width="100%" alt="Plug in, pick an account on your phone, press the button, it types">
+</picture>
 
 1. **Plug in.** Connect Keyra's USB port to the computer. It shows up as a keyboard. (Or pair it once over Bluetooth: see below.)
 2. **Join the Wi-Fi.** On your phone, join the network **Keyra-XXXX** and open **http://keyra.local**. (No sign-in sheet pops up; see the [FAQ](#faq).)
@@ -55,6 +55,20 @@ Keyra is a convenience-and-isolation device, not a magic shield. Read the [secur
 4. **Press the button.** Click the login field on your computer, press Keyra's button, and it types. The LED flashes green and your phone says **Typed**.
 
 A long press (1.5 seconds) cancels a pending action, or locks the vault if nothing is pending.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant P as Your phone
+    participant K as Keyra
+    participant C as Computer
+    P->>K: Type the password of "GitHub" (Wi-Fi, keyra.local)
+    Note over K: Armed for 60 s. LED breathes blue.
+    Note over K: You press the button
+    K->>C: Types it as a USB or Bluetooth keyboard
+    K-->>P: Typed
+    Note over C: The computer never sees the vault
+```
 
 **Bluetooth.** In **Settings → Bluetooth**, tap **Pair a new device** and press Keyra's button. For the next 2 minutes Keyra shows up as a keyboard in your phone's, tablet's or computer's Bluetooth settings, and its light pulses cyan; pick it there. After that, **Type into: Auto** types over USB when Keyra is plugged in and otherwise into the Bluetooth device you used last (or pick one in the account sheet). Keyra connects to it only for the action, and the Ready screen tells you which device it is.
 
@@ -65,12 +79,19 @@ A long press (1.5 seconds) cancels a pending action, or locks the vault if nothi
 | **Types like a keyboard** | USB and Bluetooth keyboard. Handles Caps Lock and always releases keys, even on errors. |
 | **Any input language** | Tell Keyra each computer's system once: on Windows it types character codes that ignore the active language; on a Mac or iPhone in Arabic it switches to English, types, and switches back. |
 | **Updates over Wi-Fi** | **Settings → Firmware update** checks GitHub for a new version and installs it after a press of Keyra's button. Only firmware signed with your key is accepted, never an older version, and a version that fails to start rolls back by itself. |
+| **Passkeys and security key (USB)** | Keyra is also a FIDO2/U2F security key: create and use passkeys, or use it as a second factor, on sites that support security keys. Press the button when the light double-blinks white. Up to 50 passkeys, listed in **Settings → Passkeys**. Optional security key PIN (set from the computer), `hmac-secret` and `credProtect`; passkeys travel in encrypted backups by default. Not FIDO certified; see [docs/FIDO.md](docs/FIDO.md). |
+| **Browser extension (optional)** | Keyra Companion for Chrome 116+, Edge, Brave, Opera, Vivaldi and Firefox 128+: a Keyra key in login fields lists the logins for that site, warns before typing a login on another site, fills a strong password from Keyra in sign-up forms and offers **Save to Keyra?** afterwards. Connects with one press; never sees a stored password. See [extension/README.md](extension/README.md). |
+
+<details>
+<summary><b>All features</b> (activity log, password health, passkeys, NFC tags, recovery key, generator, import, backup and more)</summary>
+<br>
+
+| | |
+|---|---|
 | **Delete after typing** | Mark an account to delete itself after its password is typed once (or a set number of times): one-time recovery codes and temporary passwords clean themselves up. |
 | **Activity log** | **Settings → Activity** shows unlocks, wrong passphrase attempts, locks and why, what was typed and when, backups and more. Encrypted on Keyra, never a password, and it can't be cleared from the app. |
 | **Password health** | **Settings → Password health** lists reused, weak and year-old passwords. Keyra checks them itself; only the list of accounts reaches the phone, never a password. |
-| **Passkeys and security key (USB)** | Keyra is also a FIDO2/U2F security key: create and use passkeys, or use it as a second factor, on sites that support security keys. Press the button when the light double-blinks white. Up to 50 passkeys, listed in **Settings → Passkeys**. Optional security key PIN (set from the computer), `hmac-secret` and `credProtect`; passkeys travel in encrypted backups by default. Not FIDO certified; see [docs/FIDO.md](docs/FIDO.md). |
 | **Bluetooth keyboard** | Bluetooth LE (HID over GATT) for phones, tablets and computers, with the same typing engine. Pairing only opens for 2 minutes after a button press; up to 4 devices; forget any of them from the app. |
-| **Browser extension (optional)** | Keyra Companion for Chrome 116+, Edge, Brave, Opera, Vivaldi and Firefox 128+: a Keyra key in login fields lists the logins for that site, warns before typing a login on another site, fills a strong password from Keyra in sign-up forms and offers **Save to Keyra?** afterwards. Connects with one press; never sees a stored password. See [extension/README.md](extension/README.md). |
 | **Android app (optional)** | Keyra for Android (build it from `android/`): autofill suggestions that ask Keyra to type (you still press the button), **Save to Keyra**, and a password generator. It never receives a stored password. See [android/README.md](android/README.md). |
 | **Access tokens and AI agents** | **Settings → Apps and agents** makes revocable tokens for the Android app, the browser extension or an AI agent. A token can list account names and ask Keyra to type or save, never read a password, and every action still waits for your press. [`tools/keyra-mcp`](tools/keyra-mcp/README.md) lets an MCP client such as Claude Code log in this way. |
 | **NFC tags** | **Settings → NFC tags** makes stickers: tap one with your phone to get one account ready to type, then press Keyra's button. NTAG 424 DNA tags cannot be cloned. |
@@ -92,6 +113,8 @@ A long press (1.5 seconds) cancels a pending action, or locks the vault if nothi
 | **Status LED** | Locked, ready, typing, success and error, readable at a glance. |
 | **Auto-lock** | Locks after idle (1 to 120 minutes) and zeroizes keys in RAM. |
 | **No lock-in** | Standard formats, open protocol ([docs/SPEC.md](docs/SPEC.md)), MIT license. |
+
+</details>
 
 ## Screenshots
 
@@ -136,11 +159,6 @@ The short version. The full threat model, cryptographic design and rate-limit sc
 If you need to report a vulnerability, please use a **private GitHub Security Advisory** as described in [SECURITY.md](SECURITY.md#reporting-a-vulnerability).
 
 ## Hardware
-
-<div align="center">
-<img src="docs/images/device.png" alt="Concept render of a Keyra enclosure" width="70%">
-<br><sub>Concept render of a future enclosure. Today Keyra runs on a bare ESP32-S3 dev board.</sub>
-</div>
 
 Keyra runs on a stock **ESP32-S3** dev board with at least **8 MB flash**. No soldering.
 
@@ -274,6 +292,7 @@ keyra/
 │   ├── ci_local.sh            the CI jobs, run locally
 │   └── devctl.py, fido_harness.py   flash/reset/log; python-fido2 vs. the FIDO core
 ├── docs/                      SPEC.md, DESIGN.md, HARDWARE.md, FIDO.md, IMAGE_PROMPTS.md, images/
+│   ├── brand/                 logo, colours, type and motion (BRAND.md), README art
 │   └── research/              design notes: tokens, NFC tags, host matching, passkey backup, roadmap
 └── .github/                   CI, issue and PR templates
 ```
@@ -326,44 +345,96 @@ The current work plan, with what is done and what comes next, is in [docs/resear
 
 ## FAQ
 
-**Why doesn't my phone show a "sign in to Wi-Fi" popup?**
+<details>
+<summary><b>Why doesn't my phone show a "sign in to Wi-Fi" popup?</b></summary>
+
 On purpose. Keyra answers your phone's connectivity checks as "online" so the phone joins like any normal network and does not open a cramped captive-portal sheet (which often cannot run the app properly or keep cookies). Just open **http://keyra.local** in your regular browser. If that name does not resolve, use `http://192.168.4.1`.
 
-**My computer is in Arabic (or another language). Will Keyra type the right characters?**
+</details>
+
+<details>
+<summary><b>My computer is in Arabic (or another language). Will Keyra type the right characters?</b></summary>
+
 Yes, once Keyra knows the computer's system (Settings → Typing for USB, Settings → Bluetooth per device; iPhones, iPads and Macs are recognised when they pair). On **Windows** it types each character as an Alt code, which comes out the same in every input language. On a **Mac, iPhone or iPad**, set "Its language now" to Arabic under "Type into": Keyra presses Ctrl+Space to switch to English, types, and switches back. On **Android**, set the physical keyboard "Keyra" to English (US) once. No keyboard can *read* a computer's language, which is why Apple hosts need that one tap. Characters a layout cannot type are refused with a clear message, never typed wrong.
 
-**Can Keyra type into my phone or tablet?**
+</details>
+
+<details>
+<summary><b>Can Keyra type into my phone or tablet?</b></summary>
+
 Yes, over Bluetooth. Pair it once from **Settings → Bluetooth** (see [How it works](#how-it-works)). iPhone and iPad hide their on-screen keyboard while any Bluetooth keyboard is connected, so by default (**Connect: When typing**, recommended) Keyra connects only for each action: it shows "Connecting to your device…" for a moment, types after your press, and lets go about 20 seconds later. Choose **Always** if you prefer instant typing and do not mind the hidden on-screen keyboard. The account sheet's **Type into** picker chooses USB or a paired device; this browser remembers the choice.
 
-**I forgot my master passphrase. Can I recover my passwords?**
+</details>
+
+<details>
+<summary><b>I forgot my master passphrase. Can I recover my passwords?</b></summary>
+
 Only with a recovery key you made earlier (**Settings → Recovery kit**; make one while you still remember the passphrase). On the unlock screen choose **Use recovery key**, enter it and pick a new passphrase. Without a recovery key, no: that is the point of encryption, and there is no backdoor. You can **erase the device and start over**: on the unlock screen choose **Forgot passphrase?**, then press Keyra's button to confirm. All accounts are deleted. Restore from a backup if you have one.
 
-**Is it safe to type a password with a button press? What if the wrong window is focused?**
+</details>
+
+<details>
+<summary><b>Is it safe to type a password with a button press? What if the wrong window is focused?</b></summary>
+
 The action is armed for 60 seconds and runs once on the press. Click the right field first. A long press cancels.
 
-**Why HTTP and not HTTPS?**
+</details>
+
+<details>
+<summary><b>Why HTTP and not HTTPS?</b></summary>
+
 A device on its own network cannot get a certificate that browsers trust without installing something on each phone, and a browser warning teaches people to ignore warnings. The link is protected by WPA2 and a private Wi-Fi password instead. This is a real limit: see [SECURITY.md](SECURITY.md).
 
-**Can I add a 2FA key from a QR code?**
+</details>
+
+<details>
+<summary><b>Can I add a 2FA key from a QR code?</b></summary>
+
 Yes. In the account form, tap **Scan QR from a photo**, then take a photo of the QR or choose a saved picture. The picture is decoded inside your phone's browser; it is never sent to Keyra or anywhere else. Keyra's page is plain HTTP, so browsers do not allow a live camera view there, hence the photo. Plain `otpauth://totp/…` QR codes fill the 2FA field (and the name and user name if they are empty). For Google Authenticator, use **Import**, then **Google Authenticator export**: it lists the accounts in the export QR (several QR codes for big exports, one scan each) and either adds them as new accounts or adds the key to existing accounts that match by name and user name. Keyra only makes time-based codes, so counter-based (HOTP) entries, MD5 and unusual digit counts or periods are rejected or skipped with a message. Delete any photo or screenshot of the QR afterwards: it holds your keys unencrypted.
 
-**Do I need an internet connection?**
+</details>
+
+<details>
+<summary><b>Do I need an internet connection?</b></summary>
+
 No. Keyra creates its own Wi-Fi network, and your phone does not need internet while connected to it (it may keep using mobile data for other apps). If you turn on home Wi-Fi, Keyra uses the internet, on your home network only, for the time (NTP) and to check for and download firmware updates from GitHub when you ask it to, and for nothing else; your vault never leaves the device.
 
-**Do I still need Keyra's own Wi-Fi once home Wi-Fi works?**
+</details>
+
+<details>
+<summary><b>Do I still need Keyra's own Wi-Fi once home Wi-Fi works?</b></summary>
+
 Not for everyday use at home: open http://keyra.local on your home network instead. Keyra's own Wi-Fi is still useful. It is how you set Keyra up and how you reach it when the home network is down (with **Keep Keyra's own Wi-Fi on** turned off, it comes back after a minute without the home network). It is also the safer way to unlock on a network you do not fully trust, because traffic on it is visible only to devices that know Keyra's Wi-Fi password (see [SECURITY.md](SECURITY.md#home-wi-fi-optional)). If you never want it while at home, turn **Keep Keyra's own Wi-Fi on** off.
 
-**Can the computer read my vault?**
+</details>
+
+<details>
+<summary><b>Can the computer read my vault?</b></summary>
+
 Keyra presents a keyboard and a security key to the computer. It has no storage interface and no network path to it. The computer sees what gets typed, and it can ask the security key to sign a website's challenge, which needs your button press; it can never read the vault or a key. Over Bluetooth a paired device sees a keyboard, Keyra's name and maker, and a battery level, nothing more.
 
-**Is Keyra a YubiKey replacement?**
+</details>
+
+<details>
+<summary><b>Is Keyra a YubiKey replacement?</b></summary>
+
 No. Keyra can create and use passkeys and act as a security key over USB, and for many personal accounts that works well. But a YubiKey keeps its keys in a secure chip that cannot be read out, is FIDO certified, asks for its PIN on every sign-in, and works over NFC. Keyra has no secure chip (its keys are as safe as your passphrase and the flash encryption setting), is not certified, treats "unlocked" as user verification unless you set an optional security key PIN, and works only by USB (phones need a USB connection). Some sites, mostly corporate ones, refuse uncertified keys. Register a second key or keep another sign-in method on every account. Details in [docs/FIDO.md](docs/FIDO.md).
 
-**Which passkey sites work?**
+</details>
+
+<details>
+<summary><b>Which passkey sites work?</b></summary>
+
 Any site that accepts a USB security key or "passkey on a security key", in Chrome, Edge, Safari or Firefox on macOS, Windows and Linux. Passkeys need Keyra plugged in and unlocked; keep the phone app handy to unlock it. Encrypted backups carry the passkeys too (Settings → "Passkeys in backups", on by default), so a restored Keyra signs in where the old one did.
 
-**What does it cost?**
+</details>
+
+<details>
+<summary><b>What does it cost?</b></summary>
+
 A compatible ESP32-S3 board is usually a few dollars to about ten.
+
+</details>
 
 ## Contributing
 
@@ -371,4 +442,4 @@ Bug reports, hardware test reports, translations and pull requests are welcome. 
 
 ## License
 
-[MIT](LICENSE) © 2026 hasanalaaa. Third-party components keep their own licenses (ESP-IDF, TinyUSB, LittleFS, cJSON, Preact).
+[MIT](LICENSE) © 2026 hasanalaaa. Third-party components keep their own licenses (ESP-IDF, TinyUSB, LittleFS, cJSON, Preact). The app and the wordmark use [Readex Pro](https://fonts.google.com/specimen/Readex+Pro) (SIL OFL 1.1). Logo and brand: [docs/brand/BRAND.md](docs/brand/BRAND.md).

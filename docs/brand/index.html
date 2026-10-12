@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Keyra Brand</title>
+<link rel="icon" href="../../web/public/favicon.svg">
+<style>
+:root{--bg:#F4F3EF;--surface:#fff;--ink:#111214;--ink2:#4A4C52;--ink3:#66686F;--hair:rgba(17,18,20,.10);--sig:#1F5BEF;--ok:#0A7A3D;--err:#C1251C}
+@media (prefers-color-scheme:dark){:root{--bg:#0B0C0E;--surface:#141518;--ink:#F2F2EF;--ink2:#A9ABB2;--ink3:#8A8C93;--hair:rgba(255,255,255,.08);--sig:#6C9CFF;--ok:#4ADE80;--err:#FF7A70}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.7 "Readex Pro",system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:1080px;margin:auto;padding:56px 20px 96px}
+h1{font-size:44px;line-height:1.2;margin:0 0 8px;font-weight:600}h2{font-size:13px;letter-spacing:.12em;color:var(--ink3);font-weight:500;margin:72px 0 20px;border-top:1px solid var(--hair);padding-top:20px}
+p{color:var(--ink2);max-width:62ch;margin:0}
+.row{display:flex;flex-wrap:wrap;gap:28px;align-items:end}
+.card{background:var(--surface);border:1px solid var(--hair);border-radius:24px;padding:28px;display:grid;place-items:center;min-height:180px}
+.cap{font-size:13px;color:var(--ink3);margin-top:10px;text-align:center}
+.sw{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px}
+.sw div{border-radius:16px;border:1px solid var(--hair);overflow:hidden;font:12px/1.5 ui-monospace,Menlo,monospace}
+.sw i{display:block;height:84px}.sw span{display:block;padding:10px 12px;background:var(--surface)}
+.dark-only{display:none}@media (prefers-color-scheme:dark){.dark-only{display:inline}.light-only{display:none}}
+/* The Contour, live: waiting, then done. */
+.demo{display:flex;gap:40px;flex-wrap:wrap}
+.c{width:120px;height:120px}.c path{fill:none;stroke-linecap:round;stroke-linejoin:round;stroke-width:5}
+.c .line{stroke:var(--ink)}.c .gap{stroke:var(--sig);animation:breathe 1.2s ease-in-out infinite}
+.c.done .gap{stroke:var(--ink);stroke-dasharray:10;animation:close 2.4s cubic-bezier(.2,.8,.2,1) infinite}
+.c.fail .line{stroke:var(--err)}.c.fail .gap{display:none}
+@keyframes breathe{0%,100%{opacity:.15}50%{opacity:1}}
+@keyframes close{0%,20%{stroke-dashoffset:10}55%,100%{stroke-dashoffset:0}}
+@media (prefers-reduced-motion:reduce){.c .gap{animation:none}}
+.mono{font-size:13px;color:var(--ink3);text-align:center}
+</style>
+</head>
+<body><main>
+<img src="logo/icon.svg" width="88" alt="">
+<h1>هوية Keyra</h1>
+<p>غرافيت وعاجي. شعار «الكونتور»: درع مرسوم بخط واحد، مفتوح من أعلى اليمين، وينغلق لحظة الضغطة. اللون الأزرق له معنى واحد فقط: الجهاز بانتظار ضغطتك.</p>
+
+<h2>الأيقونة</h2>
+<div class="row">
+<div><img src="logo/icon.svg" width="200" alt=""><div class="cap">icon.svg</div></div>
+<div><img src="logo/icon-square.svg" width="140" style="border-radius:50%" alt=""><div class="cap">icon-square.svg (Android)</div></div>
+<div><img src="logo/icon-small.svg" width="48" alt=""><div class="cap">48</div></div>
+<div><img src="logo/icon-small.svg" width="32" alt=""><div class="cap">32</div></div>
+<div><img src="logo/icon-small.svg" width="16" alt=""><div class="cap">16</div></div>
+</div>
+
+<h2>الشعار مع الاسم</h2>
+<div class="row">
+<div class="card"><img class="light-only" src="logo/logo.svg" height="64" alt="Keyra"><img class="dark-only" src="logo/logo-white.svg" height="64" alt="Keyra"></div>
+<div class="card"><img class="light-only" src="logo/logo-ar.svg" height="64" alt="كيرا"><img class="dark-only" src="logo/logo-ar-white.svg" height="64" alt="كيرا"></div>
+</div>
+
+<h2>الحركة</h2>
+<div class="demo">
+<div><svg class="c" viewBox="14 14 72 72"><path class="line" d="M72.3 31.37L75.5 33V44C75.5 60 64 73 50 80C36 73 24.5 60 24.5 44V33L50 20L63.8 27.04"/><path class="gap" d="M63.8 27.04L72.3 31.37"/></svg><div class="mono">بانتظار الضغطة</div></div>
+<div><svg class="c done" viewBox="14 14 72 72"><path class="line" d="M72.3 31.37L75.5 33V44C75.5 60 64 73 50 80C36 73 24.5 60 24.5 44V33L50 20L63.8 27.04"/><path class="gap" pathLength="10" d="M63.8 27.04L72.3 31.37"/></svg><div class="mono">تمّت الكتابة</div></div>
+<div><svg class="c fail" viewBox="14 14 72 72"><path class="line" d="M72.3 31.37L75.5 33V44C75.5 60 64 73 50 80C36 73 24.5 60 24.5 44V33L50 20L63.8 27.04"/></svg><div class="mono">أُلغيت</div></div>
+</div>
+
+<h2>الألوان</h2>
+<div class="sw">
+<div><i style="background:#F4F3EF"></i><span>paper #F4F3EF</span></div>
+<div><i style="background:#FFFFFF"></i><span>surface #FFFFFF</span></div>
+<div><i style="background:#111214"></i><span>ink #111214</span></div>
+<div><i style="background:#4A4C52"></i><span>ink-2 #4A4C52</span></div>
+<div><i style="background:#0B0C0E"></i><span>graphite #0B0C0E</span></div>
+<div><i style="background:#141518"></i><span>surface #141518</span></div>
+<div><i style="background:#F2F2EF"></i><span>ivory #F2F2EF</span></div>
+<div><i style="background:#1F5BEF"></i><span>signal #1F5BEF / #6C9CFF</span></div>
+<div><i style="background:#0A7A3D"></i><span>ok #0A7A3D</span></div>
+<div><i style="background:#C1251C"></i><span>err #C1251C</span></div>
+</div>
+
+<h2>صفحة GitHub</h2>
+<img class="light-only" src="readme/banner-ar-light.svg" width="100%" alt=""><img class="dark-only" src="readme/banner-ar-dark.svg" width="100%" alt="">
+<img class="light-only" src="readme/how-it-works-ar-light.svg" width="100%" alt="" style="margin-top:24px"><img class="dark-only" src="readme/how-it-works-ar-dark.svg" width="100%" alt="" style="margin-top:24px">
+<img src="readme/social.png" width="100%" alt="" style="margin-top:24px;border-radius:16px">
+</main></body></html>
