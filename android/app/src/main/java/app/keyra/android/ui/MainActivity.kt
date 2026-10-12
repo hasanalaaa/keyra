@@ -1,8 +1,10 @@
 package app.keyra.android.ui
 
 import android.content.Intent
+import android.content.res.Configuration
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -18,6 +20,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import app.keyra.android.R
 import app.keyra.android.store.appStore
 
 /** The whole app in one activity: accounts, settings (and the connection), generator. */
@@ -26,7 +29,10 @@ class MainActivity : ComponentActivity() {
     private var shared by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        enableEdgeToEdge()
+        // The 3-button navigation bar gets the page colour, not the default translucent scrim.
+        val bg = getColor(R.color.bg)
+        val night = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+        enableEdgeToEdge(navigationBarStyle = if (night) SystemBarStyle.dark(bg) else SystemBarStyle.light(bg, bg))
         super.onCreate(savedInstanceState)
         shared = sharedToken(intent)
         setContent { KeyraTheme { KeyraApp(shared) { shared = null } } }

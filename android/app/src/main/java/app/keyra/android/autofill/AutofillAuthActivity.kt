@@ -7,25 +7,34 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,8 +42,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.dp
 import app.keyra.android.Keyra
@@ -43,8 +55,11 @@ import app.keyra.android.api.Entry
 import app.keyra.android.api.What
 import app.keyra.android.match.Target
 import app.keyra.android.store.appStore
+import app.keyra.android.ui.Contour
 import app.keyra.android.ui.KeyraTheme
 import app.keyra.android.ui.MainActivity
+import app.keyra.android.ui.RowDivider
+import app.keyra.android.ui.groupShape
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.security.GeneralSecurityException
@@ -109,24 +124,42 @@ class AutofillAuthActivity : ComponentActivity() {
                     }
                 }
 
-                Surface(Modifier.fillMaxSize()) {
-                    Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(stringResource(if (key != null) R.string.pick_title else R.string.app_name), style = MaterialTheme.typography.headlineSmall)
-                        if (arming) CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
+                Surface(Modifier.fillMaxSize(), shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.background) {
+                    Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Contour(Modifier.size(24.dp), bold = true)
+                            Text(
+                                stringResource(if (key != null) R.string.pick_title else R.string.app_name),
+                                style = MaterialTheme.typography.headlineSmall,
+                                modifier = Modifier.padding(start = 12.dp),
+                            )
+                        }
+                        if (arming) CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally).size(28.dp), strokeWidth = 2.dp)
                         message?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
                         if (phone == null && api != null) {
-                            Button(onClick = {
-                                startActivity(Intent(this@AutofillAuthActivity, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                                finish()
-                            }) { Text(stringResource(R.string.pair_phone)) }
+                            Button(
+                                onClick = {
+                                    startActivity(Intent(this@AutofillAuthActivity, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                                    finish()
+                                },
+                                modifier = Modifier.fillMaxWidth().height(52.dp),
+                            ) { Text(stringResource(R.string.pair_phone)) }
                         }
                         val list = entries
                         if (key != null && list != null && !arming) {
-                            OutlinedTextField(
+                            TextField(
                                 value = query,
                                 onValueChange = { query = it },
                                 placeholder = { Text(stringResource(R.string.search_hint)) },
+                                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
                                 singleLine = true,
+                                shape = CircleShape,
+                                colors = TextFieldDefaults.colors(
+                                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                                    focusedIndicatorColor = Color.Transparent,
+                                    unfocusedIndicatorColor = Color.Transparent,
+                                ),
                                 modifier = Modifier.fillMaxWidth(),
                             )
                             Row(
@@ -134,17 +167,28 @@ class AutofillAuthActivity : ComponentActivity() {
                                 modifier = Modifier.fillMaxWidth().toggleable(value = rememberChoice, role = Role.Checkbox) { rememberChoice = it },
                             ) {
                                 Checkbox(checked = rememberChoice, onCheckedChange = null)
-                                Text(stringResource(R.string.af_remember, label), modifier = Modifier.padding(start = 8.dp))
+                                Text(stringResource(R.string.af_remember, label), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 8.dp))
                             }
-                            if (list.isEmpty()) Text(stringResource(R.string.empty_list))
+                            if (list.isEmpty()) Text(stringResource(R.string.empty_list), color = MaterialTheme.colorScheme.onSurfaceVariant)
                             val q = query.trim().lowercase()
+                            val shown = list.filter { q.isEmpty() || q in it.title.lowercase() || q in it.host }
                             LazyColumn(Modifier.weight(1f)) {
-                                items(list.filter { q.isEmpty() || q in it.title.lowercase() || q in it.host }, key = { it.id }) { e ->
-                                    ListItem(
-                                        headlineContent = { Text(e.title) },
-                                        supportingContent = { Text(e.host, style = MaterialTheme.typography.bodyMedium.copy(textDirection = TextDirection.Ltr)) },
-                                        modifier = Modifier.clickable { chosen = e },
-                                    )
+                                itemsIndexed(shown, key = { _, e -> e.id }) { i, e ->
+                                    Column(Modifier.clip(groupShape(i, shown.size)).background(MaterialTheme.colorScheme.surfaceContainerLowest)) {
+                                        if (i > 0) RowDivider()
+                                        ListItem(
+                                            headlineContent = { Text(e.title, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium)) },
+                                            supportingContent = {
+                                                Text(
+                                                    e.host,
+                                                    style = MaterialTheme.typography.bodyMedium.copy(textDirection = TextDirection.Ltr),
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
+                                            },
+                                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                            modifier = Modifier.clickable { chosen = e },
+                                        )
+                                    }
                                 }
                             }
                         }

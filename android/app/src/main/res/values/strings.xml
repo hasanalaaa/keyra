@@ -178,4 +178,8 @@
     <string name="back">Back</string>
     <string name="search_clear">Clear search</string>
     <string name="account_open">Choose what Keyra types</string>
+
+    <!-- Brand restyle -->
+    <string name="change">Change</string>
+    <string name="target_card_phone_hint">To use autofill, tap here and mark this phone.</string>
 </resources>

@@ -2,6 +2,7 @@
 <resources>
     <style name="Theme.Keyra.Dialog" parent="android:Theme.DeviceDefault.Dialog">
         <item name="android:colorAccent">@color/accent</item>
+        <item name="android:windowBackground">@drawable/dialog_background</item>
         <item name="android:windowCloseOnTouchOutside">false</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowMinWidthMajor">90%</item>

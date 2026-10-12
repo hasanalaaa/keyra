@@ -4,19 +4,14 @@ import android.content.Context
 import android.os.SystemClock
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.ErrorOutline
-import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -32,6 +27,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.keyra.android.Keyra
@@ -112,47 +108,56 @@ fun statusText(context: Context, s: AgentStatus): String = when (s.state) {
     State.ARMED, State.NONE -> context.getString(R.string.press_title)
 }
 
-/** The press card: a countdown ring while Keyra waits, then how it ended. */
+/** The press card: the Contour while Keyra waits, then how it ended. */
 @Composable
 fun PressPanel(state: Press, hint: String, onCancel: () -> Unit, onClose: () -> Unit, modifier: Modifier = Modifier) {
-    AnimatedContent(targetState = state is Press.Done, label = "press", modifier = modifier) { done ->
-        Column(
-            Modifier.fillMaxWidth().padding(vertical = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            if (done && state is Press.Done) {
-                Icon(
-                    if (state.ok) Icons.Rounded.CheckCircle else Icons.Rounded.ErrorOutline,
-                    contentDescription = null,
-                    tint = if (state.ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(56.dp),
-                )
-                Text(
-                    state.text,
-                    style = MaterialTheme.typography.titleMedium,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-                )
-                Button(onClick = onClose, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.close)) }
-            } else {
-                Countdown(state)
-                Text(stringResource(R.string.press_title), style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
-                Text(
-                    (state as? Press.Waiting)?.note ?: hint,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-                )
-                FilledTonalButton(onClick = onCancel, enabled = state is Press.Waiting, modifier = Modifier.fillMaxWidth()) {
-                    Text(stringResource(R.string.cancel))
+    val contour = when (state) {
+        is Press.Arming -> ContourState.IDLE
+        is Press.Waiting -> ContourState.WAITING
+        is Press.Done -> if (state.ok) ContourState.DONE else ContourState.FAILED
+    }
+    Column(
+        modifier.fillMaxWidth().padding(vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Contour(Modifier.size(96.dp), state = contour, color = MaterialTheme.colorScheme.outline)
+        Spacer(Modifier.height(24.dp))
+        AnimatedContent(targetState = state is Press.Done, label = "press") { done ->
+            Column(
+                Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (done && state is Press.Done) {
+                    Text(
+                        state.text,
+                        style = MaterialTheme.typography.titleLarge,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Button(onClick = onClose, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text(stringResource(R.string.close)) }
+                } else {
+                    Text(stringResource(R.string.press_title), style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
+                    Text(
+                        (state as? Press.Waiting)?.note ?: hint,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                    )
+                    Countdown(state)
+                    Spacer(Modifier.height(8.dp))
+                    FilledTonalButton(onClick = onCancel, enabled = state is Press.Waiting, modifier = Modifier.fillMaxWidth().height(52.dp)) {
+                        Text(stringResource(R.string.cancel))
+                    }
                 }
             }
         }
     }
 }
 
+/** Seconds left, in monospace so the line does not jitter as it counts. */
 @Composable
 private fun Countdown(state: Press) {
     var now by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
@@ -163,25 +168,11 @@ private fun Countdown(state: Press) {
         }
     }
     val waiting = state as? Press.Waiting
-    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(112.dp)) {
-        if (waiting == null) {
-            CircularProgressIndicator(modifier = Modifier.size(112.dp), strokeWidth = 6.dp)
-        } else {
-            val left = (waiting.deadline - now).coerceAtLeast(0)
-            CircularProgressIndicator(
-                progress = { if (waiting.total > 0) left.toFloat() / waiting.total else 0f },
-                modifier = Modifier.size(112.dp),
-                strokeWidth = 6.dp,
-            )
-            val seconds = ((left + 999) / 1000).toInt()
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(Icons.Rounded.TouchApp, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Text(
-                    pluralStringResource(R.plurals.seconds_left, seconds, seconds),
-                    style = MaterialTheme.typography.labelSmall,
-                    textAlign = TextAlign.Center,
-                )
-            }
-        }
-    }
+    val seconds = waiting?.let { (((it.deadline - now).coerceAtLeast(0) + 999) / 1000).toInt() }
+    Text(
+        seconds?.let { pluralStringResource(R.plurals.seconds_left, it, it) } ?: stringResource(R.string.arming),
+        style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+    )
 }

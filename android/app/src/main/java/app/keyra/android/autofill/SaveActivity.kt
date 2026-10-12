@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -25,9 +27,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.dp
 import app.keyra.android.Keyra
@@ -35,9 +39,12 @@ import app.keyra.android.R
 import app.keyra.android.api.KeyraApi
 import app.keyra.android.match.HostMatcher
 import app.keyra.android.match.Target
+import app.keyra.android.ui.Contour
+import app.keyra.android.ui.Group
 import app.keyra.android.ui.KeyraTheme
 import app.keyra.android.ui.Press
 import app.keyra.android.ui.PressPanel
+import app.keyra.android.ui.RowDivider
 import app.keyra.android.ui.cancelPress
 import app.keyra.android.ui.runPress
 import kotlinx.coroutines.launch
@@ -78,9 +85,12 @@ class SaveActivity : ComponentActivity() {
                 var error by remember { mutableStateOf(setupError) }
                 var press by remember { mutableStateOf<Press?>(null) }
 
-                Surface {
-                    Column(Modifier.verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(stringResource(R.string.save_title), style = MaterialTheme.typography.headlineSmall)
+                Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.background) {
+                    Column(Modifier.verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Contour(Modifier.size(24.dp), bold = true)
+                            Text(stringResource(R.string.save_title), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(start = 12.dp))
+                        }
                         val p = press
                         if (p != null) {
                             PressPanel(
@@ -93,23 +103,34 @@ class SaveActivity : ComponentActivity() {
                                 onClose = { finish() },
                             )
                         } else {
-                            Text(stringResource(R.string.save_body), style = MaterialTheme.typography.bodyMedium)
+                            Text(stringResource(R.string.save_body), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             OutlinedTextField(
                                 value = title,
                                 onValueChange = { title = it },
                                 label = { Text(stringResource(R.string.field_title)) },
                                 singleLine = true,
+                                shape = MaterialTheme.shapes.medium,
                                 modifier = Modifier.fillMaxWidth(),
                             )
-                            Labeled(stringResource(R.string.field_url), url)
-                            if (username.isNotEmpty()) Labeled(stringResource(R.string.field_username), username)
-                            Text(pluralStringResource(R.plurals.field_password, length, length), style = MaterialTheme.typography.bodyMedium)
+                            Group {
+                                Labeled(stringResource(R.string.field_url), url)
+                                if (username.isNotEmpty()) {
+                                    RowDivider()
+                                    Labeled(stringResource(R.string.field_username), username)
+                                }
+                                RowDivider()
+                                Text(
+                                    pluralStringResource(R.plurals.field_password, length, length),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.padding(16.dp),
+                                )
+                            }
                             error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                TextButton(onClick = { finish() }, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.cancel)) }
+                                TextButton(onClick = { finish() }, modifier = Modifier.weight(1f).height(52.dp)) { Text(stringResource(R.string.cancel)) }
                                 Button(
                                     enabled = api != null,
-                                    modifier = Modifier.weight(1f),
+                                    modifier = Modifier.weight(1f).height(52.dp),
                                     onClick = {
                                         val t = title.trim()
                                         val a = api
@@ -158,8 +179,8 @@ class SaveActivity : ComponentActivity() {
 
 @Composable
 private fun Labeled(label: String, value: String) {
-    Column {
+    Column(Modifier.padding(16.dp)) {
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.bodyLarge.copy(textDirection = TextDirection.Ltr))
+        Text(value, style = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace, textDirection = TextDirection.Ltr))
     }
 }

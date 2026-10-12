@@ -5,24 +5,29 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import android.view.autofill.AutofillManager
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.ContentPaste
-import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -30,7 +35,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -48,6 +52,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextDirection
@@ -88,43 +96,60 @@ fun SettingsScreen(back: () -> Unit, changeConnection: () -> Unit, disconnected:
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.settings_title)) },
-                navigationIcon = { IconButton(onClick = back) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.back)) } },
+                title = { Text(stringResource(R.string.settings_title), style = MaterialTheme.typography.titleLarge) },
+                navigationIcon = { IconButton(onClick = back) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, stringResource(R.string.back)) } },
             )
         },
     ) { padding ->
         Column(
-            Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
             Section(stringResource(R.string.settings_connection)) {
                 ListItem(
-                    headlineContent = { Text(store.address.orEmpty(), style = MaterialTheme.typography.bodyLarge.copy(textDirection = TextDirection.Ltr)) },
+                    headlineContent = {
+                        Text(
+                            store.address.orEmpty(),
+                            style = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace, textDirection = TextDirection.Ltr),
+                        )
+                    },
                     overlineContent = { Text(stringResource(R.string.address_label)) },
                     colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                 )
-                OutlinedButton(onClick = changeConnection, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.settings_change_connection)) }
+                RowDivider()
+                LinkRow(stringResource(R.string.settings_change_connection), onClick = changeConnection)
             }
             Section(stringResource(R.string.settings_phone)) {
                 Text(
                     phoneName?.let { stringResource(R.string.settings_phone_set, it) } ?: stringResource(R.string.settings_phone_none),
                     style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(16.dp),
                 )
             }
             Section(stringResource(R.string.settings_autofill)) {
                 if (autofill) {
-                    Text(stringResource(R.string.autofill_on), style = MaterialTheme.typography.bodyMedium)
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(16.dp)) {
+                        Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = okColor, modifier = Modifier.size(20.dp))
+                        Text(stringResource(R.string.autofill_on), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 12.dp))
+                    }
                 } else {
                     Button(
                         onClick = { context.startActivity(Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE, Uri.parse("package:${context.packageName}"))) },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().padding(16.dp).height(52.dp),
                     ) { Text(stringResource(R.string.enable_autofill)) }
                 }
-                Text(stringResource(R.string.pins_title), style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
+            }
+            Section(stringResource(R.string.pins_title)) {
                 if (pins.isEmpty()) {
-                    Text(stringResource(R.string.pins_none), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        stringResource(R.string.pins_none),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(16.dp),
+                    )
                 }
-                for (p in pins) {
+                pins.forEachIndexed { i, p ->
+                    if (i > 0) RowDivider()
                     val row = stringResource(R.string.pin_row, p.key.substringAfter(':'), p.title)
                     ListItem(
                         headlineContent = { Text(row) },
@@ -133,22 +158,27 @@ fun SettingsScreen(back: () -> Unit, changeConnection: () -> Unit, disconnected:
                             IconButton(onClick = {
                                 store.unpin(p.key)
                                 pins = store.pins()
-                            }) { Icon(Icons.Rounded.Close, stringResource(R.string.pin_remove_row, row)) }
+                            }) { Icon(Icons.Outlined.Close, stringResource(R.string.pin_remove_row, row)) }
                         },
                     )
                 }
             }
             Section(stringResource(R.string.settings_privacy)) {
-                Text(stringResource(R.string.privacy_note), style = MaterialTheme.typography.bodyMedium)
+                Text(stringResource(R.string.privacy_note), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(16.dp))
             }
-            TextButton(onClick = { confirm = true }, modifier = Modifier.fillMaxWidth()) {
-                Text(stringResource(R.string.disconnect), color = MaterialTheme.colorScheme.error)
+            Group {
+                Text(
+                    stringResource(R.string.disconnect),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.fillMaxWidth().clickable(role = Role.Button) { confirm = true }.padding(16.dp),
+                )
             }
             Text(
                 stringResource(R.string.settings_version, BuildConfig.VERSION_NAME),
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.align(Alignment.CenterHorizontally),
+                modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 16.dp),
             )
         }
     }
@@ -170,12 +200,21 @@ fun SettingsScreen(back: () -> Unit, changeConnection: () -> Unit, disconnected:
 }
 
 @Composable
-private fun Section(title: String, content: @Composable () -> Unit) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-            content()
-        }
+private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) {
+    Column {
+        SectionLabel(title)
+        Group(content = content)
+    }
+}
+
+@Composable
+private fun LinkRow(text: String, onClick: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).padding(16.dp),
+    ) {
+        Text(text, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.outline)
     }
 }
 
@@ -241,27 +280,32 @@ fun ConnectScreen(sharedToken: String?, back: (() -> Unit)?, saved: () -> Unit) 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(if (store.configured) R.string.setup_title else R.string.setup_welcome)) },
+                title = {},
                 navigationIcon = {
-                    if (back != null) IconButton(onClick = back) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.back)) }
+                    if (back != null) IconButton(onClick = back) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, stringResource(R.string.back)) }
                 },
             )
         },
     ) { padding ->
         Column(
-            Modifier.padding(padding).fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(16.dp),
+            Modifier.padding(padding).fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.Key, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Text(stringResource(R.string.setup_intro), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(start = 12.dp))
-            }
+            Contour(Modifier.size(56.dp), bold = true)
+            Text(
+                stringResource(if (store.configured) R.string.setup_title else R.string.setup_welcome),
+                style = MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.semantics { heading() },
+            )
+            Text(stringResource(R.string.setup_intro), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(8.dp))
             OutlinedTextField(
                 value = address,
                 onValueChange = { address = it },
                 label = { Text(stringResource(R.string.address_label)) },
                 singleLine = true,
-                textStyle = MaterialTheme.typography.bodyLarge.copy(textDirection = TextDirection.Ltr),
+                shape = MaterialTheme.shapes.medium,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace, textDirection = TextDirection.Ltr),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -272,24 +316,25 @@ fun ConnectScreen(sharedToken: String?, back: (() -> Unit)?, saved: () -> Unit) 
                 placeholder = { Text(stringResource(R.string.token_hint)) },
                 supportingText = if (store.configured) ({ Text(stringResource(R.string.token_kept)) }) else null,
                 singleLine = true,
+                shape = MaterialTheme.shapes.medium,
                 visualTransformation = PasswordVisualTransformation(),
-                textStyle = MaterialTheme.typography.bodyLarge.copy(textDirection = TextDirection.Ltr),
+                textStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace, textDirection = TextDirection.Ltr),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 trailingIcon = {
                     IconButton(onClick = {
                         val clip = context.getSystemService(ClipboardManager::class.java).primaryClip
                         clip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()?.let { token = it.trim() }
-                    }) { Icon(Icons.Rounded.ContentPaste, stringResource(R.string.paste)) }
+                    }) { Icon(Icons.Outlined.ContentPaste, stringResource(R.string.paste)) }
                 },
                 modifier = Modifier.fillMaxWidth(),
             )
             Text(stringResource(R.string.token_help), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             result?.let { (ok, text) ->
-                Text(text, color = if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                Text(text, color = if (ok) okColor else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                FilledTonalButton(onClick = { test() }, enabled = !busy, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.test_connection)) }
-                Button(onClick = { save() }, enabled = !busy, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.save)) }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                FilledTonalButton(onClick = { test() }, enabled = !busy, modifier = Modifier.weight(1f).height(52.dp)) { Text(stringResource(R.string.test_connection)) }
+                Button(onClick = { save() }, enabled = !busy, modifier = Modifier.weight(1f).height(52.dp)) { Text(stringResource(R.string.save)) }
             }
         }
     }

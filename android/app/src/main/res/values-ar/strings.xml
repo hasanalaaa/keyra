@@ -194,4 +194,8 @@
     <string name="back">رجوع</string>
     <string name="search_clear">مسح البحث</string>
     <string name="account_open">اختر ما يكتبه Keyra</string>
+
+    <!-- Brand restyle -->
+    <string name="change">تغيير</string>
+    <string name="target_card_phone_hint">لاستخدام الملء التلقائي، اضغط هنا وعلِّم هذا الهاتف.</string>
 </resources>

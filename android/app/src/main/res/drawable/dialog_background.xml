@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The dialog window under SaveActivity / AutofillAuthActivity: the page colour, 28 dp corners like the Compose surface on it. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:inset="16dp">
+    <shape android:shape="rectangle">
+        <corners android:radius="28dp" />
+        <solid android:color="@color/bg" />
+    </shape>
+</inset>

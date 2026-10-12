@@ -7,18 +7,20 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.BluetoothSearching
-import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.automirrored.outlined.BluetoothSearching
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
@@ -36,9 +38,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.keyra.android.Keyra
 import app.keyra.android.R
@@ -68,7 +72,11 @@ fun TargetSheet(
     close: () -> Unit,
 ) {
     var pairing by remember { mutableStateOf(false) }
-    ModalBottomSheet(onDismissRequest = close, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    ModalBottomSheet(
+        onDismissRequest = close,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = MaterialTheme.colorScheme.background,
+    ) {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).navigationBarsPadding().padding(bottom = 16.dp),
         ) {
@@ -86,26 +94,29 @@ fun TargetSheet(
                 )
                 return@Column
             }
-            Text(stringResource(R.string.targets_title), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(8.dp))
+            Text(
+                stringResource(R.string.targets_title),
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(start = 4.dp, end = 4.dp, bottom = 16.dp),
+            )
             val known = (info as? TargetInfo.Known)?.targets
-            Choice(
-                selected = target == null,
-                kind = TargetKind.AUTO,
-                title = stringResource(R.string.target_auto),
-                detail = stringResource(R.string.target_auto_detail),
-            ) { onChoose(null); close() }
-            Choice(
-                selected = target == "usb",
-                kind = TargetKind.USB,
-                title = stringResource(R.string.target_usb),
-                detail = known?.let { stringResource(if (it.usb) R.string.target_usb_on else R.string.target_usb_off) },
-            ) { onChoose("usb"); close() }
-            when {
-                info is TargetInfo.Unsupported -> Note(stringResource(R.string.targets_old_firmware))
-                known == null -> Note(stringResource(R.string.targets_unreachable))
-                !known.ble -> Note(stringResource(R.string.targets_ble_off))
-                else -> {
+            Group {
+                Choice(
+                    selected = target == null,
+                    kind = TargetKind.AUTO,
+                    title = stringResource(R.string.target_auto),
+                    detail = stringResource(R.string.target_auto_detail),
+                ) { onChoose(null); close() }
+                RowDivider(inset = 72.dp)
+                Choice(
+                    selected = target == "usb",
+                    kind = TargetKind.USB,
+                    title = stringResource(R.string.target_usb),
+                    detail = known?.let { stringResource(if (it.usb) R.string.target_usb_on else R.string.target_usb_off) },
+                ) { onChoose("usb"); close() }
+                if (info !is TargetInfo.Unsupported && known != null && known.ble) {
                     for (b in known.bonds) {
+                        RowDivider(inset = 72.dp)
                         val isPhone = b.addr.equals(phone, ignoreCase = true)
                         Choice(
                             selected = target.equals(b.addr, ignoreCase = true),
@@ -120,7 +131,7 @@ fun TargetSheet(
                                     AssistChip(
                                         onClick = { onPhone(null) },
                                         label = { Text(stringResource(R.string.mark_phone_done)) },
-                                        leadingIcon = { Icon(Icons.Rounded.CheckCircle, contentDescription = null) },
+                                        leadingIcon = { Icon(Icons.Outlined.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp)) },
                                     )
                                 } else {
                                     AssistChip(onClick = { onPhone(b.addr) }, label = { Text(stringResource(R.string.mark_phone)) })
@@ -128,11 +139,15 @@ fun TargetSheet(
                             },
                         ) { onChoose(b.addr); close() }
                     }
-                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                    FilledTonalButton(onClick = { pairing = true }, modifier = Modifier.fillMaxWidth().padding(8.dp)) {
-                        Icon(Icons.AutoMirrored.Rounded.BluetoothSearching, contentDescription = null)
-                        Text(stringResource(R.string.pair_phone), modifier = Modifier.padding(start = 8.dp))
-                    }
+                }
+            }
+            when {
+                info is TargetInfo.Unsupported -> Note(stringResource(R.string.targets_old_firmware))
+                known == null -> Note(stringResource(R.string.targets_unreachable))
+                !known.ble -> Note(stringResource(R.string.targets_ble_off))
+                else -> FilledTonalButton(onClick = { pairing = true }, modifier = Modifier.fillMaxWidth().padding(top = 16.dp).height(52.dp)) {
+                    Icon(Icons.AutoMirrored.Outlined.BluetoothSearching, contentDescription = null)
+                    Text(stringResource(R.string.pair_phone), modifier = Modifier.padding(start = 8.dp))
                 }
             }
         }
@@ -148,13 +163,13 @@ private fun Choice(
     extra: (@Composable () -> Unit)? = null,
     onClick: () -> Unit,
 ) {
-    Column(Modifier.padding(vertical = 2.dp).clip(MaterialTheme.shapes.large).clickable(role = Role.RadioButton, onClick = onClick)) {
+    Column(Modifier.clickable(role = Role.RadioButton, onClick = onClick)) {
         ListItem(
-            headlineContent = { Text(title) },
+            headlineContent = { Text(title, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium)) },
             supportingContent = detail?.let { { Text(it) } },
-            leadingContent = { Icon(targetIcon(kind), contentDescription = null) },
+            leadingContent = { IconTile(targetIcon(kind)) },
             trailingContent = { RadioButton(selected = selected, onClick = null) },
-            colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         )
         if (extra != null) Column(Modifier.padding(start = 72.dp, bottom = 8.dp)) { extra() }
     }
@@ -162,7 +177,7 @@ private fun Choice(
 
 @Composable
 private fun Note(text: String) {
-    Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
+    Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 4.dp, vertical = 16.dp))
 }
 
 /**
@@ -218,18 +233,18 @@ private fun PairFlow(known: List<Bond>, paired: (Bond) -> Unit, close: () -> Uni
         }
     }
 
-    Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(Modifier.padding(horizontal = 4.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(stringResource(R.string.pair_title), style = MaterialTheme.typography.titleLarge)
         val p = press
         when {
             p is Press.Done -> PressPanel(state = p, hint = "", onCancel = {}, onClose = close)
             open -> {
                 Text(stringResource(R.string.pair_waiting), style = MaterialTheme.typography.bodyLarge)
+                LinearProgressIndicator(Modifier.fillMaxWidth().clip(CircleShape), trackColor = MaterialTheme.colorScheme.secondaryContainer)
                 Button(
                     onClick = { context.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
                 ) { Text(stringResource(R.string.pair_open_settings)) }
-                LinearProgressIndicator(Modifier.fillMaxWidth())
             }
             p != null -> PressPanel(
                 state = p,
@@ -245,8 +260,8 @@ private fun PairFlow(known: List<Bond>, paired: (Bond) -> Unit, close: () -> Uni
                 onClose = close,
             )
             else -> {
-                Text(stringResource(R.string.pair_intro), style = MaterialTheme.typography.bodyLarge)
-                Button(enabled = api != null, onClick = { start() }, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.pair_intro), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Button(enabled = api != null, onClick = { start() }, modifier = Modifier.fillMaxWidth().height(52.dp)) {
                     Text(stringResource(R.string.pair_start))
                 }
             }

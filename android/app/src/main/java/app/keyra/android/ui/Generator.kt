@@ -11,18 +11,19 @@ import android.view.WindowManager
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.ContentCopy
-import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -30,6 +31,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -43,14 +45,17 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import app.keyra.android.Keyra
 import app.keyra.android.R
 import app.keyra.android.api.GenerateOptions
@@ -107,25 +112,30 @@ fun GeneratorScreen(back: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.gen_title)) },
-                navigationIcon = { IconButton(onClick = back) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.back)) } },
+                title = { Text(stringResource(R.string.gen_title), style = MaterialTheme.typography.titleLarge) },
+                navigationIcon = { IconButton(onClick = back) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, stringResource(R.string.back)) } },
             )
         },
     ) { padding ->
         Column(
-            Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Group {
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Text(
                         password.ifEmpty { "••••••••••••" },
-                        style = MaterialTheme.typography.headlineSmall.copy(fontFamily = FontFamily.Monospace, textDirection = TextDirection.Ltr),
+                        style = MaterialTheme.typography.headlineSmall.copy(
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Normal,
+                            letterSpacing = 0.sp,
+                            textDirection = TextDirection.Ltr,
+                        ),
                         color = if (password.isEmpty()) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { generate() }, enabled = !busy) {
-                            Icon(Icons.Rounded.Refresh, contentDescription = null)
+                        Button(onClick = { generate() }, enabled = !busy, modifier = Modifier.weight(1f).height(52.dp)) {
+                            Icon(Icons.Outlined.Refresh, contentDescription = null)
                             Text(stringResource(R.string.gen_button), modifier = Modifier.padding(start = 8.dp))
                         }
                         FilledTonalButton(
@@ -134,29 +144,46 @@ fun GeneratorScreen(back: () -> Unit) {
                                 message = context.getString(R.string.copied)
                             },
                             enabled = password.isNotEmpty(),
+                            modifier = Modifier.weight(1f).height(52.dp),
                         ) {
-                            Icon(Icons.Rounded.ContentCopy, contentDescription = null)
+                            Icon(Icons.Outlined.ContentCopy, contentDescription = null)
                             Text(stringResource(R.string.copy), modifier = Modifier.padding(start = 8.dp))
                         }
                     }
                     message?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
             }
-            Text(stringResource(R.string.gen_length, length.roundToInt()), style = MaterialTheme.typography.titleSmall)
-            val sliderName = stringResource(R.string.gen_length_slider)
-            Slider(
-                value = length,
-                onValueChange = { length = it },
-                valueRange = MIN_LENGTH.toFloat()..MAX_LENGTH.toFloat(),
-                steps = MAX_LENGTH - MIN_LENGTH - 1,
-                modifier = Modifier.semantics { contentDescription = sliderName },
+            Spacer(Modifier.height(24.dp))
+            Group {
+                Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp)) {
+                    Text(stringResource(R.string.gen_length, length.roundToInt()), style = MaterialTheme.typography.bodyLarge)
+                    val sliderName = stringResource(R.string.gen_length_slider)
+                    Slider(
+                        value = length,
+                        onValueChange = { length = it },
+                        valueRange = MIN_LENGTH.toFloat()..MAX_LENGTH.toFloat(),
+                        steps = MAX_LENGTH - MIN_LENGTH - 1,
+                        colors = SliderDefaults.colors(activeTickColor = Color.Transparent, inactiveTickColor = Color.Transparent),
+                        modifier = Modifier.semantics { contentDescription = sliderName },
+                    )
+                }
+                RowDivider()
+                Toggle(R.string.gen_lower, lower) { lower = it }
+                RowDivider()
+                Toggle(R.string.gen_upper, upper) { upper = it }
+                RowDivider()
+                Toggle(R.string.gen_digits, digits) { digits = it }
+                RowDivider()
+                Toggle(R.string.gen_symbols, symbols) { symbols = it }
+                RowDivider()
+                Toggle(R.string.gen_avoid, avoid) { avoid = it }
+            }
+            Text(
+                stringResource(R.string.gen_note),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 12.dp),
             )
-            Toggle(R.string.gen_lower, lower) { lower = it }
-            Toggle(R.string.gen_upper, upper) { upper = it }
-            Toggle(R.string.gen_digits, digits) { digits = it }
-            Toggle(R.string.gen_symbols, symbols) { symbols = it }
-            Toggle(R.string.gen_avoid, avoid) { avoid = it }
-            Text(stringResource(R.string.gen_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -165,9 +192,9 @@ fun GeneratorScreen(back: () -> Unit) {
 private fun Toggle(label: Int, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().toggleable(value = checked, role = Role.Switch, onValueChange = onChange).padding(vertical = 8.dp),
+        modifier = Modifier.fillMaxWidth().toggleable(value = checked, role = Role.Switch, onValueChange = onChange).padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
-        Text(stringResource(label), modifier = Modifier.weight(1f))
+        Text(stringResource(label), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = null)
     }
 }

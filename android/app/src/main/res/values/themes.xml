@@ -3,6 +3,10 @@
     <!-- Framework themes only (no AppCompat): DayNight follows the system light/dark setting. -->
     <style name="Theme.Keyra" parent="android:Theme.DeviceDefault.DayNight">
         <item name="android:colorAccent">@color/accent</item>
+        <!-- Bars and the starting window are the page colour (ivory / graphite). -->
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:navigationBarColor">@color/bg</item>
         <item name="android:windowLightStatusBar">@bool/light_bars</item>
         <item name="android:windowLightNavigationBar">@bool/light_bars</item>
         <!-- The screens are Compose with their own top bars. -->
@@ -12,6 +16,7 @@
 
     <style name="Theme.Keyra.Dialog" parent="android:Theme.DeviceDefault.Light.Dialog">
         <item name="android:colorAccent">@color/accent</item>
+        <item name="android:windowBackground">@drawable/dialog_background</item>
         <item name="android:windowCloseOnTouchOutside">false</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowMinWidthMajor">90%</item>

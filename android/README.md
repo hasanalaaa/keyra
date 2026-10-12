@@ -40,8 +40,14 @@ that returns one.
   it only when you press its button. The values live in that screen's memory
   only.
 - English and Arabic (right-to-left), light and dark (follows the system).
-- Jetpack Compose with Material 3 (Material You colors on Android 12+). No
-  accessibility service and no Google Play Services. The unsigned release APK
+- Jetpack Compose with Material 3, styled to the brand
+  ([docs/brand/BRAND.md](../docs/brand/BRAND.md), "Graphite & Ivory"):
+  monochrome ivory/graphite, no Material You colors. The only colour is signal
+  blue, and it means one thing: the Contour mark in the press panel while Keyra
+  waits for your press (its gap breathes at the board LED's 1.2 s rhythm; it
+  closes on success and retracts in red on failure; still when Android's
+  animations are removed). Where Keyra types is the first card on the accounts
+  screen. No accessibility service and no Google Play Services. The unsigned release APK
   is about 2.5 MB (2,550,597 bytes at 0.4.0).
 
 ## Build

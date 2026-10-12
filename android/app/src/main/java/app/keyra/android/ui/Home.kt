@@ -14,36 +14,35 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Login
-import androidx.compose.material.icons.rounded.AutoMode
-import androidx.compose.material.icons.rounded.Bluetooth
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.CloudOff
-import androidx.compose.material.icons.rounded.Key
-import androidx.compose.material.icons.rounded.Password
-import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material.icons.rounded.PhoneAndroid
-import androidx.compose.material.icons.rounded.Pin
-import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.SwapHoriz
-import androidx.compose.material.icons.rounded.Usb
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.outlined.Login
+import androidx.compose.material.icons.outlined.AutoMode
+import androidx.compose.material.icons.outlined.Bluetooth
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.CloudOff
+import androidx.compose.material.icons.outlined.Key
+import androidx.compose.material.icons.outlined.Password
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.PhoneAndroid
+import androidx.compose.material.icons.outlined.Pin
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Usb
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -66,10 +65,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDirection
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.keyra.android.Keyra
 import app.keyra.android.R
@@ -154,23 +156,32 @@ fun HomeScreen(generation: Int, openSettings: () -> Unit, openGenerator: () -> U
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.home_title)) },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Contour(Modifier.size(24.dp), bold = true)
+                        Spacer(Modifier.width(10.dp))
+                        Text(stringResource(R.string.app_name), style = MaterialTheme.typography.titleLarge)
+                    }
+                },
                 actions = {
-                    IconButton(onClick = openGenerator) { Icon(Icons.Rounded.Password, stringResource(R.string.menu_generate)) }
-                    IconButton(onClick = openSettings) { Icon(Icons.Rounded.Settings, stringResource(R.string.menu_settings)) }
+                    IconButton(onClick = openGenerator) { Icon(Icons.Outlined.Password, stringResource(R.string.menu_generate)) }
+                    IconButton(onClick = openSettings) { Icon(Icons.Outlined.Settings, stringResource(R.string.menu_settings)) }
                 },
             )
         },
     ) { padding ->
         PullToRefreshBox(isRefreshing = refreshing, onRefresh = { load() }, modifier = Modifier.padding(padding).fillMaxSize()) {
-            LazyColumn(contentPadding = PaddingValues(bottom = 24.dp), modifier = Modifier.fillMaxSize()) {
-                item { SearchField(query) { query = it } }
+            LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 32.dp), modifier = Modifier.fillMaxSize()) {
                 item { TargetCard(target, phone, info) { pickTarget = true } }
                 error?.let { msg -> item { OfflineCard(msg) { load() } } }
+                item { SearchField(query) { query = it } }
+                item { SectionLabel(stringResource(R.string.home_title), Modifier.padding(top = 8.dp)) }
                 val list = entries
                 when {
                     list == null && error == null -> item {
-                        Box(Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                        Box(Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                        }
                     }
                     list != null && shown.isEmpty() -> item {
                         Text(
@@ -181,7 +192,12 @@ fun HomeScreen(generation: Int, openSettings: () -> Unit, openGenerator: () -> U
                         )
                     }
                 }
-                items(shown, key = { it.id }) { e -> AccountRow(e) { chosen = e } }
+                itemsIndexed(shown, key = { _, e -> e.id }) { i, e ->
+                    Column(Modifier.clip(groupShape(i, shown.size)).background(MaterialTheme.colorScheme.surfaceContainerLowest)) {
+                        if (i > 0) RowDivider(inset = 72.dp)
+                        AccountRow(e) { chosen = e }
+                    }
+                }
             }
         }
     }
@@ -214,22 +230,27 @@ private fun SearchField(query: String, onChange: (String) -> Unit) {
         value = query,
         onValueChange = onChange,
         placeholder = { Text(stringResource(R.string.search_hint)) },
-        leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
+        leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
         trailingIcon = {
-            if (query.isNotEmpty()) IconButton(onClick = { onChange("") }) { Icon(Icons.Rounded.Close, stringResource(R.string.search_clear)) }
+            if (query.isNotEmpty()) IconButton(onClick = { onChange("") }) { Icon(Icons.Outlined.Close, stringResource(R.string.search_clear)) }
         },
         singleLine = true,
         shape = CircleShape,
-        colors = TextFieldDefaults.colors(focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        colors = TextFieldDefaults.colors(
+            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+            focusedIndicatorColor = Color.Transparent,
+            unfocusedIndicatorColor = Color.Transparent,
+        ),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
     )
 }
 
 fun targetIcon(kind: TargetKind): ImageVector = when (kind) {
-    TargetKind.AUTO -> Icons.Rounded.AutoMode
-    TargetKind.USB -> Icons.Rounded.Usb
-    TargetKind.PHONE -> Icons.Rounded.PhoneAndroid
-    TargetKind.BLUETOOTH -> Icons.Rounded.Bluetooth
+    TargetKind.AUTO -> Icons.Outlined.AutoMode
+    TargetKind.USB -> Icons.Outlined.Usb
+    TargetKind.PHONE -> Icons.Outlined.PhoneAndroid
+    TargetKind.BLUETOOTH -> Icons.Outlined.Bluetooth
 }
 
 @Composable
@@ -241,40 +262,60 @@ fun targetLabel(target: String?, phone: String?, info: TargetInfo): String = whe
         ?.ifBlank { null } ?: stringResource(R.string.target_bluetooth)
 }
 
+/** Where Keyra types: the first thing on Home, since every action depends on it. */
 @Composable
 private fun TargetCard(target: String?, phone: String?, info: TargetInfo, onClick: () -> Unit) {
-    Card(
-        onClick = onClick,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-    ) {
-        val on = MaterialTheme.colorScheme.onPrimaryContainer
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(16.dp)) {
-            Icon(targetIcon(targetKind(target, phone)), contentDescription = null, tint = on)
+    Group(Modifier.padding(top = 8.dp).clickable(onClickLabel = stringResource(R.string.targets_title), onClick = onClick)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 16.dp, vertical = 18.dp)) {
+            IconTile(targetIcon(targetKind(target, phone)), size = 48.dp)
             Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
-                Text(stringResource(R.string.types_into), style = MaterialTheme.typography.labelMedium, color = on)
-                Text(targetLabel(target, phone, info), style = MaterialTheme.typography.titleMedium, color = on)
+                Text(stringResource(R.string.types_into), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(targetLabel(target, phone, info), style = MaterialTheme.typography.titleLarge)
             }
-            Icon(Icons.Rounded.SwapHoriz, contentDescription = stringResource(R.string.targets_title), tint = on)
+            ChangePill()
+        }
+        if (phone == null) {
+            RowDivider()
+            Text(
+                stringResource(R.string.target_card_phone_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            )
         }
     }
 }
 
+/** "Change", shaped like a small neutral button; the whole row is the touch target. */
+@Composable
+fun ChangePill() {
+    Text(
+        stringResource(R.string.change),
+        style = MaterialTheme.typography.labelLarge,
+        modifier = Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer).padding(horizontal = 14.dp, vertical = 8.dp),
+    )
+}
+
+/** An outlined icon on a neutral rounded tile. */
+@Composable
+fun IconTile(icon: ImageVector, size: Dp = 40.dp) {
+    Box(
+        Modifier.size(size).clip(MaterialTheme.shapes.small).background(MaterialTheme.colorScheme.secondaryContainer),
+        contentAlignment = Alignment.Center,
+    ) { Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp)) }
+}
+
 @Composable
 private fun OfflineCard(message: String, retry: () -> Unit) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-    ) {
-        val on = MaterialTheme.colorScheme.onErrorContainer
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Group(Modifier.padding(top = 12.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.CloudOff, contentDescription = null, tint = on)
-                Spacer(Modifier.size(12.dp))
-                Text(stringResource(R.string.home_offline), style = MaterialTheme.typography.titleSmall, color = on)
+                Icon(Icons.Outlined.CloudOff, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(10.dp))
+                Text(stringResource(R.string.home_offline), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.error)
             }
-            Text(message, style = MaterialTheme.typography.bodyMedium, color = on)
-            FilledTonalButton(onClick = retry) { Text(stringResource(R.string.retry)) }
+            Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            FilledTonalButton(onClick = retry, modifier = Modifier.padding(top = 6.dp)) { Text(stringResource(R.string.retry)) }
         }
     }
 }
@@ -283,9 +324,13 @@ private fun OfflineCard(message: String, retry: () -> Unit) {
 private fun AccountRow(e: Entry, onClick: () -> Unit) {
     val description = stringResource(R.string.account_row, e.title, e.host)
     ListItem(
-        headlineContent = { Text(e.title) },
+        headlineContent = { Text(e.title, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium)) },
         supportingContent = if (e.host.isNotEmpty()) ({ Host(e.host) }) else null,
         leadingContent = { Avatar(e.title) },
+        trailingContent = {
+            Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.outline)
+        },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         modifier = Modifier.clickable(onClick = onClick).semantics(mergeDescendants = true) { contentDescription = description },
     )
 }
@@ -296,14 +341,15 @@ private fun Host(host: String) {
     Text(host, style = MaterialTheme.typography.bodyMedium.copy(textDirection = TextDirection.Ltr), color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
-private val AVATAR_COLORS = listOf(0xFF0B57F0, 0xFF0F7B6C, 0xFF8E44AD, 0xFFC0392B, 0xFFB45309, 0xFF2C3E50, 0xFF15803D, 0xFF7F5539)
-
+/** The login's first letter on a neutral tile: monochrome, so colour keeps its one meaning. */
 @Composable
 private fun Avatar(title: String) {
     val letter = title.trim().firstOrNull()?.uppercase() ?: "?"
-    val color = Color(AVATAR_COLORS[(title.lowercase().hashCode() and 0x7fffffff) % AVATAR_COLORS.size])
-    Box(Modifier.size(40.dp).clip(CircleShape).background(color), contentAlignment = Alignment.Center) {
-        Text(letter, color = Color.White, style = MaterialTheme.typography.titleMedium)
+    Box(
+        Modifier.size(40.dp).clip(MaterialTheme.shapes.small).background(MaterialTheme.colorScheme.secondaryContainer),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(letter, style = MaterialTheme.typography.titleMedium)
     }
 }
 
@@ -335,31 +381,51 @@ private fun AccountSheet(e: Entry, target: String?, phone: String?, info: Target
         TargetKind.BLUETOOTH -> stringResource(R.string.hint_ble, targetLabel(target, phone, info))
     }
 
-    ModalBottomSheet(onDismissRequest = { withdraw(); close() }, sheetState = sheet) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).navigationBarsPadding().padding(bottom = 16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+    ModalBottomSheet(
+        onDismissRequest = { withdraw(); close() },
+        sheetState = sheet,
+        containerColor = MaterialTheme.colorScheme.background,
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).navigationBarsPadding().padding(bottom = 16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 4.dp)) {
                 Avatar(e.title)
                 Column(Modifier.padding(start = 16.dp)) {
                     Text(e.title, style = MaterialTheme.typography.titleLarge)
                     if (e.host.isNotEmpty()) Host(e.host)
                 }
             }
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(20.dp))
             val p = press
             if (p == null) {
-                ListItem(
-                    headlineContent = { Text(targetLabel(target, phone, info)) },
-                    overlineContent = { Text(stringResource(R.string.types_into)) },
-                    leadingContent = { Icon(targetIcon(targetKind(target, phone)), contentDescription = null) },
-                    trailingContent = { Icon(Icons.Rounded.SwapHoriz, contentDescription = stringResource(R.string.targets_title)) },
-                    modifier = Modifier.clip(MaterialTheme.shapes.large).clickable(onClick = changeTarget),
-                )
-                HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                Text(stringResource(R.string.account_open), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(vertical = 8.dp))
-                ActionButton(Icons.Rounded.Person, R.string.type_username) { start(What.USERNAME) }
-                ActionButton(Icons.Rounded.Key, R.string.type_password) { start(What.PASSWORD) }
-                ActionButton(Icons.AutoMirrored.Rounded.Login, R.string.type_both) { start(What.BOTH) }
-                ActionButton(Icons.Rounded.Pin, R.string.type_totp) { start(What.TOTP) }
+                Group(Modifier.clickable(onClickLabel = stringResource(R.string.targets_title), onClick = changeTarget)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(16.dp)) {
+                        IconTile(targetIcon(targetKind(target, phone)))
+                        Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
+                            Text(stringResource(R.string.types_into), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(targetLabel(target, phone, info), style = MaterialTheme.typography.titleMedium)
+                        }
+                        ChangePill()
+                    }
+                }
+                Spacer(Modifier.height(20.dp))
+                SectionLabel(stringResource(R.string.account_open))
+                Button(
+                    onClick = { start(What.BOTH) },
+                    contentPadding = PaddingValues(horizontal = 20.dp),
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                ) {
+                    Icon(Icons.AutoMirrored.Outlined.Login, contentDescription = null)
+                    Spacer(Modifier.width(12.dp))
+                    Text(stringResource(R.string.type_both), modifier = Modifier.weight(1f), textAlign = TextAlign.Start)
+                }
+                Spacer(Modifier.height(12.dp))
+                Group {
+                    ActionRow(Icons.Outlined.Person, R.string.type_username) { start(What.USERNAME) }
+                    RowDivider(inset = 56.dp)
+                    ActionRow(Icons.Outlined.Key, R.string.type_password) { start(What.PASSWORD) }
+                    RowDivider(inset = 56.dp)
+                    ActionRow(Icons.Outlined.Pin, R.string.type_totp) { start(What.TOTP) }
+                }
             } else {
                 PressPanel(
                     state = p,
@@ -376,14 +442,13 @@ private fun AccountSheet(e: Entry, target: String?, phone: String?, info: Target
 }
 
 @Composable
-private fun ActionButton(icon: ImageVector, label: Int, onClick: () -> Unit) {
-    OutlinedButton(
-        onClick = onClick,
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+private fun ActionRow(icon: ImageVector, label: Int, onClick: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).padding(horizontal = 16.dp, vertical = 16.dp),
     ) {
-        Icon(icon, contentDescription = null)
-        Spacer(Modifier.size(12.dp))
-        Text(stringResource(label), modifier = Modifier.weight(1f), textAlign = TextAlign.Start)
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.width(16.dp))
+        Text(stringResource(label), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
     }
 }
