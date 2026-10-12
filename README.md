@@ -19,6 +19,12 @@
 
 </div>
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero-dark.jpg">
+  <img src="docs/images/hero-light.jpg" width="100%" alt="Keyra, a graphite stick with one ivory button and a blue light ring, on ivory paper">
+</picture>
+<p align="center"><sub>Concept render of a future enclosure. Today Keyra runs on a bare ESP32-S3 dev board: see <a href="#hardware">Hardware</a>.</sub></p>
+
 ---
 
 ## بالعربي
@@ -48,6 +54,11 @@ Keyra is a convenience-and-isolation device, not a magic shield. Read the [secur
   <source media="(prefers-color-scheme: dark)" srcset="docs/brand/readme/how-it-works-dark.svg">
   <img src="docs/brand/readme/how-it-works-light.svg" width="100%" alt="Plug in, pick an account on your phone, press the button, it types">
 </picture>
+
+<p align="center">
+  <a href="docs/images/press.mp4"><img src="docs/images/press.jpg" width="100%" alt="A finger presses Keyra's button while its light ring glows blue"></a>
+  <br><sub>▶ <a href="docs/images/press.mp4">Watch the press (8 s)</a>: blue while it waits, green once it has typed.</sub>
+</p>
 
 1. **Plug in.** Connect Keyra's USB port to the computer. It shows up as a keyboard. (Or pair it once over Bluetooth: see below.)
 2. **Join the Wi-Fi.** On your phone, join the network **Keyra-XXXX** and open **http://keyra.local**. (No sign-in sheet pops up; see the [FAQ](#faq).)
@@ -159,6 +170,9 @@ The short version. The full threat model, cryptographic design and rate-limit sc
 If you need to report a vulnerability, please use a **private GitHub Security Advisory** as described in [SECURITY.md](SECURITY.md#reporting-a-vulnerability).
 
 ## Hardware
+
+<img src="docs/images/desk.jpg" width="100%" alt="Keyra plugged into a laptop on a desk, its light ring glowing blue">
+<p align="center"><sub>Concept render. The board you can build today is described below.</sub></p>
 
 Keyra runs on a stock **ESP32-S3** dev board with at least **8 MB flash**. No soldering.
 

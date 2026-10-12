@@ -19,6 +19,12 @@
 
 </div>
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero-dark.jpg">
+  <img src="docs/images/hero-light.jpg" width="100%" alt="كيرا: جهاز غرافيتي بزر عاجي وحلقة ضوء زرقاء، على ورق عاجي">
+</picture>
+<p align="center"><sub>تصوّر لعلبة مستقبلية. اليوم يعمل Keyra على لوحة تطوير ESP32-S3 مكشوفة: راجع <a href="#العتاد">العتاد</a>.</sub></p>
+
 ---
 
 <div dir="rtl">
@@ -42,6 +48,11 @@ Keyra جهاز للراحة والعزل، وليس درعاً سحرياً. ا�
   <source media="(prefers-color-scheme: dark)" srcset="docs/brand/readme/how-it-works-ar-dark.svg">
   <img src="docs/brand/readme/how-it-works-ar-light.svg" width="100%" alt="وصّله، اختر الحساب، اضغط الزر، يكتب عنك">
 </picture>
+
+<p align="center">
+  <a href="docs/images/press.mp4"><img src="docs/images/press.jpg" width="100%" alt="إصبع يضغط زر Keyra وحلقة الضوء زرقاء"></a>
+  <br><sub>▶ <a href="docs/images/press.mp4">شاهد الضغطة (8 ثواني)</a>: أزرق وهو ينتظر، وأخضر بعد ما يكتب.</sub>
+</p>
 
 1. **وصّله.** وصّل منفذ USB الخاص بـ Keyra بالكمبيوتر. يظهر كلوحة مفاتيح. (أو اقرنه مرة واحدة عبر البلوتوث، انظر أدناه.)
 2. **ادخل على الواي فاي.** من هاتفك اتصل بشبكة **Keyra-XXXX** ثم افتح **http://keyra.local**. (لا تظهر نافذة تسجيل دخول، راجع [الأسئلة الشائعة](#أسئلة-شائعة).)
@@ -139,6 +150,9 @@ Keyra جهاز للراحة والعزل، وليس درعاً سحرياً. ا�
 للإبلاغ عن ثغرة استخدم **GitHub Security Advisory الخاص** كما هو موضح في [SECURITY.md](SECURITY.md#reporting-a-vulnerability).
 
 ## العتاد
+
+<img src="docs/images/desk.jpg" width="100%" alt="Keyra موصول بلابتوب على مكتب، وحلقة الضوء زرقاء">
+<p align="center"><sub>تصوّر للعلبة. اللوحة التي تستطيع بناءها اليوم موصوفة أدناه.</sub></p>
 
 يعمل Keyra على لوحة تطوير جاهزة من نوع **ESP32-S3** بذاكرة فلاش **8 ميغابايت على الأقل**. بدون لحام.
 
