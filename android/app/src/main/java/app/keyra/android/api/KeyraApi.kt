@@ -22,15 +22,28 @@ enum class State {
     }
 }
 
-/** GET /api/agent/status: this token's last request. */
+/** GET /api/agent/status: this token's last request, or the one named by its requestId. */
 data class AgentStatus(
     val state: State,
     val request: String? = null,
     val id: Long? = null,
     val title: String? = null,
+    /** The §5 result code; "superseded" when a newer request of this token replaced it. */
     val code: String? = null,
     val expiresInMs: Long? = null,
+    val requestId: String? = null,
 )
+
+/**
+ * A request now waiting for the press: how long Keyra waits, in ms, and the id that names it
+ * (SPEC §12.6a; null from firmware before 0.5, which then answers status for the newest request).
+ */
+data class Armed(val expiresInMs: Long, val requestId: String?)
+
+private val REQUEST_ID_RE = Regex("^[0-9a-f]{32}$")
+
+/** A requestId as Keyra hands them out; anything else is dropped. */
+fun requestIdOf(s: String?): String? = s?.takeIf { REQUEST_ID_RE.matches(it) }
 
 data class GenerateOptions(
     val length: Int = 20,
@@ -75,14 +88,16 @@ class KeyraApi(
         }
     }
 
-    /** Arms typing; returns how long Keyra waits for the press, in ms. */
-    fun type(id: Long, what: What): Long {
+    /** Arms typing; Keyra then waits for the press. */
+    fun type(id: Long, what: What): Armed {
         val body = JSONObject().put("id", id).put("what", what.wire)
-        return answer { call("POST", "type", body).getLong("expiresIn") }
+        return answer { armed(call("POST", "type", body)) }
     }
 
-    fun status(): AgentStatus = answer {
-        val o = call("GET", "status")
+    /** With [requestId]: that request of this token; without: its newest one (as before 0.5). */
+    fun status(requestId: String? = null): AgentStatus = answer {
+        val rid = requestIdOf(requestId)
+        val o = call("GET", if (rid != null) "status?requestId=$rid" else "status")
         AgentStatus(
             state = State.parse(o.getString("state")),
             request = o.optStringOrNull("request"),
@@ -90,22 +105,30 @@ class KeyraApi(
             title = o.optStringOrNull("title"),
             code = o.optStringOrNull("code"),
             expiresInMs = if (o.has("expiresIn")) o.getLong("expiresIn") else null,
+            requestId = o.optStringOrNull("requestId"),
         )
     }
 
-    /** Withdraws this token's waiting item; [ApiException] `not_cancelled` when nothing waits. */
-    fun cancel() {
-        call("POST", "cancel")
+    /**
+     * Withdraws this token's waiting item, or with [requestId] only that request;
+     * [ApiException] `not_cancelled` when nothing (of that request) waits, `superseded`
+     * when a newer request of this token had replaced it.
+     */
+    fun cancel(requestId: String? = null) {
+        val rid = requestIdOf(requestId)
+        call("POST", "cancel", rid?.let { JSONObject().put("requestId", it) })
     }
 
-    /** Asks Keyra to store a new login; the press saves it. Returns the wait in ms. */
-    fun save(title: String, url: String, username: String, password: String): Long {
+    /** Asks Keyra to store a new login; the press saves it. */
+    fun save(title: String, url: String, username: String, password: String): Armed {
         val body = JSONObject().put("title", title)
         if (url.isNotEmpty()) body.put("url", url)
         if (username.isNotEmpty()) body.put("username", username)
         if (password.isNotEmpty()) body.put("password", password)
-        return answer { call("POST", "save", body).getLong("expiresIn") }
+        return answer { armed(call("POST", "save", body)) }
     }
+
+    private fun armed(o: JSONObject) = Armed(o.getLong("expiresIn"), requestIdOf(o.optStringOrNull("requestId")))
 
     fun generate(o: GenerateOptions): String {
         val body = JSONObject()

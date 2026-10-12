@@ -1,5 +1,6 @@
 #include "handlers_agent.hpp"
 
+#include <deque>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -26,18 +27,28 @@ using json::Field;
 using tokens::Token;
 constexpr size_t kMaxAuthHeader = 128;
 
-// What a token asked for last, so GET /api/agent/status can follow it.
+// What a token asked for, so GET /api/agent/status can follow it: the
+// newest last, by requestId too (SPEC §12.6a).
 struct LastRequest {
   uint32_t serial = 0;
   bool save = false;
   uint32_t id = 0;  // the entry (type) or, once saved, the new entry (save)
   std::string title;
   actions::What what = actions::What::Username;
+  std::string requestId;
 };
+constexpr size_t kKeptRequests = 4;
 
 std::mutex g_mu;  // the stored record's read-modify-write, the maps below
 tokens::RateLimit g_rate;
-std::map<uint32_t, LastRequest> g_last;
+std::map<uint32_t, std::deque<LastRequest>> g_last;
+
+// Caller holds g_mu.
+void rememberLocked(uint32_t tokenId, LastRequest req) {
+  auto& q = g_last[tokenId];
+  q.push_back(std::move(req));
+  while (q.size() > kKeptRequests) q.pop_front();
+}
 std::map<uint32_t, std::string> g_names;  // for state.pending.by, without a vault read per poll
 
 bool sha256(std::string_view s, tokens::Digest& out) {
@@ -254,7 +265,7 @@ esp_err_t postType(httpd_req_t* r, const Token& t, const cJSON* body) {
   }
   {
     std::lock_guard<std::mutex> lock(g_mu);
-    g_last[t.id] = {pending->req.serial, false, pending->req.id, title, *what};
+    rememberLocked(t.id, {pending->req.serial, false, pending->req.id, title, *what, pending->req.requestId});
   }
   if (elsewhere.empty()) {
     activity::log(activity::Kind::AgentArmed, pending->req.id, t.name, whatDetail(*what));
@@ -265,6 +276,7 @@ esp_err_t postType(httpd_req_t* r, const Token& t, const cJSON* body) {
   json::Ptr o(cJSON_CreateObject());
   typereq::addPending(cJSON_AddObjectToObject(o.get(), "pending"), *pending);
   cJSON_AddNumberToObject(o.get(), "expiresIn", static_cast<double>(pending->expiresInMs));
+  cJSON_AddStringToObject(o.get(), "requestId", pending->req.requestId.c_str());
   return http::sendJson(r, http::k202, o.get());
 }
 
@@ -287,15 +299,28 @@ const char* saveState(actions::OpCode c) {
   return "failed";
 }
 
+// Without a requestId: the token's newest request (as before 0.5). With one:
+// that request of this token, or state "none" — another token's id is unknown here.
 esp_err_t getStatus(httpd_req_t* r, const Token& t) {
+  const std::string requestId = http::query(r, "requestId", 32);
+  if (!requestId.empty() && !actions::validRequestId(requestId))
+    return badRequest(r, "\"requestId\" must be the id from the 202 answer");
   LastRequest last;
   bool has = false;
   {
     std::lock_guard<std::mutex> lock(g_mu);
     const auto it = g_last.find(t.id);
-    if (it != g_last.end()) {
-      last = it->second;
-      has = true;
+    if (it != g_last.end() && !it->second.empty()) {
+      if (requestId.empty()) {
+        last = it->second.back();
+        has = true;
+      }
+      for (const LastRequest& q : it->second) {
+        if (!requestId.empty() && q.requestId == requestId) {
+          last = q;
+          has = true;
+        }
+      }
     }
   }
   json::Ptr o(cJSON_CreateObject());
@@ -319,9 +344,10 @@ esp_err_t getStatus(httpd_req_t* r, const Token& t) {
     case Stage::Finished:
       if (last.save) {
         cJSON_AddStringToObject(o.get(), "state", saveState(tr.opCode));
+        if (tr.superseded) cJSON_AddStringToObject(o.get(), "code", "superseded");
       } else {
         cJSON_AddStringToObject(o.get(), "state", typeState(tr.code));
-        cJSON_AddStringToObject(o.get(), "code", actions::codeName(tr.code));
+        cJSON_AddStringToObject(o.get(), "code", tr.superseded ? "superseded" : actions::codeName(tr.code));
       }
       break;
     case Stage::Unknown:  // more than a few outcomes ago: no longer known
@@ -329,6 +355,7 @@ esp_err_t getStatus(httpd_req_t* r, const Token& t) {
       break;
   }
   if (last.id != 0) cJSON_AddNumberToObject(o.get(), "id", last.id);
+  if (!last.requestId.empty()) cJSON_AddStringToObject(o.get(), "requestId", last.requestId.c_str());
   if (!last.save) {
     cJSON_AddStringToObject(o.get(), "title", last.title.c_str());
     cJSON_AddStringToObject(o.get(), "what", actions::whatName(last.what));
@@ -372,7 +399,11 @@ bool commitSave(SaveJob& job, uint32_t serial) {
   {
     std::lock_guard<std::mutex> lock(g_mu);
     const auto it = g_last.find(job.tokenId);
-    if (it != g_last.end() && it->second.serial == serial) it->second.id = id;
+    if (it != g_last.end()) {
+      for (LastRequest& q : it->second) {
+        if (q.serial == serial) q.id = id;
+      }
+    }
     tokens::Store s;
     // A scoped token may type what it just saved (while its scope has room).
     if (job.replace == 0 && loadLocked(s) == records::Status::Ok && s.addToScope(job.tokenId, id)) saveLocked(s);
@@ -428,13 +459,14 @@ esp_err_t postSave(httpd_req_t* r, const Token& t, const cJSON* body) {
   *serial = armed->serial;
   {
     std::lock_guard<std::mutex> lock(g_mu);
-    g_last[t.id] = {armed->serial, true, 0, {}, actions::What::Username};
+    rememberLocked(t.id, {armed->serial, true, 0, {}, actions::What::Username, armed->requestId});
   }
   json::Ptr o(cJSON_CreateObject());
   cJSON_AddStringToObject(o.get(), "awaiting", "button");
   cJSON_AddStringToObject(o.get(), "op", actions::opName(actions::Op::AgentSave));
   cJSON_AddStringToObject(o.get(), "mode", job->replace != 0 ? "update" : "create");
   cJSON_AddNumberToObject(o.get(), "expiresIn", static_cast<double>(armed->expiresIn));
+  cJSON_AddStringToObject(o.get(), "requestId", armed->requestId.c_str());
   return http::sendJson(r, http::k202, o.get());
 }
 
@@ -444,8 +476,19 @@ esp_err_t postGenerate(httpd_req_t* r, const Token& t, const cJSON* body) {
   return genapi::postGenerate(r, body);
 }
 
-esp_err_t postCancel(httpd_req_t* r, const Token& t) {
-  if (!machine().cancelOwned(tokens::owner(t.id)))
+// With a requestId (SPEC §12.6a) only that request of this token: 409
+// superseded when a newer one of the token had replaced it.
+esp_err_t postCancel(httpd_req_t* r, const Token& t, const cJSON* body) {
+  std::string requestId;
+  if (body && (json::getString(body, "requestId", requestId) == Field::BadType ||
+               (!requestId.empty() && !actions::validRequestId(requestId))))
+    return badRequest(r, "\"requestId\" must be the id from the 202 answer");
+  using W = actions::Machine::Withdraw;
+  const W w = requestId.empty() ? (machine().cancelOwned(tokens::owner(t.id)) ? W::Cancelled : W::NotCancelled)
+                                : machine().cancelOwnedRequest(tokens::owner(t.id), requestId);
+  if (w == W::Superseded)
+    return http::sendError(r, http::k409, "superseded", "A newer request replaced this one; it was not cancelled");
+  if (w != W::Cancelled)
     return http::sendError(r, http::k409, "not_cancelled", "Nothing of this token is waiting for the button");
   return http::sendEmpty(r, http::k204);
 }
@@ -538,7 +581,7 @@ esp_err_t dispatch(httpd_req_t* r, Route route, const Token& t, const cJSON* bod
     case Route::AgentEntries: return listEntries(r, t);
     case Route::AgentType: return postType(r, t, body);
     case Route::AgentStatus: return getStatus(r, t);
-    case Route::AgentCancel: return postCancel(r, t);
+    case Route::AgentCancel: return postCancel(r, t, body);
     case Route::AgentSave: return postSave(r, t, body);
     case Route::AgentGenerate: return postGenerate(r, t, body);
     case Route::AgentMatch: return postMatch(r, t, body);

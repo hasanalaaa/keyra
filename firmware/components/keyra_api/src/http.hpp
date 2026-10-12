@@ -48,5 +48,7 @@ esp_err_t readBody(httpd_req_t* r, std::string& out);
 
 // Request header value, or empty when absent/oversized.
 std::string header(httpd_req_t* r, const char* name, size_t maxLen);
+// Query string parameter (?key=value), or empty when absent/oversized. Not decoded.
+std::string query(httpd_req_t* r, const char* key, size_t maxLen);
 
 }  // namespace keyra::api::http

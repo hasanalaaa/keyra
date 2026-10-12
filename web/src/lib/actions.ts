@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { ApiError, api, isAwaiting, type Awaiting } from './api';
 import { errorText, isLockedError } from './errors';
-import { getState, holdFastPolling, loadEntries, toast, useApp } from './store';
+import { getState, holdFastPolling, loadEntries, toast, trackRequest, useApp } from './store';
 import { osOf, resolveTarget, wantsSwitch } from './hostos';
 import { t } from './i18n';
-import type { DeviceState, Presence, PresenceOp, ResultCode, TypeTextRequest, TypeWhat } from './types';
+import type { DeviceState, Presence, PresenceOp, RequestStatus, ResultCode, TypeTextRequest, TypeWhat } from './types';
 
 export type ErrorCode = Exclude<ResultCode, 'typed' | 'cancelled'>;
 
@@ -29,6 +29,25 @@ export function useNow(active: boolean, ms = 1000): number {
   return now;
 }
 
+/** SPEC §12.6a: the device's answer about our own request, when this poll asked about it. */
+export function ownRequest(d: DeviceState | null | undefined, requestId: string | null | undefined): RequestStatus | null {
+  return requestId && d?.request?.requestId === requestId ? d.request : null;
+}
+
+/** How our own type action ended, or null while it has not. 'superseded': a newer one of ours replaced it. */
+export function typeOutcome(r: RequestStatus | null): ResultCode | 'superseded' | null {
+  if (!r || r.kind === 'presence' || !['typed', 'cancelled', 'expired', 'failed'].includes(r.state)) return null;
+  if (r.code === 'superseded') return 'superseded';
+  if (r.state === 'failed') return r.code && r.code !== 'done' ? r.code : 'failed';
+  return r.state as ResultCode;
+}
+
+/** How our own presence op ended, or null while it has not. */
+export function presenceOutcome(r: RequestStatus | null): 'done' | 'failed' | 'expired' | 'cancelled' | null {
+  if (!r || r.kind === 'type') return null;
+  return r.state === 'done' || r.state === 'failed' || r.state === 'expired' || r.state === 'cancelled' ? r.state : null;
+}
+
 const TYPED_DWELL = 1900;
 const RESULT_FRESH_MS = 6000;
 
@@ -40,6 +59,7 @@ interface Act {
   deadline: number;
   total: number;
   goneAt: number;
+  requestId?: string; // SPEC §12.6a; absent when re-attached to an action armed before a reload
 }
 
 /** Type action for one entry, or with id 0 the settings type test / free text / Layout Doctor probe (`free`). */
@@ -66,10 +86,29 @@ export function useTypeAction(id: number, free: 'test' | 'text' | 'probe' = 'tes
     return holdFastPolling();
   }, [act !== null]);
 
+  useEffect(() => (act?.requestId ? trackRequest(act.requestId) : undefined), [act?.requestId]);
+
+  const ended = (code: ResultCode) => {
+    setAct(null);
+    if (code === 'cancelled') toast(t('cancelled'));
+    else if (code === 'typed') {
+      setOutcome({ kind: 'typed' });
+      navigator.vibrate?.(12);
+      void loadEntries();
+    } else {
+      setOutcome({ kind: 'error', code });
+      if (code === 'entry_changed') void loadEntries(); // show the edited account before a retry
+    }
+  };
+
   useEffect(() => {
     const d = app.device;
     const a = act;
     if (!d || !a || app.deviceAt < a.startedAt) return;
+    // The device names our own request: its outcome, never another one's (SPEC §12.6a).
+    const own = typeOutcome(ownRequest(d, a.requestId));
+    if (own === 'superseded') return setAct(null); // replaced by a newer action of ours
+    if (own) return ended(own);
     if (matches(d, a)) {
       const deadline = Date.now() + d.pending!.expiresIn;
       if (Math.abs(deadline - a.deadline) > 400 || a.goneAt) setAct({ ...a, deadline, goneAt: 0 });
@@ -78,16 +117,7 @@ export function useTypeAction(id: number, free: 'test' | 'text' | 'probe' = 'tes
     const last = d.last;
     const elapsed = Date.now() - a.startedAt;
     if (last && last.at <= RESULT_FRESH_MS && last.at < elapsed && (!last.what || last.what === a.what)) {
-      setAct(null);
-      if (last.code === 'cancelled') toast(t('cancelled'));
-      else if (last.code === 'typed') {
-        setOutcome({ kind: 'typed' });
-        navigator.vibrate?.(12);
-        void loadEntries();
-      } else {
-        setOutcome({ kind: 'error', code: last.code });
-        if (last.code === 'entry_changed') void loadEntries(); // show the edited account before a retry
-      }
+      ended(last.code);
       return;
     }
     if (d.pending) {
@@ -123,7 +153,7 @@ export function useTypeAction(id: number, free: 'test' | 'text' | 'probe' = 'tes
               ? await api.typeText({ ...text!, target, switchLang: sw })
               : await api.type(id, what, target, sw);
       const total = Math.max(1000, r.pending.expiresIn);
-      setAct({ what, startedAt, deadline: Date.now() + r.pending.expiresIn, total, goneAt: 0 });
+      setAct({ what, startedAt, deadline: Date.now() + r.pending.expiresIn, total, goneAt: 0, requestId: r.requestId });
       return true;
     } catch (e) {
       if (!isLockedError(e)) toast(errorText(e), 'error');
@@ -133,13 +163,15 @@ export function useTypeAction(id: number, free: 'test' | 'text' | 'probe' = 'tes
 
   const cancel = async () => {
     try {
-      await api.cancelType();
+      await api.cancelType(actRef.current?.requestId);
       setAct(null);
       toast(t('cancelled'));
     } catch (e) {
-      // 409 not_cancelled: nothing of this session waits (another session's, or already done);
-      // otherwise still armed on Keyra. Either way the card keeps following the device.
-      toast(t(e instanceof ApiError && e.code === 'not_cancelled' ? 'nothingWaiting' : 'cancelFailed'), 'error');
+      // 409 not_cancelled / superseded: nothing of this session waits (another session's, already
+      // done, or replaced by a newer one of ours); otherwise still armed on Keyra. Either way the
+      // card keeps following the device.
+      const gone = e instanceof ApiError && (e.code === 'not_cancelled' || e.code === 'superseded');
+      toast(t(gone ? 'nothingWaiting' : 'cancelFailed'), 'error');
     }
   };
 
@@ -195,7 +227,12 @@ function forgetCancelToken(op: PresenceOp): void {
  * `armedAt` and nothing for `op` is waiting: the one slot that held it is gone.
  * `polledAt` is when the poll was sent, so the check errs towards "not settled".
  */
-export function presenceSettled(p: Presence | undefined, polledAt: number, op: PresenceOp, armedAt: number): boolean {
+export function presenceSettled(p: Presence | undefined, polledAt: number, op: PresenceOp, armedAt: number, own: RequestStatus | null = null): boolean {
+  // Asked by its requestId (SPEC §12.6a): the device says exactly whether it still waits.
+  if (own && polledAt >= armedAt) {
+    if (presenceOutcome(own)) return true;
+    if (own.state === 'armed' || own.state === 'waiting') return false;
+  }
   if (!p || polledAt < armedAt) return false;
   if (p.awaiting && p.op === op) return false;
   return p.result?.op === op && polledAt - p.result.at > armedAt;
@@ -203,12 +240,13 @@ export function presenceSettled(p: Presence | undefined, polledAt: number, op: P
 
 export function usePresence(op: PresenceOp, opts: { doneOnDisconnect?: boolean } = {}) {
   const app = useApp();
-  const [st, setSt] = useState<{ startedAt: number; deadline: number; total: number; seen: boolean } | null>(null);
+  const [st, setSt] = useState<{ startedAt: number; deadline: number; total: number; seen: boolean; requestId?: string } | null>(null);
   const [phase, setPhase] = useState<PresencePhase>({ kind: 'idle' });
   // True while the device holds this op for us: leaving must withdraw it, or a
   // later press would still run it (a cancelled factory reset used to erase).
   const active = useRef(false);
   const token = useRef<string | null>(null); // also in memory: storage may be blocked
+  const requestId = useRef<string | undefined>(undefined); // SPEC §12.6a
   const armedAt = useRef(0); // when the request that armed it was sent
   const withdraw = () => {
     if (!active.current) return;
@@ -218,14 +256,16 @@ export function usePresence(op: PresenceOp, opts: { doneOnDisconnect?: boolean }
     // Already pressed (e.g. a factory reset ends the session, and this sheet unmounts before
     // seeing the result): nothing is left to withdraw.
     const { device, deviceAt } = getState();
-    if (presenceSettled(device?.presence, deviceAt, op, armedAt.current)) return;
-    if (t) void api.cancelPresence(op, t).catch(() => undefined); // expires on its own after 60 s anyway
+    if (presenceSettled(device?.presence, deviceAt, op, armedAt.current, ownRequest(device, requestId.current))) return;
+    if (t) void api.cancelPresence(op, t, requestId.current).catch(() => undefined); // expires on its own after 60 s anyway
   };
 
   useEffect(() => {
     if (!st) return;
     return holdFastPolling();
   }, [st !== null]);
+
+  useEffect(() => (st?.requestId ? trackRequest(st.requestId) : undefined), [st?.requestId]);
 
   useEffect(() => withdraw, []); // unmounted while waiting
 
@@ -244,6 +284,9 @@ export function usePresence(op: PresenceOp, opts: { doneOnDisconnect?: boolean }
     }
     const d = app.device;
     if (!d || app.deviceAt < st.startedAt) return;
+    // The device names our own op: its outcome, never another one's (SPEC §12.6a).
+    const own = presenceOutcome(ownRequest(d, st.requestId));
+    if (own) return finish({ kind: own });
     const r = d.presence.result;
     if (r && r.op === op && r.at < Date.now() - st.startedAt) return finish({ kind: r.code });
     if (d.presence.awaiting && d.presence.op === op) {
@@ -259,9 +302,10 @@ export function usePresence(op: PresenceOp, opts: { doneOnDisconnect?: boolean }
     active.current = true;
     armedAt.current = startedAt;
     token.current = r.cancel ?? null;
+    requestId.current = r.requestId;
     if (r.cancel) keepCancelToken(op, r.cancel);
     const deadline = Date.now() + r.expiresIn;
-    setSt({ startedAt, deadline, total: r.expiresIn, seen: false });
+    setSt({ startedAt, deadline, total: r.expiresIn, seen: false, requestId: r.requestId });
     setPhase({ kind: 'ready', deadline, total: r.expiresIn });
   };
 

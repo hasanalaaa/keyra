@@ -17,6 +17,7 @@ class ArmActivity : Activity(), PressWaiter.Listener {
     private lateinit var panel: PressPanel
     private var api: KeyraApi? = null
     private var waiter: PressWaiter? = null
+    private var requestId: String? = null // of the request waiting for the press (SPEC §12.6a)
     private var finished = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -53,9 +54,10 @@ class ArmActivity : Activity(), PressWaiter.Listener {
         panel.arming()
         Keyra.async({ api.type(id, what) }) { r ->
             if (isDestroyed) return@async
-            r.onSuccess { expiresIn ->
+            r.onSuccess { armed ->
                 panel.waiting(R.string.press_body_type)
-                waiter = PressWaiter(api, this).also { it.start(expiresIn) }
+                requestId = armed.requestId
+                waiter = PressWaiter(api, this, armed.requestId).also { it.start(armed.expiresInMs) }
             }.onFailure { onFinished(null, it) }
         }
     }
@@ -63,7 +65,8 @@ class ArmActivity : Activity(), PressWaiter.Listener {
     private fun cancel() {
         val api = api ?: return finish()
         panel.button.isEnabled = false
-        Keyra.async({ api.cancel() }) { r ->
+        val rid = requestId
+        Keyra.async({ api.cancel(rid) }) { r ->
             if (isDestroyed) return@async
             panel.button.isEnabled = true
             // The next status poll reports "cancelled"; a failure here is shown directly.

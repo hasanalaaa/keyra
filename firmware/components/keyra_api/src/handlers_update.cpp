@@ -455,6 +455,7 @@ esp_err_t apply(httpd_req_t* r, const std::string& owner) {
   cJSON_AddStringToObject(o.get(), "awaiting", "button");
   cJSON_AddStringToObject(o.get(), "op", actions::opName(actions::Op::Update));
   cJSON_AddStringToObject(o.get(), "cancel", armed->cancel.c_str());
+  cJSON_AddStringToObject(o.get(), "requestId", armed->requestId.c_str());
   cJSON_AddNumberToObject(o.get(), "expiresIn", static_cast<double>(armed->expiresIn));
   cJSON_AddStringToObject(o.get(), "version", ver.c_str());
   return http::sendJson(r, http::k202, o.get());

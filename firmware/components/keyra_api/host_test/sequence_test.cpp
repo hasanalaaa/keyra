@@ -16,6 +16,8 @@ using actions::Code;
 
 namespace {
 
+bool withdrew(keyra::actions::Machine::Withdraw w) { return w == keyra::actions::Machine::Withdraw::Cancelled; }
+
 struct Report {
   uint8_t mod, key;
 };
@@ -213,7 +215,7 @@ void waitingPartExpiresOrCancels() {
   CHECK(m.last()->code == Code::Cancelled);
 
   // Lock drops a waiting sequence like any armed action.
-  m.cancel("s", nullptr);
+  withdrew(m.cancel("s", nullptr));
   m.arm(r, "s");
   d = m.onButton(actions::Button::Short, true, g_now);
   m.typingFinished(d.run, Code::Typed);

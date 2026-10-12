@@ -16,6 +16,8 @@ namespace validate = keyra::api::validate;
 
 namespace {
 
+bool withdrew(keyra::actions::Machine::Withdraw w) { return w == keyra::actions::Machine::Withdraw::Cancelled; }
+
 // Long enough to live on the heap rather than inside the string object.
 constexpr char kMarker[] = "Zq7-remote-keyboard-MARKER-text-0123456789";
 int g_dirtyFrees = 0;
@@ -131,7 +133,7 @@ void detectorWorks() {
 }
 
 void wipedOnEveryPath() {
-  wipedAfter("cancel", [](Machine& m) { CHECK(m.cancel("s", nullptr)); });
+  wipedAfter("cancel", [](Machine& m) { CHECK(withdrew(m.cancel("s", nullptr))); });
   wipedAfter("expiry", [](Machine& m) {
     g_now += kExpiryMs;
     CHECK(!m.pending().has_value());

@@ -6,9 +6,11 @@ import app.keyra.android.api.GenerateOptions
 import app.keyra.android.api.KeyraApi
 import app.keyra.android.api.State
 import app.keyra.android.api.What
+import app.keyra.android.api.requestIdOf
 import org.json.JSONArray
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -83,14 +85,45 @@ class KeyraApiMockTest {
     @Test
     fun typeWaitsForThePressThenTypes() {
         val e = github()
-        val expires = api.type(e.id, What.BOTH)
-        assertTrue(expires in 1..60_000)
-        val armed = api.status()
+        val armedAt = api.type(e.id, What.BOTH)
+        assertTrue(armedAt.expiresInMs in 1..60_000)
+        assertTrue(armedAt.requestId!!.matches(Regex("^[0-9a-f]{32}$")))
+        val armed = api.status(armedAt.requestId)
         assertEquals(State.ARMED, armed.state)
         assertEquals("GitHub", armed.title)
         assertEquals("type", armed.request)
+        assertEquals(armedAt.requestId, armed.requestId)
         mock.press()
         assertEquals(State.TYPED, finalStatus().state)
+    }
+
+    // SPEC §12.6a: status and cancel follow one request by its requestId; a request the same
+    // token replaced reports "superseded" and cannot cancel the newer one.
+    @Test
+    fun requestIdFollowsExactlyOneRequest() {
+        val id = github().id
+        val first = api.type(id, What.USERNAME)
+        val second = api.type(id, What.PASSWORD)
+        assertNotEquals(first.requestId, second.requestId)
+        val old = api.status(first.requestId)
+        assertEquals(State.CANCELLED, old.state)
+        assertEquals("superseded", old.code)
+        expectError("superseded", 409) { api.cancel(first.requestId) }
+        assertEquals(State.ARMED, api.status(second.requestId).state)
+        api.cancel(second.requestId)
+        // Another token knows nothing of it and cannot withdraw it.
+        val other = KeyraApi(mock.base, mock.createToken("app")) // before arming: making it needs the slot
+        val third = api.type(id, What.PASSWORD)
+        assertEquals(State.NONE, other.status(third.requestId).state)
+        expectError("not_cancelled", 409) { other.cancel(third.requestId) }
+        assertEquals(State.ARMED, api.status(third.requestId).state)
+    }
+
+    @Test
+    fun requestIdIsDroppedWhenMalformed() {
+        assertEquals(null, requestIdOf("nope"))
+        assertEquals(null, requestIdOf(null))
+        assertEquals("0123456789abcdef0123456789abcdef", requestIdOf("0123456789abcdef0123456789abcdef"))
     }
 
     @Test
@@ -122,8 +155,8 @@ class KeyraApiMockTest {
 
     @Test
     fun saveStoresAfterThePress() {
-        api.save("Example app", "androidapp://com.example.app", "sara", "s3cret-pass")
-        val armed = api.status()
+        val saving = api.save("Example app", "androidapp://com.example.app", "sara", "s3cret-pass")
+        val armed = api.status(saving.requestId)
         assertEquals(State.ARMED, armed.state)
         assertEquals("save", armed.request)
         mock.press()

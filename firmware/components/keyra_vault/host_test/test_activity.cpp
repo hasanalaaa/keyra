@@ -50,6 +50,37 @@ TEST(activity_limits_and_tamper) {
   CHECK(fresh->storage.files.count("activity.bin") == 0);
 }
 
+// SPEC §15: an unreadable log is renamed aside, never written over, and only once.
+TEST(unreadable_activity_is_set_aside_once) {
+  auto r = Rig::ready();
+  CHECK((*r)->activitySetAside() == Status::NotFound);  // nothing to keep
+  CHECK(!(*r)->activityAside());
+  CHECK((*r)->activityWrite(blob("first log")) == Status::Ok);
+  auto damaged = r->storage.files["activity.bin"];
+  damaged[20] ^= 1;
+  r->storage.files["activity.bin"] = damaged;
+  std::vector<uint8_t> out;
+  CHECK((*r)->activityRead(out) == Status::Corrupt);
+  CHECK((*r)->activitySetAside() == Status::Ok);
+  CHECK(r->storage.files.count("activity.bin") == 0);
+  CHECK(r->storage.files["activity.bad"] == damaged);  // byte for byte as it was
+  CHECK((*r)->activityAside());
+  // A new log starts; a second unreadable one is not moved over the first.
+  CHECK((*r)->activityWrite(blob("second log")) == Status::Ok);
+  r->storage.files["activity.bin"][20] ^= 1;
+  CHECK((*r)->activitySetAside() == Status::Invalid);
+  CHECK(r->storage.files["activity.bad"] == damaged);
+  CHECK(r->storage.files.count("activity.bin") == 1);
+  // Kept across reboots, locked only for the move itself.
+  r->reboot();
+  CHECK((*r)->init() == Status::Ok);
+  CHECK((*r)->activityAside());
+  CHECK((*r)->activitySetAside() == Status::Locked);
+  // A new setup starts clean.
+  auto fresh = Rig::ready();
+  CHECK(!(*fresh)->activityAside());
+}
+
 TEST(failed_unlocks_before_success_are_counted) {
   auto r = Rig::ready();
   (*r)->lock();

@@ -27,6 +27,7 @@ using tags::Tag;
 struct LastTap {
   uint32_t serial = 0;
   uint32_t ticket = 0;
+  std::string requestId;
 };
 
 std::mutex g_mu;  // the stored record's read-modify-write, the maps below
@@ -364,10 +365,11 @@ esp_err_t tap(httpd_req_t* r, const cJSON* body) {
                            "Keyra is waiting for another request; long-press its button to cancel it");
   }
   uint32_t ticket = 0;
+  std::string requestId;
   while (ticket == 0) esp_fill_random(&ticket, sizeof ticket);
   {
     std::lock_guard<std::mutex> lock(g_mu);
-    g_last[t.id] = {pending->req.serial, ticket};
+    g_last[t.id] = {pending->req.serial, ticket, pending->req.requestId};
   }
   activity::log(activity::Kind::TagTapped, t.entry, t.name, whatDetail(t.what));
   json::Ptr o(cJSON_CreateObject());
@@ -376,6 +378,7 @@ esp_err_t tap(httpd_req_t* r, const cJSON* body) {
   cJSON_AddStringToObject(o.get(), "what", tags::whatName(t.what));
   cJSON_AddNumberToObject(o.get(), "expiresIn", static_cast<double>(pending->expiresInMs));
   cJSON_AddNumberToObject(o.get(), "ticket", ticket);
+  cJSON_AddStringToObject(o.get(), "requestId", pending->req.requestId.c_str());
   return http::sendJson(r, http::k202, o.get());
 }
 
@@ -390,8 +393,13 @@ esp_err_t status(httpd_req_t* r, const cJSON* body) {
     const auto it = g_last.find(static_cast<uint32_t>(id));
     if (it != g_last.end()) last = it->second;
   }
+  // The ticket is the tag page's key; a requestId, when sent, must name the same tap.
+  std::string requestId;
+  if (json::getString(body, "requestId", requestId) == Field::BadType)
+    return badRequest(r, "\"requestId\" must be a string");
   json::Ptr o(cJSON_CreateObject());
-  if (last.ticket == 0 || last.ticket != static_cast<uint32_t>(ticket)) {
+  if (last.ticket == 0 || last.ticket != static_cast<uint32_t>(ticket) ||
+      (!requestId.empty() && requestId != last.requestId)) {
     cJSON_AddStringToObject(o.get(), "state", "none");
     return http::sendJson(r, http::k200, o.get());
   }

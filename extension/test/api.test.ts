@@ -112,6 +112,20 @@ describe('extension token', () => {
     expect((await ext.status()).state).toBe('cancelled');
   });
 
+  it('follows its own request by requestId; a replaced one is superseded (SPEC §12.6a)', async () => {
+    const first = await ext.type({ id: github, what: 'username', host: 'github.com' });
+    expect(first.requestId).toMatch(/^[0-9a-f]{32}$/);
+    const second = await ext.type({ id: github, what: 'password', host: 'github.com' });
+    expect(second.requestId).toMatch(/^[0-9a-f]{32}$/);
+    expect(second.requestId).not.toBe(first.requestId);
+    expect(await ext.status(first.requestId)).toMatchObject({ state: 'cancelled', code: 'superseded', requestId: first.requestId });
+    expect(await code(ext.cancel(first.requestId))).toBe('superseded');
+    expect((await ext.status(second.requestId)).state).toBe('armed');
+    expect((await ext.status()).requestId).toBe(second.requestId); // no requestId: the newest, as before
+    await ext.cancel(second.requestId);
+    expect((await ext.status(second.requestId)).state).toBe('cancelled');
+  });
+
   it('saves a new login after a press', async () => {
     const r = await ext.save({ title: 'New Site', url: 'https://newsite.example', username: 'me@new.example', password: 'Fresh-Pass-1' });
     expect(r.mode).toBe('create');

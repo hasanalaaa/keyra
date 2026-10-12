@@ -122,6 +122,7 @@ esp_err_t sendAwaitingButton(httpd_req_t* r, const std::optional<actions::Machin
   if (op) cJSON_AddStringToObject(o.get(), "op", op);
   cJSON_AddNumberToObject(o.get(), "expiresIn", static_cast<double>(armed->expiresIn));
   cJSON_AddStringToObject(o.get(), "cancel", armed->cancel.c_str());
+  cJSON_AddStringToObject(o.get(), "requestId", armed->requestId.c_str());
   return http::sendJson(r, http::k202, o.get());
 }
 
@@ -358,6 +359,9 @@ bool commitRestoreReplace(RestoreJob& j) {
 // ---------- endpoints ----------
 
 esp_err_t getState(Ctx& c) {
+  const std::string requestId = http::query(c.r, "requestId", 32);
+  if (!requestId.empty() && !actions::validRequestId(requestId))
+    return badRequest(c.r, "\"requestId\" must be the id from the 202 answer");
   const settings::Settings s = settings::get();
   json::Ptr o(cJSON_CreateObject());
   cJSON* dev = cJSON_AddObjectToObject(o.get(), "device");
@@ -445,6 +449,19 @@ esp_err_t getState(Ctx& c) {
   // Always 0: a press approves one request, not a time window (SPEC §12.5b).
   // Kept so clients made for the reveal window still read a number.
   cJSON_AddNumberToObject(o.get(), "graceMs", 0);
+  // ?requestId=…: where that request of this caller stands (SPEC §12.6a).
+  if (!requestId.empty()) {
+    cJSON* rq = cJSON_AddObjectToObject(o.get(), "request");
+    cJSON_AddStringToObject(rq, "requestId", requestId.c_str());
+    const auto tr = machine().trackRequest(requestId, c.session ? c.token : std::string());
+    const actions::Machine::Track t = tr.value_or(actions::Machine::Track{});
+    if (tr && t.stage != actions::Machine::Track::Stage::Unknown)
+      cJSON_AddStringToObject(rq, "kind", t.presence ? "presence" : "type");
+    cJSON_AddStringToObject(rq, "state", actions::trackState(t));
+    if (const char* code = actions::trackCode(t)) cJSON_AddStringToObject(rq, "code", code);
+    if (t.stage == actions::Machine::Track::Stage::Armed || t.stage == actions::Machine::Track::Stage::Connecting)
+      cJSON_AddNumberToObject(rq, "expiresIn", static_cast<double>(t.expiresInMs));
+  }
   return http::sendJson(c.r, http::k200, o.get());
 }
 
@@ -845,7 +862,28 @@ esp_err_t sendPending(httpd_req_t* r, const std::optional<actions::Pending>& pen
   if (!pending) return sendBusy(r);
   json::Ptr o(cJSON_CreateObject());
   typereq::addPending(cJSON_AddObjectToObject(o.get(), "pending"), *pending);
+  // Beside `pending`, not in it: state.pending is shown to every session (SPEC §12.6a).
+  cJSON_AddStringToObject(o.get(), "requestId", pending->req.requestId.c_str());
   return http::sendJson(r, http::k202, o.get());
+}
+
+// The optional "requestId" of a cancel body (SPEC §12.6a): false when it is
+// there but malformed (the 400 is sent).
+bool readRequestId(Ctx& c, std::string& out, esp_err_t& err) {
+  if (json::getString(c.body.get(), "requestId", out) == Field::BadType ||
+      (!out.empty() && !actions::validRequestId(out))) {
+    err = badRequest(c.r, "\"requestId\" must be the id from the 202 answer");
+    return false;
+  }
+  return true;
+}
+
+esp_err_t sendWithdraw(Ctx& c, actions::Machine::Withdraw w) {
+  using W = actions::Machine::Withdraw;
+  if (w == W::Cancelled) return http::sendEmpty(c.r, http::k204);
+  if (w == W::Superseded)
+    return http::sendError(c.r, http::k409, "superseded", "A newer request replaced this one; it was not cancelled");
+  return http::sendError(c.r, http::k409, "not_cancelled", "Nothing of yours is waiting for the button");
 }
 
 esp_err_t postType(Ctx& c) {
@@ -901,19 +939,21 @@ esp_err_t postPresenceCancel(Ctx& c) {
     return badRequest(c.r, "op must name a presence operation");
   if (json::getString(c.body.get(), "cancel", token) != Field::Ok || token.size() > 64)
     return badRequest(c.r, "cancel must be the token from the 202 answer");
+  std::string requestId;
+  esp_err_t err = ESP_OK;
+  if (!readRequestId(c, requestId, err)) return err;
   // Without the token handed to the requester, nothing happens: a stranger
   // could otherwise free the slot and arm their own op for the user's press.
-  if (!machine().cancelPresence(*actions::parseOp(op), token))
-    return http::sendError(c.r, http::k409, "not_cancelled", "Nothing of yours is waiting for the button");
-  return http::sendEmpty(c.r, http::k204);
+  return sendWithdraw(c, machine().cancelPresence(*actions::parseOp(op), token, requestId));
 }
 
 esp_err_t postTypeCancel(Ctx& c) {
+  std::string requestId;
+  esp_err_t err = ESP_OK;
+  if (!readRequestId(c, requestId, err)) return err;
   // This session's own action, or one a token or tag armed; never another session's (SPEC §12.5a).
   const auto foreign = [](const std::string& o) { return tokens::ownerId(o) != 0 || tags::ownerId(o) != 0; };
-  if (!machine().cancel(c.token, foreign))
-    return http::sendError(c.r, http::k409, "not_cancelled", "Nothing of yours is waiting for the button");
-  return http::sendEmpty(c.r, http::k204);
+  return sendWithdraw(c, machine().cancel(c.token, foreign, requestId));
 }
 
 esp_err_t getSettings(Ctx& c) {
@@ -1355,6 +1395,9 @@ bool takesBody(Route r) {
   }
 }
 
+// Old clients send no body at all; a body may carry a requestId (SPEC §12.6a).
+bool optionalBody(Route r) { return r == Route::TypeCancel || r == Route::AgentCancel; }
+
 bool isSlow(Route r) {
   // WifiScan blocks for seconds while the radio scans.
   // Update streams a whole firmware image into flash.
@@ -1603,11 +1646,13 @@ esp_err_t handleApi(httpd_req_t* r, Method method, std::string_view path) {
   }
   if (adoptsClientClock(c.match.route, c.session)) adoptClientClock(r);
 
-  if (takesBody(c.match.route)) {
+  if (takesBody(c.match.route) || (optionalBody(c.match.route) && r->content_len > 0)) {
     json::Secret raw;
     if (http::readBody(r, raw.s) != ESP_OK) return ESP_FAIL;
     c.body.reset(cJSON_ParseWithLength(raw.s.data(), raw.s.size()));
     if (!cJSON_IsObject(c.body.get())) return badRequest(r, "Body must be a JSON object");
+  } else if (optionalBody(c.match.route)) {
+    c.body.reset(cJSON_CreateObject());
   }
   return isSlow(c.match.route) ? deferToWorker(c) : dispatch(c);
 }

@@ -140,12 +140,22 @@ export interface Awaiting {
   op?: PresenceOp;
   /** Secret that lets this browser (only) withdraw the op: POST /presence/cancel. */
   cancel?: string;
+  /** Names this request (SPEC §12.6a): polled with /state?requestId=…, sent with its cancel. */
+  requestId?: string;
+}
+
+/** A type action now waiting for the press, and the id that names it (SPEC §12.6a). */
+export interface Armed {
+  pending: Pending;
+  requestId?: string;
 }
 
 export const api = {
   // Generous: a phone that just switched networks may need a few seconds to
   // resolve keyra.local again before the request can even start.
-  state: () => json<DeviceState>('GET', '/state', undefined, 12000),
+  /** `requestId` (SPEC §12.6a): the answer then says where that request of this browser stands. */
+  state: (requestId?: string | null) =>
+    json<DeviceState>('GET', requestId ? `/state?requestId=${encodeURIComponent(requestId)}` : '/state', undefined, 12000),
   setup: (passphrase: string, wifiPassword: string) => json<Awaiting>('POST', '/setup', { passphrase, wifiPassword }),
   /**
    * Unlocked → `{ failedAttempts }` (wrong guesses since the last unlock, SPEC §15);
@@ -188,18 +198,20 @@ export const api = {
   /** `target`: "usb" or a paired device's address; omitted = the device's own choice (SPEC §8.1). */
   /** `switchLang`: the macOS/iOS host is in another input language; Keyra switches there and back (SPEC §10.5). */
   type: (id: number, what: TypeWhat, target?: string, switchLang = false) =>
-    json<{ pending: Pending }>('POST', '/type', { id, what, target, switchLang }),
-  typeTest: (target?: string, switchLang = false) => json<{ pending: Pending }>('POST', '/type', { test: true, target, switchLang }),
+    json<Armed>('POST', '/type', { id, what, target, switchLang }),
+  typeTest: (target?: string, switchLang = false) => json<Armed>('POST', '/type', { test: true, target, switchLang }),
   /** Layout Doctor (SPEC §10.3): types fixed keys; what appears names the computer's layout. */
-  typeProbe: (target?: string, switchLang = false) => json<{ pending: Pending }>('POST', '/type', { probe: true, target, switchLang }),
+  typeProbe: (target?: string, switchLang = false) => json<Armed>('POST', '/type', { probe: true, target, switchLang }),
   /** Free text (SPEC §9.2). */
-  typeText: (r: TypeTextRequest & { target?: string; switchLang?: boolean }) => json<{ pending: Pending }>('POST', '/type', r),
+  typeText: (r: TypeTextRequest & { target?: string; switchLang?: boolean }) => json<Armed>('POST', '/type', r),
   /** On the device, from its hardware RNG (SPEC §9.1). */
   /** `layouts`: for the layout-safe option, the computers' layouts (SPEC §10.2). */
   generate: (s: GenSettings, layouts: string[] = []) => json<{ password: string; entropyBits: number }>('POST', '/generate', generateRequest(s, layouts)),
-  cancelType: () => json<void>('POST', '/type/cancel'),
+  /** With a requestId only that action (409 superseded when a newer one of ours replaced it). */
+  cancelType: (requestId?: string) => json<void>('POST', '/type/cancel', requestId ? { requestId } : undefined),
   /** Withdraws a waiting "press Keyra's button" op, so a later press does not run it. */
-  cancelPresence: (op: PresenceOp, cancel: string) => json<void>('POST', '/presence/cancel', { op, cancel }),
+  cancelPresence: (op: PresenceOp, cancel: string, requestId?: string) =>
+    json<void>('POST', '/presence/cancel', requestId ? { op, cancel, requestId } : { op, cancel }),
   settings: () => json<Settings>('GET', '/settings'),
   keyboard: () => json<Keyboard>('GET', '/keyboard'),
   /** 200 → Settings; 202 → presence required (Wi-Fi changes). */

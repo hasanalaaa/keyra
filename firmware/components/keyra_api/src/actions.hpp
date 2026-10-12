@@ -98,6 +98,7 @@ struct TypeRequest {
   uint32_t revision = 0;
   uint32_t usbSession = 0;  // set by arm(): the USB connection a USB action is bound to (0 = none)
   uint32_t serial = 0;      // set by arm(): names this request in track()
+  std::string requestId{};  // set by arm(): names this request to its owner (SPEC §12.6a)
 };
 
 struct Pending {
@@ -155,7 +156,8 @@ class Machine {
   struct Armed {
     int64_t expiresIn = 0;
     std::string cancel;
-    uint32_t serial = 0;  // names this op in track()
+    uint32_t serial = 0;    // names this op in track()
+    std::string requestId;  // names it to its owner (SPEC §12.6a)
   };
 
   // Where one armed item stands, by the serial arm() (Pending.req.serial) or
@@ -167,8 +169,17 @@ class Machine {
     Code code = Code::Failed;          // type, Finished
     OpCode opCode = OpCode::Failed;    // presence, Finished
     int64_t expiresInMs = 0;           // Armed / Connecting
+    bool superseded = false;           // Finished as cancelled: a newer request of its owner took the slot
   };
   Track track(uint32_t serial);
+  // The same by the requestId arm() or awaitPresence() handed out (SPEC
+  // §12.6a), for `caller` only: the owner that armed it, or anyone when it
+  // has no owner (setup, factory reset, trust: the id itself is unguessable).
+  // nullopt: unknown, too long ago, or someone else's.
+  std::optional<Track> trackRequest(const std::string& requestId, const std::string& caller);
+  // What a cancel by requestId did. Superseded: that request had already been
+  // replaced by a newer one of the same owner (the newer one is untouched).
+  enum class Withdraw { Cancelled, Superseded, NotCancelled };
 
   // Each item belongs to whoever armed it (`owner`: the session token; empty =
   // no session). The slot is taken only when it is free or holds an item of
@@ -180,17 +191,24 @@ class Machine {
   // action (last = cancelled) when the caller armed it, or when `foreign`
   // says its owner is not a session (an access token or a tap tag, shown on
   // the session's screen). Another session's action stays: false, nothing changes.
-  bool cancel(const std::string& caller, const std::function<bool(const std::string& owner)>& foreign);
+  // With `requestId` (non-empty) only that very action, else Superseded or
+  // NotCancelled; nothing else changes.
+  Withdraw cancel(const std::string& caller, const std::function<bool(const std::string& owner)>& foreign,
+                  const std::string& requestId = {});
   // Withdraws the waiting item (type action or presence op) when `owner` armed
   // it, and keeps a sequence of theirs that is typing now from arming its next
   // part; false (and nothing changes) otherwise. Called when a session ends
   // without a lock (trusted browser removed, session evicted) and for tokens.
   bool cancelOwned(const std::string& owner);
+  // cancelOwned() for one request of `owner` (an access token's cancel with a
+  // requestId): only when that request is the waiting item.
+  Withdraw cancelOwnedRequest(const std::string& owner, const std::string& requestId);
   // The waiting presence op, when it is `op` and `token` is the cancel token
   // handed to whoever armed it (the screen that asked gave up): dropped
   // without running, result = cancelled. Anyone else gets false — otherwise a
   // stranger could cancel a user's setup and arm their own in its place.
-  bool cancelPresence(Op op, const std::string& token);
+  // With `requestId` (non-empty) the waiting op must also be that request.
+  Withdraw cancelPresence(Op op, const std::string& token, const std::string& requestId = {});
   std::optional<Armed> awaitPresence(Op op, Commit commit, const std::string& owner);
   // For ops requested without a session (setup, factory reset, trust): owned
   // by nobody, so they never displace anything and nothing displaces them.
@@ -237,14 +255,25 @@ class Machine {
   void expireLocked(int64_t now);
   void clearSlotLocked();
   void flashLocked(Indicator ind, int64_t now, int64_t ms);
-  void recordOpLocked(Op op, OpCode code, int64_t at);
+  void recordOpLocked(Op op, OpCode code, int64_t at, bool superseded = false);
   // Whether `owner` may put an item in the slot now (see arm()); a replaced
   // item of the same owner is recorded as cancelled.
   bool takeSlotLocked(const std::string& owner, int64_t now, bool presence);
   // Records how the item with this serial ended, for track().
-  void finishedLocked(uint32_t serial, bool presence, Code code, OpCode opCode);
-  void lastLocked(const TypeRequest& req, Code code, int64_t at);
+  void finishedLocked(uint32_t serial, bool presence, Code code, OpCode opCode, bool superseded = false);
+  void lastLocked(const TypeRequest& req, Code code, int64_t at, bool superseded = false);
   uint32_t nextSerialLocked();
+  // A new requestId for the item `serial` of `owner`, remembered for trackRequest().
+  std::string issueLocked(uint32_t serial, const std::string& owner);
+  struct Issued {
+    uint32_t serial = 0;
+    std::string requestId, owner;
+  };
+  // The issued entry for this requestId when `caller` may use it, else nullptr.
+  const Issued* findIssuedLocked(const std::string& requestId, const std::string& caller) const;
+  Track trackLocked(uint32_t serial, int64_t now);
+  // Superseded when the request ended replaced by a newer one, else NotCancelled.
+  Withdraw staleLocked(uint32_t serial) const;
 
   Clock now_;
   std::mutex mu_;
@@ -269,14 +298,18 @@ class Machine {
   std::string typingOwner_;     // while typing_: owner_ of the request being typed
   bool typingWithdrawn_ = false;  // while typing_: its owner is gone, arm no next part
   uint32_t runningSerial_ = 0;  // while running_
+  std::string requestId_;       // of the item in the slot
   struct Finished {
     uint32_t serial = 0;
     bool presence = false;
     Code code = Code::Failed;
     OpCode opCode = OpCode::Failed;
+    bool superseded = false;
   };
-  std::array<Finished, 8> finished_{};  // ring of the latest outcomes
+  std::array<Finished, 16> finished_{};  // ring of the latest outcomes
   size_t finishedNext_ = 0;
+  std::array<Issued, 16> issued_{};      // ring of the latest requestIds
+  size_t issuedNext_ = 0;
   bool hasLast_ = false;
   Result last_;
   int64_t lastAt_ = 0;
@@ -310,6 +343,15 @@ class HostWatch {
 // Whether the account `req` types was edited since it was armed: `current` is
 // the vault::Entry::revision read together with the values about to be typed.
 inline bool entryChanged(const TypeRequest& req, uint32_t current) { return req.revision != current; }
+
+// A requestId as Keyra hands them out: 32 lowercase hex characters (SPEC §12.6a).
+bool validRequestId(const std::string& s);
+// The status words of SPEC §12.6a for a tracked request: none, armed,
+// waiting, then typed (type) or done (presence), cancelled, expired, failed.
+const char* trackState(const Machine::Track& t);
+// Finished only: the §5 Result code (type) or the presence result code, or
+// "superseded" when a newer request of the same owner replaced it. Else nullptr.
+const char* trackCode(const Machine::Track& t);
 
 const char* whatName(What w);
 std::optional<What> parseWhat(const std::string& s);

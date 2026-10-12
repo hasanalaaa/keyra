@@ -50,6 +50,19 @@ export type PresenceOp =
   | 'agent_save'
   | 'tag_create';
 
+/**
+ * SPEC §12.6a: where one request of this browser stands, when /api/state was asked with its
+ * requestId. `code` (finished only): the §5 Result code, the presence result code, or
+ * "superseded" when a newer request of this session replaced it.
+ */
+export interface RequestStatus {
+  requestId: string;
+  kind?: 'type' | 'presence';
+  state: 'none' | 'armed' | 'waiting' | 'typed' | 'done' | 'cancelled' | 'expired' | 'failed';
+  code?: ResultCode | 'done' | 'superseded';
+  expiresIn?: number;
+}
+
 export interface PresenceResult {
   op: PresenceOp;
   ok: boolean;
@@ -83,6 +96,8 @@ export interface DeviceState {
   timeValid: boolean;
   /** Always 0 since 0.5: a press approves one request, not a time window (SPEC §12.5b). */
   graceMs?: number;
+  /** SPEC §12.6a: present when the poll named a requestId (GET /api/state?requestId=…). */
+  request?: RequestStatus;
   /** SPEC §5: the settings storage (NVS) was erased at boot; shown until an unlock logs it. */
   nvsReset?: NvsReset;
   /** SPEC §14: a firmware image being received, checked and waiting, or why it failed (sessions only). */

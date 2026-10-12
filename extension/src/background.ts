@@ -67,7 +67,8 @@ const hostOf = (url?: string) => {
 // ---------- per-tab state ----------
 
 /** The tab whose request is the token's "last request" on Keyra (status is per token, not per tab). */
-let owner: { tabId: number; kind: 'type' | 'save'; host: string } | null = null;
+// requestId (SPEC §12.6a): status and cancel follow exactly this request; absent from older firmware.
+let owner: { tabId: number; kind: 'type' | 'save'; host: string; requestId?: string } | null = null;
 /** Passwords from a sent form, until Save / Not now (memory only). */
 const held = new Map<number, { password: string; at: number }>();
 /** Keyra typed a login here: a sign-in right after it is not a new login to save. */
@@ -247,12 +248,12 @@ async function onPage(msg: PageMsg, sender: chrome.runtime.MessageSender): Promi
       case 'type': {
         const c = await client();
         const r = await patient(() => c.type({ id: msg.id, what: msg.what, host, anyHost: msg.anyHost === true }));
-        owner = { tabId, kind: 'type', host };
+        owner = { tabId, kind: 'type', host, requestId: r.requestId };
         return { ok: true, ...r };
       }
       case 'status': {
         if (owner && owner.tabId !== tabId) return { ok: true, status: { state: 'cancelled' } };
-        const status = await (await client()).status();
+        const status = await (await client()).status(owner?.requestId);
         if (status.state === 'typed' && owner?.kind === 'type') typedIn.set(tabId, { host: owner.host, at: Date.now() });
         if (status.state === 'saved') {
           matchCache.clear();
@@ -266,7 +267,7 @@ async function onPage(msg: PageMsg, sender: chrome.runtime.MessageSender): Promi
         if (owner && owner.tabId !== tabId) return { ok: true, cancelled: true };
         const c = await client();
         try {
-          await patient(() => c.cancel());
+          await patient(() => c.cancel(owner?.requestId));
           return { ok: true, cancelled: true };
         } catch (e) {
           // 409 not_cancelled: nothing of this token waits any more (typed, expired, …); status tells which.
@@ -372,7 +373,7 @@ async function decide(tabId: number, decision: 'save' | 'later' | 'never', setti
   const { card } = rec;
   const c = await client();
   const r = await patient(() => c.save({ title: card.title, url: rec.url, username: card.username || undefined, password: pw.password, replace: card.replace }));
-  owner = { tabId, kind: 'save', host: card.host };
+  owner = { tabId, kind: 'save', host: card.host, requestId: r.requestId };
   await dropSave(tabId); // sent once; Keyra holds it until the press
   return { ok: true, ...r };
 }

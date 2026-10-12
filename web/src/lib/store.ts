@@ -160,6 +160,17 @@ function becameLocked(d: DeviceState | null): void {
 // ---------- polling ----------
 
 let fastHolds = 0;
+// SPEC §12.6a: the request this tab waits on; each poll asks where it stands.
+let tracked: string | null = null;
+
+/** Polls ask about `requestId` until the returned release function is called. */
+export function trackRequest(requestId: string): () => void {
+  tracked = requestId;
+  pollNow();
+  return () => {
+    if (tracked === requestId) tracked = null;
+  };
+}
 let inFlight = false;
 let rerun = false;
 let timer: ReturnType<typeof setTimeout> | undefined;
@@ -195,7 +206,7 @@ export async function pollNow(): Promise<void> {
   inFlight = true;
   try {
     const sent = Date.now();
-    const d = await api.state();
+    const d = await api.state(tracked);
     const authed = d.unlocked && d.session && hasCsrf();
     if (state.authed && !authed) becameLocked(d);
     const linkChanged = state.device?.host.ble !== d.host.ble;

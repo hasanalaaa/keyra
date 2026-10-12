@@ -189,12 +189,15 @@ Conventions
 - Request bodies > 64 KiB → 413 `too_large` (import uses batches). Exception:
   `/api/restore` accepts up to 2 MiB when PSRAM is present (128 KiB without).
 - Other error codes: 405 `method_not_allowed`; 409 `busy` (setup/factory reset
-  while another item awaits the button); 503 `busy` (worker queue full);
-  507 `full`; 403 `csrf` also when `Origin` is foreign.
+  while another item awaits the button); 409 `superseded` (a cancel by
+  `requestId` for a request a newer one had replaced, §12.6a); 503 `busy`
+  (worker queue full); 507 `full`; 403 `csrf` also when `Origin` is foreign.
+- Every answer that starts a wait for the button (202) carries `requestId`
+  (§12.6a).
 
 | Method & path | Auth | Body → Response |
 |---|---|---|
-| GET `/api/state` | none | `{device:{name,version,model,mac}, initialized, unlocked, maxEntries` (§6.1)`, session:bool, autoLockMin, host:{usb, ble, capsLock, output, bleTarget, connecting, usbOs?}` (§8.1, §10.5; `usbOs` with a session only)`, pending:Pending\|null, last:Result\|null, presence:{awaiting:bool, op:string\|null, expiresIn:ms, result:{op, ok:bool, code:"done"\|"failed"\|"expired"\|"cancelled", at:ms_ago}\|null}, net?` (§8.2)`, timeValid:bool, graceMs` (always 0 since 0.5, §12.5b)`, update?` (§14, session only)`, nvsReset?` (below)`}` — polled ~1 s while something is pending, else ~5 s |
+| GET `/api/state` | none | `{device:{name,version,model,mac}, initialized, unlocked, maxEntries` (§6.1)`, session:bool, autoLockMin, host:{usb, ble, capsLock, output, bleTarget, connecting, usbOs?}` (§8.1, §10.5; `usbOs` with a session only)`, pending:Pending\|null, last:Result\|null, presence:{awaiting:bool, op:string\|null, expiresIn:ms, result:{op, ok:bool, code:"done"\|"failed"\|"expired"\|"cancelled", at:ms_ago}\|null}, net?` (§8.2)`, timeValid:bool, graceMs` (always 0 since 0.5, §12.5b)`, update?` (§14, session only)`, nvsReset?` (below)`, request?` (§12.6a: only with `?requestId=`)`}` — polled ~1 s while something is pending, else ~5 s |
 | POST `/api/setup` | none, only if !initialized | `{passphrase, wifiPassword, deviceName?}` → 202 `{awaiting:"button", expiresIn}`; completes when the button is pressed (watch `state.presence` / `state.initialized`). passphrase 10–128 chars; wifiPassword 8–63 printable ASCII and ≠ `keyra1234`. The client then calls unlock. AP restarts with the new password ~3 s after commit. |
 | POST `/api/unlock` | none | `{passphrase}` → 200 `{csrf, failedAttempts, nvsReset?}` (§15, below) / 401 `{error:"wrong", retryAfterMs}` / 429 `{error:"rate_limited", retryAfterMs}` / 202 trust the browser first (§8.2) |
 | POST `/api/lock` | session | → 204 |
@@ -206,8 +209,8 @@ Conventions
 | DELETE `/api/entries/{id}` | session | → 202 `{awaiting:"button", op:"delete_entry", expiresIn, cancel}` (404 if unknown, 409 `busy` §12.5a); the press removes it (only if still unlocked and still there, else `failed`) |
 | POST `/api/entries/import` | session | `{entries:[…≤50]}` → `{added, skipped}` (duplicate = same title+username+url) |
 | GET `/api/entries/{id}/totp` | session | → `{code, period, remaining}` / 409 `no_time` / 404 |
-| POST `/api/type` | session | `{id, what:"username"\|"password"\|"both"\|"totp"\|"sequence", submit?, target?, switchLang?}`, `{text, repeat?, separator?}` (§9.2), `{test:true}` or `{probe:true}` (§10.3) → 202 `{pending}`; replaces this session's own pending item, 409 `busy` while another session's waits (§12.5a). An entry action types the version of the account it was armed for: edited before the press (by anyone), it types nothing and ends `entry_changed` |
-| POST `/api/type/cancel` | session | → 204 when it withdrew this session's own waiting action or one an access token or tap tag armed; 409 `not_cancelled` otherwise (another session's action stays armed) |
+| POST `/api/type` | session | `{id, what:"username"\|"password"\|"both"\|"totp"\|"sequence", submit?, target?, switchLang?}`, `{text, repeat?, separator?}` (§9.2), `{test:true}` or `{probe:true}` (§10.3) → 202 `{pending, requestId}`; replaces this session's own pending item, 409 `busy` while another session's waits (§12.5a). An entry action types the version of the account it was armed for: edited before the press (by anyone), it types nothing and ends `entry_changed` |
+| POST `/api/type/cancel` | session | optional `{requestId}` (§12.6a; no body as before) → 204 when it withdrew this session's own waiting action or one an access token or tap tag armed — with `requestId` only that very action; 409 `superseded` when that request had been replaced by a newer one; 409 `not_cancelled` otherwise (another session's action stays armed) |
 | GET `/api/settings` | session | → `{deviceName, wifiSsid, autoLockMin, keyDelayMs, bothSeparator:"tab"\|"enter", submitAfterBoth:bool, ledBrightness, bleEnabled, output, bleConnect, protectReveal, passkeysInBackup, lockOnUsb, lockOnBle, lastBackupAt, homeWifi:{enabled, ssid}, apMode, osUsb, layoutUsb, layoutBle, bothSequence}` |
 | PUT `/api/settings` | session | partial of the above (+ optional `wifiPassword`; `homeWifi` goes through `/api/wifi/home`, `lastBackupAt` is set by backups) → 200 settings. Changing `wifiSsid`/`wifiPassword`, turning `protectReveal` off or `passkeysInBackup` on (op `passkeys_backup_on`), requires presence → 202 `{awaiting:"button"}` |
 | POST `/api/passphrase` | session | `{current, next}` → 204 / 401 `{error:"wrong", retryAfterMs}` / 429 `rate_limited` |
@@ -925,6 +928,61 @@ stranger on Keyra's Wi‑Fi could cancel a user's setup and arm their own in
 its place, to be confirmed by the user's press. The app keeps the token in
 sessionStorage, so the same tab can still withdraw its op after a reload.
 
+### 12.6a Request ids
+
+Since 0.5 every answer that starts a wait for the button carries
+`requestId`: 128 random bits from the hardware RNG as 32 lowercase hex
+characters, made when the item is armed (`actions::Machine`, host-tested). It
+names that one request, so a client can follow and withdraw exactly what it
+asked for, even when other requests came and went around it. It is not an
+authorisation by itself: the owner rules of §12.5a still decide, and the
+presence cancel token (§12.6) is still needed to withdraw a presence op.
+
+Where it appears: the 202 of `POST /api/type` (beside `pending`, never inside
+it: `state.pending` is shown to every session), of every presence op (`{awaiting:"button",
+op, expiresIn, cancel, requestId}`: setup, unlock through a trusted browser,
+reveal, backup, recovery, delete, settings, restore, Wi‑Fi, Bluetooth pairing,
+update, passkeys, tokens, tags), of `POST /api/agent/type` and
+`/api/agent/save` (§17), and of `POST /api/tag/tap` (§18). A sequence keeps
+its requestId through all its parts.
+
+Status, for the owner only:
+- `GET /api/state?requestId=<id>` adds `request: {requestId, kind?:"type"|"presence",
+  state, code?, expiresIn?}` for that request when this caller owns it (its
+  session; ops without an owner — setup, factory reset, trust — for anyone
+  holding the id). `state`: `armed` (`expiresIn`), `waiting` (a Bluetooth
+  host connecting, typing, or the approved op running), then `typed` or `done`,
+  `cancelled`, `expired`, `failed`; `none` for an id that is unknown, too old
+  (the device remembers the last 16), or someone else's. `code` once it
+  finished: the §5 Result code (type), the presence result code, or
+  `superseded`.
+- `GET /api/agent/status?requestId=<id>` (§17): that request of this token
+  (the last 4 are kept), else `state:"none"`.
+- `POST /api/tag/status {id, ticket, requestId?}` (§18): the ticket still
+  decides; a `requestId` that is not that tap's gives `none`.
+
+Cancel, for the owner only (an optional `requestId` in the body; without it
+everything works as before 0.5, which older clients rely on):
+- `POST /api/type/cancel {requestId?}` (§5), `POST /api/agent/cancel
+  {requestId?}` (§17), `POST /api/presence/cancel {op, cancel, requestId?}`
+  (§12.6).
+- With `requestId` they withdraw only that request, and only while it is the
+  one waiting: 204. A request that a newer one of the same owner had replaced
+  (it already ended `cancelled`) → 409 **`superseded`**, and the newer one is
+  untouched. Anything else — finished, expired, unknown, or another owner's —
+  → 409 `not_cancelled`, as before.
+
+**Stale ids.** A new request supersedes per §12.5a (the same owner replaces
+its own item; another owner's request gets 409 `busy`). The replaced
+request's status reads `state:"cancelled", code:"superseded"`, and a cancel
+with its id answers 409 `superseded`.
+
+A malformed `requestId` (not 32 lowercase hex characters) → 400 `invalid`.
+Clients: the web app polls `/api/state?requestId=` and cancels with it; the
+extension, the Android app and keyra-mcp poll `/api/agent/status?requestId=`
+and cancel with it. Each falls back to the earlier behaviour when an older
+firmware sends no `requestId`.
+
 ### 12.7 Why joining the home network failed
 
 `state.net.home.error`: `""` (none yet), `"wrong_password"` (4-way handshake
@@ -1148,10 +1206,10 @@ NFC tags build on.
 | Method & path | Kinds | Body → Response |
 |---|---|---|
 | GET `/api/agent/entries` | all | → `{entries:[{id, title, host}]}` for the entries in scope; `host` = the URL's host name only (lowercase, no scheme, user, port or path). Never usernames or secrets. |
-| POST `/api/agent/type` | all | `{id, what:"username"\|"password"\|"both"\|"totp", target?, submit?, switchLang?, host?, anyHost?}` → 202 `{pending:Pending, expiresIn}`. Arms exactly like `POST /api/type` (same 60 s, press, targets §8.1, layout and Caps Lock rules, 409 `no_time` for a code without a clock); an id outside the scope → 404 `not_found` like an unknown one; 409 `busy` while anyone else's item waits; the token's own waiting item is replaced (ends `cancelled`). No sequences, test, probe or free text. **Extension tokens** must send `host` (the tab's host name, 1–253 visible ASCII characters; else 400 `invalid`); when the entry's URL host does not match it by the §9.4 host rule → 409 `host_mismatch`, unless `anyHost: true` — then the item is armed with `pending.host` = the page's host (normalised) and the activity entry names it. `host`/`anyHost` are ignored for other kinds. |
-| GET `/api/agent/status` | all | → this token's last request: `{state, request:"type"\|"save", id?, title?, what?, code?, expiresIn?}`. `state`: `none` (nothing, or too long ago), `armed` (waits for the press), `waiting` (a Bluetooth target still connecting, or typing/saving now), `typed`, `saved` (`id` = the new or updated entry), `cancelled` (long press, replaced, lock, revoke), `expired`, `failed` (`code` = the §5 Result code, e.g. `no_usb`). |
-| POST `/api/agent/cancel` | all | → 204, or 409 `not_cancelled` when nothing of this token waits. |
-| POST `/api/agent/save` | app, extension | `{title, url?, username?, password?, replace?}` (vault limits) → 202 `{awaiting:"button", op:"agent_save", mode:"create"\|"update", expiresIn}`. Without `replace` the press creates the entry (status `saved` with its `id`); a scoped token gets the new id added to its scope while there is room. With `replace: <entry id>` (`password` required, `title`/`url` ignored) the press sets that entry's password and, when a non-empty `username` was sent, its username; the old password goes to the entry's history (§9.3) and status is `saved` with that `id`. A `replace` id outside the scope or unknown → 404 `not_found`; an entry deleted before the press → status `failed`. 403 `forbidden` for an agent token. |
+| POST `/api/agent/type` | all | `{id, what:"username"\|"password"\|"both"\|"totp", target?, submit?, switchLang?, host?, anyHost?}` → 202 `{pending:Pending, expiresIn, requestId}` (§12.6a). Arms exactly like `POST /api/type` (same 60 s, press, targets §8.1, layout and Caps Lock rules, 409 `no_time` for a code without a clock); an id outside the scope → 404 `not_found` like an unknown one; 409 `busy` while anyone else's item waits; the token's own waiting item is replaced (ends `cancelled`). No sequences, test, probe or free text. **Extension tokens** must send `host` (the tab's host name, 1–253 visible ASCII characters; else 400 `invalid`); when the entry's URL host does not match it by the §9.4 host rule → 409 `host_mismatch`, unless `anyHost: true` — then the item is armed with `pending.host` = the page's host (normalised) and the activity entry names it. `host`/`anyHost` are ignored for other kinds. |
+| GET `/api/agent/status` | all | `?requestId=` optional (§12.6a) → this token's last request, or the one named: `{state, request:"type"\|"save", id?, title?, what?, code?, expiresIn?, requestId?}`; a requestId not of this token → `{state:"none"}`. `state`: `none` (nothing, or too long ago), `armed` (waits for the press), `waiting` (a Bluetooth target still connecting, or typing/saving now), `typed`, `saved` (`id` = the new or updated entry), `cancelled` (long press, replaced, lock, revoke; `code:"superseded"` when this token's newer request replaced it), `expired`, `failed` (`code` = the §5 Result code, e.g. `no_usb`). |
+| POST `/api/agent/cancel` | all | optional `{requestId}` (§12.6a) → 204, or 409 `not_cancelled` when nothing of this token (or not that request) waits; 409 `superseded` when that request had been replaced by a newer one of this token. |
+| POST `/api/agent/save` | app, extension | `{title, url?, username?, password?, replace?}` (vault limits) → 202 `{awaiting:"button", op:"agent_save", mode:"create"\|"update", expiresIn, requestId}`. Without `replace` the press creates the entry (status `saved` with its `id`); a scoped token gets the new id added to its scope while there is room. With `replace: <entry id>` (`password` required, `title`/`url` ignored) the press sets that entry's password and, when a non-empty `username` was sent, its username; the old password goes to the entry's history (§9.3) and status is `saved` with that `id`. A `replace` id outside the scope or unknown → 404 `not_found`; an entry deleted before the press → status `failed`. 403 `forbidden` for an agent token. |
 | POST `/api/agent/generate` | app, extension | Same body and answer as `POST /api/generate` (§9.1). The password is not stored: the app needs it for a sign-up form, and keeping it needs `/api/agent/save` (a press). 403 `forbidden` for an agent token. |
 | POST `/api/agent/match` | extension | `{host, username?}` (`host` as for type) → `{entries:[{id, title, host, sameUser?}]}`: the entries in scope whose URL host matches `host` by the §9.4 host rule, in vault order, at most 20. `sameUser` only when `username` was sent: true when the entry's username equals it exactly (case-sensitive). Never usernames or secrets; passwords are never compared. Logged as the token's `agent_listed`, counted with its listings (§15), not one line per call. 403 `forbidden` for other kinds. |
 
@@ -1225,7 +1283,7 @@ Keyra's network that arms **one account** for typing — exactly like
     script removes the secret from the address bar, POSTs the tap, then polls
     the status and shows "Press Keyra's button" → "Typed".
   - `POST /api/tag/tap {id, secret}` or `{id, p, m}` → 202 `{state:"armed",
-    title, what, expiresIn, ticket}`. Arms exactly like `POST /api/type` (same
+    title, what, expiresIn, ticket, requestId}` (§12.6a). Arms exactly like `POST /api/type` (same
     60 s, press, targets §8.1, layout and Caps Lock rules) with the tag's
     account, what and target; owner `tag:<id>` (§12.5a: never replaced by a
     browser, a token or another tag; replaces only its own item). Refusals:
@@ -1239,8 +1297,8 @@ Keyra's network that arms **one account** for typing — exactly like
     all count and a flood past it costs no crypto and no log write. 409 `busy`, 404 `not_found` (the account is gone), 400 `invalid`
     (it lost the field), 409 `no_time` (a code without a clock), 409
     `ble_disabled`.
-  - `POST /api/tag/status {id, ticket}` → `{state, code?, expiresIn?}` for that
-    tap: `armed`, `waiting`, `typed`, `cancelled`, `expired`, `failed` (`code`
+  - `POST /api/tag/status {id, ticket, requestId?}` → `{state, code?, expiresIn?}` for that
+    tap (a `requestId` that is not this tap's → `none`): `armed`, `waiting`, `typed`, `cancelled`, `expired`, `failed` (`code`
     = the §5 Result code), `none` (unknown ticket or too long ago).
   Taps are not user activity for auto-lock.
 - **The phone sees who asked.** `state.pending.by` = the tag's name.

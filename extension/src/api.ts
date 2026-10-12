@@ -11,6 +11,7 @@ export type ErrorCode =
   | 'rate_limited' // 429
   | 'host_mismatch' // 409: the login is for another site
   | 'busy' // 409: another request waits for the button
+  | 'superseded' // 409: a cancel by requestId for a request a newer one had replaced (SPEC §12.6a)
   | 'not_found' // 404: the login is gone or outside the token's scope
   | 'forbidden' // 403: a token that is not of kind "extension"
   | 'invalid' // 400
@@ -42,8 +43,9 @@ export interface Status {
   id?: number;
   title?: string;
   what?: string;
-  code?: string;
+  code?: string; // "superseded" when a newer request of this token replaced this one
   expiresIn?: number;
+  requestId?: string;
 }
 
 export interface DeviceState {
@@ -77,10 +79,13 @@ export interface Client {
   state(): Promise<DeviceState>;
   entries(): Promise<Login[]>;
   match(host: string, username?: string): Promise<Login[]>;
-  type(req: { id: number; what: What; host: string; anyHost?: boolean }): Promise<{ expiresIn: number }>;
-  status(): Promise<Status>;
-  cancel(): Promise<void>;
-  save(req: SaveRequest): Promise<{ expiresIn: number; mode: 'create' | 'update' }>;
+  /** `requestId`: names this request (SPEC §12.6a); absent from firmware before 0.5. */
+  type(req: { id: number; what: What; host: string; anyHost?: boolean }): Promise<{ expiresIn: number; requestId?: string }>;
+  /** With a requestId: that request of this token; without: its newest one. */
+  status(requestId?: string): Promise<Status>;
+  /** With a requestId: only that request (409 superseded / not_cancelled otherwise). */
+  cancel(requestId?: string): Promise<void>;
+  save(req: SaveRequest): Promise<{ expiresIn: number; mode: 'create' | 'update'; requestId?: string }>;
   generate(opts: GenOptions): Promise<{ password: string; entropyBits: number }>;
 }
 
@@ -101,7 +106,10 @@ export function normalizeAddress(input: string): string | null {
 
 export const TOKEN_RE = /^keyra_[a-z2-7]{32}$/;
 
-const CODES = new Set<ErrorCode>(['locked', 'invalid_token', 'rate_limited', 'host_mismatch', 'busy', 'not_found', 'forbidden', 'invalid']);
+const CODES = new Set<ErrorCode>(['locked', 'invalid_token', 'rate_limited', 'host_mismatch', 'busy', 'superseded', 'not_found', 'forbidden', 'invalid']);
+
+/** A requestId as Keyra hands them out (128 bits, hex); anything else is dropped. */
+export const requestIdOf = (v: unknown): string | undefined => (typeof v === 'string' && /^[0-9a-f]{32}$/.test(v) ? v : undefined);
 
 export function createClient(opts: { address: string; token?: string; fetch?: typeof fetch; timeoutMs?: number }): Client {
   const doFetch = opts.fetch ?? fetch.bind(globalThis);
@@ -149,17 +157,17 @@ export function createClient(opts: { address: string; token?: string; fetch?: ty
     entries: async () => (await call<{ entries: Login[] }>('GET', '/api/agent/entries')).entries,
     match: async (host, username) => (await call<{ entries: Login[] }>('POST', '/api/agent/match', username === undefined ? { host } : { host, username })).entries,
     type: async (req) => {
-      const r = await call<{ expiresIn: number }>('POST', '/api/agent/type', req.anyHost ? req : { id: req.id, what: req.what, host: req.host });
-      return { expiresIn: r.expiresIn };
+      const r = await call<{ expiresIn: number; requestId?: string }>('POST', '/api/agent/type', req.anyHost ? req : { id: req.id, what: req.what, host: req.host });
+      return { expiresIn: r.expiresIn, requestId: requestIdOf(r.requestId) };
     },
-    status: () => call<Status>('GET', '/api/agent/status'),
-    cancel: async () => {
-      await call<void>('POST', '/api/agent/cancel');
+    status: (requestId) => call<Status>('GET', requestIdOf(requestId) ? `/api/agent/status?requestId=${requestId}` : '/api/agent/status'),
+    cancel: async (requestId) => {
+      await call<void>('POST', '/api/agent/cancel', requestIdOf(requestId) ? { requestId } : undefined);
     },
     save: async (req) => {
       const body = req.replace ? { title: req.title, url: req.url, username: req.username, password: req.password, replace: req.replace } : req;
-      const r = await call<{ expiresIn: number; mode?: 'create' | 'update' }>('POST', '/api/agent/save', body);
-      return { expiresIn: r.expiresIn, mode: r.mode ?? (req.replace ? 'update' : 'create') };
+      const r = await call<{ expiresIn: number; mode?: 'create' | 'update'; requestId?: string }>('POST', '/api/agent/save', body);
+      return { expiresIn: r.expiresIn, mode: r.mode ?? (req.replace ? 'update' : 'create'), requestId: requestIdOf(r.requestId) };
     },
     generate: (o) => call<{ password: string; entropyBits: number }>('POST', '/api/agent/generate', o),
   };

@@ -109,4 +109,15 @@ std::string header(httpd_req_t* r, const char* name, size_t maxLen) {
   return v;
 }
 
+std::string query(httpd_req_t* r, const char* key, size_t maxLen) {
+  const size_t len = httpd_req_get_url_query_len(r);
+  if (len == 0 || len > 512) return {};
+  std::string q(len + 1, '\0');
+  if (httpd_req_get_url_query_str(r, q.data(), q.size()) != ESP_OK) return {};
+  std::string v(maxLen + 1, '\0');
+  if (httpd_query_key_value(q.c_str(), key, v.data(), v.size()) != ESP_OK) return {};
+  v.resize(std::strlen(v.c_str()));
+  return v;
+}
+
 }  // namespace keyra::api::http
