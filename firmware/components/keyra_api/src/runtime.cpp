@@ -270,6 +270,8 @@ void typeTask(void*) {
   }
 }
 
+void apply(actions::Decision d);
+
 void onButton(io::Button b, int64_t pressedAt) {
   sessions().activity(monoMs());
   // A website waiting for the security-key touch owns the button (its LED
@@ -281,7 +283,10 @@ void onButton(io::Button b, int64_t pressedAt) {
     return;
   }
   const auto press = b == io::Button::Short ? actions::Button::Short : actions::Button::Long;
-  actions::Decision d = machine().onButton(press, vault::unlocked(), pressedAt);
+  apply(machine().onButton(press, vault::unlocked(), pressedAt));
+}
+
+void apply(actions::Decision d) {
   switch (d.effect) {
     case actions::Effect::Run:
       g_job = std::move(d.run);
@@ -366,6 +371,8 @@ void actionsTask(void*) {
     io::Button b;
     int64_t pressedAt = 0;
     syncBleDemand();
+    // A press made while connecting types as soon as the host is ready (SPEC §8.1).
+    if (!g_typing) apply(machine().takeLatchedPress());
     const bool pressed = io::nextButton(b, pressedAt, pdMS_TO_TICKS(100));
     if (pressed) {
       syncBleDemand();  // the link may have come up while we waited

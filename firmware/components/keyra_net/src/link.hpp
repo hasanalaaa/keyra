@@ -9,13 +9,17 @@
 
 namespace keyra::net {
 
-// Delay before attempt n+1 after n consecutive failures: 2 s doubling to 5 min.
-int64_t retryDelayMs(int failures);
+// Delay before attempt n+1 after n consecutive failures: 2 s doubling up to `cap`.
+int64_t retryDelayMs(int failures, int64_t cap);
 
 class Link {
  public:
   static constexpr int64_t kFirstRetryMs = 2000;
-  static constexpr int64_t kMaxRetryMs = 5 * 60 * 1000;
+  // Network missing, link lost, timeouts: the router or a mesh node is often just
+  // rebooting (2-4 min), so Keyra keeps looking every 30 s at most and is back
+  // soon after it. A refused password backs off further: it rarely fixes itself.
+  static constexpr int64_t kMaxRetryMs = 30 * 1000;
+  static constexpr int64_t kMaxRefusedRetryMs = 2 * 60 * 1000;
   // A join that has produced neither an IP nor a failure by then is abandoned.
   static constexpr int64_t kAttemptTimeoutMs = 20000;
   // apMode fallback: AP comes back after the home network has been unavailable
@@ -37,7 +41,11 @@ class Link {
   // link was live, the caller disconnects it and the resulting event is ignored.
   void configure(bool enabled, ApMode mode, bool rejoin, int64_t now);
   void connected(int64_t now);     // got an IP
-  void disconnected(int64_t now);  // attempt failed or link lost
+  // Attempt failed or link lost; `refused`: the network turned the password down.
+  void disconnected(int64_t now, bool refused = false);
+  // The driver says the link is gone but sent no event: counted now, and the
+  // event that may still arrive later is not counted against the next attempt.
+  void lostWithoutEvent(int64_t now);
   // `hold`: a scan is waiting, so no new attempt starts.
   Plan tick(int64_t now, bool hold);
 
@@ -48,7 +56,7 @@ class Link {
   int64_t nextAttemptAt() const { return nextAttemptAt_; }
 
  private:
-  void failed(int64_t now);
+  void failed(int64_t now, bool refused);
 
   bool enabled_ = false;
   ApMode mode_ = ApMode::Always;

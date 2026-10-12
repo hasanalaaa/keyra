@@ -206,6 +206,30 @@ void Machine::setLinkReady(bool ready) {
   linkReady_ = ready;
 }
 
+void Machine::runLocked(Decision& d) {
+  d.effect = Effect::Run;
+  d.run = std::move(req_);
+  typing_ = true;
+  typingSerial_ = d.run.serial;
+  typingOwner_ = owner_;  // a sequence's next part goes back to the same owner
+  typingWithdrawn_ = false;
+  clearSlotLocked();
+}
+
+Decision Machine::takeLatchedPress() {
+  std::lock_guard<std::mutex> lock(mu_);
+  const int64_t now = now_();
+  expireLocked(now);
+  Decision d;
+  if (latchedAt_ == 0) return d;
+  if (kind_ != Kind::Type || typing_ || now - latchedAt_ > kConnectLatchMs) {
+    latchedAt_ = 0;
+    return d;
+  }
+  if (linkReady_) runLocked(d);
+  return d;
+}
+
 void Machine::setUsbMounted(bool mounted) {
   std::lock_guard<std::mutex> lock(mu_);
   if (mounted == usbMounted_) return;
@@ -268,17 +292,13 @@ Decision Machine::onButton(Button b, bool unlocked, int64_t pressedAt) {
       runningSerial_ = serial_;
       clearSlotLocked();
     } else if (kind_ == Kind::Type && !typing_ && req_.target.kind == Target::Kind::Ble && !linkReady_) {
-      // Still connecting: typing now could only fail. Keep the action armed.
+      // Still connecting: typing now could only fail. Keep the action armed and
+      // the press, which runs it if the host is ready soon (takeLatchedPress).
+      latchedAt_ = now;
       d.effect = Effect::Blink;
       flashLocked(Indicator::Off, now, kBlinkMs);
     } else if (kind_ == Kind::Type && !typing_) {
-      d.effect = Effect::Run;
-      d.run = std::move(req_);
-      typing_ = true;
-      typingSerial_ = d.run.serial;
-      typingOwner_ = owner_;  // a sequence's next part goes back to the same owner
-      typingWithdrawn_ = false;
-      clearSlotLocked();
+      runLocked(d);
     } else if (!typing_) {
       d.effect = Effect::Blink;
       flashLocked(Indicator::Off, now, kBlinkMs);
@@ -460,6 +480,7 @@ void Machine::clearSlotLocked() {
   commit_ = nullptr;  // destroys captured secrets of a dropped presence op
   cancelToken_.clear();
   requestId_.clear();
+  latchedAt_ = 0;
   owner_.clear();
   serial_ = 0;
   deadline_ = 0;

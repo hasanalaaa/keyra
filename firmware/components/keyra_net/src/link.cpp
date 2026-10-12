@@ -2,11 +2,11 @@
 
 namespace keyra::net {
 
-int64_t retryDelayMs(int failures) {
-  if (failures <= 1) return Link::kFirstRetryMs;
+int64_t retryDelayMs(int failures, int64_t cap) {
+  if (failures <= 1) return Link::kFirstRetryMs < cap ? Link::kFirstRetryMs : cap;
   int64_t d = Link::kFirstRetryMs;
-  for (int i = 1; i < failures && d < Link::kMaxRetryMs; ++i) d *= 2;
-  return d < Link::kMaxRetryMs ? d : Link::kMaxRetryMs;
+  for (int i = 1; i < failures && d < cap; ++i) d *= 2;
+  return d < cap ? d : cap;
 }
 
 void Link::boot(bool enabled, ApMode mode, int64_t now) {
@@ -46,7 +46,7 @@ void Link::connected(int64_t now) {
   failures_ = 0;
 }
 
-void Link::disconnected(int64_t now) {
+void Link::disconnected(int64_t now, bool refused) {
   if (ignoreNextDisconnect_) {
     ignoreNextDisconnect_ = false;
     return;
@@ -54,17 +54,23 @@ void Link::disconnected(int64_t now) {
   if (up_) {
     up_ = false;
     apDueAt_ = now + kLostGraceMs;
-    failed(now);
+    failed(now, false);  // a link that worked: the password is fine
   } else if (attempting_) {
     attempting_ = false;
-    failed(now);
+    failed(now, refused);
   }
   // Otherwise a late event for an attempt already given up on: nothing to count.
 }
 
-void Link::failed(int64_t now) {
+void Link::lostWithoutEvent(int64_t now) {
+  if (!up_) return;
+  disconnected(now);
+  ignoreNextDisconnect_ = true;
+}
+
+void Link::failed(int64_t now, bool refused) {
   ++failures_;
-  nextAttemptAt_ = now + retryDelayMs(failures_);
+  nextAttemptAt_ = now + retryDelayMs(failures_, refused ? kMaxRefusedRetryMs : kMaxRetryMs);
 }
 
 Link::Plan Link::tick(int64_t now, bool hold) {
@@ -75,7 +81,7 @@ Link::Plan Link::tick(int64_t now, bool hold) {
   }
   if (attempting_ && now - attemptAt_ >= kAttemptTimeoutMs) {
     attempting_ = false;
-    failed(now);
+    failed(now, false);
     p.abort = true;
   }
   if (!up_ && !attempting_ && !hold && now >= nextAttemptAt_) {

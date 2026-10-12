@@ -176,7 +176,7 @@ esp_http_client_handle_t client(const std::string& url, bool binary) {
   esp_http_client_config_t cfg{};
   cfg.url = url.c_str();
   cfg.crt_bundle_attach = esp_crt_bundle_attach;
-  cfg.timeout_ms = 20000;
+  cfg.timeout_ms = 15000;
   cfg.buffer_size = 4096;     // GitHub's signed redirect URLs make long header lines
   cfg.buffer_size_tx = 2048;
   cfg.user_agent = "Keyra-firmware";
@@ -188,9 +188,19 @@ esp_http_client_handle_t client(const std::string& url, bool binary) {
 
 // Opens `c` and follows redirects; the body is ready to read. Returns the
 // status code (0 on a network failure) and the content length (-1 unknown).
+// A home router's DNS proxy or a first TLS handshake often fails once and then
+// works ("could not reach GitHub" that a second tap fixes): one quiet retry.
+esp_err_t openWithRetry(esp_http_client_handle_t c) {
+  if (esp_http_client_open(c, 0) == ESP_OK) return ESP_OK;
+  ESP_LOGW(TAG, "connecting failed (errno %d); trying once more", esp_http_client_get_errno(c));
+  esp_http_client_close(c);
+  vTaskDelay(pdMS_TO_TICKS(1000));
+  return esp_http_client_open(c, 0);
+}
+
 int openFollowing(esp_http_client_handle_t c, int64_t& length) {
   for (int hop = 0;; ++hop) {
-    if (esp_http_client_open(c, 0) != ESP_OK) return 0;
+    if (openWithRetry(c) != ESP_OK) return 0;
     length = esp_http_client_fetch_headers(c);
     const int status = esp_http_client_get_status_code(c);
     const bool redirect = status == 301 || status == 302 || status == 303 || status == 307 || status == 308;

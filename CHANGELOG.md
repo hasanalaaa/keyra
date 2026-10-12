@@ -6,6 +6,36 @@ All notable changes to Keyra are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Home Wi-Fi rejoins quickly.** After a router or mesh node reboot Keyra
+  looked again only every 5 minutes (a doubling backoff); now at most every
+  30 s while the network is missing or the link was lost, and 2 minutes after
+  a refused password.
+- **Home Wi-Fi range.** With home Wi-Fi on, Keyra transmits at up to 17 dBm
+  instead of 13 dBm (kept at 13 dBm with only its own Wi-Fi, for weak USB
+  ports), so the router hears it reliably. 802.11k/v are on, so a mesh can
+  steer it to a closer node; its own Wi-Fi uses 20 MHz to leave room for the
+  home link and Bluetooth.
+- **Update check.** A failed connection to GitHub is retried once after 1 s
+  (a router's DNS often fails the first lookup), with a 15 s timeout.
+- **A press while Bluetooth connects is kept.** Pressed before the phone or
+  computer finished connecting, the press now types as soon as it is ready
+  (within 3 s) instead of being ignored.
+
+### Changed
+
+- **Faster Bluetooth.** While an action waits for its host Keyra advertises
+  every 20–30 ms (was 100–150 ms), so a phone reconnects in about a second;
+  once connected it asks for an 11.25–30 ms connection interval; the host's
+  name is read only once, not on every reconnect.
+- **Faster downloads.** Larger TCP and Wi-Fi receive windows.
+
+### Added
+
+- `GET /api/state` → `net.home.lastReason`, `drops` and `channel`: why the
+  home link failed or dropped, how often, and on which channel (SPEC §8.2).
+
 ## [0.4.2] - 2026-10-12
 
 Highlights:

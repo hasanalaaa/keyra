@@ -35,6 +35,12 @@ struct Status {
   std::string homeIp;  // dotted quad while connected, else empty
   int rssi = 0;        // dBm while connected
   HomeError homeError = HomeError::None;
+  // Diagnostics (SPEC §8.2): the driver's reason code of the last failed join or
+  // lost link (0 = none since boot), how many times a working link dropped since
+  // boot, and the home channel while connected.
+  uint16_t lastReason = 0;
+  uint32_t drops = 0;
+  uint8_t channel = 0;
 };
 Status status();
 std::string homeIp();  // Status::homeIp without the rest

@@ -44,6 +44,15 @@ constexpr TickType_t kForgetWait = pdMS_TO_TICKS(3000);
 // device list fills quickly, relaxed for reconnects to leave airtime to Wi-Fi.
 constexpr uint16_t kOpenItvlMin = 48, kOpenItvlMax = 80;        // 30–50 ms
 constexpr uint16_t kBondedItvlMin = 160, kBondedItvlMax = 240;  // 100–150 ms
+// An armed action waits for one host: advertise to it briskly. A phone reconnects a
+// bonded keyboard from a background scan of ~30 ms every 1.28 s, so at 100–150 ms it
+// catches one advertisement in ~4 windows (seconds); at 20–30 ms nearly every window.
+// It lasts only while the action waits (at most 60 s).
+constexpr uint16_t kWantedItvlMin = 32, kWantedItvlMax = 48;    // 20–30 ms
+// Asked of a reconnected host: 11.25–30 ms (inside Apple's HID guidelines, which
+// iOS enforces), no latency, 4 s supervision. Typing takes one round trip per
+// key report, and each one waits for a connection event.
+constexpr uint16_t kConnItvlMin = 9, kConnItvlMax = 24, kConnTimeout = 400;
 // Room for the name: 31 bytes minus flags (3), appearance (4), one 16-bit
 // UUID (4) and the name's own header (2). The scan response carries 31 − 2.
 constexpr size_t kAdvNameMax = 18;
@@ -104,6 +113,7 @@ uint8_t t_ownAddrType = BLE_OWN_ADDR_PUBLIC;
 Adv t_adv = Adv::Off;
 std::string t_advName;
 std::vector<peers::Key> t_advKeys;
+bool t_advFast = false;
 std::string t_gapName;
 uint16_t t_repairing = BLE_HS_CONN_HANDLE_NONE;  // link whose old bond was dropped to re-pair
 
@@ -224,7 +234,7 @@ void restoreBondIfLost() {
 
 int onGap(ble_gap_event* ev, void* arg);
 
-int startAdvertising(Adv mode, const std::string& name, const std::vector<peers::Key>& keys) {
+int startAdvertising(Adv mode, const std::string& name, const std::vector<peers::Key>& keys, bool fast) {
   // NimBLE keeps these field pointers to re-advertise after a failed connection
   // attempt, so the name must outlive this call.
   static std::string s_name;
@@ -264,8 +274,8 @@ int startAdvertising(Adv mode, const std::string& name, const std::vector<peers:
     for (const peers::Key& k : keys) wl.push_back(addrOf(k));
     if (rc == 0) rc = ble_gap_wl_set(wl.data(), static_cast<uint8_t>(wl.size()));
     p.disc_mode = BLE_GAP_DISC_MODE_NON;
-    p.itvl_min = kBondedItvlMin;
-    p.itvl_max = kBondedItvlMax;
+    p.itvl_min = fast ? kWantedItvlMin : kBondedItvlMin;
+    p.itvl_max = fast ? kWantedItvlMax : kBondedItvlMax;
     p.filter_policy = BLE_HCI_ADV_FILT_BOTH;
   }
   if (rc == 0) rc = ble_gap_adv_start(t_ownAddrType, nullptr, BLE_HS_FOREVER, &p, onGap, nullptr);
@@ -353,13 +363,15 @@ void reconcile() {
   }
 
   const Adv want = advertising(enabled, pairing, keys.size(), connected, hasGuest, mode, wanted.has_value());
-  const bool same = want == t_adv && name == t_advName && accept == t_advKeys;
+  const bool fast = wanted.has_value();
+  const bool same = want == t_adv && name == t_advName && accept == t_advKeys && fast == t_advFast;
   if (same && (want == Adv::Off || ble_gap_adv_active())) return;
   if (ble_gap_adv_active()) ble_gap_adv_stop();
   t_adv = Adv::Off;
   if (want == Adv::Off) return;
-  if (startAdvertising(want, name, accept) == 0) {
+  if (startAdvertising(want, name, accept, fast) == 0) {
     t_adv = want;
+    t_advFast = fast;
     t_advName = name;
     t_advKeys = accept;
   } else {
@@ -634,11 +646,21 @@ void onEncrypted(uint16_t conn, int status) {
   }
   if (!d.sec_state.bonded) return;
   ESP_LOGI(TAG, "%s %s", fresh ? "paired" : renewal ? "renewed keys of" : "reconnected", formatAddr(k.addr).c_str());
+  ble_gap_upd_params up{};
+  up.itvl_min = kConnItvlMin;
+  up.itvl_max = kConnItvlMax;
+  up.latency = 0;
+  up.supervision_timeout = kConnTimeout;
+  if (const int prc = ble_gap_update_params(conn, &up); prc != 0) ESP_LOGW(TAG, "connection parameters: %d", prc);
+  const bool named = !peers::get(k).name.empty();
   peers::seen(k, unixNow());
   refreshBonds();
-  // The host's own name ("Hasan's iPad") for the device list in the app.
-  const int rc = ble_gattc_read_by_uuid(conn, 1, 0xFFFF, &kUuidDeviceName.u, onPeerName, nullptr);
-  if (rc != 0) ESP_LOGW(TAG, "reading the host's name failed: %d", rc);
+  // The host's own name ("Hasan's iPad") for the device list in the app: once, so a
+  // reconnect does not queue a GATT search ahead of the keys about to be typed.
+  if (fresh || renewal || !named) {
+    const int rc = ble_gattc_read_by_uuid(conn, 1, 0xFFFF, &kUuidDeviceName.u, onPeerName, nullptr);
+    if (rc != 0) ESP_LOGW(TAG, "reading the host's name failed: %d", rc);
+  }
   reconcile();
 }
 

@@ -27,6 +27,9 @@ using api::Target;
 constexpr int64_t kExpiryMs = 60000;
 constexpr int64_t kFlashMs = 1500;  // Success/Error LED after a finished action
 constexpr int64_t kBlinkMs = 150;   // "nothing to do" acknowledgement
+// A press made while the armed action's Bluetooth host is still connecting is
+// kept this long: the host usually connects a moment later (SPEC §8.1).
+constexpr int64_t kConnectLatchMs = 3000;
 
 // Sequence: an auto-type sequence (SPEC §10.4). Probe: the Layout Doctor's
 // keyboard check (SPEC §10.3).
@@ -217,9 +220,13 @@ class Machine {
   void dropSessionItems();
 
   // Whether the armed action's Bluetooth host is connected and ready. Until it
-  // is, a short press does nothing (the action stays armed) and expiry
+  // is, a short press types nothing (the action stays armed) and expiry
   // reports no_host instead of expired.
   void setLinkReady(bool ready);
+  // A short press made while connecting, once the host is ready within
+  // kConnectLatchMs of it: Effect::Run as if pressed now, once. Else Effect::None
+  // (and a press older than that is forgotten).
+  Decision takeLatchedPress();
   // USB host presence (enumerated and not suspended), polled by the runtime.
   // Each connection gets a new number; a USB action armed while one was up is
   // bound to it and ends with host_changed as soon as that connection ends,
@@ -261,6 +268,8 @@ class Machine {
   bool takeSlotLocked(const std::string& owner, int64_t now, bool presence);
   // Records how the item with this serial ended, for track().
   void finishedLocked(uint32_t serial, bool presence, Code code, OpCode opCode, bool superseded = false);
+  // Hands the armed type action to the caller (Effect::Run) and frees the slot.
+  void runLocked(Decision& d);
   void lastLocked(const TypeRequest& req, Code code, int64_t at, bool superseded = false);
   uint32_t nextSerialLocked();
   // A new requestId for the item `serial` of `owner`, remembered for trackRequest().
@@ -289,6 +298,7 @@ class Machine {
   int64_t committedAt_ = 0;  // when the last commit finished
   bool typing_ = false;
   bool linkReady_ = false;
+  int64_t latchedAt_ = 0;  // a press while connecting (0 = none), for takeLatchedPress()
   bool usbMounted_ = false;
   uint32_t usbSession_ = 0;
   std::optional<Op> running_;

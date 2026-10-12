@@ -403,9 +403,15 @@ the same "prepare → press the button" flow. USB stays the default.
   connected, so by default Keyra neither advertises nor holds a link while idle:
   - When a type action is armed for a Bluetooth host, Keyra advertises with the
     filter accept list holding only that host until it connects (`state.host.connecting`).
-  - A short press types only once the host is connected; before that it is
-    ignored and the action stays armed. If it never connects within the 60 s
+  - A short press types only once the host is connected. A press made while
+    it is still connecting is kept for 3 s (0.4.3+): if the host is ready by
+    then, Keyra types as if pressed at that moment; otherwise the press is
+    forgotten and the action stays armed. If it never connects within the 60 s
     expiry, the result is `no_host`.
+  - While an action waits for its host, Keyra advertises to that host every
+    20–30 ms (100–150 ms otherwise), so a phone's background scan finds it
+    within about a second; once encrypted it asks for an 11.25–30 ms
+    connection interval (no latency, 4 s supervision timeout).
   - After typing (any result) Keyra keeps the link ~20 s so a quick second
     action reuses it, then disconnects. Cancel, expiry, replacement and lock
     end it at once. A host that has just paired is also kept ~20 s.
@@ -466,7 +472,8 @@ Wi-Fi.
 - API (session):
   - `GET /api/wifi/scan` → `{networks:[{ssid, rssi, secure, channel}]}` (sorted by rssi, hidden/empty SSIDs dropped; the scan may stall the AP for ~2 s)
   - `PUT /api/wifi/home` `{enabled, ssid?, password?}` → 202 presence op
-  - `GET /api/state` → `net:{ap:{on, ssid, clients}, home:{enabled, connected, ssid, ip, rssi}|null, via:"ap"|"home"}` (`via` = how this request arrived).
+  - `GET /api/state` → `net:{ap:{on, ssid, clients}, home:{enabled, connected, ssid, ip, rssi, error, lastReason, drops, channel?}|null, via:"ap"|"home"}` (`via` = how this request arrived). Diagnostics (0.4.3+): `lastReason` = ESP-IDF `wifi_err_reason_t` of the last failed join or lost link since boot (0 = none; e.g. 201 not found, 15/204 handshake timeout, 200 beacon timeout), `drops` = times a working link was lost since boot, `channel` = the home channel while connected.
+- **Rejoining.** Keyra alone decides when to join: 2 s after a failure, doubling up to 30 s while the network is missing, the link was lost or a join timed out (a router or mesh node rebooting is rejoined within 30 s of coming back), and up to 2 min after the network refused the password. 802.11k/v are on, so a mesh can steer Keyra to a closer node. With home Wi-Fi on, Keyra transmits at up to 17 dBm (13 dBm with only its own AP, to spare weak USB ports); its own AP uses 20 MHz.
 - mDNS `keyra.local` + `_http._tcp` on both interfaces. The Host check accepts
   `keyra.local`, the AP IP and the current home IP. The catch-all DNS and the
   captive-probe answers apply only on the AP.

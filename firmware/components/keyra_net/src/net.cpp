@@ -84,6 +84,8 @@ uint32_t g_ip = 0;
 HomeError g_homeError = HomeError::None;  // net task only; published in g_status
 int g_rssi = 0;
 bool g_sntp = false;
+uint16_t g_lastReason = 0;
+uint32_t g_drops = 0;
 
 esp_err_t apConfig(const Config& c, uint8_t channel, wifi_config_t& out) {
   const size_t ssidLen = c.ssid.size(), passLen = c.password.size();
@@ -118,6 +120,10 @@ esp_err_t staConfig(const Home& h, wifi_config_t& out) {
   out.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
   out.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
   out.sta.failure_retry_cnt = 0;  // retries and backoff belong to Link
+  // 802.11k/v: a mesh (Deco, Orbi, eero) steers Keyra to a closer node instead of
+  // dropping it when it is far from the one it joined.
+  out.sta.rm_enabled = 1;
+  out.sta.btm_enabled = 1;
   return ESP_OK;
 }
 
@@ -195,8 +201,10 @@ void handle(const Msg& m, int64_t now) {
       break;
     case Ev::Disconnected: {
       const bool wasUp = g_link.up(), wasTrying = g_link.attempting();
-      g_link.disconnected(now);
+      g_link.disconnected(now, homeErrorFor(m.reason) == HomeError::WrongPassword);
+      if (wasUp || wasTrying) g_lastReason = m.reason;
       if (wasUp && !g_link.up()) {
+        ++g_drops;
         ESP_LOGW(TAG, "home network lost (reason %u); retrying", m.reason);
       } else if (wasTrying && !g_link.attempting()) {
         g_homeError = homeErrorFor(m.reason);
@@ -223,11 +231,18 @@ void setApOn(bool on) {
 // The phone or computer Keyra sits next to needs no range, and full power (20 dBm) draws
 // current peaks a phone's USB port cannot always supply: the voltage dips, the brownout
 // detector resets Keyra, and the host sees the keyboard come and go. 13 dBm halves the peak.
-constexpr int8_t kMaxTxPowerQdbm = 52;  // units of 0.25 dBm
+// A home router is further away and hears 13 dBm badly (retries, slow rates, dropped
+// joins), so with home Wi-Fi on Keyra sends at 17 dBm: 4 dB more, still below full power.
+constexpr int8_t kApOnlyTxPowerQdbm = 52;  // units of 0.25 dBm
+constexpr int8_t kHomeTxPowerQdbm = 68;
 
 void limitTxPower() {
-  const esp_err_t err = esp_wifi_set_max_tx_power(kMaxTxPowerQdbm);
+  const esp_err_t err = esp_wifi_set_max_tx_power(g_home.enabled ? kHomeTxPowerQdbm : kApOnlyTxPowerQdbm);
   if (err != ESP_OK) ESP_LOGW(TAG, "set_max_tx_power: %s", esp_err_to_name(err));
+  // HT20 on Keyra's own AP: it shares the radio with the home link and Bluetooth,
+  // and a 40 MHz AP on the home channel only adds interference. Fails harmlessly
+  // while the AP interface is off.
+  esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW20);
 }
 
 // Restarts the driver with new AP credentials: the path proven on hardware for
@@ -277,7 +292,10 @@ bool applyHome(const Home& h, int64_t now) {
   g_link.configure(h.enabled, h.apMode, rejoin, now);
   if (!g_link.up()) g_ip = 0;
   if (rejoin || !h.enabled) g_homeError = HomeError::None;  // a new network or password: no verdict yet
+  if (rejoin) g_lastReason = 0;
+  const bool powerChanged = h.enabled != g_home.enabled;
   g_home = h;
+  if (powerChanged) limitTxPower();
   ESP_LOGI(TAG, "home Wi-Fi %s%s%s, Keyra's own Wi-Fi: %s", h.enabled ? "on: \"" : "off", h.enabled ? h.ssid.c_str() : "",
            h.enabled ? "\"" : "", h.apMode == ApMode::Always ? "always" : "fallback");
   return true;
@@ -366,7 +384,8 @@ void checkLink(int64_t now) {
     g_rssi = ap.rssi;
   } else if (err == ESP_ERR_WIFI_NOT_CONNECT) {
     ESP_LOGW(TAG, "home network gone without an event");
-    g_link.disconnected(now);
+    g_link.lostWithoutEvent(now);
+    ++g_drops;
     g_ip = 0;
   }
 }
@@ -380,6 +399,9 @@ void publish() {
   g_status.homeIp = g_link.up() && g_ip ? toString(g_ip) : std::string();
   g_status.rssi = g_link.up() ? g_rssi : 0;
   g_status.homeError = g_home.enabled && !g_link.up() ? g_homeError : HomeError::None;
+  g_status.lastReason = g_lastReason;
+  g_status.drops = g_drops;
+  g_status.channel = g_link.up() ? g_homeChannel : 0;
 }
 
 void netTask(void*) {

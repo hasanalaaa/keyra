@@ -63,6 +63,10 @@ void addState(cJSON* state, net::Via via) {
     }
     static constexpr const char* kErr[] = {"", "wrong_password", "not_found", "failed"};
     cJSON_AddStringToObject(h, "error", kErr[static_cast<int>(st.homeError)]);
+    // Why the home link failed or dropped, so "router or Keyra?" has an answer (SPEC §8.2).
+    cJSON_AddNumberToObject(h, "lastReason", st.lastReason);
+    cJSON_AddNumberToObject(h, "drops", st.drops);
+    if (st.homeConnected) cJSON_AddNumberToObject(h, "channel", st.channel);
   } else {
     cJSON_AddNullToObject(n, "home");
   }

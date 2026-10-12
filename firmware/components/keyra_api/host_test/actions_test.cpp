@@ -374,6 +374,41 @@ void netOps() {
   CHECK(std::string(opName(Op::TrustBrowser)) == "trust_browser");
 }
 
+// SPEC §8.1: a press made while the host connects types once it is ready, within
+// kConnectLatchMs; later, or after the action ended, it does nothing.
+void pressWhileConnectingTypesWhenReady() {
+  auto m = make();
+  TypeRequest r = req(22);
+  r.target = {Target::Kind::Ble, {0xA4, 0xC1, 0x38, 0x0B, 0x7F, 0x3A}};
+  m.arm(r, "s");
+  CHECK(m.takeLatchedPress().effect == Effect::None);  // nothing pressed yet
+  CHECK(m.onButton(Button::Short, true, g_now).effect == Effect::Blink);
+  CHECK(m.takeLatchedPress().effect == Effect::None);  // still connecting
+  g_now += kConnectLatchMs - 1;
+  m.setLinkReady(true);
+  Decision d = m.takeLatchedPress();
+  CHECK(d.effect == Effect::Run && d.run.target == r.target);
+  CHECK(m.takeLatchedPress().effect == Effect::None);  // once
+  m.typingFinished(d.run, Code::Typed);
+
+  // Too late: the press is forgotten and the action stays armed.
+  m.setLinkReady(false);
+  m.arm(r, "s");
+  m.onButton(Button::Short, true, g_now);
+  g_now += kConnectLatchMs + 1;
+  m.setLinkReady(true);
+  CHECK(m.takeLatchedPress().effect == Effect::None);
+  CHECK(m.pending().has_value());
+
+  // Cancelled meanwhile: nothing runs.
+  m.setLinkReady(false);
+  m.arm(r, "s");
+  m.onButton(Button::Short, true, g_now);
+  CHECK(withdrew(m.cancel("s", nullptr)));
+  m.setLinkReady(true);
+  CHECK(m.takeLatchedPress().effect == Effect::None);
+}
+
 // On demand: the action waits for its Bluetooth host before a press types.
 void bluetoothTargetWaitsForLink() {
   auto m = make();
@@ -881,6 +916,7 @@ int main() {
   pairingIndicatorYields();
   netOps();
   bluetoothTargetWaitsForLink();
+  pressWhileConnectingTypesWhenReady();
   names();
   armedActionPinsTheEntry();
   return KEYRA_TEST_RESULT();

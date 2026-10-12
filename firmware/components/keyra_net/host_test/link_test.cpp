@@ -9,14 +9,44 @@ namespace {
 
 constexpr int64_t kSec = 1000;
 
-void backoffDoublesFrom2sTo5min() {
-  CHECK_EQ(retryDelayMs(0), 2 * kSec);
-  CHECK_EQ(retryDelayMs(1), 2 * kSec);
-  CHECK_EQ(retryDelayMs(2), 4 * kSec);
-  CHECK_EQ(retryDelayMs(3), 8 * kSec);
-  CHECK_EQ(retryDelayMs(8), 256 * kSec);
-  CHECK_EQ(retryDelayMs(9), 300 * kSec);
-  CHECK_EQ(retryDelayMs(50), 300 * kSec);
+void backoffDoublesFrom2sToItsCap() {
+  CHECK_EQ(retryDelayMs(0, Link::kMaxRetryMs), 2 * kSec);
+  CHECK_EQ(retryDelayMs(1, Link::kMaxRetryMs), 2 * kSec);
+  CHECK_EQ(retryDelayMs(2, Link::kMaxRetryMs), 4 * kSec);
+  CHECK_EQ(retryDelayMs(3, Link::kMaxRetryMs), 8 * kSec);
+  CHECK_EQ(retryDelayMs(5, Link::kMaxRetryMs), 30 * kSec);
+  CHECK_EQ(retryDelayMs(50, Link::kMaxRetryMs), 30 * kSec);
+  CHECK_EQ(retryDelayMs(6, Link::kMaxRefusedRetryMs), 64 * kSec);
+  CHECK_EQ(retryDelayMs(50, Link::kMaxRefusedRetryMs), 120 * kSec);
+}
+
+// A router or mesh node rebooting (minutes of "not found"): Keyra is back within
+// 30 s of it, not after a 5-minute wait; a refused password waits longer.
+void routerRebootIsRejoinedWithin30s() {
+  Link l;
+  int64_t t = 0;
+  l.boot(true, ApMode::Always, t);
+  CHECK(l.tick(t, false).connect);
+  l.connected(t += kSec);
+  const int64_t down = t += 10 * kSec;
+  l.disconnected(down);
+  const int64_t back = down + 4 * 60 * kSec;  // the router answers again
+  int64_t joined = 0;
+  for (t = down; t < back + 5 * 60 * kSec && joined == 0; t += 250) {
+    if (!l.tick(t, false).connect) continue;
+    if (t < back) l.disconnected(t + 3 * kSec);  // not found yet
+    else joined = t;
+  }
+  CHECK(joined != 0 && joined - back <= Link::kMaxRetryMs);
+
+  Link r;
+  r.boot(true, ApMode::Always, 0);
+  for (int i = 0; i < 12; ++i) {
+    t = r.nextAttemptAt();
+    CHECK(r.tick(t, false).connect);
+    r.disconnected(t + 100, true);
+  }
+  CHECK_EQ(r.nextAttemptAt() - (t + 100), Link::kMaxRefusedRetryMs);
 }
 
 void disabledNeverJoinsAndKeepsApOn() {
@@ -214,7 +244,8 @@ void changingNetworkWhileApOffBringsItBackIfTheNewOneFails() {
 }  // namespace
 
 int main() {
-  backoffDoublesFrom2sTo5min();
+  backoffDoublesFrom2sToItsCap();
+  routerRebootIsRejoinedWithin30s();
   disabledNeverJoinsAndKeepsApOn();
   retriesFollowTheScheduleAndResetOnSuccess();
   attemptTimeoutAbortsOnceAndLateEventIsNotDoubleCounted();
