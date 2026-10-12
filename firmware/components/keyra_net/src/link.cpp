@@ -38,6 +38,11 @@ void Link::configure(bool enabled, ApMode mode, bool rejoin, int64_t now) {
   if (!up_) apDueAt_ = now + kLostGraceMs;
 }
 
+void Link::associated(int64_t now) {
+  // tick() aborts at attemptAt_ + kAttemptTimeoutMs: that is now + kDhcpTimeoutMs.
+  if (attempting_) attemptAt_ = now - (kAttemptTimeoutMs - kDhcpTimeoutMs);
+}
+
 void Link::connected(int64_t now) {
   if (!enabled_) return;
   up_ = true;

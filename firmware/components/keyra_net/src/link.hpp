@@ -20,8 +20,14 @@ class Link {
   // soon after it. A refused password backs off further: it rarely fixes itself.
   static constexpr int64_t kMaxRetryMs = 30 * 1000;
   static constexpr int64_t kMaxRefusedRetryMs = 2 * 60 * 1000;
-  // A join that has produced neither an IP nor a failure by then is abandoned.
-  static constexpr int64_t kAttemptTimeoutMs = 20000;
+  // A join that has produced neither an IP nor a failure by then is abandoned:
+  // first the scan and association (an all-channel scan shares the radio with
+  // Bluetooth and took ~20 s on a real board), then, from the association on, as
+  // kDhcpTimeoutMs for DHCP (a working network answers in ~2 s; a mesh node that
+  // never does is then skipped, net.cpp). One 20 s budget for both used to cut a
+  // joined link seconds before its address arrived, over and over.
+  static constexpr int64_t kAttemptTimeoutMs = 30000;
+  static constexpr int64_t kDhcpTimeoutMs = 12000;
   // apMode fallback: AP comes back after the home network has been unavailable
   // this long (boot: not joined yet; later: link lost).
   static constexpr int64_t kBootGraceMs = 30000;
@@ -40,6 +46,7 @@ class Link {
   // enabled), so a fresh join starts now with the backoff reset. When a join or
   // link was live, the caller disconnects it and the resulting event is ignored.
   void configure(bool enabled, ApMode mode, bool rejoin, int64_t now);
+  void associated(int64_t now);    // joined the access point; DHCP still to come
   void connected(int64_t now);     // got an IP
   // Attempt failed or link lost; `refused`: the network turned the password down.
   void disconnected(int64_t now, bool refused = false);

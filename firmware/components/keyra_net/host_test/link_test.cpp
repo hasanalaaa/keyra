@@ -20,6 +20,27 @@ void backoffDoublesFrom2sToItsCap() {
   CHECK_EQ(retryDelayMs(50, Link::kMaxRefusedRetryMs), 120 * kSec);
 }
 
+// The scan and association take most of the budget; DHCP then gets a full one of
+// its own instead of being cut off seconds before the address arrives.
+void dhcpGetsItsOwnTimeAfterAssociation() {
+  Link l;
+  l.boot(true, ApMode::Always, 0);
+  CHECK(l.tick(0, false).connect);
+  const int64_t joined = Link::kAttemptTimeoutMs - 2 * kSec;  // a slow scan
+  l.associated(joined);
+  CHECK(!l.tick(joined + Link::kDhcpTimeoutMs - 1, false).abort);  // DHCP still running
+  l.connected(joined + 10 * kSec);
+  CHECK(l.up());
+  CHECK_EQ(l.failures(), 0);
+  // Associated but no address at all: abandoned after a full budget from the association.
+  Link n;
+  n.boot(true, ApMode::Always, 0);
+  n.tick(0, false);
+  n.associated(5 * kSec);
+  CHECK(!n.tick(5 * kSec + Link::kDhcpTimeoutMs - 1, false).abort);
+  CHECK(n.tick(5 * kSec + Link::kDhcpTimeoutMs, false).abort);
+}
+
 // A router or mesh node rebooting (minutes of "not found"): Keyra is back within
 // 30 s of it, not after a 5-minute wait; a refused password waits longer.
 void routerRebootIsRejoinedWithin30s() {
@@ -246,6 +267,7 @@ void changingNetworkWhileApOffBringsItBackIfTheNewOneFails() {
 int main() {
   backoffDoublesFrom2sToItsCap();
   routerRebootIsRejoinedWithin30s();
+  dhcpGetsItsOwnTimeAfterAssociation();
   disabledNeverJoinsAndKeepsApOn();
   retriesFollowTheScheduleAndResetOnSuccess();
   attemptTimeoutAbortsOnceAndLateEventIsNotDoubleCounted();

@@ -110,7 +110,7 @@ CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT=y
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 
 
-# Wi-Fi and TCP (0.4.3): 802.11k/v so a mesh can steer Keyra to a closer node;
+# Wi-Fi and TCP (0.4.3): 802.11k/v support (only v is used, net.cpp) so a mesh can steer Keyra to a closer node;
 # a TCP window of 12 segments and a larger Wi-Fi receive window so an update
 # downloads several times faster; mDNS answers at the same priority as httpd.
 CONFIG_ESP_WIFI_11KV_SUPPORT=y

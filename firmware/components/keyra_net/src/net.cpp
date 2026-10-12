@@ -49,6 +49,7 @@ struct Msg {
   uint32_t ip = 0;  // GotIp, host order
   uint8_t channel = 0;
   uint16_t reason = 0;
+  uint8_t bssid[6] = {};  // StaConnected
 };
 
 struct ScanJob {
@@ -86,6 +87,15 @@ int g_rssi = 0;
 bool g_sntp = false;
 uint16_t g_lastReason = 0;
 uint32_t g_drops = 0;
+// A mesh node that lets Keyra associate but never hands out an address (seen on
+// a TP-Link Deco: no data at all through one node, DHCP in 2 s through another)
+// is skipped for a while; the next join pins the strongest other node.
+constexpr int64_t kAvoidMs = 10 * 60 * 1000;
+bool g_associated = false;  // the current attempt reached the AP, no IP yet
+uint8_t g_bssid[6] = {};    // of that association
+uint8_t g_avoid[6] = {};
+int64_t g_avoidUntil = 0;
+bool g_pinned = false;      // the station config names a BSSID now
 
 esp_err_t apConfig(const Config& c, uint8_t channel, wifi_config_t& out) {
   const size_t ssidLen = c.ssid.size(), passLen = c.password.size();
@@ -120,9 +130,10 @@ esp_err_t staConfig(const Home& h, wifi_config_t& out) {
   out.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
   out.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
   out.sta.failure_retry_cnt = 0;  // retries and backoff belong to Link
-  // 802.11k/v: a mesh (Deco, Orbi, eero) steers Keyra to a closer node instead of
-  // dropping it when it is far from the one it joined.
-  out.sta.rm_enabled = 1;
+  // 802.11v: a mesh (Deco, Orbi, eero) steers Keyra to a closer node instead of
+  // dropping it when it is far from the one it joined. 802.11k stays off: a Deco
+  // asks for beacon reports every few seconds, and each one is an off-channel scan
+  // that steals airtime from the home link and Bluetooth.
   out.sta.btm_enabled = 1;
   return ESP_OK;
 }
@@ -149,7 +160,9 @@ void onEvent(void*, esp_event_base_t base, int32_t id, void* data) {
   if (base == WIFI_EVENT && id == WIFI_EVENT_STA_CONNECTED) {
     addLinkLocal(g_staNetif, "home");
     m.ev = Ev::StaConnected;
-    m.channel = static_cast<const wifi_event_sta_connected_t*>(data)->channel;
+    const auto* c = static_cast<const wifi_event_sta_connected_t*>(data);
+    m.channel = c->channel;
+    std::memcpy(m.bssid, c->bssid, sizeof m.bssid);
   } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
     m.ev = Ev::Disconnected;
     m.reason = static_cast<const wifi_event_sta_disconnected_t*>(data)->reason;
@@ -188,10 +201,14 @@ void handle(const Msg& m, int64_t now) {
   switch (m.ev) {
     case Ev::Wake: break;
     case Ev::StaConnected:
+      g_link.associated(now);
+      g_associated = true;
+      std::memcpy(g_bssid, m.bssid, sizeof g_bssid);
       g_homeChannel = m.channel;
       ESP_LOGI(TAG, "joined the home network on channel %u", m.channel);
       break;
     case Ev::GotIp:
+      g_associated = false;
       g_link.connected(now);
       if (!g_link.up()) break;  // home Wi-Fi was disabled meanwhile
       g_ip = m.ip;
@@ -200,6 +217,7 @@ void handle(const Msg& m, int64_t now) {
       startSntpOnce();
       break;
     case Ev::Disconnected: {
+      g_associated = false;
       const bool wasUp = g_link.up(), wasTrying = g_link.attempting();
       g_link.disconnected(now, homeErrorFor(m.reason) == HomeError::WrongPassword);
       if (wasUp || wasTrying) g_lastReason = m.reason;
@@ -288,6 +306,8 @@ bool applyHome(const Home& h, int64_t now) {
       return false;
     }
     g_homeChannel = 0;
+    g_pinned = false;  // a new network: no node is known to be bad
+    g_avoidUntil = 0;
   }
   g_link.configure(h.enabled, h.apMode, rejoin, now);
   if (!g_link.up()) g_ip = 0;
@@ -375,6 +395,47 @@ void runScanIfDue() {
   xSemaphoreGive(job->done);
 }
 
+void avoidCurrentNode(int64_t now) {
+  std::memcpy(g_avoid, g_bssid, sizeof g_avoid);
+  g_avoidUntil = now + kAvoidMs;
+  ESP_LOGW(TAG, "access point %02x:%02x:%02x:%02x:%02x:%02x gave no address; trying the others for %lld min", g_avoid[0],
+           g_avoid[1], g_avoid[2], g_avoid[3], g_avoid[4], g_avoid[5], kAvoidMs / 60000);
+}
+
+// Before a join: while a node is being avoided, name the strongest other access
+// point of the home network in the station config; otherwise let the driver pick
+// the strongest one as usual.
+void pinNode(int64_t now) {
+  const bool avoiding = g_avoidUntil != 0 && now < g_avoidUntil;
+  if (!avoiding && !g_pinned) return;
+  wifi_config_t wc;
+  if (staConfig(g_home, wc) != ESP_OK) return;
+  if (avoiding) {
+    wifi_scan_config_t sc = {};
+    sc.ssid = wc.sta.ssid;
+    if (esp_wifi_scan_start(&sc, true) == ESP_OK) {
+      uint16_t n = 0;
+      esp_wifi_scan_get_ap_num(&n);
+      n = std::min(n, kMaxScanRecords);
+      std::vector<wifi_ap_record_t> recs(n);
+      if (n > 0 && esp_wifi_scan_get_ap_records(&n, recs.data()) == ESP_OK) {
+        const wifi_ap_record_t* best = nullptr;
+        for (uint16_t i = 0; i < n; ++i) {
+          if (std::memcmp(recs[i].bssid, g_avoid, sizeof g_avoid) == 0) continue;
+          if (!best || recs[i].rssi > best->rssi) best = &recs[i];
+        }
+        if (best) {
+          wc.sta.bssid_set = true;
+          std::memcpy(wc.sta.bssid, best->bssid, sizeof wc.sta.bssid);
+          wc.sta.channel = best->primary;
+        }
+      }
+      esp_wifi_clear_ap_list();
+    }
+  }
+  if (esp_wifi_set_config(WIFI_IF_STA, &wc) == ESP_OK) g_pinned = wc.sta.bssid_set;
+}
+
 // Detects a link that vanished without a DISCONNECTED event and samples RSSI.
 void checkLink(int64_t now) {
   if (!g_link.up()) return;
@@ -419,9 +480,12 @@ void netTask(void*) {
     const Link::Plan plan = g_link.tick(now, scanWaiting());
     if (plan.abort) {
       ESP_LOGW(TAG, "joining the home network timed out; next try in %lld s", (g_link.nextAttemptAt() - now + 999) / 1000);
+      if (g_associated) avoidCurrentNode(now);
+      g_associated = false;
       esp_wifi_disconnect();
     }
     if (plan.connect) {
+      pinNode(now);
       const esp_err_t err = esp_wifi_connect();
       if (err != ESP_OK) {
         ESP_LOGE(TAG, "connect: %s", esp_err_to_name(err));

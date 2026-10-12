@@ -8,13 +8,23 @@ All notable changes to Keyra are documented here. The format follows
 
 ### Fixed
 
+- **Home Wi-Fi often failed to connect.** A join had 20 s in all, but with
+  Bluetooth on, the all-channel scan alone took about 20 s, so Keyra often
+  joined the router and then cut the link itself seconds before DHCP gave it
+  an address, again and again. The scan and association now get 30 s, and
+  DHCP 12 s of its own from the association.
+- **A mesh node that gives no address is skipped.** On the owner's TP-Link
+  Deco one node let Keyra join but passed no traffic at all, while another
+  gave it an address in 2 s; Keyra kept choosing the first (strongest) one.
+  Now a node that associates without an address is avoided for 10 minutes and
+  the next join names the strongest other node of the same network.
 - **Home Wi-Fi rejoins quickly.** After a router or mesh node reboot Keyra
   looked again only every 5 minutes (a doubling backoff); now at most every
   30 s while the network is missing or the link was lost, and 2 minutes after
   a refused password.
 - **Home Wi-Fi range.** With home Wi-Fi on, Keyra transmits at up to 17 dBm
   instead of 13 dBm (kept at 13 dBm with only its own Wi-Fi, for weak USB
-  ports), so the router hears it reliably. 802.11k/v are on, so a mesh can
+  ports), so the router hears it reliably. 802.11v is on, so a mesh can
   steer it to a closer node; its own Wi-Fi uses 20 MHz to leave room for the
   home link and Bluetooth.
 - **Update check.** A failed connection to GitHub is retried once after 1 s
