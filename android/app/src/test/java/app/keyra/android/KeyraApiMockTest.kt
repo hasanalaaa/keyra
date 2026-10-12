@@ -7,6 +7,7 @@ import app.keyra.android.api.KeyraApi
 import app.keyra.android.api.State
 import app.keyra.android.api.What
 import app.keyra.android.api.requestIdOf
+import app.keyra.android.match.newBond
 import org.json.JSONArray
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -167,6 +168,52 @@ class KeyraApiMockTest {
         val saved = api.entries().first { it.id == id }
         assertEquals("Example app", saved.title)
         assertEquals("com.example.app", saved.host)
+    }
+
+    // SPEC §17 targets and ble/pair: the app lists where Keyra types, pairs this phone after a
+    // press, and sends the chosen host with each request.
+    @Test
+    fun targetsPairingAndTypingIntoAChosenPhone() {
+        val before = api.targets()
+        assertTrue(before.ble)
+        assertFalse(before.pairingActive)
+        assertFalse("closed window", mock.pairDevice("Pixel 9"))
+
+        val armed = api.pairBle()
+        assertTrue(armed.requestId!!.matches(Regex("^[0-9a-f]{32}$")))
+        assertFalse(api.targets().pairingActive) // only after the press
+        mock.press()
+        Thread.sleep(300) // the press is handled asynchronously
+        assertTrue("window opens after the press", api.targets().pairingActive)
+        assertTrue(mock.pairDevice("Pixel 9"))
+        val phone = newBond(before.bonds, api.targets().bonds)
+        assertNotNull(phone)
+        assertEquals("Pixel 9", phone!!.name)
+
+        // A second token of the same app: each token has 10 requests per 10 s (SPEC §17).
+        val typer = KeyraApi(mock.base, mock.createToken("app"))
+        val id = typer.entries().first { it.host == "github.com" }.id
+        val typing = typer.type(id, What.PASSWORD, phone.addr)
+        assertEquals(State.ARMED, typer.status(typing.requestId).state)
+        typer.cancel(typing.requestId)
+        expectError("not_found", 404) { typer.type(id, What.PASSWORD, "AA:BB:CC:DD:EE:FF") }
+        expectError("invalid", 400) { typer.type(id, What.PASSWORD, "the phone") }
+    }
+
+    @Test
+    fun pairingCanBeWithdrawnBeforeThePress() {
+        val armed = api.pairBle()
+        api.cancel(armed.requestId)
+        mock.press()
+        Thread.sleep(200)
+        assertFalse(api.targets().pairingActive)
+    }
+
+    @Test
+    fun agentTokenCannotListOrPairDevices() {
+        val agent = KeyraApi(mock.base, mock.createToken("agent"))
+        expectError("forbidden", 403) { agent.targets() }
+        expectError("forbidden", 403) { agent.pairBle() }
     }
 
     @Test

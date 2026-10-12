@@ -51,8 +51,8 @@ class AesGcmBox(private val key: () -> SecretKey) : SecretBox {
 data class Pin(val key: String, val entryId: Long, val title: String)
 
 /**
- * Everything the app keeps: Keyra's address, the access token (sealed) and remembered
- * app/site → login choices. Never a password, a username or anything else from the vault.
+ * Everything the app keeps: Keyra's address, the access token (sealed), remembered
+ * app/site → login choices and where to type. Never a password, a username or anything else from the vault.
  */
 class AppStore(private val kv: KeyValueStore, private val box: SecretBox) {
     var address: String?
@@ -75,6 +75,16 @@ class AppStore(private val kv: KeyValueStore, private val box: SecretBox) {
         set(v) = kv.put(K_TOKEN, v?.let { Base64.getEncoder().encodeToString(box.seal(it.toByteArray(Charsets.UTF_8))) })
 
     val configured: Boolean get() = address != null && kv.get(K_TOKEN) != null
+
+    /** Where the app's own typing goes: "usb", a bond address, or null = Keyra's own choice. */
+    var target: String?
+        get() = kv.get(K_TARGET)
+        set(v) = kv.put(K_TARGET, v)
+
+    /** The bond address of this phone on Keyra (chosen by the user): where autofill types. */
+    var phone: String?
+        get() = kv.get(K_PHONE)
+        set(v) = kv.put(K_PHONE, v)
 
     fun pins(): List<Pin> {
         val o = kv.get(K_PINS)?.let(::JSONObject) ?: return emptyList()
@@ -100,12 +110,14 @@ class AppStore(private val kv: KeyValueStore, private val box: SecretBox) {
 
     /** Forgets everything (Settings → Disconnect). */
     fun clear() {
-        listOf(K_ADDRESS, K_TOKEN, K_PINS).forEach { kv.put(it, null) }
+        listOf(K_ADDRESS, K_TOKEN, K_PINS, K_TARGET, K_PHONE).forEach { kv.put(it, null) }
     }
 
     private companion object {
         const val K_ADDRESS = "address"
         const val K_TOKEN = "token"
         const val K_PINS = "pins"
+        const val K_TARGET = "target"
+        const val K_PHONE = "phone"
     }
 }

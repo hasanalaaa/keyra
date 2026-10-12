@@ -48,6 +48,10 @@ class MockKeyra private constructor(private val process: Process, val port: Int)
         check(c.first == 200) { "button: ${c.first} ${c.second}" }
     }
 
+    /** A phone or computer pairs while Keyra's pairing window is open; false when it is closed. */
+    fun pairDevice(name: String): Boolean =
+        request("POST", "/__mock/ble", JSONObject().put("pair", name), session = false).first == 200
+
     /** A browser session arms its own typing, to make Keyra busy for the token. */
     fun armFromBrowser(id: Long) {
         val c = request("POST", "/api/type", JSONObject().put("id", id).put("what", "password"))

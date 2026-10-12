@@ -6,6 +6,23 @@ All notable changes to Keyra are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Where to type, for apps (SPEC §17).** `GET /api/agent/targets` lists where
+  a type action can go (USB, Bluetooth, the default, the pairing window and the
+  paired devices), and `POST /api/agent/ble/pair` opens Bluetooth pairing after
+  a press, like the web app. App and extension tokens only; agent tokens get
+  403. Nothing changes for existing clients.
+
+### Changed
+
+- **Android app 0.4.0, rebuilt.** Jetpack Compose with Material 3, in Arabic
+  and English, light and dark. A "Types into" card chooses Keyra's own choice,
+  the computer on USB, this phone or another Bluetooth device, sent with each
+  request; "Pair this phone" walks through the pairing. Autofill now types into
+  this phone only, never into a computer on USB (which is what Keyra's default
+  did while it was plugged in, so autofill seemed to type nowhere).
+
 ## [0.4.1] - 2026-10-12
 
 Highlights:

@@ -1,124 +1,91 @@
 package app.keyra.android.ui
 
-import android.app.Activity
-import android.app.AlertDialog
 import android.content.Intent
 import android.os.Bundle
-import android.text.Editable
-import android.text.TextWatcher
-import android.view.Menu
-import android.view.MenuItem
-import android.view.View
-import android.widget.Button
-import android.widget.EditText
-import android.widget.ListView
-import android.widget.TextView
-import app.keyra.android.Keyra
-import app.keyra.android.R
-import app.keyra.android.api.Entry
-import app.keyra.android.api.What
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import app.keyra.android.store.appStore
 
-/** The logins this token can use; tap one to have Keyra type it after a press. */
-class MainActivity : Activity() {
-    private lateinit var adapter: EntryAdapter
-    private lateinit var message: TextView
-    private lateinit var retry: Button
-    private var loaded = false
+/** The whole app in one activity: accounts, settings (and the connection), generator. */
+class MainActivity : ComponentActivity() {
+    /** A token shared to the app as text (e.g. copied from the camera's QR scanner). */
+    private var shared by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
-        fitSystemBars(findViewById(R.id.root))
-        adapter = EntryAdapter(this)
-        message = findViewById(R.id.message)
-        retry = findViewById(R.id.retry)
-        retry.setOnClickListener { load() }
-        val list = findViewById<ListView>(R.id.list)
-        list.adapter = adapter
-        list.setOnItemClickListener { _, _, position, _ -> choose(adapter.getItem(position)) }
-        findViewById<EditText>(R.id.search).addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-            override fun afterTextChanged(s: Editable?) {
-                adapter.filter(s?.toString().orEmpty())
-                showEmptyState()
-            }
-        })
+        shared = sharedToken(intent)
+        setContent { KeyraTheme { KeyraApp(shared) { shared = null } } }
     }
 
-    override fun onResume() {
-        super.onResume()
-        if (!appStore(this).configured) {
-            startActivity(Intent(this, SetupActivity::class.java))
-            finish()
-            return
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        sharedToken(intent)?.let { shared = it }
+    }
+
+    private fun sharedToken(intent: Intent?): String? {
+        if (intent?.action != Intent.ACTION_SEND) return null
+        return TOKEN_IN_TEXT.find(intent.getStringExtra(Intent.EXTRA_TEXT) ?: return null)?.value
+    }
+
+    private companion object {
+        val TOKEN_IN_TEXT = Regex("keyra_[a-z2-7]{32}")
+    }
+}
+
+enum class Screen { HOME, SETTINGS, CONNECT, GENERATOR }
+
+@Composable
+fun KeyraApp(sharedToken: String?, consumeShared: () -> Unit) {
+    val store = appStore(LocalContext.current)
+    var screen by remember { mutableStateOf(if (store.configured) Screen.HOME else Screen.CONNECT) }
+    // Bumped when the connection changes, so the accounts load again.
+    var generation by remember { mutableIntStateOf(0) }
+    LaunchedEffect(sharedToken) { if (sharedToken != null) screen = Screen.CONNECT }
+
+    BackHandler(enabled = screen != Screen.HOME && store.configured) {
+        consumeShared()
+        screen = Screen.HOME
+    }
+    AnimatedContent(targetState = screen, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "screen") { s ->
+        when (s) {
+            Screen.HOME -> HomeScreen(
+                generation = generation,
+                openSettings = { screen = Screen.SETTINGS },
+                openGenerator = { screen = Screen.GENERATOR },
+            )
+            Screen.SETTINGS -> SettingsScreen(
+                back = { screen = Screen.HOME },
+                changeConnection = { screen = Screen.CONNECT },
+                disconnected = {
+                    generation++
+                    screen = Screen.CONNECT
+                },
+            )
+            Screen.CONNECT -> ConnectScreen(
+                sharedToken = sharedToken,
+                back = if (store.configured) ({ consumeShared(); screen = Screen.HOME }) else null,
+                saved = {
+                    consumeShared()
+                    generation++
+                    screen = Screen.HOME
+                },
+            )
+            Screen.GENERATOR -> GeneratorScreen(back = { screen = Screen.HOME })
         }
-        if (!loaded) load()
-    }
-
-    override fun onCreateOptionsMenu(menu: Menu): Boolean {
-        menuInflater.inflate(R.menu.main, menu)
-        return true
-    }
-
-    override fun onOptionsItemSelected(item: MenuItem): Boolean = when (item.itemId) {
-        R.id.action_refresh -> load().let { true }
-        R.id.action_generate -> startActivity(Intent(this, GenerateActivity::class.java)).let { true }
-        R.id.action_settings -> {
-            loaded = false
-            startActivity(Intent(this, SetupActivity::class.java))
-            true
-        }
-        else -> super.onOptionsItemSelected(item)
-    }
-
-    private fun load() {
-        val api = try {
-            Keyra.api(this)
-        } catch (_: java.security.GeneralSecurityException) {
-            show(getString(R.string.err_token_unreadable), canRetry = false)
-            return
-        } ?: return
-        show(getString(R.string.loading), canRetry = false)
-        Keyra.async({ api.entries() }) { r ->
-            if (isDestroyed) return@async
-            r.onSuccess {
-                loaded = true
-                adapter.set(it)
-                showEmptyState()
-            }.onFailure { show(Keyra.message(this, it), canRetry = true) }
-        }
-    }
-
-    private fun show(text: String, canRetry: Boolean) {
-        message.text = text
-        message.visibility = View.VISIBLE
-        retry.visibility = if (canRetry) View.VISIBLE else View.GONE
-    }
-
-    private fun showEmptyState() {
-        retry.visibility = View.GONE
-        when {
-            adapter.total == 0 -> show(getString(R.string.empty_list), canRetry = false)
-            adapter.count == 0 -> show(getString(R.string.no_results), canRetry = false)
-            else -> message.visibility = View.GONE
-        }
-    }
-
-    private fun choose(e: Entry) {
-        val options = listOf(
-            What.USERNAME to R.string.type_username,
-            What.PASSWORD to R.string.type_password,
-            What.BOTH to R.string.type_both,
-            What.TOTP to R.string.type_totp,
-        )
-        AlertDialog.Builder(this)
-            .setTitle(getString(R.string.type_dialog_title, e.title))
-            .setItems(options.map { getString(it.second) }.toTypedArray()) { _, which ->
-                startActivity(ArmActivity.intent(this, e, options[which].first))
-            }
-            .setNegativeButton(R.string.cancel, null)
-            .show()
     }
 }

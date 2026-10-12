@@ -1,6 +1,7 @@
 package app.keyra.android
 
-import android.widget.ListView
+import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -12,6 +13,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -21,6 +23,9 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class SmokeTest {
+    @get:Rule
+    val compose = createEmptyComposeRule()
+
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
     private val args = InstrumentationRegistry.getArguments()
     private val url: String? = args.getString("keyraUrl")
@@ -58,14 +63,8 @@ class SmokeTest {
         val store = appStore(context)
         store.address = url
         store.token = token
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            var count = 0
-            repeat(50) {
-                scenario.onActivity { count = it.findViewById<ListView>(R.id.list).adapter.count }
-                if (count > 0) return@use
-                Thread.sleep(200)
-            }
-            assertTrue("no logins shown", count > 0)
+        ActivityScenario.launch(MainActivity::class.java).use {
+            compose.waitUntil(10_000) { compose.onAllNodesWithText("GitHub").fetchSemanticsNodes().isNotEmpty() }
         }
     }
 }

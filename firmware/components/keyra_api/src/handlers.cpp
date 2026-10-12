@@ -1333,15 +1333,7 @@ esp_err_t sendPairRefusal(httpd_req_t* r, ble::PairResult res) {
   return http::sendError(r, http::k503, "ble_unavailable", "Bluetooth is not available");
 }
 
-esp_err_t postBlePair(Ctx& c) {
-  const ble::PairResult now = ble::canPair();
-  if (now != ble::PairResult::Ok) return sendPairRefusal(c.r, now);
-  return sendAwaitingButton(c.r, machine().awaitPresence(actions::Op::BlePair, [] {
-    const bool ok = ble::openPairing() == ble::PairResult::Ok;
-    if (ok) activity::log(activity::Kind::BlePairing);
-    return ok;
-  }, c.token));
-}
+esp_err_t postBlePair(Ctx& c) { return typereq::pairBle(c.r, c.token); }
 
 // Saves (or, with Unknown, drops) a bond's operating system.
 esp_err_t saveBleOs(const ble::Addr& addr, hostos::Os os) {
@@ -1497,6 +1489,8 @@ esp_err_t dispatch(Ctx& c) {
     case Route::AgentCancel:
     case Route::AgentSave:
     case Route::AgentMatch:
+    case Route::AgentTargets:
+    case Route::AgentBlePair:
     case Route::AgentGenerate: return agent::dispatch(c.r, c.match.route, *c.bearer, c.body.get());
     case Route::ListTags: return tagapi::listTags(c.r);
     case Route::CreateTag: return tagapi::createTag(c.r, c.body.get(), c.token);
@@ -1587,6 +1581,35 @@ void addPending(cJSON* po, const actions::Pending& p) {
   if (by.empty()) by = tagapi::ownerName(p.owner);
   if (!by.empty()) cJSON_AddStringToObject(po, "by", by.c_str());
   if (!p.req.host.empty()) cJSON_AddStringToObject(po, "host", p.req.host.c_str());
+}
+
+esp_err_t pairBle(httpd_req_t* r, const std::string& owner) {
+  const ble::PairResult now = ble::canPair();
+  if (now != ble::PairResult::Ok) return sendPairRefusal(r, now);
+  return sendAwaitingButton(r, machine().awaitPresence(actions::Op::BlePair, [] {
+    const bool ok = ble::openPairing() == ble::PairResult::Ok;
+    if (ok) activity::log(activity::Kind::BlePairing);
+    return ok;
+  }, owner), actions::opName(actions::Op::BlePair));
+}
+
+void addTargets(cJSON* o) {
+  const settings::Settings s = settings::get();
+  const ble::Status st = ble::status();
+  cJSON_AddBoolToObject(o, "usb", hid::mounted());
+  cJSON_AddBoolToObject(o, "ble", st.enabled);
+  addTarget(o, "default", defaultTarget(s, st));
+  cJSON* pairing = cJSON_AddObjectToObject(o, "pairing");
+  cJSON_AddBoolToObject(pairing, "active", st.pairing);
+  cJSON_AddNumberToObject(pairing, "expiresIn", static_cast<double>(st.pairingLeftMs));
+  cJSON* bonds = cJSON_AddArrayToObject(o, "bonds");
+  for (const ble::Peer& p : st.bonds) {
+    cJSON* b = cJSON_CreateObject();
+    addPeer(b, p);
+    cJSON_AddBoolToObject(b, "connected", st.connected && st.connected->addr == p.addr);
+    cJSON_AddStringToObject(b, "os", hostos::name(hostos::get(s.osBle, p.addr)));
+    cJSON_AddItemToArray(bonds, b);
+  }
 }
 
 }  // namespace typereq

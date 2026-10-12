@@ -163,6 +163,8 @@ Match matchDecoded(Method m, std::string_view path) {
   if (p == "agent/save") return only(m, Method::Post, Route::AgentSave);
   if (p == "agent/generate") return only(m, Method::Post, Route::AgentGenerate);
   if (p == "agent/match") return only(m, Method::Post, Route::AgentMatch);
+  if (p == "agent/targets") return only(m, Method::Get, Route::AgentTargets);
+  if (p == "agent/ble/pair") return only(m, Method::Post, Route::AgentBlePair);
   if (p == "wifi/scan") return only(m, Method::Get, Route::WifiScan);
   if (p == "wifi/home") return only(m, Method::Put, Route::WifiHome);
   if (p == "trusted") return only(m, Method::Get, Route::ListTrusted);
@@ -198,7 +200,8 @@ Match matchDecoded(Method m, std::string_view path) {
 
 bool isAgent(Route r) {
   return r == Route::AgentEntries || r == Route::AgentType || r == Route::AgentStatus || r == Route::AgentCancel ||
-         r == Route::AgentSave || r == Route::AgentGenerate || r == Route::AgentMatch;
+         r == Route::AgentSave || r == Route::AgentGenerate || r == Route::AgentMatch || r == Route::AgentTargets ||
+         r == Route::AgentBlePair;
 }
 
 bool isTagTap(Route r) { return r == Route::TagTap || r == Route::TagStatus; }

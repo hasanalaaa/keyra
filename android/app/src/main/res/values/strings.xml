@@ -131,4 +131,51 @@
     </plurals>
     <string name="save_button">Save to Keyra</string>
     <string name="err_title_required">Enter a title.</string>
+
+    <!-- 0.4: Compose app, where to type, pairing -->
+    <string name="state_superseded">A newer request replaced this one. Nothing was typed.</string>
+    <string name="types_into">Types into</string>
+    <string name="target_auto">Keyra decides</string>
+    <string name="target_auto_detail">USB when a computer is plugged in, otherwise the last Bluetooth device</string>
+    <string name="target_usb">Computer (USB)</string>
+    <string name="target_usb_on">Plugged in now</string>
+    <string name="target_usb_off">Not plugged in now</string>
+    <string name="target_phone">This phone</string>
+    <string name="target_bluetooth">Bluetooth device</string>
+    <string name="target_connected">Connected now</string>
+    <string name="target_paired">Paired</string>
+    <string name="targets_title">Where should Keyra type?</string>
+    <string name="targets_old_firmware">Update Keyra to 0.4.2 or later to choose a Bluetooth device here.</string>
+    <string name="targets_ble_off">Bluetooth is turned off on Keyra. Turn it on in Keyra\'s web app to type into a phone.</string>
+    <string name="targets_unreachable">Could not ask Keyra for its devices.</string>
+    <string name="mark_phone">This is my phone</string>
+    <string name="mark_phone_done">Marked as this phone</string>
+    <string name="pair_phone">Pair this phone with Keyra</string>
+    <string name="pair_title">Pair this phone</string>
+    <string name="pair_intro">Keyra types into this phone as a Bluetooth keyboard. First press Keyra\'s button to let a new device pair, then choose Keyra in this phone\'s Bluetooth settings.</string>
+    <string name="pair_start">Start pairing</string>
+    <string name="pair_press_hint">Keyra opens pairing for 2 minutes after the press.</string>
+    <string name="pair_open_settings">Open Bluetooth settings</string>
+    <string name="pair_waiting">In Bluetooth settings, tap \"Keyra\" and confirm. This screen notices the new pairing by itself.</string>
+    <string name="pair_done">This phone is paired. Keyra now types into it.</string>
+    <string name="pair_timeout">No new device paired in time. Try again.</string>
+    <string name="hint_auto">Put the cursor in the field on the device Keyra types into, then press the button.</string>
+    <string name="hint_usb">Put the cursor in the field on the computer, then press Keyra\'s button.</string>
+    <string name="hint_phone">Open the app or site, tap the field, then press Keyra\'s button. Keyra types here as a keyboard.</string>
+    <string name="hint_ble">Put the cursor in the field on %1$s, then press Keyra\'s button.</string>
+    <string name="home_title">Accounts</string>
+    <string name="home_offline">Keyra can\'t be reached</string>
+    <string name="settings_connection">Connection</string>
+    <string name="settings_change_connection">Change address or token</string>
+    <string name="settings_phone">This phone</string>
+    <string name="settings_phone_none">Not chosen yet. Autofill types into this phone only after you choose it under \"Where should Keyra type?\".</string>
+    <string name="settings_phone_set">Keyra types into this phone as \"%1$s\".</string>
+    <string name="settings_autofill">Autofill</string>
+    <string name="settings_privacy">Privacy</string>
+    <string name="settings_version">Version %1$s</string>
+    <string name="af_no_phone">Choose this phone in Keyra\'s app first (Accounts → Types into → This is my phone), so Keyra types here and not into a computer.</string>
+    <string name="setup_welcome">Welcome to Keyra</string>
+    <string name="back">Back</string>
+    <string name="search_clear">Clear search</string>
+    <string name="account_open">Choose what Keyra types</string>
 </resources>

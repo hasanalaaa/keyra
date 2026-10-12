@@ -1,121 +1,158 @@
 package app.keyra.android.autofill
 
-import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
-import android.text.Editable
-import android.text.TextWatcher
-import android.view.View
-import android.view.WindowManager
-import android.widget.CheckBox
-import android.widget.EditText
-import android.widget.ListView
-import android.widget.ProgressBar
-import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextDirection
+import androidx.compose.ui.unit.dp
 import app.keyra.android.Keyra
 import app.keyra.android.R
 import app.keyra.android.api.Entry
-import app.keyra.android.api.KeyraApi
 import app.keyra.android.api.What
 import app.keyra.android.match.Target
 import app.keyra.android.store.appStore
-import app.keyra.android.ui.EntryAdapter
-import app.keyra.android.ui.fitSystemBars
+import app.keyra.android.ui.KeyraTheme
+import app.keyra.android.ui.MainActivity
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.security.GeneralSecurityException
 
 /**
  * Opened when an autofill suggestion is chosen. It never returns a value to the form: it asks
- * Keyra to arm typing and closes, so the field the user was in gets focus back and Keyra types
- * into it after the button press. In "pick" mode the user first chooses the login.
+ * Keyra to arm typing into this phone and closes, so the field the user was in gets focus back
+ * and Keyra types into it as a Bluetooth keyboard after the button press. In "pick" mode the
+ * user first chooses the login. Until this phone is chosen in the app nothing is armed: Keyra's
+ * own choice would usually be a computer on USB.
  */
-class AutofillAuthActivity : Activity() {
-    private lateinit var progress: ProgressBar
-    private lateinit var message: TextView
-    private var api: KeyraApi? = null
-
+class AutofillAuthActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_autofill)
-        fitSystemBars(findViewById(R.id.root))
         setResult(RESULT_CANCELED) // nothing is ever filled by the system
-        progress = findViewById(R.id.progress)
-        message = findViewById(R.id.message)
-        findViewById<View>(R.id.close).setOnClickListener { finish() }
         if (savedInstanceState != null) return finish()
-
-        api = try {
-            Keyra.api(this)
-        } catch (_: GeneralSecurityException) {
-            return fail(getString(R.string.err_token_unreadable))
-        } ?: return fail(getString(R.string.not_set_up))
-
+        val store = appStore(this)
+        val phone = store.phone
+        val apiResult = runCatching { Keyra.api(this) }
+        val api = apiResult.getOrNull()
+        val problem = when {
+            apiResult.exceptionOrNull() is GeneralSecurityException -> getString(R.string.err_token_unreadable)
+            api == null -> getString(R.string.not_set_up)
+            phone == null -> getString(R.string.af_no_phone)
+            else -> null
+        }
         val what = What.valueOf(requireNotNull(intent.getStringExtra(EXTRA_WHAT)))
         val key = intent.getStringExtra(EXTRA_KEY)
-        if (key == null) {
-            setTitle(R.string.app_name)
-            arm(intent.getLongExtra(EXTRA_ID, 0), requireNotNull(intent.getStringExtra(EXTRA_TITLE)), what)
-        } else {
-            setTitle(R.string.pick_title)
-            pick(key, requireNotNull(intent.getStringExtra(EXTRA_LABEL)), what)
-        }
-    }
+        val label = intent.getStringExtra(EXTRA_LABEL).orEmpty()
+        val direct = if (key == null) Entry(intent.getLongExtra(EXTRA_ID, 0), intent.getStringExtra(EXTRA_TITLE).orEmpty(), "") else null
 
-    override fun onStart() {
-        super.onStart()
-        window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
-    }
+        setContent {
+            KeyraTheme {
+                var message by remember { mutableStateOf(problem) }
+                var entries by remember { mutableStateOf<List<Entry>?>(null) }
+                var arming by remember { mutableStateOf(false) }
+                var query by remember { mutableStateOf("") }
+                var rememberChoice by remember { mutableStateOf(false) }
+                var chosen by remember { mutableStateOf(direct) }
 
-    private fun arm(id: Long, title: String, what: What) {
-        val api = api ?: return
-        progress.visibility = View.VISIBLE
-        message.setText(R.string.arming)
-        Keyra.async({ api.type(id, what) }) { r ->
-            if (isDestroyed) return@async
-            r.onSuccess {
-                Toast.makeText(applicationContext, getString(R.string.af_armed, title), Toast.LENGTH_LONG).show()
-                finish()
-            }.onFailure { fail(Keyra.message(this, it)) }
-        }
-    }
+                LaunchedEffect(chosen) {
+                    val e = chosen ?: return@LaunchedEffect
+                    if (problem != null || api == null || phone == null) return@LaunchedEffect
+                    if (key != null && rememberChoice) store.pin(key, e.id, e.title)
+                    arming = true
+                    message = getString(R.string.arming)
+                    try {
+                        withContext(Dispatchers.IO) { api.type(e.id, what, phone) }
+                        Toast.makeText(applicationContext, getString(R.string.af_armed, e.title), Toast.LENGTH_LONG).show()
+                        finish()
+                    } catch (err: Exception) {
+                        message = Keyra.message(this@AutofillAuthActivity, err)
+                        arming = false
+                    }
+                }
+                LaunchedEffect(Unit) {
+                    if (key == null || problem != null || api == null) return@LaunchedEffect
+                    try {
+                        entries = withContext(Dispatchers.IO) { api.entries() }.sortedBy { it.title.lowercase() }
+                    } catch (err: Exception) {
+                        message = Keyra.message(this@AutofillAuthActivity, err)
+                    }
+                }
 
-    private fun pick(key: String, label: String, what: What) {
-        val api = api ?: return
-        val adapter = EntryAdapter(this)
-        val remember = findViewById<CheckBox>(R.id.remember)
-        remember.text = getString(R.string.af_remember, label)
-        remember.contentDescription = remember.text
-        val list = findViewById<ListView>(R.id.list)
-        list.adapter = adapter
-        list.setOnItemClickListener { _, _, position, _ ->
-            val e: Entry = adapter.getItem(position)
-            if (remember.isChecked) appStore(this).pin(key, e.id, e.title)
-            findViewById<View>(R.id.pick_panel).visibility = View.GONE
-            arm(e.id, e.title, what)
+                Surface(Modifier.fillMaxSize()) {
+                    Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(stringResource(if (key != null) R.string.pick_title else R.string.app_name), style = MaterialTheme.typography.headlineSmall)
+                        if (arming) CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
+                        message?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
+                        if (phone == null && api != null) {
+                            Button(onClick = {
+                                startActivity(Intent(this@AutofillAuthActivity, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                                finish()
+                            }) { Text(stringResource(R.string.pair_phone)) }
+                        }
+                        val list = entries
+                        if (key != null && list != null && !arming) {
+                            OutlinedTextField(
+                                value = query,
+                                onValueChange = { query = it },
+                                placeholder = { Text(stringResource(R.string.search_hint)) },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth().toggleable(value = rememberChoice, role = Role.Checkbox) { rememberChoice = it },
+                            ) {
+                                Checkbox(checked = rememberChoice, onCheckedChange = null)
+                                Text(stringResource(R.string.af_remember, label), modifier = Modifier.padding(start = 8.dp))
+                            }
+                            if (list.isEmpty()) Text(stringResource(R.string.empty_list))
+                            val q = query.trim().lowercase()
+                            LazyColumn(Modifier.weight(1f)) {
+                                items(list.filter { q.isEmpty() || q in it.title.lowercase() || q in it.host }, key = { it.id }) { e ->
+                                    ListItem(
+                                        headlineContent = { Text(e.title) },
+                                        supportingContent = { Text(e.host, style = MaterialTheme.typography.bodyMedium.copy(textDirection = TextDirection.Ltr)) },
+                                        modifier = Modifier.clickable { chosen = e },
+                                    )
+                                }
+                            }
+                        }
+                        TextButton(onClick = { finish() }, modifier = Modifier.align(Alignment.End)) { Text(stringResource(R.string.close)) }
+                    }
+                }
+            }
         }
-        findViewById<EditText>(R.id.search).addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-            override fun afterTextChanged(s: Editable?) = adapter.filter(s?.toString().orEmpty())
-        })
-        progress.visibility = View.VISIBLE
-        message.setText(R.string.loading)
-        Keyra.async({ api.entries() }) { r ->
-            if (isDestroyed) return@async
-            r.onSuccess {
-                adapter.set(it)
-                progress.visibility = View.GONE
-                message.text = if (it.isEmpty()) getString(R.string.empty_list) else ""
-                findViewById<View>(R.id.pick_panel).visibility = View.VISIBLE
-            }.onFailure { fail(Keyra.message(this, it)) }
-        }
-    }
-
-    private fun fail(text: String) {
-        progress.visibility = View.GONE
-        message.text = text
     }
 
     companion object {

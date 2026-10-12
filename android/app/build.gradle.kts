@@ -3,6 +3,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
@@ -13,8 +14,8 @@ android {
         applicationId = "app.keyra.android"
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.3.0"
+        versionCode = 2
+        versionName = "0.4.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -32,6 +33,11 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
+
     lint {
         warningsAsErrors = false
         abortOnError = true
@@ -46,11 +52,22 @@ kotlin {
 }
 
 dependencies {
-    // No runtime dependencies beyond the Kotlin standard library: the UI is framework Views.
+    // Jetpack Compose with Material 3 (Material You colors on Android 12+). R8 strips what is unused.
+    val composeBom = platform("androidx.compose:compose-bom:2025.08.00")
+    implementation(composeBom)
+    implementation("androidx.activity:activity-compose:1.10.1")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.2")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
     // The platform's org.json is a stub in JVM unit tests; this is the real one.
     testImplementation("org.json:json:20260814")
 
+    androidTestImplementation(composeBom)
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
 }

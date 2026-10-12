@@ -45,6 +45,21 @@ private val REQUEST_ID_RE = Regex("^[0-9a-f]{32}$")
 /** A requestId as Keyra hands them out; anything else is dropped. */
 fun requestIdOf(s: String?): String? = s?.takeIf { REQUEST_ID_RE.matches(it) }
 
+/** A Bluetooth host Keyra is paired with (SPEC §8.1). */
+data class Bond(val addr: String, val name: String, val connected: Boolean)
+
+/**
+ * GET /api/agent/targets (SPEC §17, firmware 0.4.2+): where Keyra can type. [default] is what a
+ * request without a target uses: "usb", a bond address, or null when nothing can take it.
+ */
+data class Targets(
+    val usb: Boolean,
+    val ble: Boolean,
+    val default: String?,
+    val pairingActive: Boolean,
+    val bonds: List<Bond>,
+)
+
 data class GenerateOptions(
     val length: Int = 20,
     val lower: Boolean = true,
@@ -88,11 +103,31 @@ class KeyraApi(
         }
     }
 
-    /** Arms typing; Keyra then waits for the press. */
-    fun type(id: Long, what: What): Armed {
+    /** Arms typing into [target] ("usb" or a bond address; null = Keyra's own choice); Keyra then waits for the press. */
+    fun type(id: Long, what: What, target: String? = null): Armed {
         val body = JSONObject().put("id", id).put("what", what.wire)
+        if (target != null) body.put("target", target)
         return answer { armed(call("POST", "type", body)) }
     }
+
+    /** Where Keyra can type. Firmware before 0.4.2 answers [ApiException] `not_found`. */
+    fun targets(): Targets = answer {
+        val o = call("GET", "targets")
+        val list = o.getJSONArray("bonds")
+        Targets(
+            usb = o.getBoolean("usb"),
+            ble = o.getBoolean("ble"),
+            default = o.optStringOrNull("default"),
+            pairingActive = o.optJSONObject("pairing")?.optBoolean("active") == true,
+            bonds = (0 until list.length()).map { i ->
+                val b = list.getJSONObject(i)
+                Bond(b.getString("addr"), b.optString("name", ""), b.optBoolean("connected"))
+            },
+        )
+    }
+
+    /** Asks Keyra to open Bluetooth pairing; it opens after a press of its button (120 s). */
+    fun pairBle(): Armed = answer { armed(call("POST", "ble/pair")) }
 
     /** With [requestId]: that request of this token; without: its newest one (as before 0.4.1). */
     fun status(requestId: String? = null): AgentStatus = answer {

@@ -1,25 +1,46 @@
 package app.keyra.android.autofill
 
-import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
-import android.view.View
 import android.view.WindowManager
-import android.widget.Button
-import android.widget.EditText
-import android.widget.TextView
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextDirection
+import androidx.compose.ui.unit.dp
 import app.keyra.android.Keyra
 import app.keyra.android.R
-import app.keyra.android.api.AgentStatus
 import app.keyra.android.api.KeyraApi
 import app.keyra.android.match.HostMatcher
 import app.keyra.android.match.Target
+import app.keyra.android.ui.KeyraTheme
+import app.keyra.android.ui.Press
 import app.keyra.android.ui.PressPanel
-import app.keyra.android.ui.PressWaiter
-import app.keyra.android.ui.ResultMessages
-import app.keyra.android.ui.fitSystemBars
-import app.keyra.android.ui.statusText
+import app.keyra.android.ui.cancelPress
+import app.keyra.android.ui.runPress
+import kotlinx.coroutines.launch
 import java.security.GeneralSecurityException
 
 /**
@@ -27,105 +48,93 @@ import java.security.GeneralSecurityException
  * (and the intent that opened it); they are sent to Keyra once and Keyra stores them only
  * after its button is pressed. Nothing is written on the phone.
  */
-class SaveActivity : Activity(), PressWaiter.Listener {
-    private lateinit var panel: PressPanel
+class SaveActivity : ComponentActivity() {
     private var username = ""
     private var password = ""
-    private var url = ""
-    private var waiter: PressWaiter? = null
-    private var requestId: String? = null // of the request waiting for the press (SPEC §12.6a)
-    private var api: KeyraApi? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        setContentView(R.layout.activity_save)
-        fitSystemBars(findViewById(R.id.root))
-        setTitle(R.string.save_title)
-        panel = PressPanel(findViewById(R.id.root))
-        panel.panel.visibility = View.GONE
-        panel.button.setOnClickListener { finish() }
         // Rebuilt after the process died: the values are gone on purpose.
         if (savedInstanceState != null) return finish()
-
         username = intent.getStringExtra(EXTRA_USERNAME).orEmpty()
         password = intent.getStringExtra(EXTRA_PASSWORD).orEmpty()
-        url = intent.getStringExtra(EXTRA_URL).orEmpty()
         intent.removeExtra(EXTRA_PASSWORD)
-        findViewById<EditText>(R.id.title).setText(intent.getStringExtra(EXTRA_TITLE))
-        findViewById<TextView>(R.id.url).text = url
-        findViewById<TextView>(R.id.username).text = username
-        findViewById<TextView>(R.id.password_info).text = resources.getQuantityString(R.plurals.field_password, password.length, password.length)
-        findViewById<Button>(R.id.dismiss).setOnClickListener { finish() }
-        findViewById<Button>(R.id.save).setOnClickListener { save() }
-        api = try {
-            Keyra.api(this)
-        } catch (_: GeneralSecurityException) {
-            return formError(getString(R.string.err_token_unreadable))
-        } ?: return formError(getString(R.string.not_set_up))
+        val url = intent.getStringExtra(EXTRA_URL).orEmpty()
+        val initialTitle = intent.getStringExtra(EXTRA_TITLE).orEmpty()
+        val length = password.length
+        val apiResult: Result<KeyraApi?> = runCatching { Keyra.api(this) }
+        val setupError = when {
+            apiResult.exceptionOrNull() is GeneralSecurityException -> getString(R.string.err_token_unreadable)
+            apiResult.getOrNull() == null -> getString(R.string.not_set_up)
+            else -> null
+        }
+        val api = apiResult.getOrNull()
+
+        setContent {
+            KeyraTheme {
+                val scope = rememberCoroutineScope()
+                var title by remember { mutableStateOf(initialTitle) }
+                var error by remember { mutableStateOf(setupError) }
+                var press by remember { mutableStateOf<Press?>(null) }
+
+                Surface {
+                    Column(Modifier.verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(stringResource(R.string.save_title), style = MaterialTheme.typography.headlineSmall)
+                        val p = press
+                        if (p != null) {
+                            PressPanel(
+                                state = p,
+                                hint = stringResource(R.string.press_body_save),
+                                onCancel = {
+                                    val w = p as? Press.Waiting
+                                    if (w != null && api != null) scope.launch { cancelPress(api, w.requestId) }
+                                },
+                                onClose = { finish() },
+                            )
+                        } else {
+                            Text(stringResource(R.string.save_body), style = MaterialTheme.typography.bodyMedium)
+                            OutlinedTextField(
+                                value = title,
+                                onValueChange = { title = it },
+                                label = { Text(stringResource(R.string.field_title)) },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Labeled(stringResource(R.string.field_url), url)
+                            if (username.isNotEmpty()) Labeled(stringResource(R.string.field_username), username)
+                            Text(pluralStringResource(R.plurals.field_password, length, length), style = MaterialTheme.typography.bodyMedium)
+                            error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                TextButton(onClick = { finish() }, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.cancel)) }
+                                Button(
+                                    enabled = api != null,
+                                    modifier = Modifier.weight(1f),
+                                    onClick = {
+                                        val t = title.trim()
+                                        val a = api
+                                        if (t.isEmpty()) {
+                                            error = getString(R.string.err_title_required)
+                                        } else if (a != null) {
+                                            val u = username
+                                            val pw = password
+                                            password = "" // sent once; Keyra holds it until the press or the timeout
+                                            scope.launch { runPress(this@SaveActivity, a, { a.save(t, url, u, pw) }) { press = it } }
+                                        }
+                                    },
+                                ) { Text(stringResource(R.string.save_button)) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     override fun onDestroy() {
-        waiter?.stop()
         password = ""
         username = ""
         super.onDestroy()
-    }
-
-    private fun save() {
-        val api = api ?: return
-        val title = findViewById<EditText>(R.id.title).text.toString().trim()
-        if (title.isEmpty()) return formError(getString(R.string.err_title_required))
-        findViewById<View>(R.id.form).visibility = View.GONE
-        panel.panel.visibility = View.VISIBLE
-        panel.arming()
-        panel.button.setOnClickListener { cancel() }
-        val u = username
-        val p = password
-        Keyra.async({ api.save(title, url, u, p) }) { r ->
-            if (isDestroyed) return@async
-            password = "" // sent; Keyra holds it until the press or the timeout
-            r.onSuccess { armed ->
-                panel.waiting(R.string.press_body_save)
-                requestId = armed.requestId
-                waiter = PressWaiter(api, this, armed.requestId).also { w -> w.start(armed.expiresInMs) }
-            }.onFailure { onFinished(null, it) }
-        }
-    }
-
-    private fun cancel() {
-        val api = api ?: return finish()
-        val rid = requestId
-        Keyra.async({ api.cancel(rid) }) { r ->
-            if (isDestroyed) return@async
-            r.onFailure { onFinished(null, it) }
-        }
-    }
-
-    private fun formError(text: String) {
-        findViewById<TextView>(R.id.form_error).apply {
-            this.text = text
-            visibility = View.VISIBLE
-        }
-    }
-
-    override fun onTick(secondsLeft: Int) {
-        panel.countdown.text = resources.getQuantityString(R.plurals.seconds_left, secondsLeft, secondsLeft)
-    }
-
-    override fun onStatus(status: AgentStatus) {
-        val text = statusText(this, status)
-        if (panel.title.text != text) panel.title.text = text
-    }
-
-    override fun onRateLimited(retryAfterMs: Long) {
-        panel.title.text = ResultMessages.text(this, "rate_limited", retryAfterMs)
-    }
-
-    override fun onFinished(status: AgentStatus?, error: Throwable?) {
-        waiter?.stop()
-        panel.done(status?.let { statusText(this, it) } ?: Keyra.message(this, error ?: IllegalStateException()))
-        panel.button.setOnClickListener { finish() }
     }
 
     companion object {
@@ -144,5 +153,13 @@ class SaveActivity : Activity(), PressWaiter.Listener {
                 .putExtra(EXTRA_USERNAME, username)
                 .putExtra(EXTRA_PASSWORD, password)
         }
+    }
+}
+
+@Composable
+private fun Labeled(label: String, value: String) {
+    Column {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.bodyLarge.copy(textDirection = TextDirection.Ltr))
     }
 }

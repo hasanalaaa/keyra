@@ -1398,6 +1398,8 @@ function match(method, rawPath) {
     case 'agent/save': return one('POST', 'agentSave');
     case 'agent/generate': return one('POST', 'agentGenerate');
     case 'agent/match': return one('POST', 'agentMatch');
+    case 'agent/targets': return one('GET', 'agentTargets');
+    case 'agent/ble/pair': return one('POST', 'agentBlePair');
     case 'tags':
       return method === 'GET' ? { route: 'tags' } : method === 'POST' ? { route: 'createTag' } : { notAllowed: true };
     case 'tag/tap': return one('POST', 'tagTap');
@@ -1429,7 +1431,7 @@ function match(method, rawPath) {
 }
 
 const OPEN = new Set(['state', 'setup', 'unlock', 'unlockRecovery', 'factoryReset', 'presenceCancel', 'tagTap', 'tagStatus']);
-const AGENT = new Set(['agentEntries', 'agentType', 'agentStatus', 'agentCancel', 'agentSave', 'agentGenerate', 'agentMatch']);
+const AGENT = new Set(['agentEntries', 'agentType', 'agentStatus', 'agentCancel', 'agentSave', 'agentGenerate', 'agentMatch', 'agentTargets', 'agentBlePair']);
 const BODY = new Set(['createToken', 'createTag', 'tagTap', 'tagStatus', 'agentType', 'agentSave', 'agentGenerate', 'agentMatch', 'healthRotate', 'setup', 'unlock', 'unlockRecovery', 'create', 'update', 'import', 'type', 'generate', 'putSettings', 'passphrase', 'backup', 'restore', 'wifiHome', 'bleSetOs', 'presenceCancel']);
 
 const validPassphrase = (s) => typeof s === 'string' && [...s].length >= 10 && [...s].length <= 128;
@@ -2763,6 +2765,20 @@ async function api(req, res, path) {
       });
     }
 
+    case 'agentTargets': {
+      if (bearer.kind === 'agent') fail(403, 'forbidden', 'This token cannot list devices');
+      return send(res, 200, {
+        usb: host.usb,
+        ble: settings.bleEnabled,
+        default: targetText(pickTarget()),
+        pairing: { active: pairing(), expiresIn: pairing() ? ble.pairingUntil - Date.now() : 0 },
+        bonds: ble.bonds.map((b) => ({ addr: b.addr, name: b.name, connected: settings.bleEnabled && b.addr === ble.connected, os: b.os })),
+      });
+    }
+
+    case 'agentBlePair':
+      if (bearer.kind === 'agent') fail(403, 'forbidden', 'This token cannot pair devices');
+    // falls through: the same pairing, owned by the token
     case 'blePair': {
       if (!settings.bleEnabled) fail(409, 'ble_disabled', 'Bluetooth is turned off');
       if (ble.bonds.length >= MAX_BONDS) fail(409, 'bonds_full', 'Keyra already knows 4 devices; forget one first');

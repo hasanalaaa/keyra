@@ -189,10 +189,14 @@ void tokenRoutes() {
   CHECK(is(matchApi(Method::Post, "/api/agent/generate"), Route::AgentGenerate));
   CHECK(is(matchApi(Method::Post, "/api/agent/match"), Route::AgentMatch));
   CHECK(matchApi(Method::Get, "/api/agent/match").kind == K::MethodNotAllowed);
+  CHECK(is(matchApi(Method::Get, "/api/agent/targets"), Route::AgentTargets));
+  CHECK(is(matchApi(Method::Post, "/api/agent/ble/pair"), Route::AgentBlePair));
+  CHECK(matchApi(Method::Post, "/api/agent/targets").kind == K::MethodNotAllowed);
+  CHECK(matchApi(Method::Get, "/api/agent/ble/pair").kind == K::MethodNotAllowed);
   CHECK(matchApi(Method::Get, "/api/agent/type").kind == K::MethodNotAllowed);
   CHECK(matchApi(Method::Get, "/api/agent/entries/1").kind == K::NotFound);
   for (Route r : {Route::AgentEntries, Route::AgentType, Route::AgentStatus, Route::AgentCancel, Route::AgentSave,
-                  Route::AgentGenerate, Route::AgentMatch}) {
+                  Route::AgentGenerate, Route::AgentMatch, Route::AgentTargets, Route::AgentBlePair}) {
     CHECK(isAgent(r));
     CHECK(!needsSession(r));
     CHECK(!needsCsrf(Method::Post, r));

@@ -576,6 +576,21 @@ std::optional<Token> authenticate(httpd_req_t* r, esp_err_t& err) {
   return found;
 }
 
+// An app or extension picks the computer or phone to type into (SPEC §17):
+// bonded hosts' names stay away from AI agents, which only type.
+esp_err_t getTargets(httpd_req_t* r, const Token& t) {
+  if (!tokens::mayWrite(t)) return http::sendError(r, http::k403, "forbidden", "This token cannot list devices");
+  json::Ptr o(cJSON_CreateObject());
+  typereq::addTargets(o.get());
+  return http::sendJson(r, http::k200, o.get());
+}
+
+// Opens Bluetooth pairing like the web app does: only after a press on Keyra.
+esp_err_t postBlePair(httpd_req_t* r, const Token& t) {
+  if (!tokens::mayWrite(t)) return http::sendError(r, http::k403, "forbidden", "This token cannot pair devices");
+  return typereq::pairBle(r, tokens::owner(t.id));
+}
+
 esp_err_t dispatch(httpd_req_t* r, Route route, const Token& t, const cJSON* body) {
   switch (route) {
     case Route::AgentEntries: return listEntries(r, t);
@@ -585,6 +600,8 @@ esp_err_t dispatch(httpd_req_t* r, Route route, const Token& t, const cJSON* bod
     case Route::AgentSave: return postSave(r, t, body);
     case Route::AgentGenerate: return postGenerate(r, t, body);
     case Route::AgentMatch: return postMatch(r, t, body);
+    case Route::AgentTargets: return getTargets(r, t);
+    case Route::AgentBlePair: return postBlePair(r, t);
     default: break;
   }
   return http::sendError(r, http::k404, "not_found", "No such endpoint");

@@ -20,14 +20,6 @@ object Keyra {
     val io: ExecutorService = Executors.newCachedThreadPool()
     val main = Handler(Looper.getMainLooper())
 
-    /** Runs [work] off the main thread and hands its result back on the main thread. */
-    fun <T> async(work: () -> T, done: (Result<T>) -> Unit) {
-        io.execute {
-            val r = runCatching(work)
-            main.post { done(r) }
-        }
-    }
-
     /** The client for the stored address and token, or null when the app is not set up. */
     fun api(context: Context): KeyraApi? {
         val store = appStore(context)

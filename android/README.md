@@ -6,10 +6,17 @@ secret: it only uses the access-token API (SPEC §17, design note
 [docs/research/TOKENS.md](../docs/research/TOKENS.md)), which has no endpoint
 that returns one.
 
-- **Logins**: the titles and hosts your token may use, with search. Tap one →
-  *Type username / password / both / 2FA code* → Keyra waits up to 60 s for the
-  press, the app counts down, polls the result (`typed`, `cancelled`,
-  `expired`, `failed`) and can cancel.
+- **Logins**: the titles and hosts your token may use, with search and pull to
+  refresh. Tap one → *Type username / password / both / 2FA code* → Keyra waits
+  up to 60 s for the press, the app counts down, polls the result (`typed`,
+  `cancelled`, `expired`, `failed`, each with a plain explanation) and can cancel.
+- **Where Keyra types** (firmware 0.4.2+, `GET /api/agent/targets`): Keyra's own
+  choice, the computer on USB, or any Bluetooth device Keyra is paired with. One
+  of them is marked as *this phone* (Android does not tell apps the phone's own
+  Bluetooth address). **Pair this phone** asks Keyra to open pairing
+  (`POST /api/agent/ble/pair`, a press), opens the phone's Bluetooth settings
+  and recognises the new bond by itself. A device forgotten on Keyra falls back
+  to Keyra's own choice. Older firmware: Keyra's choice and USB only.
 - **Generate password**: Keyra's hardware generator (`/api/agent/generate`).
   The password is shown on a screen that blocks screenshots, and copying marks
   the clip sensitive and clears it after 60 s. It is not stored anywhere.
@@ -21,7 +28,9 @@ that returns one.
   "Keyra · Choose a login…". A suggestion holds **no value**: choosing it asks
   Keyra to arm (`both` from the username field, `password` from the password
   field, `username` on a username-only step), you return to the field and
-  press Keyra's button, and Keyra types as a Bluetooth/USB keyboard. Choices
+  press Keyra's button, and Keyra types into **this phone** as a Bluetooth
+  keyboard (never into a computer on USB: until this phone is chosen, nothing
+  is armed and the app says how to choose it). Choices
   made with "Choose a login…" can be remembered for that app or site; the
   picker shows the app's package next to its name, since any app can call
   itself "GitHub". Package names are never used to guess a login, and fields
@@ -31,8 +40,9 @@ that returns one.
   it only when you press its button. The values live in that screen's memory
   only.
 - English and Arabic (right-to-left), light and dark (follows the system).
-- No accessibility service, no Google Play Services, no runtime libraries
-  besides the Kotlin standard library (framework Views). The unsigned release APK is about 138 KB (138,376 bytes at 0.3.0).
+- Jetpack Compose with Material 3 (Material You colors on Android 12+). No
+  accessibility service and no Google Play Services. The unsigned release APK
+  is about 2.5 MB (2,550,597 bytes at 0.4.0).
 
 ## Build
 

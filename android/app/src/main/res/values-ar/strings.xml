@@ -147,4 +147,51 @@
     </plurals>
     <string name="save_button">احفظ في Keyra</string>
     <string name="err_title_required">أدخل عنوانًا.</string>
+
+    <!-- 0.4: Compose app, where to type, pairing -->
+    <string name="state_superseded">طلب أحدث حلّ محل هذا الطلب، فلم يُكتب شيء.</string>
+    <string name="types_into">يكتب على</string>
+    <string name="target_auto">Keyra يقرر</string>
+    <string name="target_auto_detail">USB إذا كان الكمبيوتر موصولاً، وإلا آخر جهاز بلوتوث</string>
+    <string name="target_usb">الكمبيوتر (USB)</string>
+    <string name="target_usb_on">موصول الآن</string>
+    <string name="target_usb_off">غير موصول الآن</string>
+    <string name="target_phone">هذا الهاتف</string>
+    <string name="target_bluetooth">جهاز بلوتوث</string>
+    <string name="target_connected">متصل الآن</string>
+    <string name="target_paired">مقترن</string>
+    <string name="targets_title">أين يكتب Keyra؟</string>
+    <string name="targets_old_firmware">حدّث Keyra إلى 0.4.2 أو أحدث حتى تختار جهاز بلوتوث من هنا.</string>
+    <string name="targets_ble_off">البلوتوث مطفأ في Keyra. شغّله من تطبيق Keyra على الويب حتى يكتب على الهاتف.</string>
+    <string name="targets_unreachable">تعذّر سؤال Keyra عن أجهزته.</string>
+    <string name="mark_phone">هذا هاتفي</string>
+    <string name="mark_phone_done">معلَّم كهذا الهاتف</string>
+    <string name="pair_phone">اقرن هذا الهاتف مع Keyra</string>
+    <string name="pair_title">اقرن هذا الهاتف</string>
+    <string name="pair_intro">يكتب Keyra على هذا الهاتف ككيبورد بلوتوث. اضغط أولاً زر Keyra حتى يسمح باقتران جهاز جديد، ثم اختر Keyra من إعدادات البلوتوث في هذا الهاتف.</string>
+    <string name="pair_start">ابدأ الاقتران</string>
+    <string name="pair_press_hint">بعد الضغطة يفتح Keyra الاقتران لمدة دقيقتين.</string>
+    <string name="pair_open_settings">افتح إعدادات البلوتوث</string>
+    <string name="pair_waiting">في إعدادات البلوتوث اضغط «Keyra» ووافق. هذه الشاشة تكتشف الاقتران الجديد وحدها.</string>
+    <string name="pair_done">اقترن هذا الهاتف. صار Keyra يكتب عليه.</string>
+    <string name="pair_timeout">لم يقترن أي جهاز جديد في الوقت المحدد. حاول مرة أخرى.</string>
+    <string name="hint_auto">ضع المؤشر في الحقل على الجهاز الذي يكتب عليه Keyra، ثم اضغط الزر.</string>
+    <string name="hint_usb">ضع المؤشر في الحقل على الكمبيوتر، ثم اضغط زر Keyra.</string>
+    <string name="hint_phone">افتح التطبيق أو الموقع، واضغط على الحقل، ثم اضغط زر Keyra. يكتب Keyra هنا ككيبورد.</string>
+    <string name="hint_ble">ضع المؤشر في الحقل على %1$s، ثم اضغط زر Keyra.</string>
+    <string name="home_title">الحسابات</string>
+    <string name="home_offline">تعذّر الوصول إلى Keyra</string>
+    <string name="settings_connection">الاتصال</string>
+    <string name="settings_change_connection">تغيير العنوان أو الرمز</string>
+    <string name="settings_phone">هذا الهاتف</string>
+    <string name="settings_phone_none">لم يُختر بعد. الملء التلقائي يكتب على هذا الهاتف فقط بعد أن تختاره من «أين يكتب Keyra؟».</string>
+    <string name="settings_phone_set">يكتب Keyra على هذا الهاتف باسم «%1$s».</string>
+    <string name="settings_autofill">الملء التلقائي</string>
+    <string name="settings_privacy">الخصوصية</string>
+    <string name="settings_version">الإصدار %1$s</string>
+    <string name="af_no_phone">اختر هذا الهاتف أولاً في تطبيق Keyra (الحسابات ← يكتب على ← هذا هاتفي)، حتى يكتب Keyra هنا وليس على كمبيوتر.</string>
+    <string name="setup_welcome">أهلاً بك في Keyra</string>
+    <string name="back">رجوع</string>
+    <string name="search_clear">مسح البحث</string>
+    <string name="account_open">اختر ما يكتبه Keyra</string>
 </resources>

@@ -24,7 +24,7 @@ enum class Route {
   Update, UpdateCheck, UpdateDownload, UpdateApply,
   // Access tokens (SPEC §17): managed by a session, used with a bearer token.
   ListTokens, CreateToken, DeleteToken,
-  AgentEntries, AgentType, AgentStatus, AgentCancel, AgentSave, AgentGenerate, AgentMatch,
+  AgentEntries, AgentType, AgentStatus, AgentCancel, AgentSave, AgentGenerate, AgentMatch, AgentTargets, AgentBlePair,
   // NFC tap tags (SPEC §18): managed by a session; tapped by anyone holding the tag.
   ListTags, CreateTag, DeleteTag, TagTap, TagStatus,
 };
