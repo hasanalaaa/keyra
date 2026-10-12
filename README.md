@@ -55,10 +55,9 @@ Keyra is a convenience-and-isolation device, not a magic shield. Read the [secur
   <img src="docs/brand/readme/how-it-works-light.svg" width="100%" alt="Plug in, pick an account on your phone, press the button, it types">
 </picture>
 
-<p align="center">
-  <a href="docs/images/press.mp4"><img src="docs/images/press.jpg" width="100%" alt="A finger presses Keyra's button while its light ring glows blue"></a>
-  <br><sub>▶ <a href="docs/images/press.mp4">Watch the press (8 s)</a>: blue while it waits, green once it has typed.</sub>
-</p>
+https://github.com/user-attachments/assets/99ea60c0-720a-45a1-a4e3-737aead647fd
+
+<p align="center"><sub>The press, 8 s: blue while it waits, green once it has typed. Concept render.</sub></p>
 
 1. **Plug in.** Connect Keyra's USB port to the computer. It shows up as a keyboard. (Or pair it once over Bluetooth: see below.)
 2. **Join the Wi-Fi.** On your phone, join the network **Keyra-XXXX** and open **http://keyra.local**. (No sign-in sheet pops up; see the [FAQ](#faq).)
@@ -142,6 +141,8 @@ sequenceDiagram
 Arabic (right-to-left) and English, light and dark, phone and desktop — all generated from the real app by `npm --prefix web run e2e` (every screen is in [web/screenshots](web/screenshots)).
 
 ## Security model
+
+<img src="docs/images/press.jpg" width="100%" alt="A finger presses Keyra's button while its light ring glows blue">
 
 The short version. The full threat model, cryptographic design and rate-limit schedule are in **[SECURITY.md](SECURITY.md)**.
 
