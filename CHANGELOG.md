@@ -6,6 +6,14 @@ All notable changes to Keyra are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-12
+
+Highlights:
+- Up to 5000 accounts on boards with 16 MB of flash
+- Unlocking a large vault takes about a second instead of minutes
+- The vault moves once to the unused flash, safely; a power cut never loses it
+- After the move, older firmware cannot be installed (it could not see the vault)
+
 ### Added
 
 - **5000 accounts on boards with 16 MB of flash.** The vault moves once, at
@@ -21,7 +29,7 @@ All notable changes to Keyra are documented here. The format follows
   where it was, untouched. Afterwards the old partition is erased and holds
   only a marker that any older firmware reads as `corrupt`. 8 MB boards keep
   today's layout and the limit of 1000. `GET /api/state` reports `maxEntries`.
-  That first start takes about one to five minutes longer than usual.
+  On the owner's board the move took about 6 seconds (147 steps).
 
 ### Changed
 
