@@ -84,7 +84,7 @@ sequenceDiagram
     Note over C: The computer never sees the vault
 ```
 
-**Bluetooth.** In **Settings → Bluetooth**, tap **Pair a new device** and press Keyra's button. For the next 2 minutes Keyra shows up as a keyboard in your phone's, tablet's or computer's Bluetooth settings, and its light pulses cyan; pick it there. After that, **Type into: Auto** types over USB when Keyra is plugged in and otherwise into the Bluetooth device you used last (or pick one in the account sheet). Keyra connects to it only for the action, and the Ready screen tells you which device it is.
+**Bluetooth.** In **Device → Bluetooth**, tap **Pair a new device** and press Keyra's button. For the next 2 minutes Keyra shows up as a keyboard in your phone's, tablet's or computer's Bluetooth settings, and its light pulses cyan; pick it there. After that, **Type into: Auto** types over USB when Keyra is plugged in and otherwise into the Bluetooth device you used last (or pick one in the account sheet). Keyra connects to it only for the action, and the Ready screen tells you which device it is.
 
 ## Features
 
@@ -92,8 +92,8 @@ sequenceDiagram
 |---|---|
 | **Types like a keyboard** | USB and Bluetooth keyboard. Handles Caps Lock and always releases keys, even on errors. |
 | **Any input language** | Tell Keyra each computer's system once: on Windows it types character codes that ignore the active language; on a Mac or iPhone in Arabic it switches to English, types, and switches back. |
-| **Updates over Wi-Fi** | **Settings → Firmware update** checks GitHub for a new version and installs it after a press of Keyra's button. Only firmware signed with your key is accepted, never an older version, and a version that fails to start rolls back by itself. |
-| **Passkeys and security key (USB)** | Keyra is also a FIDO2/U2F security key: create and use passkeys, or use it as a second factor, on sites that support security keys. Press the button when the light double-blinks white. Up to 50 passkeys, listed in **Settings → Passkeys**. Optional security key PIN (set from the computer), `hmac-secret` and `credProtect`; passkeys travel in encrypted backups by default. Not FIDO certified; see [docs/FIDO.md](docs/FIDO.md). |
+| **Updates over Wi-Fi** | **Device → Firmware update** checks GitHub for a new version and installs it after a press of Keyra's button. Only firmware signed with your key is accepted, never an older version, and a version that fails to start rolls back by itself. |
+| **Passkeys and security key (USB)** | Keyra is also a FIDO2/U2F security key: create and use passkeys, or use it as a second factor, on sites that support security keys. Press the button when the light double-blinks white. Up to 50 passkeys, listed in **Security → Passkeys**. Optional security key PIN (set from the computer), `hmac-secret` and `credProtect`; passkeys travel in encrypted backups by default. Not FIDO certified; see [docs/FIDO.md](docs/FIDO.md). |
 | **Browser extension (optional)** | Keyra Companion for Chrome 116+, Edge, Brave, Opera, Vivaldi and Firefox 128+: a Keyra key in login fields lists the logins for that site, warns before typing a login on another site, fills a strong password from Keyra in sign-up forms and offers **Save to Keyra?** afterwards. Connects with one press; never sees a stored password. See [extension/README.md](extension/README.md). |
 
 <details>
@@ -103,13 +103,13 @@ sequenceDiagram
 | | |
 |---|---|
 | **Delete after typing** | Mark an account to delete itself after its password is typed once (or a set number of times): one-time recovery codes and temporary passwords clean themselves up. |
-| **Activity log** | **Settings → Activity** shows unlocks, wrong passphrase attempts, locks and why, what was typed and when, backups and more. Encrypted on Keyra, never a password, and it can't be cleared from the app. |
-| **Password health** | **Settings → Password health** lists reused, weak and year-old passwords. Keyra checks them itself; only the list of accounts reaches the phone, never a password. |
+| **Activity log** | **Security → Activity** shows unlocks, wrong passphrase attempts, locks and why, what was typed and when, backups and more. Encrypted on Keyra, never a password, and it can't be cleared from the app. |
+| **Password health** | **Security → Password health** lists reused, weak and year-old passwords. Keyra checks them itself; only the list of accounts reaches the phone, never a password. |
 | **Bluetooth keyboard** | Bluetooth LE (HID over GATT) for phones, tablets and computers, with the same typing engine. Pairing only opens for 2 minutes after a button press; up to 4 devices; forget any of them from the app. |
 | **Android app (optional)** | Keyra for Android (build it from `android/`): autofill suggestions that ask Keyra to type (you still press the button), **Save to Keyra**, and a password generator. It never receives a stored password. See [android/README.md](android/README.md). |
-| **Access tokens and AI agents** | **Settings → Apps and agents** makes revocable tokens for the Android app, the browser extension or an AI agent. A token can list account names and ask Keyra to type or save, never read a password, and every action still waits for your press. [`tools/keyra-mcp`](tools/keyra-mcp/README.md) lets an MCP client such as Claude Code log in this way. |
-| **NFC tags** | **Settings → NFC tags** makes stickers: tap one with your phone to get one account ready to type, then press Keyra's button. NTAG 424 DNA tags cannot be cloned. |
-| **Recovery key** | Optional. **Settings → Recovery kit** makes a key you can print or split into shares; it opens the vault again if you forget the passphrase. |
+| **Access tokens and AI agents** | **Device → Apps and agents** makes revocable tokens for the Android app, the browser extension or an AI agent. A token can list account names and ask Keyra to type or save, never read a password, and every action still waits for your press. [`tools/keyra-mcp`](tools/keyra-mcp/README.md) lets an MCP client such as Claude Code log in this way. |
+| **NFC tags** | **Device → NFC tags** makes stickers: tap one with your phone to get one account ready to type, then press Keyra's button. NTAG 424 DNA tags cannot be cloned. |
+| **Recovery key** | Optional. **Security → Recovery kit** makes a key you can print or split into shares; it opens the vault again if you forget the passphrase. |
 | **Reveal only after a press** | By default passwords, 2FA secrets and backups reach the phone only after you press Keyra's button, so a stolen browser session reads nothing. |
 | **Lock when unplugged** | The vault locks about a second after the USB computer is unplugged or goes to sleep (on by default); optionally also when the Bluetooth device disconnects. |
 | **Phone-first web app** | Installable to the home screen. Search, favorites, recents and a strength meter. |
@@ -132,13 +132,13 @@ sequenceDiagram
 
 ## Screenshots
 
-| Your vault | Ready — press the button | Typed ✓ | Account (dark) |
+| Accounts | Ready: press the button | Typed | Security |
 |:--:|:--:|:--:|:--:|
-| <img src="web/screenshots/vault-en.png" width="200" alt="Vault list"> | <img src="web/screenshots/ready-en.png" width="200" alt="Ready to type"> | <img src="web/screenshots/typed-en.png" width="200" alt="Typed"> | <img src="web/screenshots/account-en-dark.png" width="200" alt="Account in dark mode"> |
+| <picture><source media="(prefers-color-scheme: dark)" srcset="web/screenshots/vault-en-dark.png"><img src="web/screenshots/vault-en.png" width="200" alt="Accounts"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="web/screenshots/ready-en-dark.png"><img src="web/screenshots/ready-en.png" width="200" alt="Ready: press the button"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="web/screenshots/typed-en-dark.png"><img src="web/screenshots/typed-en.png" width="200" alt="Typed"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="web/screenshots/security-en-dark.png"><img src="web/screenshots/security-en.png" width="200" alt="Security"></picture> |
 
-| New password | Password history | Type text |
-|:--:|:--:|:--:|
-| <img src="web/screenshots/generate-en.png" width="200" alt="Password generator"> | <img src="web/screenshots/account-history-en.png" width="200" alt="Password history"> | <img src="web/screenshots/type-text-en.png" width="200" alt="Type text"> |
+| Type | Device | Search finds settings too | Typing to |
+|:--:|:--:|:--:|:--:|
+| <picture><source media="(prefers-color-scheme: dark)" srcset="web/screenshots/typing-en-dark.png"><img src="web/screenshots/typing-en.png" width="200" alt="Type"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="web/screenshots/settings-en-dark.png"><img src="web/screenshots/settings-en.png" width="200" alt="Device"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="web/screenshots/search-actions-en-dark.png"><img src="web/screenshots/search-actions-en.png" width="200" alt="Search finds settings too"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="web/screenshots/target-en-dark.png"><img src="web/screenshots/target-en.png" width="200" alt="Typing to"></picture> |
 
 <p align="center"><img src="web/screenshots/vault-desktop-dark.png" width="85%" alt="Desktop layout, Arabic, dark"></p>
 
@@ -204,7 +204,7 @@ esptool.py --chip esp32s3 -p <PORT> --before default-reset --after hard-reset \
   0x0 bootloader.bin 0x8000 partition-table.bin 0xf000 ota_data_initial.bin 0x20000 keyra-firmware.bin
 ```
 
-That is needed once. After it, **Settings → Firmware update** installs new versions over Wi-Fi (Keyra on your home network): it checks the [Releases page](https://github.com/hasanalaaa/keyra/releases), downloads, verifies the signature and installs after a press of Keyra's button.
+That is needed once. After it, **Device → Firmware update** installs new versions over Wi-Fi (Keyra on your home network): it checks the [Releases page](https://github.com/hasanalaaa/keyra/releases), downloads, verifies the signature and installs after a press of Keyra's button.
 
 ### Option B: build from source
 
@@ -241,26 +241,26 @@ npm --prefix web ci && npm --prefix web run build
 
 Keyra can also join your home network, so you can open it from any phone or laptop at home without switching Wi-Fi.
 
-1. In **Settings → Home Wi-Fi**, turn on **Use home Wi-Fi** and pick your network. Keyra only joins password-protected (WPA2/WPA3) networks.
+1. In **Device → Home Wi-Fi**, turn on **Use home Wi-Fi** and pick your network. Keyra only joins password-protected (WPA2/WPA3) networks.
 2. Enter the network's password, tap **Join**, then **press Keyra's button**. The sheet shows **Connected**, Keyra's address on your network and the signal strength.
 3. From any device on that network, open **http://keyra.local**. If a device cannot resolve `.local` names, use the address shown in the sheet.
-4. The first time each browser unlocks Keyra through the home network, Keyra asks you to **press its button to trust that browser**. Trusted browsers (up to 8) are listed in **Settings → Trusted browsers**, where you can remove them. Removing one signs it out.
+4. The first time each browser unlocks Keyra through the home network, Keyra asks you to **press its button to trust that browser**. Trusted browsers (up to 8) are listed in **Device → Trusted browsers**, where you can remove them. Removing one signs it out.
 
 ### Updating
 
 1. Join Keyra to your home Wi-Fi (see above): checking for updates needs the internet.
-2. Open **Settings → Firmware update** and tap **Check for updates**.
+2. Open **Device → Firmware update** and tap **Check for updates**.
 3. If a newer version is listed, tap **Download and install**, then **press Keyra's button** when the sheet asks. Keyra restarts with the new version; unlock it again.
 
 Your accounts stay as they are (the vault has its own storage). Keyra accepts only firmware signed with your release key, never an older version, and if the new version fails to start it goes back to the previous one by itself. Without home Wi-Fi, **Install from a file** takes a downloaded `keyra-firmware.bin`.
 
 ### New password for a website
 
-1. On the website's sign-up or change-password page, tap the **wand** at the top of Keyra's account list. Keyra makes a password (20 characters by default; the sheet remembers your settings in this browser).
+1. On the website's sign-up or change-password page, open Keyra's **Type** tab and tap **Generate password**. Keyra makes a password (20 characters by default; the sheet remembers your settings in this browser).
 2. Click the website's first password field, tap **Type twice**, then **press Keyra's button**. Keyra types the password, presses Tab, and types it again into the confirm field.
 3. Tap **Save**: **New account** opens a filled-in form, or **Update an account** replaces that account's password. The old password stays in the account's **Password history**.
 
-To type something that isn't saved in Keyra, open **⋯ → Type text…**, enter up to 256 characters, tap **Type it** and press the button. **Type it twice** can put a Tab or an Enter between the two copies.
+To type something that isn't saved in Keyra, open the **Type** tab, then **Type text**, enter up to 256 characters, tap **Type it** and press the button. **Type it twice** can put a Tab or an Enter between the two copies.
 
 **Keep Keyra's own Wi-Fi on** is on by default. Turn it off and Keyra's own Wi-Fi switches off about 15 seconds after Keyra joins your home network; it comes back if the home network has been unavailable for 60 seconds, or 30 seconds after power-up if Keyra has not joined by then, so Keyra stays reachable. Keyra has one radio: its own Wi-Fi moves to your home network's channel, and phones joined to it may reconnect once. While home Wi-Fi is connected, Keyra sets its clock from the internet (NTP), so 2FA codes work without a phone having set the time.
 
@@ -268,7 +268,7 @@ To type something that isn't saved in Keyra, open **⋯ → Type text…**, ente
 
 Stick an NFC tag on your desk; tapping it with your phone gets one account ready to type, and you press Keyra's button. The phone must be on Keyra's network (its own Wi-Fi or your home network), and Keyra must be unlocked.
 
-1. In **Settings → NFC tags**, tap **New tag**, pick the account, what to type and **Any NFC tag**, tap **Create tag** and press Keyra's button.
+1. In **Device → NFC tags**, tap **New tag**, pick the account, what to type and **Any NFC tag**, tap **Create tag** and press Keyra's button.
 2. On iPhone, open **NFC Tools → Write → Add a record → URL**, paste the link Keyra shows (once), tap **Write** and hold the tag near the top of the phone. NXP TagWriter works too.
 3. Tap the tag: Safari opens a small Keyra page that says **Press Keyra's button**. Press it and Keyra types.
 
@@ -374,21 +374,21 @@ On purpose. Keyra answers your phone's connectivity checks as "online" so the ph
 <details>
 <summary><b>My computer is in Arabic (or another language). Will Keyra type the right characters?</b></summary>
 
-Yes, once Keyra knows the computer's system (Settings → Typing for USB, Settings → Bluetooth per device; iPhones, iPads and Macs are recognised when they pair). On **Windows** it types each character as an Alt code, which comes out the same in every input language. On a **Mac, iPhone or iPad**, set "Its language now" to Arabic under "Type into": Keyra presses Ctrl+Space to switch to English, types, and switches back. On **Android**, set the physical keyboard "Keyra" to English (US) once. No keyboard can *read* a computer's language, which is why Apple hosts need that one tap. Characters a layout cannot type are refused with a clear message, never typed wrong.
+Yes, once Keyra knows the computer's system (Device → Keyboard, Device → Bluetooth per device; iPhones, iPads and Macs are recognised when they pair). On **Windows** it types each character as an Alt code, which comes out the same in every input language. On a **Mac, iPhone or iPad**, set "Its language now" to Arabic under "Type into": Keyra presses Ctrl+Space to switch to English, types, and switches back. On **Android**, set the physical keyboard "Keyra" to English (US) once. No keyboard can *read* a computer's language, which is why Apple hosts need that one tap. Characters a layout cannot type are refused with a clear message, never typed wrong.
 
 </details>
 
 <details>
 <summary><b>Can Keyra type into my phone or tablet?</b></summary>
 
-Yes, over Bluetooth. Pair it once from **Settings → Bluetooth** (see [How it works](#how-it-works)). iPhone and iPad hide their on-screen keyboard while any Bluetooth keyboard is connected, so by default (**Connect: When typing**, recommended) Keyra connects only for each action: it shows "Connecting to your device…" for a moment, types after your press, and lets go about 20 seconds later. Choose **Always** if you prefer instant typing and do not mind the hidden on-screen keyboard. The account sheet's **Type into** picker chooses USB or a paired device; this browser remembers the choice.
+Yes, over Bluetooth. Pair it once from **Device → Bluetooth** (see [How it works](#how-it-works)). iPhone and iPad hide their on-screen keyboard while any Bluetooth keyboard is connected, so by default (**Connect: When typing**, recommended) Keyra connects only for each action: it shows "Connecting to your device…" for a moment, types after your press, and lets go about 20 seconds later. Choose **Always** if you prefer instant typing and do not mind the hidden on-screen keyboard. The account sheet's **Type into** picker chooses USB or a paired device; this browser remembers the choice.
 
 </details>
 
 <details>
 <summary><b>I forgot my master passphrase. Can I recover my passwords?</b></summary>
 
-Only with a recovery key you made earlier (**Settings → Recovery kit**; make one while you still remember the passphrase). On the unlock screen choose **Use recovery key**, enter it and pick a new passphrase. Without a recovery key, no: that is the point of encryption, and there is no backdoor. You can **erase the device and start over**: on the unlock screen choose **Forgot passphrase?**, then press Keyra's button to confirm. All accounts are deleted. Restore from a backup if you have one.
+Only with a recovery key you made earlier (**Security → Recovery kit**; make one while you still remember the passphrase). On the unlock screen choose **Use recovery key**, enter it and pick a new passphrase. Without a recovery key, no: that is the point of encryption, and there is no backdoor. You can **erase the device and start over**: on the unlock screen choose **Forgot passphrase?**, then press Keyra's button to confirm. All accounts are deleted. Restore from a backup if you have one.
 
 </details>
 
@@ -444,7 +444,7 @@ No. Keyra can create and use passkeys and act as a security key over USB, and fo
 <details>
 <summary><b>Which passkey sites work?</b></summary>
 
-Any site that accepts a USB security key or "passkey on a security key", in Chrome, Edge, Safari or Firefox on macOS, Windows and Linux. Passkeys need Keyra plugged in and unlocked; keep the phone app handy to unlock it. Encrypted backups carry the passkeys too (Settings → "Passkeys in backups", on by default), so a restored Keyra signs in where the old one did.
+Any site that accepts a USB security key or "passkey on a security key", in Chrome, Edge, Safari or Firefox on macOS, Windows and Linux. Passkeys need Keyra plugged in and unlocked; keep the phone app handy to unlock it. Encrypted backups carry the passkeys too (Security → "Passkeys in backups", on by default), so a restored Keyra signs in where the old one did.
 
 </details>
 
