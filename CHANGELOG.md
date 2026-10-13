@@ -6,6 +6,40 @@ All notable changes to Keyra are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-10-13
+
+Highlights:
+- A new look: the Contour logo, graphite and ivory, blue only while Keyra waits for your press
+- Four tabs: Accounts, Type, Security and Device; search finds settings too
+- A "Typing to" chip on Accounts, and a security overview with counts
+- A checklist after setup: recovery kit, first backup, Bluetooth, home screen
+
+### Changed
+
+- **The app has a new identity and layout** (docs/brand/BRAND.md). The
+  Contour, a shield drawn as one line, replaces the key mark; it draws itself
+  on Welcome and Unlock and is the press indicator: its gap breathes in blue
+  at the LED's rhythm while Keyra waits, closes with a receipt line ("Typed ·
+  USB · 14:02") when it has typed, and retracts in red when refused or
+  expired. Ink on ivory paper in light mode, ivory on graphite in dark;
+  primary buttons are ink, and blue means only "waiting for your press".
+- **Settings became tabs.** Accounts, Type (type text, generate, where Keyra
+  types, typing settings), Security (password health, passkeys, recovery kit,
+  activity, locking) and Device (Keyra's Wi-Fi and home Wi-Fi, Bluetooth,
+  keyboard, backup and restore as separate screens, apps and agents, NFC
+  tags, firmware update, erase). A side rail replaces the tab bar from 900 px.
+  Every screen has its own address, so Back works as expected.
+- **Search finds actions and settings** in both languages ("backup",
+  «النسخ»), not only accounts.
+- Arabic uses «كلمة المرور / كلمات المرور» everywhere.
+- The Android app and the browser extension follow the same identity.
+
+### Fixed
+
+- The first answer from Keyra could wait for the next poll (about 5 s) to
+  show if it arrived while the font was loading.
+- Escape pressed the moment a sheet opened was ignored.
+
 ## [0.4.3] - 2026-10-12
 
 Highlights:
