@@ -31,7 +31,7 @@ function Dots({ step }: { step: number }) {
 
 function Chrome({ step, onBack, children, cta }: { step: number; onBack?: () => void; children: preact.ComponentChildren; cta?: preact.ComponentChildren }) {
   return (
-    <div class="page glow-page">
+    <div class="page hero-page paper">
       <div class="top-bar-plain">
         {onBack ? <IconButton icon="chevron-left" label={t('back')} onClick={onBack} /> : <span class="icon-btn-space" />}
         <Dots step={step} />
@@ -157,7 +157,7 @@ function StepWifi() {
         <Button variant="secondary" icon="refresh-cw" onClick={() => setWifi(generateWifiPassword())}>
           {t('s2Suggest')}
         </Button>
-        <Notice tone="accent" icon="wifi">
+        <Notice tone="info" icon="wifi">
           {t('s2Notice')}
         </Notice>
         <button type="submit" hidden />
@@ -247,7 +247,7 @@ function Reconnect({ ssid }: { ssid: string }) {
   }, [app.online, app.device]);
 
   return (
-    <div class="page glow-page">
+    <div class="page hero-page paper">
       <div class="hero-col">
         <div class="hero-card setup">
           <Ready state="typed" title="" doneTitle={t('doneTitle')} doneBody={t('doneBody')} />

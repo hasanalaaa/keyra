@@ -1,4 +1,4 @@
-// Settings → Bluetooth (SPEC §8.1, DESIGN §5.9): on/off, where to type, paired devices, pairing.
+// Device → Bluetooth (SPEC §8.1, DESIGN §5.9): on/off, where to type, paired devices, pairing.
 import { Fragment } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Icon } from '../components/Icon';
@@ -11,6 +11,7 @@ import { deviceLabel, newBond, sortBonds } from '../lib/ble';
 import { errorText, isLockedError } from '../lib/errors';
 import { t } from '../lib/i18n';
 import { loadBle, toast, useApp } from '../lib/store';
+import { go } from '../lib/router';
 import type { BleBond, HostOs, Output, Settings } from '../lib/types';
 import { OsSelect } from '../components/HostOs';
 import { guessOs } from '../lib/hostos';
@@ -20,7 +21,6 @@ const POLL_MS = 1500;
 
 export function BluetoothSection({ s, save }: { s: Settings; save: (patch: Partial<Settings>) => Promise<void> }) {
   const app = useApp();
-  const [pairing, setPairing] = useState(false);
   const [forget, setForget] = useState<BleBond | null>(null);
   useEffect(() => void loadBle(), [s.bleEnabled]);
 
@@ -65,7 +65,7 @@ export function BluetoothSection({ s, save }: { s: Settings; save: (patch: Parti
           : t('footBleOff')
       }
     >
-      <SwitchRow label={t('bleKeyboard')} checked={s.bleEnabled} onChange={(v) => void save({ bleEnabled: v })} />
+      <SwitchRow icon="bluetooth" label={t('bleKeyboard')} checked={s.bleEnabled} onChange={(v) => void save({ bleEnabled: v })} />
       {s.bleEnabled && (
         <>
           <div class="row stack-row">
@@ -95,8 +95,10 @@ export function BluetoothSection({ s, save }: { s: Settings; save: (patch: Parti
           </div>
           {bonds.map((b) => (
             <Fragment key={b.addr}>
-              <div class="row bond-row">
-                <Icon name="bluetooth" size={20} class="row-icon" />
+              <div class="row bond-row has-icon">
+                <span class="row-glyph">
+                  <Icon name="smartphone" size={18} />
+                </span>
                 <span class="row-label">
                   <bdi>{deviceLabel(b, t('bleDevice'))}</bdi>
                 </span>
@@ -109,13 +111,15 @@ export function BluetoothSection({ s, save }: { s: Settings; save: (patch: Parti
               </div>
             </Fragment>
           ))}
-          <button type="button" class="row nav-row pair-row" disabled={full} onClick={() => setPairing(true)}>
-            <span class="row-label accent">{t('blePairNew')}</span>
+          <button type="button" class="row nav-row has-icon pair-row" disabled={full} onClick={() => go('/device/pair')}>
+            <span class="row-glyph">
+              <Icon name="plus" size={18} />
+            </span>
+            <span class="row-label strong">{t('blePairNew')}</span>
             <Icon name="chevron-right" size={16} class="row-chev" />
           </button>
         </>
       )}
-      {pairing && <PairSheet name={app.device?.device.name ?? 'Keyra'} before={bonds.map((b) => b.addr)} onClose={() => setPairing(false)} />}
       {forget && (
         <Alert
           title={t('bleForgetTitle', { name: deviceLabel(forget, t('bleDevice')) })}
@@ -131,7 +135,7 @@ export function BluetoothSection({ s, save }: { s: Settings; save: (patch: Parti
 type Win = { deadline: number; total: number } | 'expired' | null;
 
 /** Button press (presence op `ble_pair`) → 120 s window → the new device shows up in GET /api/ble. */
-function PairSheet({ name, before, onClose }: { name: string; before: string[]; onClose: () => void }) {
+export function PairSheet({ name, before, onClose }: { name: string; before: string[]; onClose: () => void }) {
   const presence = usePresence('ble_pair');
   const [win, setWin] = useState<Win>(null);
   const [paired, setPaired] = useState<BleBond | null>(null);

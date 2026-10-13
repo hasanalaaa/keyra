@@ -1,14 +1,18 @@
 // The signature "Ready — press Keyra's button" card and its result/error states (DESIGN §4.11, §4.14).
+// The press indicator is the Contour (BRAND §5): its line in signal blue with the gap breathing at the LED's
+// rhythm while Keyra waits; the gap closes and the line settles to ink on success; it retracts in err on
+// expiry or refusal. CSS only (stroke-dasharray/offset on pathLength 100).
 import type { ComponentChildren, CSSProperties } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { Icon, KeyGlyph, type IconName } from './Icon';
+import { CONTOUR, CONTOUR_GAP, Icon, type IconName } from './Icon';
 import { Button, Notice } from './ui';
 import { clock, t } from '../lib/i18n';
 import { useNow } from '../lib/actions';
-import { deviceLabel } from '../lib/ble';
+import { deviceLabel, targetName } from '../lib/ble';
+import { useApp } from '../lib/store';
 import type { DeviceState } from '../lib/types';
 
-const C = 553; // 2πr for r = 88
+const C = 578; // 2πr for r = 92
 
 export interface ReadyProps {
   state: 'ready' | 'typing' | 'typed';
@@ -22,15 +26,37 @@ export interface ReadyProps {
   footer?: boolean;
   doneTitle?: string;
   doneBody?: string;
+  /** The monospace line under "Typed"; by default "Typed · <where> · <time>" for typing actions. */
+  receipt?: string;
 }
 
-export function Ready({ state, deadline = 0, total = 60000, title, body, chip, notice, onCancel, footer = true, doneTitle, doneBody }: ReadyProps) {
+/** The Contour as the press indicator; `mode` picks the state's motion. */
+function PressMark({ mode }: { mode: 'wait' | 'typing' | 'done' | 'off' }) {
+  return (
+    <svg class={`press press-${mode}`} viewBox="14 14 72 72" width="120" height="120" aria-hidden="true" focusable="false">
+      {mode === 'wait' && <path class="press-glow" d={CONTOUR_GAP} pathLength={100} />}
+      {(mode === 'typing' || mode === 'done') && <path class="press-gap" d={CONTOUR_GAP} pathLength={100} />}
+      <path class="press-line" d={CONTOUR} pathLength={100} />
+    </svg>
+  );
+}
+
+const hhmm = (): string => new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+
+export function Ready({ state, deadline = 0, total = 60000, title, body, chip, notice, onCancel, footer = true, doneTitle, doneBody, receipt }: ReadyProps) {
+  const app = useApp();
   const now = useNow(state === 'ready', 250);
   const remaining = Math.max(0, deadline - now);
   const secs = Math.ceil(remaining / 1000);
   const warn = state === 'ready' && remaining <= 10000;
   const [announce, setAnnounce] = useState('');
   const announced = useRef(new Set<number>());
+  // Where the armed action types, kept for the receipt once the device has cleared it.
+  const via = useRef('');
+  const pending = app.device?.pending;
+  if (state === 'ready' && pending) via.current = targetName(pending.target ?? null, app.ble, t('bleDevice'));
+  const [doneAt, setDoneAt] = useState('');
+  useEffect(() => setDoneAt(state === 'typed' ? hhmm() : ''), [state]);
 
   useEffect(() => {
     if (state !== 'ready') return;
@@ -50,40 +76,48 @@ export function Ready({ state, deadline = 0, total = 60000, title, body, chip, n
 
   const titleText = state === 'typing' ? t('typing') : state === 'typed' ? (doneTitle ?? t('typedTitle')) : title;
   const bodyText = state === 'typed' ? (doneBody ?? t('typedBody')) : body;
+  // "Typed · USB · 14:02": the word in the UI font, where and when in monospace (Western digits, LTR).
+  const receiptText = receipt ?? (via.current ? t('typedTitle') : '');
+  const receiptMono = receipt === undefined && via.current ? [via.current, doneAt].filter(Boolean).join(' · ') : '';
 
   return (
     <div class={`ready ready-${state}${warn ? ' warn' : ''}`} role="group" aria-labelledby="ready-title">
       <div class="ring-wrap">
         <svg class="ring" viewBox="0 0 200 200" width="176" height="176" aria-hidden="true">
-          <circle class="ring-track" cx="100" cy="100" r="88" />
-          {state === 'ready' && <circle class="ring-halo" cx="100" cy="100" r="88" />}
-          {state === 'typed' && <circle class="ring-ripple" cx="100" cy="100" r="88" />}
-          <circle
-            key={`${state}-${deadline}`}
-            class="ring-prog"
-            cx="100"
-            cy="100"
-            r="88"
-            stroke-dasharray={C}
-            transform="rotate(-90 100 100)"
-            style={state === 'ready' ? ringStyle : undefined}
-          />
-          {state === 'typed' && <path class="ring-check" d="M72 102 l20 20 l38 -44" />}
+          <circle class="ring-track" cx="100" cy="100" r="92" />
+          {state === 'ready' && (
+            <circle
+              key={`${state}-${deadline}`}
+              class="ring-prog"
+              cx="100"
+              cy="100"
+              r="92"
+              stroke-dasharray={C}
+              transform="rotate(-90 100 100)"
+              style={ringStyle}
+            />
+          )}
         </svg>
-        {state === 'ready' && <KeyGlyph size={64} class="ready-glyph" />}
-        {state === 'typing' && (
-          <span class="dots" aria-hidden="true">
-            <i />
-            <i />
-            <i />
-          </span>
-        )}
+        <PressMark mode={state === 'ready' ? 'wait' : state === 'typing' ? 'typing' : 'done'} />
       </div>
       <h2 class="ready-title" id="ready-title">
         {titleText}
       </h2>
       {bodyText && <p class="ready-body">{bodyText}</p>}
-      {state === 'ready' && chip && <span class="chip chip-accent">{chip}</span>}
+      {state === 'typed' && receiptText && (
+        <p class="receipt">
+          {receiptText}
+          {receiptMono && (
+            <>
+              {' · '}
+              <bdi class="mono" dir="ltr">
+                {receiptMono}
+              </bdi>
+            </>
+          )}
+        </p>
+      )}
+      {state === 'ready' && chip && <span class="chip chip-signal">{chip}</span>}
       {state === 'ready' && (
         <span class="countdown mono" aria-hidden="true" key={warn ? secs : 'n'}>
           {clock(remaining)}
@@ -140,7 +174,7 @@ export function HostNotice({ device }: { device: DeviceState }) {
   const target = device.host.bleTarget;
   if (target)
     return (
-      <Notice tone="accent" icon="bluetooth">
+      <Notice tone="info" icon="bluetooth">
         {t('readyViaBle', { name: deviceLabel(target, t('bleDevice')) })}
         {/* Typing into the phone this page is open on: the keys land where its cursor is, and here there is none. */}
         {onPhone() && <span class="notice-more">{t('readySamePhone')}</span>}
@@ -172,8 +206,9 @@ export function ErrorCard({ icon, tone, title, body, primary, ghost }: ErrorCard
   return (
     <div class={`ready ready-error tone-${tone}`} role="alert">
       <div class="ring-wrap">
-        <span class="error-disc">
-          <Icon name={icon} size={56} />
+        <PressMark mode="off" />
+        <span class="press-icon">
+          <Icon name={icon} size={26} />
         </span>
       </div>
       <h2 class="ready-title">{title}</h2>

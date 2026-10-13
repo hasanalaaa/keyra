@@ -9,7 +9,7 @@ const KEY = 'keyra.a2hs';
 const WEEK = 7 * 24 * 3600 * 1000;
 
 const isIos = () => /iPhone|iPad|iPod/.test(navigator.userAgent);
-const standalone = () =>
+export const standalone = (): boolean =>
   (navigator as Navigator & { standalone?: boolean }).standalone === true || matchMedia('(display-mode: standalone)').matches;
 
 export function shouldOfferA2hs(): boolean {

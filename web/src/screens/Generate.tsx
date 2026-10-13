@@ -35,7 +35,7 @@ export function GenerateSheet() {
   const [, setPicked] = useState(0); // re-render after the picker stores a choice
   const hostTarget = resolveTarget(validTarget(storedTarget(), app.ble), app.device?.host.output ?? null, app.ble);
   const ctl = useRef<SheetCtl | null>(null);
-  const after = useRef<() => void>(() => back('/'));
+  const after = useRef<() => void>(() => back('/typing'));
 
   const typeIt = (repeat: 1 | 2) => {
     setTwice(repeat === 2);

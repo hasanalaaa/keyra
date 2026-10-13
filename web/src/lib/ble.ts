@@ -47,3 +47,10 @@ export function defaultTarget(output: 'usb' | 'ble' | null, ble: BleInfo | null)
   if (output !== 'ble' || !ble) return null;
   return sortBonds(ble.bonds, ble.connected?.addr ?? null)[0]?.addr ?? null;
 }
+
+/** A target as people say it: "USB", the paired device's name (or `fallback`), '' for none. */
+export function targetName(target: string | null, ble: BleInfo | null, fallback: string): string {
+  if (target === 'usb') return 'USB';
+  if (!target) return '';
+  return deviceLabel(ble?.bonds.find((b) => b.addr === target), fallback);
+}

@@ -142,7 +142,7 @@ export function ImportSheet() {
 
   const busy = step.s === 'progress';
   return (
-    <Sheet title={t('importTitle')} size="lg" tall ctl={ctl} onClose={() => back('/')} dismissible={!busy}>
+    <Sheet title={t('importTitle')} size="lg" tall ctl={ctl} onClose={() => back('/device')} dismissible={!busy}>
       <div class="import">
         {step.s === 'source' && (
           <>

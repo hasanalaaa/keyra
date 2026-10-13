@@ -159,7 +159,7 @@ export function EditAccount({ id }: { id?: number }) {
         return false;
       }}
       start={
-        <Button variant="ghost" size="sm" class="save-btn" disabled={!form.title.trim() || tooLong || !!seqErr || saving || !initial} onClick={() => void save()}>
+        <Button variant="primary" size="sm" class="save-btn" disabled={!form.title.trim() || tooLong || !!seqErr || saving || !initial} onClick={() => void save()}>
           {t('save')}
         </Button>
       }

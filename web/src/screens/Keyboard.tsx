@@ -49,7 +49,7 @@ export function LayoutSheet({ output, layouts, value, usbOs, onPick, onClose }: 
                     {l.experimental && <span class="layout-exp"> · {t('layoutExperimental')}</span>}
                   </span>
                 </span>
-                {l.id === value && <Icon name="check" size={20} class="accent" />}
+                {l.id === value && <Icon name="check" size={20} class="strong-ink" />}
               </button>
             ))}
           </div>
@@ -145,7 +145,7 @@ function LayoutDoctor({ output, layouts, value, usbOs, onPick, onBack, onArmed }
               <p class="callout">{t(match.exact ? 'doctorMatch' : 'doctorClose')}</p>
               {match.layouts.map((l) =>
                 l.id === value ? (
-                  <Notice key={l.id} tone="accent" icon="check">
+                  <Notice key={l.id} tone="info" icon="check">
                     {t('doctorAlready')} <bdi>{layoutTitle(l)}</bdi>
                   </Notice>
                 ) : (
@@ -178,7 +178,7 @@ function LayoutDoctor({ output, layouts, value, usbOs, onPick, onBack, onArmed }
                   </bdi>
                   <span class="row-sub">{layoutTitle(l)}</span>
                 </span>
-                {l.id === value && <Icon name="check" size={20} class="accent" />}
+                {l.id === value && <Icon name="check" size={20} class="strong-ink" />}
               </button>
             ))}
           </div>

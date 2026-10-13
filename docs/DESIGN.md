@@ -10,73 +10,58 @@ Contents: 0 Direction · 1 Brand · 2 Tokens · 3 Typography · 4 Components · 
 
 ---
 
-## 0. Direction — "Quiet Glass"
+## 0. Direction — "Graphite & Ivory"
 
-One direction: **Apple-Passwords simplicity, iOS 26 structure, glass only where it earns its place, one
-electric-blue accent that is literally the device's LED.**
+**`docs/brand/BRAND.md` is the source of truth** for the logo, palette, type and motion; this file applies it to the
+web app. The research behind it (Linear, Vercel, Raycast, Apple, Teenage Engineering, Nothing, Opal) is in
+`docs/research/design-references-2026.md`; where its tokens differ from BRAND.md, BRAND.md wins.
 
-1. **Ease = Apple Passwords.** Grouped inset lists, big type, one obvious next action per screen, sheets
-   for detail. Users already know this grammar; nothing to learn.
-2. **Glass is chrome, never content.** iOS 26 Liquid Glass drew heavy criticism for legibility (contrast
-   measured as low as 1.5:1) and Apple itself added Tinted / Reduce Transparency. 2026 design press calls
-   it: "if an effect competes with the content, it dies." So: glass (backdrop blur) only on floating layers
-   (top bar + search, sheet header, the "Ready" pill over the list); every row and every secret sits on an opaque surface;
-   every glass token has a solid fallback and a computed worst-case contrast.
-3. **One hue, owned.** Keyra Blue `#0B57F0` (light) / `#6C9CFF` (dark) equals the physical LED colour. The
-   pulsing ring in the app and the pulsing LED on the board are the same 1.6 s breath, so the screen and
-   the object feel like one product (Nothing's Glyph idea; Linear owns purple, Raycast owns red — Keyra owns
-   LED-blue).
-4. **Purposeful spring motion.** Springs (Material 3 Expressive, Apple) via CSS `linear()`; every animation
-   states a fact ("ready", "typed", "expired"), nothing decorative; full reduced-motion path.
-5. **Arabic-first craft within 130 KB to the list.** One embedded geometric Arabic+Latin variable font (Readex Pro,
-   OFL, 29.5 KB measured), logical CSS only, Arabic sized 6 % up with 1.7 line-height, Western digits
-   everywhere so on-screen codes match what Keyra types. No icon font, no image assets, no animation lib.
+1. **Monochrome, warm.** Ink on ivory paper (light), ivory on graphite (dark). Neutrals carry a little warmth
+   (Linear's "warmer gray", but never muddy). No gradients on content, no tinted icon tiles.
+2. **Blue means one thing: Keyra is waiting for your press.** It is the LED's colour (firmware `led_anim.cpp`,
+   `Pattern::Pending`, 1200 ms breath). Allowed only on: the Contour while waiting (§4.11), the "Ready" pill's dot,
+   the `.chip-signal` in Ready, and the sequence part the next press types. Never on buttons, links, icons, focus
+   rings, switches or sliders. Primary actions are ink (light) / ivory (dark).
+3. **One line.** The mark is a shield drawn as one continuous line with a gap where the press closes it. Lines carry
+   the identity: hairlines instead of boxes (`box-shadow: 0 0 0 1px var(--hair)`), outlined icons with round caps,
+   the Contour as the press indicator.
+4. **Short, meaningful motion.** Four durations (120/200/320/420 ms), an ease-out for things appearing, an iOS-sheet
+   curve for things that slide, a symmetric curve for breathing. Nothing loops except the waiting breath. Full
+   reduced-motion path (§6).
+5. **Arabic-first craft within 130 KB to the list.** One embedded Arabic+Latin variable font (Readex Pro, 29.5 KB),
+   logical CSS only, Arabic 6 % larger and never tracked, Western digits everywhere so codes match what Keyra types.
+   No icon font, no images, no animation library: the mark, grain and icons are inline SVG/CSS.
 
 ---
 
 ## 1. Brand
 
 ### 1.1 Name treatment
-- Latin: **Keyra** — Readex Pro 600, tracking −0.02 em, capital K only. Never all-caps, never "KEYRA".
-- Arabic: **كيرا** — Readex Pro 600, no tracking, no tashkeel.
-- Lockup (mark + wordmark): mark height = cap-height × 2.2; gap = 0.5 × mark width. Mark on the start side
-  (right in RTL) — the only place the logo "follows" direction; the mark itself never mirrors.
+- Latin: **Keyra** — Readex Pro 500, tracking −0.02 em, capital K only. Never all-caps.
+- Arabic UI keeps the Latin name inside sentences (`<bdi>`); the Arabic lockup (**كيرا**) is for brand art only
+  (`docs/brand/logo/logo-ar.svg`).
 - Voice in UI: calm, brief, second person, warm. No exclamation marks except onboarding completion.
-  Technical words only when needed ("USB", "Wi-Fi"). Never blame the user.
+  Technical words only when needed ("USB", "Wi-Fi"). Never blame the user. Arabic says «كلمة المرور / كلمات المرور»
+  everywhere (never «كلمة السر»).
 
 ### 1.2 Personality (3 words, each with a rule)
-- **Calm** — one accent, lots of air, no gradients on content surfaces.
-- **Tangible** — the UI points at the object: "press Keyra's button", ring = LED.
-- **Precise** — monospace for secrets, tabular rhythm, exact radii; nothing approximate.
+- **Calm** — one signal colour with one meaning, lots of air, hairlines over boxes.
+- **Tangible** — the UI points at the object: "press Keyra's button"; the Contour on screen breathes with the LED.
+- **Precise** — monospace for secrets and receipts, exact radii, numbers set large on the Security dashboard.
 
-### 1.3 Logo mark (exact SVG, 332 bytes)
-Concept: a **key whose bow is a ring**. The ring is the brand motif — it becomes the countdown ring, the
-LED pulse and the progress ring. Geometry on a 64-grid: bow circle r 9 at (32,22); shaft x=32 from y 31 to
-50; two teeth. Stroke 6, round caps. Glyph bounding box 20–44 × 10–53 (optically centred in the tile).
+### 1.3 Logo — the Contour
+Defined in BRAND.md §2 (geometry, stroke 5 / bold 8, files in `docs/brand/logo/`). In the app:
+- `Contour` (`web/src/components/Icon.tsx`): bare mark in `currentColor`, viewBox `14 14 72 72`; under 48 px it switches
+  to the bold variant (stroke 8, wider gap). Used for the rail, empty states, the locked screen, monograms without a
+  letter, the Welcome hero (drawing itself once per session).
+- `ContourTile`: the graphite app-icon tile (gradient, hairline rim, ivory line) for Unlock, the splash and the
+  Device tab's identity card.
+- The mark **never mirrors** in RTL (no `.i-dir`), like the countdown ring.
+- Icons, favicon and manifest are generated from BRAND.md's sources (`npm run icons`); do not redraw them here.
 
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64"><rect width="64" height="64" rx="16" fill="#0B57F0"/><g fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"><circle cx="32" cy="22" r="9"/><path d="M32 31v19M32 41h9M32 50h6"/></g></svg>
-```
-- **Glyph-only** (in-app, 20–72 px, inherits colour): same `<g>` with `stroke="currentColor"`, viewBox
-  `0 0 64 64`, no `<rect>`. Used as the key glyph in Ready state, empty states, locked screen.
-- Tile corner radius = 25 % of side (16/64) — iOS squircle approximation; exports are full-bleed squares
-  (the OS masks them).
-- Clear space = 0.25 × tile side. Min size 20 px.
-- Colour: tile `#0B57F0`, glyph `#FFFFFF` (5.78:1). Dark variant: tile `#080A10`, glyph `#6C9CFF`.
-
-### 1.4 App icon concept (1024 × 1024, full-bleed, no pre-rounded corners)
-Background: linear gradient 160° from `#4B86FF` (top-left) to `#0A47D8` (bottom-right). Glyph: the white key
-above, height 52 % of the canvas (≈ 530 px), optically centred (shift up 10 px), stroke weight 11.5 % of
-glyph height, soft drop shadow `rgba(0,20,90,.35)` 24 px blur, y+14. Faint top inner highlight: white
-14 % → 0 over the top 40 %. No text. Optional dark icon (iOS 18+): `#080A10` field, glyph `#6C9CFF`, 8 % blue
-glow behind the bow. Ship `icon-192.png`, `icon-512.png`, `apple-touch-icon.png` (180) from the owner's
-generated art (§7a); until then, rasterise the SVG above.
-
-### 1.5 PWA/meta
-`theme-color`: `#F3F4F8` (light) / `#080A10` (dark) via two `<meta … media="(prefers-color-scheme:…)">`.
-Manifest: `name:"Keyra"`, `short_name:"Keyra"`, `display:"standalone"`, `background_color:"#F3F4F8"`,
-`theme_color:"#F3F4F8"`, `start_url:"/"`. `apple-mobile-web-app-capable=yes`,
-`apple-mobile-web-app-status-bar-style=default`, `apple-mobile-web-app-title=Keyra`. Viewport:
+### 1.4 PWA/meta
+`theme-color`: `#F4F3EF` (light) / `#0B0C0E` (dark) via two `<meta … media>` tags. Manifest colours graphite
+`#0B0C0E`. `apple-mobile-web-app-capable=yes`, `apple-mobile-web-app-title=Keyra`, viewport
 `width=device-width,initial-scale=1,viewport-fit=cover`.
 
 ---
@@ -91,134 +76,66 @@ it from one object in a tiny Vite plugin or just paste; gzip makes the duplicate
 
 ### 2.1 Colour tokens — contrast table (computed)
 
-Text pairs (all ≥ 4.5:1). "On" = the token is used as text colour on that background.
+Values are BRAND.md §3; the code is `web/src/styles/tokens.css` (the only place a hex value may appear, apart from
+the Contour tile and the Device identity card, which are graphite in both themes). All ratios computed with the WCAG
+2.x relative-luminance formula. Text ≥ 4.5 : 1, UI boundaries ≥ 3 : 1.
 
-| Token (light) | Hex | On `--surface` #FFF | On `--bg` #F3F4F8 | On `--fill` #ECEEF4 |
-|---|---|---|---|---|
-| `--text` | `#0B0F19` | 19.15 | 17.42 | 16.51 |
-| `--text-2` | `#454C5E` | 8.58 | 7.80 | 7.39 |
-| `--text-3` (placeholder, captions) | `#5E6679` | 5.75 | 5.23 | 4.96 |
-| `--accent` (links, tinted btn text) | `#0B57F0` | 5.78 | 5.26 | — |
-| `--ok` | `#0A7A3D` | 5.43 | 4.94 | — |
-| `--warn` | `#8F5200` | 6.22 | 5.66 | — |
-| `--err` | `#C1251C` | 5.92 | 5.38 | — |
-
-Other light pairs: white on `--accent` 5.78 · white on `--accent-press` `#0847C4` 7.75 · white on danger fill
-`#C1251C` 5.92 · `--accent` on `--accent-soft` `#E7EEFE` 4.97 · `--ok` on `#E3F4EA` 4.76 · `--warn` on `#FDF0DC`
-5.53 · `--err` on `#FDE8E6` 5.03 · border `--line-strong` `#7C8498` on surface 3.74 / on bg 3.41 (≥ 3:1 for
-input boundaries) · focus ring `#0B57F0` on bg 5.26.
-
-| Token (dark) | Hex | On `--surface` #12151D | On `--bg` #080A10 | On `--surface-2` #1B1F2A | On `--fill` #232837 |
+| Light (ivory paper) | Hex | On `--bg` #F4F3EF | On `--surface` #FFF | On `--surface-2` #EFEEE9 | On `--fill` #E9E8E3 |
 |---|---|---|---|---|---|
-| `--text` | `#F2F4F9` | 16.58 | 17.98 | 14.96 | 13.34 |
-| `--text-2` | `#B1B8C8` | 9.18 | 9.95 | 8.28 | 7.38 |
-| `--text-3` | `#8D95A8` | 6.08 | 6.59 | 5.48 | 4.89 |
-| `--accent` | `#6C9CFF` | 6.81 | 7.38 | — | — |
-| `--ok` | `#4ADE80` | 10.47 | 11.36 | — | — |
-| `--warn` | `#FBBF4A` | 11.00 | 11.92 | — | — |
-| `--err` | `#FF7A70` | 7.19 | 7.79 | — | — |
+| `--ink` | `#111214` | 16.88 | 18.74 | 16.13 | 15.28 |
+| `--ink-2` | `#4A4C52` | 7.73 | 8.58 | 7.39 | 7.00 |
+| `--ink-3` (captions, inactive tabs) | `#66686F` | 5.01 | 5.56 | 4.79 | 4.53 |
+| `--hair-strong` (field outlines, switch off) | `#7E7C76` | 3.76 | 4.17 | — | — |
+| `--signal` (waiting only) | `#1F5BEF` | 4.98 | 5.52 | 4.76 | — |
+| `--ok` / `--err` / `--warn` | `#0A7A3D` / `#C1251C` / `#8F5200` | 4.89 / 5.33 / 5.60 | 5.43 / 5.92 / 6.22 | — | — |
 
-Other dark pairs: `--on-accent` `#050A18` on `#6C9CFF` 7.37 · white on danger fill `#D92D20` 4.83 · accent on
-`#202B41` 5.28 · ok on `#14301F` 8.19 · warn on `#33260F` 8.88 · err on `#3A1815` 6.26 · `--line-strong`
-`#6B7388` on surface 3.85 / bg 4.18 / surface-2 3.47 · focus ring `#9DBBFF` on surface 9.55.
+Other light pairs: `--on-ink` #F4F3EF on ink 16.88 (primary button) · `--signal` on `--signal-soft` #E8EEFD 4.76 ·
+ok on `--ok-soft` #E4F1E8 4.67 · err on `--err-soft` #FBE7E4 4.97 · warn on `--warn-soft` #F8EDDA 5.37 ·
+white on `--err` (danger confirm) 5.92 · toast ivory #F2F2EF on ink 16.71 (ok icon #4ADE80 10.76, err #FF7A70 7.38) ·
+focus ring = ink 16.88 on bg.
 
-**Glass worst case** (glass over pure black in light / pure white in dark — theoretical floor): light glass
-`rgba(255,255,255,.82)` → `#D1D1D1`: `--text` 12.54, `--text-2` 5.62, `--text-3` **3.76 (fails)**; dark glass
-`rgba(18,21,29,.84)` → `#383A41`: `--text` 10.32, `--text-2` 5.71, `--text-3` **3.78 (fails)**.
-**Rule: on glass use only `--text` and `--text-2`; never `--text-3`, never `--accent` text smaller than 17 px bold.**
+| Dark (graphite) | Hex | On `--bg` #0B0C0E | On `--surface` #141518 | On `--surface-2` #1B1C20 | On `--fill` #222328 |
+|---|---|---|---|---|---|
+| `--ink` | `#F2F2EF` | 17.45 | 16.28 | 15.18 | 13.98 |
+| `--ink-2` | `#A9ABB2` | 8.53 | 7.96 | 7.42 | 6.84 |
+| `--ink-3` | `#8A8C93` | 5.83 | 5.44 | 5.07 | 4.67 |
+| `--hair-strong` | `#6E7076` | 3.95 | 3.69 | 3.44 | — |
+| `--signal` | `#6C9CFF` | 7.30 | 6.81 | 6.35 | — |
+| `--ok` / `--err` / `--warn` | `#4ADE80` / `#FF7A70` / `#FBBF4A` | — | 10.48 / 7.19 / 11.00 | — | — |
 
-### 2.2 Paste-ready CSS
+Other dark pairs: `--on-ink` #0B0C0E on ivory 17.45 (primary button) · signal on `--signal-soft` #16203A 6.02 ·
+ok on #10261A 9.17 · err on #33171A 6.47 · warn on #2D2410 9.23 · `--on-err` #0B0C0E on err 7.71 · segmented thumb
+#33343A under ivory text 11.06 · toast inverts to ivory with graphite text 17.45 (ok #0A7A3D 4.85, err #C1251C 5.28).
 
+Monograms (muted earth tones, white letter): `#8C4A2F 6.70 · #7D5A1C 6.27 · #5B6A2C 5.93 · #2F6A4E 6.38 · #2D6366 6.80 ·
+#4A5160 7.96 · #5F4C7C 7.47 · #7C3D5E 7.82 · #8C3A35 7.58 · #45503F 8.49 · #6E5542 6.91 · #3A3B40 11.17`. No blue.
+
+### 2.2 Tokens in code
+`web/src/styles/tokens.css` holds the colour, radius (`--r-xs 6 · sm 10 · md 14 · lg 20 · xl 28`), spacing (4-pt),
+type and motion tokens. The dark block is written twice (`@media (prefers-color-scheme:dark)` on
+`:root:not([data-theme="light"])`, and `:root[data-theme="dark"]`) because `light-dark()` breaks iOS < 17.5; keep the
+two copies identical. `prefers-contrast: more` maps `--hair` to `--hair-strong` and `--ink-3` to `--ink-2`.
+
+Motion tokens (BRAND §5, research §2.6):
 ```css
-:root{
-  /* colour — light */
-  --bg:#F3F4F8; --surface:#FFFFFF; --surface-2:#F7F8FB; --fill:#ECEEF4; --fill-press:#E2E5EE;
-  --text:#0B0F19; --text-2:#454C5E; --text-3:#5E6679;
-  --line:rgba(11,15,25,.10); --line-strong:#7C8498;
-  --accent:#0B57F0; --accent-press:#0847C4; --accent-soft:#E7EEFE; --on-accent:#FFFFFF;
-  --ok:#0A7A3D; --ok-soft:#E3F4EA; --warn:#8F5200; --warn-soft:#FDF0DC; --err:#C1251C; --err-soft:#FDE8E6;
-  --danger-fill:#C1251C; --focus:#0B57F0;
-  --pw-digit:#0B57F0; --pw-symbol:#C1251C;            /* coloured characters in revealed passwords */
-  --ring-track:#DCE1EC; --led:#2F6BFF;                 /* --led is decorative only (halo), never text */
-  --toast-bg:#12151D; --toast-text:#F2F4F9; --toast-link:#9DBBFF;   /* same in both themes */
-  --scrim:rgba(8,10,16,.40);
-  /* materials (glass) */
-  --glass-bg:rgba(255,255,255,.82); --glass-edge:rgba(255,255,255,.70); --glass-solid:#FBFBFD;
-  --glass-blur:20px; --glass-sat:1.6;
-  /* shadows */
-  --sh-1:0 1px 2px rgba(11,15,25,.06),0 0 0 1px rgba(11,15,25,.04);
-  --sh-2:0 6px 20px rgba(11,15,25,.08),0 1px 3px rgba(11,15,25,.06);
-  --sh-3:0 -10px 48px rgba(11,15,25,.18),0 2px 8px rgba(11,15,25,.08);   /* sheets/dialogs */
-  --sh-glow:0 0 0 6px rgba(11,87,240,.14);                                /* focus/active halo */
-  /* radii (concentric: inner = outer − padding) */
-  --r-xs:8px; --r-sm:12px; --r-md:16px; --r-lg:20px; --r-xl:28px; --r-pill:999px;
-  /* spacing (4-pt) */
-  --s-0:0; --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:20px; --s-6:24px; --s-8:32px; --s-10:40px;
-  --s-14:56px; --s-18:72px;
-  --gutter:16px; --tap:44px; --bar-h:56px;
-  /* motion */
-  --d-fast:120ms; --d-base:200ms; --d-slow:320ms; --d-sheet:420ms; --d-breath:1600ms;
-  --ease-out:cubic-bezier(.2,.8,.2,1); --ease-in:cubic-bezier(.4,0,1,1); --ease-io:cubic-bezier(.4,0,.2,1);
-  --ease-spring:cubic-bezier(.34,1.4,.5,1);      /* fallback for browsers without linear() */
-  /* z-layers */
-  --z-base:0; --z-sticky:10; --z-fab:20; --z-scrim:40; --z-sheet:50; --z-toast:60; --z-lock:100;
-  /* type — see §3 */
-  --font:"Keyra Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Noto Sans Arabic",Roboto,sans-serif;
-  --font-mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Roboto Mono",monospace;
-  color-scheme:light;
-}
-@supports (transition-timing-function:linear(0,1)){
-  :root{--ease-spring:linear(0,.062,.206,.383,.56,.717,.844,.938,1.002,1.04,1.059,1.063,1.059,1.049,1.038,1.027,1.017,1.009,1.003,1,.997,.996,1)}
-}   /* damped spring ζ≈0.66, 6.3 % overshoot; use with duration ≥ 480ms */
-
-/* dark.css body (below) is emitted twice — by a build step or by pasting:
-   1) @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){ <body> } }
-   2) :root[data-theme="dark"]{ <body> }                                                      */
+--d-1:120ms; --d-2:200ms; --d-3:320ms; --d-4:420ms; --d-draw:900ms;
+--d-breath:1200ms;                      /* = firmware Pattern::Pending (led_anim.cpp); change both together */
+--ease-out:cubic-bezier(.2,.8,.2,1);    /* things appearing */
+--ease-slide:cubic-bezier(.32,.72,0,1); /* sheets, segmented thumb */
+--ease-state:cubic-bezier(.4,0,.6,1);   /* breathing, colour */
+--ease-in:cubic-bezier(.4,0,1,1);       /* exits */
+--ease-spring:linear(…);                /* only the switch knob; plain ease-out where linear() is missing */
 ```
-```css
-/* <body> — dark */
-  color-scheme:dark;
-  --bg:#080A10; --surface:#12151D; --surface-2:#1B1F2A; --fill:#232837; --fill-press:#2C3243;
-  --text:#F2F4F9; --text-2:#B1B8C8; --text-3:#8D95A8;
-  --line:rgba(255,255,255,.09); --line-strong:#6B7388;
-  --accent:#6C9CFF; --accent-press:#8DB1FF; --accent-soft:#202B41; --on-accent:#050A18;
-  --ok:#4ADE80; --ok-soft:#14301F; --warn:#FBBF4A; --warn-soft:#33260F; --err:#FF7A70; --err-soft:#3A1815;
-  --danger-fill:#D92D20; --focus:#9DBBFF;
-  --pw-digit:#6C9CFF; --pw-symbol:#FF7A70; --ring-track:#2A3042;
-  --scrim:rgba(0,0,0,.58);
-  --glass-bg:rgba(18,21,29,.84); --glass-edge:rgba(255,255,255,.10); --glass-solid:#1B1F2A;
-  --sh-1:0 0 0 1px rgba(255,255,255,.06);
-  --sh-2:0 8px 24px rgba(0,0,0,.45),0 0 0 1px rgba(255,255,255,.06);
-  --sh-3:0 -12px 56px rgba(0,0,0,.65),0 0 0 1px rgba(255,255,255,.08);
-  --sh-glow:0 0 0 6px rgba(108,156,255,.18);
-```
+Reduced motion shortens every duration to 120 ms and zeroes `--d-draw` (§6).
 
 ### 2.3 Materials
-
-| Material | Where (and only here) | Recipe |
+| Material | Where | Recipe |
 |---|---|---|
-| **Opaque** | rows, cards, inputs, sheet body, dialogs, lists | `background:var(--surface)` |
-| **Glass bar** | sticky top bar + search group, sheet header, "Ready · title" pill over the list (things that sit over scrolling content) | see below |
-| **Toast** | toasts | solid `--toast-bg` (never glass) |
-| **Scrim** | behind sheets/dialogs | `var(--scrim)`, fade 200 ms |
-
-```css
-.glass{background:var(--glass-solid);}                              /* default = solid fallback */
-@supports ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
-  .glass{background:var(--glass-bg);
-    -webkit-backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-sat));
-            backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-sat));
-    box-shadow:inset 0 0 0 1px var(--glass-edge),var(--sh-1);}
-}
-@media (min-width:900px){ :root{--glass-blur:28px} }                    /* desktop GPUs; mobile stays ≤ 20 */
-@media (prefers-reduced-transparency:reduce),(prefers-contrast:more){
-  .glass{background:var(--glass-solid);-webkit-backdrop-filter:none;backdrop-filter:none;
-         box-shadow:inset 0 0 0 1px var(--line),var(--sh-1);}
-}
-```
-Budget: ≤ 3 glass elements on screen at once; never nest glass in glass; never animate `backdrop-filter`
-(animate the element's opacity/transform instead). Weak-device guard: if the first 30 frames of a sheet
-animation average > 24 ms, add `data-glass="off"` on `<html>` (CSS maps it to the solid recipe).
+| **Paper** | every surface | solid `--bg` / `--surface` / `--surface-2` levels; elevation is read from lightness |
+| **Hairline** | cards, rows, sheets, chips | `box-shadow:0 0 0 1px var(--hair)`; separators inset after a row's icon (`inset-inline-start:56px`) |
+| **Grain** (the one extra material) | Welcome, Setup, Unlock only (`.paper`) | inline SVG `feTurbulence`, opacity .06, fixed; off with reduced transparency/high contrast; never under scrolling lists |
+| **Glass** | top bar and phone tab bar only (content scrolls under them) | `--glass-bg` + `backdrop-filter: blur(20px)`; solid fallback |
+| **Graphite object** | Contour tile, Device identity card | graphite `#141518` in both themes, ivory line/text |
 
 ### 2.4 Layout tokens
 Breakpoints: `<600` phone (gutter 16; 20 at ≥ 414) · `≥600` tablet (content max 560, centred) ·
@@ -272,18 +189,19 @@ Arabic needs ~10–15 % more optical size and generous leading (marks above/belo
 
 | Token | rem | px EN → AR | Weight | LH EN | LH AR | Use |
 |---|---|---|---|---|---|---|
-| `--fs-display` | 2.125 | 34 → 36 | 700 | 1.15 | 1.40 | Unlock/Ready/Welcome title, TOTP label never |
-| `--fs-t1` | 1.75 | 28 → 29.8 | 700 | 1.20 | 1.40 | Screen titles (Settings, Accounts) |
+| `--fs-display` | 2.25 | 36 → 38 | 500 | 1.08 | 1.35 | Unlock/Welcome title (luxury reads lighter and larger) |
+| `--fs-t1` | 1.75 | 28 → 29.8 | 600 | 1.15 | 1.40 | Tab page titles (Accounts, Type, Security, Device) |
 | `--fs-t2` | 1.375 | 22 → 23.4 | 600 | 1.30 | 1.50 | Sheet titles, empty-state titles |
 | `--fs-headline` | 1.0625 | 17 → 18 | 600 | 1.35 | 1.60 | Row title, button label, section label |
 | `--fs-body` | 1 | 16 → 17 | 400 | 1.45 | 1.70 | Paragraphs, inputs |
 | `--fs-callout` | .9375 | 15 → 16 | 400/500 | 1.40 | 1.65 | Row subtitle, helper text |
-| `--fs-caption` | .8125 | 13 → 13.8 | 500 | 1.35 | 1.60 | Captions, chips, section headers |
+| `--fs-caption` | .8125 | 13 → 13.8 | 500 | 1.35 | 1.60 | Captions, chips, Arabic section headers |
+| `--fs-micro` | .6875 | 11 (Latin only) | 500 | 1.3 | — | Latin section eyebrows (uppercase, +.06 em), tab labels |
 | `--fs-code` | 1.125 | 18 → 19 | 500 mono | 1.5 | 1.5 | Revealed password/username |
 | `--fs-totp` | 2.125 | 34 → 36 | 600 mono | 1.1 | 1.1 | 2FA code `482 913` |
 
 Rules: Arabic never below 400 weight, never letter-spaced, never italic/faux-bold, never uppercase.
-Latin display/t1 tracking `−0.02em`, headline `−0.01em`, else 0 (`:lang(en)` only). Min text size 13 px (EN) /
+Latin tracking: display `−0.022em`, t1 `−0.02em`, t2 `−0.015em`, headline `−0.011em`, else 0 (`:lang(en)` only; Arabic never). Min text size 13 px (EN) /
 13.8 px (AR). `font-synthesis:none`. `text-wrap:balance` on titles, `pretty` on paragraphs. `-webkit-text-size-adjust:100%`.
 `font-feature-settings:"calt","liga","rlig"` default (Arabic contextual forms must stay on; never set
 `font-variant-ligatures:none` or `letter-spacing` on Arabic).
@@ -300,32 +218,32 @@ Lists: titles may mix scripts; keep the subtitle (username) `dir="ltr"` `unicode
 Global interaction rules: `touch-action:manipulation`; `-webkit-tap-highlight-color:transparent`; UI chrome
 `user-select:none`, revealed secrets `user-select:text`; press feedback ≤ 120 ms; hover styles only inside
 `@media (hover:hover)`; all hit areas ≥ 44 × 44 (extend with `::after{inset:-Npx}` when the visual is smaller).
-Focus ring (every focusable): `outline:2px solid var(--focus);outline-offset:2px` plus `box-shadow:var(--sh-glow)`
-on filled controls; `:focus-visible` only; never `outline:none` without replacement.
+Focus ring (every focusable): `outline:2px solid var(--focus);outline-offset:2px` — `--focus` is ink, never blue;
+`:focus-visible` only; never `outline:none` without replacement.
 
 ### 4.0 Icons
-Inline SVG `<symbol>` sprite, 24 × 24 grid, stroke 1.75 px, round caps/joins, `currentColor`, no fills except
-`star` (filled when on). Source: **Lucide** (ISC licence, https://lucide.dev) — copy only these 26 (≈ 5 KB raw,
-≈ 2.2 KB gzip): `user`, `key-round`, `shield-check`, `copy`, `check`, `eye`, `eye-off`, `star`, `plus`,
-`search`, `settings`, `lock`, `usb`, `x`, `chevron-right`, `chevron-left`, `trash-2`, `pencil`, `download`,
-`upload`, `wifi`, `wand-sparkles`, `triangle-alert`, `refresh-cw`, `clock`, `share` (iOS share glyph),
-`circle-help`. Direction-bearing icons (`chevron-*`, back arrows) mirror in RTL (`[dir=rtl] .i-dir{transform:scaleX(-1)}`);
-all others never mirror. Sizes: 20 (inline), 24 (buttons, rows), 28 (action buttons), 56/64 (glyph in states).
-"Both" icon = `user` and `key-round` side by side at 22 px with a 4 px gap, order fixed (user then key,
-reading order of the typing: username first) — in RTL the order **does** mirror (user on the right).
+Inline SVG `<symbol>` sprite (`web/src/components/Icon.tsx`), 24 × 24 grid, stroke 1.75 px, round caps/joins (the
+Contour's pen), `currentColor`, no fills except `star` (filled when on). Source: **Lucide** (ISC). Navigation and
+settings rows use: `key-round` (Accounts), `keyboard` (Type), `shield-check` (Security), `cpu` (Device), `wifi`, `house`,
+`monitor`, `bluetooth`, `smartphone`, `download`, `upload`, `import`, `bot`, `nfc`, `sun`, `moon`, `languages`, `refresh-cw`,
+`info`, `trash-2`, `timer`, `lock`, `eye-off`, `pulse`, `activity`, `life-buoy`, `list-ordered`, `type`, `wand-sparkles`, `zap`,
+`circle` / `circle-check` (checklist), `chevron-down` (target chip). In a settings row the icon sits in a 28 px paper
+tile with a hairline (`.row-glyph`), ink-2; never a coloured tile. Direction-bearing icons (`chevron-left/right`) mirror
+in RTL (`.i-dir`); all others never mirror. "Both" = `user` + `key-round` side by side (mirrors with reading order).
 
 ### 4.1 Buttons
 Height/radius: **lg** 56 / 20 (action buttons), **md** 48 / 16 (default), **sm** 36 / 12 (hit area padded to 44).
 Label `--fs-headline` 600. Icon 20–24 left of label (start side). Min width 96. Full-width on phones inside sheets.
 
-| Variant | Rest | Hover (`hover:hover`) | Pressed | Disabled | Loading |
-|---|---|---|---|---|---|
-| **Primary** | bg `--accent`, text `--on-accent` | bg `--accent-press` (light) / `--accent-press` (dark: lighter) | bg `--accent-press`, `scale(.97)` 120 ms `--ease-out` | opacity .4, no shadow, `aria-disabled` | label → 20 px spinner, width locked, `aria-busy` |
-| **Tinted** | bg `--accent-soft`, text `--accent` | bg mix 6 % darker | `--fill-press` bg, scale .97 | opacity .4 | as above |
-| **Secondary** | bg `--fill`, text `--text` | `--fill-press` | `--fill-press`, scale .97 | opacity .4 | as above |
-| **Ghost** | transparent, text `--accent` | bg `--accent-soft` | bg `--accent-soft`, scale .98 | opacity .4 | — |
-| **Danger** | bg `--err-soft`, text `--err`; **confirm** variant bg `--danger-fill` text #FFF | darker 6 % | scale .97 | opacity .4 | — |
+| Variant | Rest | Hover (`hover:hover`) | Pressed | Disabled |
+|---|---|---|---|---|
+| **Primary** | bg `--ink`, text `--on-ink` (graphite button on paper; ivory button on graphite) | ink mixed 14 % toward bg | `scale(.97)` 120 ms | opacity .38 |
+| **Tinted** | bg `--fill`, text `--ink` | `--fill-press` | `--fill-press`, scale .97 | opacity .38 |
+| **Secondary** | transparent, text `--ink`, 1 px `--hair-strong` ring | `--fill` | `--fill`, scale .97 | opacity .38 |
+| **Ghost** | transparent, text `--ink` | `--fill` | `--fill`, scale .98 | opacity .38 |
+| **Danger** | bg `--err-soft`, text `--err`; **confirm** variant bg `--err`, text `--on-err` | 8 % darker | scale .97 | opacity .38 |
 
+Links are ink with a 1 px underline in `--hair-strong` (`.link-btn`, `.link-line`), never blue.
 Spinner: 20 px, 2 px stroke, 700 ms linear infinite rotate (static ring + "…" when reduced motion).
 One primary button per screen region. Success flash on async completion: label crossfades to `check` icon 600 ms.
 
@@ -333,9 +251,9 @@ One primary button per screen region. Success flash on async completion: label c
 Order top → bottom: **Both** (primary, most common), then **Username | Password** (two columns), then **Code**
 card (only if `hasTotp`). Gap 12.
 
-- **Both:** primary lg, full width, 64 px high, radius 20. Left cluster `user`+`key-round` icons (24), label
-  "Both" 17/600, sublabel 14 `--on-accent` @ .9 opacity (contrast 4.97 light, 6.53 dark) "Username, then password".
-- **Username / Password:** tinted, 72 px high, radius 20, icon 28 above label (centred, 6 px gap).
+- **Both:** the one ink action: full width, 68 px high, radius 20, bg `--ink`, text `--on-ink`. Start cluster `user`+`key-round`
+  icons (24), label "Both" 17/600, sublabel 14 at 72 % "Username, then password".
+- **Username / Password:** `--surface-2` tiles with a hairline, ink text, 80 px high, radius 20, icon 28 above label (centred, 6 px gap).
   Each tile has a 36 × 36 **copy** chip at the end-top corner (hit area 44): copies that field to the phone
   clipboard and shows toast "Copied". Tapping the tile body = type action. Chip visible always (no hover-only).
 - **Code card:** surface-2, radius 20, padding 16. Start: code in `--fs-totp` mono, groups of 3 separated by a
@@ -343,33 +261,32 @@ card (only if `hasTotp`). Gap 12.
   button "Type" and a copy chip. Tap code = copy. The code refreshes from `GET /totp` every `remaining`s +
   200 ms; last 5 s the digits turn `--warn`. `409 no_time` → card shows caption "Clock not set — reload the page".
 - Press = Ready state (4.11) replaces the action area **in place** (height-animated 320 ms), not a new page.
-- A secondary line under the buttons (callout, `--text-3`): "Keyra types it after you press its button."
+- A secondary line under the buttons (callout, `--ink-3`): "Keyra types it after you press its button."
 
 ### 4.3 Account row
 Min height 64; padding 12 16; layout: monogram (40 × 40, radius 12) · 12 gap · text column · trailing.
-Title `--fs-headline` (1 line, ellipsis, `dir=auto`); subtitle `--fs-callout` `--text-2` = username (`dir=ltr`, 1 line)
-or, if empty, host of URL. Trailing: `star` 16 px `--accent` if favorite; `chevron-right` 16 px `--text-3` (mirrors).
-Rows sit in an **inset group card**: `--surface`, radius 20, `--sh-1`, rows separated by 1 px `--line`
+Title `--fs-headline` (1 line, ellipsis, `dir=auto`); subtitle `--fs-callout` `--ink-2` = username (`dir=ltr`, 1 line)
+or, if empty, host of URL. Trailing: `star` 16 px `--ink-2` if favorite; `chevron-right` 16 px `--ink-3` (mirrors).
+Rows sit in an **inset group card**: `--surface`, radius 20, `--sh-1`, rows separated by 1 px `--hair`
 starting after the monogram (`margin-inline-start:68px`). States: pressed bg `--fill`; focus ring inside
-(offset −2); hover (desktop) `--surface-2`; selected (desktop two-pane) bg `--accent-soft`, 3 px accent bar on the
+(offset −2); hover (desktop) `--surface-2`; selected (desktop two-pane) bg `--surface-2`, a 2 px ink bar on the
 start edge. Long-press: none (no hidden gestures). Swipe: none.
 Skeleton row: monogram circle + two bars (60 % / 35 % width, 12 px tall, radius 6).
 
 **Monogram (deterministic colour, no network icons):**
 - Letter: first letter/digit of the trimmed title via `Array.from` (never `[0]`), Latin upper-cased; if an
   Arabic title begins with the article "ال" followed by a letter, use the letter after it ("البنك" → "ب");
-  empty title → key glyph.
-- Colour: `i = FNV-1a32(NFKC(title.trim().toLowerCase())) mod 12`; fill = `P[i]`; letter `#FFFFFF`, 18 px/700,
-  centred; overlay `linear-gradient(180deg,rgba(255,255,255,.16),rgba(255,255,255,0))`.
-- `P` = `#C2410C #B45309 #4D7C0F #15803D #0F766E #0E7490 #1D4ED8 #6D28D9 #A21CAF #BE185D #B91C1C #475569`
-  (white-on-fill 5.18 · 5.02 · 4.99 · 5.02 · 5.47 · 5.36 · 6.70 · 7.10 · 6.32 · 6.04 · 6.47 · 7.58 — all ≥ 4.5).
+  empty title → the Contour (bold).
+- Colour: `i = FNV-1a32(NFKC(title.trim().toLowerCase())) mod 12`; fill = `P[i]`; letter `#FFFFFF`, weight 500,
+  centred; a top light `linear-gradient(180deg,rgba(255,255,255,.14),transparent 60%)`.
+- `P` = muted earth tones, no blue (contrast in §2.1): `#8C4A2F #7D5A1C #5B6A2C #2F6A4E #2D6366 #4A5160 #5F4C7C #7C3D5E #8C3A35 #45503F #6E5542 #3A3B40`.
   Same palette in light and dark (white letter works on both).
 - Sizes: 40 (row), 64 (sheet header), 28 (inline). Radius = 30 % of size.
 
 ### 4.4 Search field
 Height 44, radius 14, bg `--fill`, no border (it is a text-input *affordance* by shape + icon). Start: `search`
-20 px `--text-3`; text `--fs-body` `--text`; placeholder `--text-3` (4.96:1 on fill). End: `x` clear button 44 × 44
-visible when non-empty. Focus: bg `--surface`, 2 px `--accent` border, `--sh-glow`. Sticky under the top bar
+20 px `--ink-3`; text `--fs-body` `--ink`; placeholder `--ink-3` (4.96:1 on fill). End: `x` clear button 44 × 44
+visible when non-empty. Focus: bg `--surface`, 1.5 px ink ring. Sticky under the top bar
 (`top:var(--bar-h)`, z 10) inside the same glass bar on phones. Search is client-side and instant:
 normalise both sides (lower-case; strip tashkeel U+064B–0652 and tatweel U+0640; ا أ إ آ → ا; ى → ي; ة → ه;
 Arabic-Indic digits → Western) and match title, url host, username; rank: prefix of title > word-prefix >
@@ -378,20 +295,18 @@ Empty result → empty state 4.13.
 
 ### 4.5 Segmented control
 Track: bg `--fill`, radius 14, padding 3, height 44 (items ≥ 44 high). Thumb: `--surface`, radius 11, `--sh-1`,
-text `--text` 600; inactive items `--text-2` 500. Thumb moves with `transform:translateX(calc(var(--i) * 100% * var(--dir)))`
+text `--ink` 600; inactive items `--ink-2` 500. Thumb moves with `transform:translateX(calc(var(--i) * 100% * var(--dir)))`
 where `--dir:1` (LTR) / `-1` (RTL set on `[dir=rtl]`), transition `--d-slow` `--ease-spring`. Items in DOM order,
 which mirrors automatically in RTL (first option on the right). Max 4 items; labels ≤ 12 chars.
 `role="radiogroup"`, arrows move, Home/End jump. Disabled opacity .4.
 
 ### 4.6 Inputs (text, secret, copy)
-Label above (never beside), `--fs-caption` 600 `--text-2`, margin-bottom 6. Field: height 52, radius 14,
-bg `--surface`, 1 px `--line-strong` border (≥ 3.4:1), padding-inline 14, text `--fs-body`. Focus: border 2 px
-`--accent` + `--sh-glow`. Error: border `--err`, helper below with `triangle-alert` 16 px + text `--err`
-(never colour alone). Helper `--fs-callout` `--text-2`. Disabled: bg `--fill`, text `--text-3`.
+Label above (never beside), `--fs-caption` 600 `--ink-2`, margin-bottom 6. Field: height 52, radius 14,
+bg `--surface`, 1 px `--hair-strong` border (≥ 3.4:1), padding-inline 14, text `--fs-body`. Focus: 2 px ink ring. Error: border `--err`, helper below with `triangle-alert` 16 px + text `--err`
+(never colour alone). Helper `--fs-callout` `--ink-2`. Disabled: bg `--fill`, text `--ink-3`.
 - **Secret field** (password, passphrase, backup passphrase): `type=password`; end slot has `eye`/`eye-off`
   toggle (44 × 44, `aria-pressed`, label "Show password"/"Hide password"). When revealed: `--font-mono`
-  `--fs-code`, characters coloured (digits `--pw-digit`, symbols `--pw-symbol`, letters `--text`) by
-  overlaying a mirrored `<div aria-hidden>`; plain colour-free fallback is acceptable if it costs > 0.5 KB.
+  `--fs-code`; digits bold ink, symbols `--ink-3`, letters ink (weight and tone, not colour).
   Auto-hide after 30 s or on blur of the sheet. `autocomplete=new-password|current-password`, `spellcheck=false`,
   `autocapitalize=off`, `autocorrect=off`. Never put secrets in the URL or in `localStorage`.
 - **Copy field** (read-only value with copy): same shell, end slot `copy` button; on success icon → `check`
@@ -411,12 +326,12 @@ subtract 8 bits per repeated-char run ≥ 3 and 8 for sequences (`abc`, `123`); 
 |---|---|---|---|
 | < 36 | 1 | `--err` | Weak / ضعيفة |
 | 36–59 | 2 | `--warn` | Fair / مقبولة |
-| 60–79 | 3 | `--accent` | Good / جيدة |
+| 60–79 | 3 | `--ink` | Good / جيدة |
 | ≥ 80 | 4 | `--ok` | Strong / قوية |
 Label (caption 600, same colour as the segments — all four pass 4.5:1) sits on the end side; announce changes
 with `aria-live="polite"` only when the label changes. Unfilled segments `--ring-track`. Fill animates 200 ms.
 
-### 4.8 Generator (SPEC §9.1: vault top bar "Generate" sheet, and inline in Add/Edit)
+### 4.8 Generator (SPEC §9.1: the Type tab's "Generate password" card, and inline in Add/Edit)
 Passwords come from the device (`POST /api/generate`, hardware RNG); the browser only mirrors the rules to show
 exact entropy at once and to offer only settings the device accepts. Preview card (surface-2, radius 16, padding 16):
 password in mono 22 px, coloured characters (4.6), wraps at any character, `dir=ltr`, tap = copy; dims while a new one
@@ -433,7 +348,7 @@ are remembered per browser (`localStorage["keyra.gen"]`, never the password).
   history." → toast "Saved. The old password is in its history." → that account opens).
 - **Inline (Add/Edit):** the "Create password" ghost button opens the same preview + settings in a surface-2 panel under
   the password field, footer secondary "New one" + primary "Use this password".
-- **Type text…** (SPEC §9.2, in the top bar's ⋯ menu with Import and Backup): mono textarea (≤ 256, counter), warning
+- **Type text…** (SPEC §9.2, the first card of the Type tab): mono textarea (≤ 256, counter), warning
   listing characters Keyra can't type, switch "Type it twice" + segmented Tab | Enter, primary "Type it" → Ready
   (chip "Text"); the text is cleared after "Typed".
 - **Password history** (SPEC §9.3): account sheet group under the details, rows "Used until {date}" + masked value,
@@ -441,8 +356,8 @@ are remembered per browser (`localStorage["keyra.gen"]`, never the password).
 
 ### 4.9 Sheets & dialogs
 - **Phone (< 900): bottom sheet.** Body `--surface` opaque, top radius 28, `--sh-3`, max-height `calc(100dvh - 12px - env(safe-area-inset-top))`,
-  padding-bottom `max(16px, env(safe-area-inset-bottom))`. Header: grabber 36 × 5 radius 3 `--line-strong` at top 8;
-  sticky glass header 56 px (title centred 600; close `x` on the end side; optional primary text button on the
+  padding-bottom `max(16px, env(safe-area-inset-bottom))`. Header: grabber 36 × 4 `--hair-strong` @ .5 at top 8;
+  sticky solid header (hairline under it) 56 px (title centred 600; close `x` on the end side; optional primary text button on the
   start side, e.g. "Save"). Open: `translateY(100%)→0`, `--d-sheet` `--ease-spring`; scrim fade 200 ms. Close:
   `--d-base` `--ease-in`. Drag-to-dismiss from grabber/header (threshold 96 px or velocity > 0.5 px/ms), rubber-band
   above. Scrolls internally; background `inert` + `overflow:hidden`; Esc/back button/scrim tap closes (not for
@@ -451,7 +366,7 @@ are remembered per browser (`localStorage["keyra.gen"]`, never the password).
   86dvh, enter `scale(.96)→1` + opacity 200 ms `--ease-out`, scrim `--scrim`. Same header minus grabber.
   The **account sheet is not a dialog on desktop** — it is the right-hand detail pane (4.3 selected state).
 - **Alert dialog** (confirmations: delete, factory reset, replace): always centred, width `min(320px, 100% − 48px)`,
-  radius 28, padding 24, centred title (t2) + body (callout `--text-2`) + stacked full-width 48 px buttons
+  radius 28, padding 24, centred title (t2) + body (callout `--ink-2`) + stacked full-width 48 px buttons
   (primary action first; destructive uses Danger-confirm; Cancel last, Secondary). Factory reset is confirmed
   by the physical button (Ready component), not by typing a word; the dialog only explains.
 - A11y: `role="dialog"`/`alertdialog`, `aria-modal`, labelled by title, focus moves to first control (alert: to
@@ -464,68 +379,62 @@ icon 20 + text callout 600, optional action in `--toast-link` (9.55:1). Enter: `
 spring; exit 160 ms. Duration 2400 ms (action: 5000; error: 5000, with `triangle-alert`). One at a time (replace).
 `role="status"` / errors `role="alert"`. Tap or swipe down dismisses. Reduced motion: opacity only.
 
-### 4.11 Signature: the **Ready** state (physical ↔ digital)
+### 4.11 Signature: the **Ready** state — the Contour as the press indicator
 Appears in the account sheet in place of the action area when `state.pending` is non-null; the same component
-(with different copy) serves **presence prompts**: onboarding step 3, Wi-Fi change, Restore-replace, Factory reset.
+(`web/src/components/Ready.tsx`, different copy) serves every presence prompt: onboarding step 3, Wi-Fi change,
+restore-replace, factory reset, reveal, pairing, trust this browser.
 
-**Anatomy (card: solid `--surface-2` + 1 px `--line`, radius 28, padding 24, centred column, max-width 360; nothing scrolls beneath it, so no glass):**
-1. **Ring** 176 × 176 px (SVG viewBox 0 0 200 200): track `circle r=88 stroke=var(--ring-track) stroke-width=10`;
-   progress `circle r=88 stroke=var(--accent) stroke-width=10 stroke-linecap=round`, `transform=rotate(-90 100 100)`,
-   `stroke-dasharray=553`, `stroke-dashoffset=553×(1−remaining/60)` (full ring at 60 s, drains **clockwise**
-   in both LTR and RTL — it is a clock; never mirrored). Drive it with one CSS animation of duration
-   `expiresIn` ms, `linear`, started with a negative `animation-delay` for elapsed time; re-sync from each poll if
-   drift > 400 ms.
-2. **Halo:** a third circle `r=88 stroke=var(--led) stroke-width=10 opacity=0` that **breathes**:
-   `@keyframes breathe{0%,100%{opacity:.10;transform:scale(1)}50%{opacity:.45;transform:scale(1.14)}}`
-   `animation:breathe var(--d-breath) var(--ease-io) infinite` (transform-origin centre). Period **1600 ms** =
-   the firmware's `Led::Pending` blue breathing period (see 4.11.1). Start the animation at poll arrival so phase
-   is approximately aligned; exact sync is impossible and not required.
-3. **Glyph:** the key glyph 64 px, `--accent`, centred; on its own a subtle 1.0→1.04 scale breathing in phase with the halo.
-4. **Title** (t2 600): "Ready — press Keyra's button". **Body** (callout `--text-2`, ≤ 2 lines): the one-line
-   instruction. **Chip** (caption 600, tinted, radius pill): `what · title` e.g. "Password · GitHub".
-5. **Countdown text** (mono 600 18 px, `--text`): `0:42`, updates each second, `aria-hidden`; an `aria-live="polite"`
-   sr-only line announces at 30, 10, 5 s.
-6. **Cancel** (ghost md): `POST /api/type/cancel` for type actions; for presence ops it just abandons the wait
-   (the device times out by itself). Footer caption `--text-3`: "Or hold the button for 2 seconds to cancel."
+**Anatomy** (card: `--surface` + hairline, radius 28, padding 24 20, centred column, max-width 380):
+1. **Countdown ring** 176 px (viewBox 200, r 92): a 1.5 px hairline track and a `--hair-strong` arc that drains
+   **clockwise** over `expiresIn` in both directions (a clock is never mirrored); one CSS animation with a negative
+   `animation-delay`, re-keyed when a poll re-syncs the deadline. Last 10 s: arc and countdown `--warn`.
+2. **The Contour** at 120 px (viewBox `14 14 72 72`, stroke 5) inside the ring. Three paths, `pathLength=100`, CSS only:
+   | State | What the line does | Colour |
+   |---|---|---|
+   | waiting (`press-wait`) | the line's ends draw back and return (`stroke-dasharray 100 0 ↔ 94 6`, offset 0 ↔ −3) while a 7 px "light" in the gap brightens 6 % ↔ 42 % — the LED's dark→bright→dark, **1200 ms** (`--d-breath`) | `--signal` |
+   | typing (`press-typing`) | still; the gap light steady (the LED is solid blue) | `--signal` |
+   | done (`press-done`) | the gap segment draws shut (dashoffset 100 → 0, 420 ms ease-out) and the line settles from signal to ink (320 ms) | `--ink` |
+   | refused / expired / failed (`press-off`, ErrorCard) | the line draws back from the gap to 19–81 % of its length (420 ms); the reason's icon sits inside the shield; no shake | `--err` |
+3. **Title** (t2): "Ready — press Keyra's button". **Body** (callout `--ink-2`, ≤ 2 lines).
+   **Chip** `.chip-signal` "Password · GitHub" — the only blue chip.
+4. **Countdown** in mono 15 px `--ink-2`, `0:42`, `aria-hidden`; an `aria-live="polite"` line announces 30, 10, 5 s.
+5. **Cancel** (ghost) and the footer caption "Or hold the button for 2 seconds to cancel."
+6. **Receipt** (typed only): "Typed · `USB · 14:02`" — the word in the UI font, where and when in mono LTR, in a small
+   paper tag with a hairline; it fades up after the gap closes. Where = the armed action's target (USB or the
+   Bluetooth device's name), kept from the last poll before the device cleared it.
 
 **State machine** (UI ← `GET /api/state` poll 1 s while `pending`/`presence.awaiting`):
 | State | Trigger | Visual |
 |---|---|---|
-| `ready` | `pending≠null` | ring accent, halo breathing, countdown running |
-| `ready-warning` | `expiresIn ≤ 10 s` | ring + countdown colour `--warn`, ring stops breathing and the countdown digits tick-pulse (scale 1.08, 200 ms, each second) |
-| `typing` | `last` not yet set, `pending` just became null and Δ < 1.5 s | ring full, glyph replaced by 3 dots bouncing (staggered 120 ms), title "Typing…" |
-| `typed` | `last.ok && code="typed"` | see below |
-| `expired` / `no_usb` / `unsupported_char` / `failed` / `cancelled` | `last.code` | error card (4.14) |
-`last.at` ≤ 6000 ms counts as "this action's result"; ignore older results (avoid stale toasts after reload).
+| `ready` | `pending≠null` | waiting Contour, ring draining, countdown |
+| `ready-warning` | `expiresIn ≤ 10 s` | ring + countdown `--warn` (the Contour keeps breathing: the LED does) |
+| `typing` | `pending` just became null and Δ < 1.5 s | steady blue Contour, title "Typing…" |
+| `typed` | `last.ok && code="typed"` | gap closes, ink, receipt, `role=status` "Typed"; 1.9 s dwell, then the actions return |
+| `expired` / `no_usb` / `unsupported_char` / `failed` / `cancelled` | `last.code` | error card (4.14) with the retracted Contour |
+`last.at` ≤ 6000 ms counts as "this action's result"; older results are ignored.
 
-**"Typed ✓" success moment (1.9 s):** at t=0 ring snaps to full and stroke → `--ok` (160 ms); glyph cross-morphs to a
-check (stroke-dashoffset draw, 300 ms, path `M72 102 l20 20 l38 -44`, `stroke=--ok` width 10, round); ring scale
-`1→1.06→1` 420 ms spring; halo does one outward ripple (opacity .45→0, scale 1→1.5, 600 ms, `--ok`); title
-"Typed" (t2); body "Done. Keyra is ready for the next one."; light haptic
-`navigator.vibrate?.(12)` (Android; iOS ignores). After 1900 ms the card collapses back to the action buttons
-(320 ms) and the row's lastUsed updates. Screen-reader: `role="status"` "Typed". Reduced motion: no
-morph/ripple/scale; ring colour change + check appear instantly, same 1.9 s dwell.
+**Reduced motion:** no drawing, breathing or retracting; the waiting state stays legible as a static blue line with a
+lit gap, done as a closed ink shield, refused as the retracted err line; states switch with a 120 ms fade.
 
 #### 4.11.1 Firmware ↔ UI sync (ask the firmware owner to match)
 | UI state | `io::Led` | Pattern |
 |---|---|---|
-| ready / awaiting presence (setup, Wi-Fi change, restore-replace, factory reset) | `Pending` / `AwaitPresence` | blue `#2F6BFF`, sinusoidal breathe 10 % ↔ 100 %, period **1600 ms** |
+| ready / awaiting presence (setup, Wi-Fi change, restore-replace, factory reset) | `Pending` / `AwaitPresence` | blue (`AwaitPresence`: violet), sinusoidal breathe 10 % ↔ 100 %, period **1200 ms** (`led_anim.cpp`) = `--d-breath` |
 | typing | `Typing` | solid blue, 100 % |
 | typed | `Success` | green `#22C55E` 100 % for 700 ms then off |
 | expired / no_usb / failed | `Error` | red `#EF4444` three blinks, 150 ms on / 150 ms off |
 | cancelled | `Idle` | off |
-| Bluetooth pairing window (Settings → Bluetooth) | `Pairing` | cyan, sinusoidal breathe, period 1200 ms, up to 120 s |
+| Bluetooth pairing window (Device → Bluetooth) | `Pairing` | cyan, sinusoidal breathe, period 1200 ms, up to 120 s |
 | a website waits for the security-key press (docs/FIDO.md) | `Fido` | white, two 120 ms blinks per second (no breathe, so it never looks like a typing prompt), up to 30 s |
-Brightness follows Settings → LED brightness. If the firmware differs, change the UI constants `--d-breath` and
+Brightness follows Device → Light. If the firmware differs, change the UI constants `--d-breath` and
 colours — the structure stays.
 
 ### 4.12 Mini ring (TOTP, countdowns inline)
-28 × 28, `r=11 stroke-width=3.5`; same drain logic over `period` (30/60). Colour `--accent`, last 5 s `--warn`.
+28 × 28, `r=11 stroke-width=3.5`; same drain logic over `period` (30/60). Colour `--ink`, last 5 s `--warn`.
 
 ### 4.13 Empty states
-Layout: centred, max-width 320, glyph tile 96 px (`--accent-soft` circle, key glyph 40 px `--accent`, 3 orbit dots
-r=3 `--accent` @ .35 opacity placed at 30°, 150°, 270° on a 124 px circle, slow 24 s rotate; static if reduced
-motion) · title t2 · body callout `--text-2` · CTA primary md. Never illustrations over 1 KB.
+Layout: centred, max-width 320: a 96 px paper disc with a hairline holding the Contour (44 px, ink-2) · title t2 · body
+callout `--ink-2` · CTA primary md. No orbiting dots, no illustrations.
 | Where | Title / body / CTA |
 |---|---|
 | Empty vault | "Nothing here yet" / "Add your first account, or import from Apple Passwords, Chrome, Bitwarden or 1Password." / "Add account" + ghost "Import" |
@@ -533,7 +442,7 @@ motion) · title t2 · body callout `--text-2` · CTA primary md. Never illustra
 | No favourites | section simply hidden |
 
 ### 4.14 Error & notice patterns
-- **Inline notice** (banner inside sheet/screen): radius 16, padding 12 14, bg `--warn-soft`/`--err-soft`/`--accent-soft`,
+- **Inline notice** (banner inside sheet/screen): radius 16, padding 12 14, bg `--warn-soft`/`--err-soft`, or `info`: `--surface-2` with a hairline and ink-2 text,
   icon 20 + text callout (text colour = matching token ≥ 4.5:1 on its soft bg), optional trailing text button.
 - **Connection lost banner** (sticky below top bar, warn): "Lost connection to Keyra. Check that your phone is on
   the Keyra-XXXX Wi-Fi." + spinner "Reconnecting…". Clears itself when `/api/state` answers.
@@ -552,16 +461,16 @@ motion) · title t2 · body callout `--text-2` · CTA primary md. Never illustra
 - **Validation** appears on blur or submit, never while typing the first time (except strength meter and counters).
 
 ### 4.15 Other primitives
-- **Section header:** `--fs-caption` 600 `--text-3`, padding 8 20 6, no uppercase (Arabic has none; keep EN consistent). Sticky A–Z letter headers: top = bar height, bg `--bg`.
-- **Settings row:** min 52, padding 0 16, label headline-ish 16/17 body, value `--text-2` at end, `chevron-right` mirrored.
-  Group card same as account rows. Footer note under a group: callout `--text-3`.
-- **Switch:** 51 × 31, knob 27; on = `--accent` track; off = `--fill-press` track + 1 px `--line-strong`. Knob travel 20 px toward the
+- **Section header:** `--fs-caption` 500 `--ink-3`; Latin uses the 11 px uppercase eyebrow with .06 em tracking, Arabic never (no case). Sticky A–Z letter headers: top = bar height, bg `--bg`.
+- **Settings row:** min 52, padding 0 16, label headline-ish 16/17 body, value `--ink-2` at end, `chevron-right` mirrored.
+  Group card same as account rows. Footer note under a group: callout `--ink-3`.
+- **Switch:** 51 × 31, knob 27; on = `--ink` track with an `--on-ink` knob; off = `--fill-press` track + 1 px `--hair-strong`. Knob travel 20 px toward the
   **end** side when on (mirrors in RTL via logical `inset-inline-start`). `role="switch"`, whole row is the hit target.
-- **Slider:** native `input[type=range]` restyled: track 6 px `--ring-track`, filled part `--accent`, thumb 28 px white with `--sh-2`
-  and 1 px `--line-strong`; native RTL reversal is correct, do not fight it. Step labels not shown; value shown at end.
-- **Chip/status pill:** height 28, padding 0 10, radius pill, caption 600. Variants ok/warn/neutral/accent (soft bg + token text).
-  **USB chip** (top bar): `usb` icon + "Plugged in" (ok) / "Not plugged in" (neutral, `--text-2`). Pure information, not a button.
-- **Progress bar** (import): 6 px, radius 3, accent, determinate; label "42 of 140".
+- **Slider:** native `input[type=range]` restyled: track 4 px `--fill-press`, filled part `--ink`, thumb 26 px `--knob` with `--sh-2`
+  and 1 px `--hair-strong`; native RTL reversal is correct, do not fight it. Step labels not shown; value shown at end.
+- **Chip/status pill:** height 28, padding 0 10, radius pill, caption 600. Variants ok / err / neutral / ink (outlined) / **signal** (Ready only: "Password · GitHub" while Keyra waits).
+  **Typing-to chip** (Accounts top bar): see §5.4.
+- **Progress bar** (import): 4 px, radius 2, ink, determinate; label "42 of 140".
 - **Skeleton:** `--fill` blocks radius 8 with a 1.4 s shimmer (`linear-gradient(90deg,transparent,rgba(255,255,255,.5),transparent)` in light,
   `.06` in dark, translating); only shown if loading > 150 ms; reduced motion → static `--fill`.
 - **Page transition (push/pop):** incoming `translateX(24px)→0` (mirrored in RTL) + opacity, 280 ms `--ease-out`; outgoing fades. Reduced motion: 120 ms crossfade.
@@ -571,20 +480,42 @@ motion) · title t2 · body callout `--text-2` · CTA primary md. Never illustra
 
 ## 5. Screens
 
-Conventions: **M** = phone 375–430 px; **D** = desktop ≥ 900 px. Routes are hash-based (`#/welcome`, `#/setup/1..3`,
-`#/unlock`, `#/` list, `#/a/:id`, `#/a/:id/edit`, `#/new`, `#/import`, `#/backup`, `#/settings`) so Back works and sheets
-are deep-linkable. Screen background `--bg`; the Welcome, Setup and Unlock/Locked screens add a soft glow:
-`radial-gradient(60% 40% at 50% -8%, rgba(11,87,240,.12), transparent)` (dark: `rgba(108,156,255,.14)`).
+Conventions: **M** = phone 375–430 px; **D** = desktop ≥ 900 px. Routes are hash-based (`web/src/lib/router.ts`) so Back
+works and every screen is deep-linkable. Screen background `--bg`; Welcome, Setup and Unlock add the paper grain (§2.3).
+
+### 5.0 Information architecture
+Four destinations, a **bottom tab bar** on phones (glass, 60 px + safe area, icon + label, active = ink 600, inactive
+`--ink-3`, no pill) and the **same four as a side rail** from 900 px (92 px, the Contour on top, active = paper tile
+with a hairline). Tabs swap in place (`replace`); everything opened from a tab is pushed, so Back closes it.
+
+| Tab | Route | Holds | Sub-screens (pushed) |
+|---|---|---|---|
+| **Accounts** | `#/` | target chip, search (accounts **and** actions), checklist, favorites / recent / A–Z, FAB | `#/a/:id`, `#/a/:id/edit`, `#/new`, `#/connect` |
+| **Type** | `#/typing` | Type text (ink card), Generate, Type test; "Typing to" list (USB + paired devices); speed, between fields, Enter after both, order for "Both" | `#/type`, `#/generate`, `#/typing/test`, `#/typing/order` |
+| **Security** | `#/security` | dashboard: password health (reused · weak · old), passkeys count, recovery kit status, latest activity; locking (auto-lock, passphrase, lock on unplug, lock now); showing secrets (reveal protection, passkeys in backups) | `#/security/health`, `/activity`, `/passkeys`, `/recovery`, `/autolock`, `/passphrase` |
+| **Device** | `#/device` | identity card (graphite), name; Wi‑Fi (Keyra's Wi‑Fi, home Wi‑Fi, trusted browsers); Bluetooth (on/off, output, connect, paired devices); keyboard (USB computer system, layouts); backup (Back up now · Restore from a backup · Import); apps and tags; light; appearance; about (firmware update with a "Ready" badge when an update is staged, Add to Home Screen, model); erase | `#/backup`, `#/restore`, `#/import`, `#/device/wifi`, `/home`, `/trusted`, `/pair`, `/layout-usb`, `/layout-ble`, `/apps`, `/tags`, `/update`, `/erase` |
+
+A sheet opens over the tab it was opened from (search → Backup keeps Accounts behind it); a deep link shows the sheet's
+own tab. With no history (a deep link), closing falls back to that tab.
+
+**Search finds actions** (`web/src/lib/actionIndex.ts`): a query of ≥ 2 characters matches the start of any word of an
+action's label in **either** language or of its synonyms ("backup", "النسخ", "firmware", "بلوتوث"); whole-word matches
+first; at most 4, shown as "Actions and settings" above the account results.
+
+**Post-setup checklist** (Accounts, above the list): recovery kit (`GET /api/recovery`), first backup
+(`settings.lastBackupAt`), a paired Bluetooth device, Add to Home Screen (phones). It waits until all four are known, hides
+itself when done, and "×" hides it for good in `localStorage["keyra.checklist"]` (try/catch: blocked storage just keeps
+offering it). While it shows, the stale-backup reminder (SPEC §12.5) stays hidden.
 Copy: AR is primary and written in warm Modern Standard Arabic; `{x}` = variable; `<bdi>` around Latin names.
 Arabic plurals for counts: `n=1` "حساب واحد", `n=2` "حسابان", `3–10` "{n} حسابات", `11+` "{n} حساباً", `0` "لا حسابات".
 Language: `navigator.language` starts with `ar` → Arabic, else English; manual switch persists in
 `localStorage["keyra.lang"]`; `<html lang dir>` updates live without reload.
 
 ### 5.1 Welcome (first run only, `initialized=false`)
-**M:** top-end language button (ghost sm: "English" / "العربية"). Centre column, top 18 % empty: logo tile 88 px (radius 22,
-`--sh-2`), title display, subtitle callout `--text-2` (max 280 px). Then 3 steps as an inset group card (icon in
-40 px `--accent-soft` squircle + headline + callout): *Plug in* (`usb`), *Tap an account* (`user`), *Press the button*
-(`key-round`). Bottom: primary lg full-width, caption below. **D:** same column centred in a 440 px card on a glow background.
+**M:** top-end language button (ghost sm). The brand moment: the bare Contour (112 px, ink) **draws itself** once per tab
+session (900 ms, from the gap round to the gap; `sessionStorage["keyra.drawn"]`), the wordmark fades up under it, then
+the display title, the subtitle, and three steps as a spec list (mono `01 02 03`, hairlines between, no icon tiles).
+Primary lg CTA, caption below. **D:** the same column, centred, on the grain.
 Interaction: CTA → `#/setup/1`. Not shown again.
 | Key | العربية | English |
 |---|---|---|
@@ -597,8 +528,8 @@ Interaction: CTA → `#/setup/1`. Not shown again.
 | caption | يستغرق حوالي دقيقة. | Takes about a minute. |
 
 ### 5.2 Onboarding (3 steps)
-Shared chrome: back chevron (start), step dots (3 × 8 px, active 24 × 8 pill `--accent`, order follows reading direction), title
-t1, body callout `--text-2`, content, sticky bottom primary lg (above keyboard via `visualViewport`). **D:** 440 px card.
+Shared chrome: back chevron (start), step dots (3 × 6 px, active 20 × 6 ink, order follows reading direction), title
+t1, body callout `--ink-2`, content, sticky bottom primary lg (above keyboard via `visualViewport`). **D:** 440 px card.
 
 **Step 1 — passphrase.** Two secret fields (passphrase, confirm), strength meter (4.7) under the first, length hint, a
 `--warn-soft` notice. Continue enabled when ≥ 10 chars **and** equal. `autofocus` first field; Enter advances.
@@ -650,7 +581,7 @@ the user simply lands on Unlock. Never persist the passphrase.
 | waiting | ننتظر عودتك إلى الشبكة… | Waiting for you to rejoin the network… |
 
 ### 5.3 Unlock
-**M:** glow bg; logo tile 72 px; title display; one secret field (autofocus, `autocomplete=current-password`); primary lg "Unlock";
+**M:** paper grain; the Contour tile 80 px (draws itself once per session); title display; one secret field (autofocus, `autocomplete=current-password`); primary lg "Unlock";
 below: ghost "Forgot passphrase?". Language chip top-end. **D:** 440 px centred card. KDF takes ≈1.2 s on the device: button → loading
 at once; after 700 ms a caption fades in (explains the wait). Success: sheet-less crossfade 200 ms into the list. Wrong: 4.14.
 Forgot → alert dialog → **Ready (presence)** for factory reset (`POST /api/factory-reset`) → on success toast + the app returns to Welcome.
@@ -669,16 +600,21 @@ Forgot → alert dialog → **Ready (presence)** for factory reset (`POST /api/f
 | erase waiting title | اضغط الزر لتأكيد المسح | Press the button to confirm |
 
 ### 5.4 Vault list (home)
-**M** (top → bottom): sticky **glass top bar** 56 px — start: USB status chip; end: Settings (`settings`, 44) and Lock (`lock`, 44).
-Large title t1 "Accounts" + count callout `--text-3`. Sticky **search field** (4.4) directly under (glass, same bar group; on scroll the large
+**M** (top → bottom): sticky **glass top bar** 56 px — start: the **"Typing to" chip** (dot: ok when that output is
+connected, hollow otherwise · "Typing to" caption · `USB` or the Bluetooth device's name · `chevron-down`); end: Lock (`lock`, 44).
+Tapping the chip opens a sheet with the same radio list as the Type tab (USB with its plug state, each paired device with
+"Connected"/"Paired") and "Pair a new device" (→ `#/device/pair`). The pick is this browser's (`localStorage["keyra.target"]`,
+the same value the account sheet's "Type into" segmented control uses); no new API.
+Large title t1 "Accounts" + count callout `--ink-3`. Sticky **search field** (4.4) directly under (glass, same bar group; on scroll the large
 title collapses by simply scrolling away). Sections as inset group cards: **Favorites** (all favorites), **Recently used**
 (3 most recent non-favorites with `lastUsed>0`), then **All** grouped by first letter with sticky letter headers (script order = UI
 language first: Arabic letters then Latin then `#` in AR; reverse in EN; letters of the same base compared after the normalisation of 4.4).
-While searching: only one flat "Results" group, matches highlighted with `--accent-soft` bg on the matched substring.
-**FAB:** 56 px accent circle (`plus` 24 white), end-bottom 16 px + safe area, `--sh-2`, z 20; hides while scrolling down
+While searching: "Actions and settings" (§5.0) above one flat "Results" group; matches highlighted with a `--fill-press` mark.
+Above the list (not searching): the post-setup checklist (§5.0) or, once it is done or hidden, the stale-backup reminder.
+**FAB:** 56 px ink squircle (radius 18, `plus` 24 `--on-ink`), end side, 16 px above the tab bar; hides while scrolling down
 > 80 px, returns on scroll up. Bottom padding of the list 96 px so the FAB never covers a row.
 **D:** left pane 380 px (top bar chips + search + list), right pane = account detail (5.5) or, when nothing selected, a calm
-placeholder (glyph 64 `--text-3`, "Pick an account"). Add → centred dialog. Keyboard: `/` focuses search, ↑↓ moves selection, Enter opens, `n` new.
+placeholder (glyph 64 `--ink-3`, "Pick an account"). Add → centred dialog. Keyboard: `/` focuses search, ↑↓ moves selection, Enter opens, `n` new.
 Interaction: row tap → `#/a/:id` (sheet). List refetches `GET /api/entries` on mount, after any write, and on `visibilitychange`.
 Loading: 6 skeleton rows. Error: connection banner. Locked (401): route to Locked.
 | Key | العربية | English |
@@ -689,11 +625,15 @@ Loading: 6 skeleton rows. Error: connection banner. Locked (401): route to Locke
 | favorites / recent / all | المفضّلة / استُخدمت مؤخراً / الكل | Favorites / Recently used / All |
 | results | النتائج | Results |
 | USB on / off | موصول بالكمبيوتر / غير موصول | Plugged in / Not plugged in |
-| a11y: add / lock / settings | إضافة حساب / قفل / الإعدادات | Add account / Lock / Settings |
+| a11y: add / lock | إضافة حساب / قفل | Add account / Lock |
+| tabs | الحسابات · الكتابة · الأمان · الجهاز | Accounts · Type · Security · Device |
+| typing-to chip | يكتب في · USB / غير متصل | Typing to · USB / Not connected |
+| checklist | أكمل الإعداد · اكتمل {done} من {n} | Finish setting up · {done} of {n} done |
+| search actions | الإجراءات والإعدادات | Actions and settings |
 | detail placeholder | اختر حساباً لعرضه | Pick an account to open it |
 
 ### 5.5 Account sheet (detail)
-**M:** bottom sheet 92 dvh max (4.9), grabber; header: monogram 64, title t2 (`dir=auto`, 2 lines max), host callout `--text-2`; end: star toggle
+**M:** bottom sheet 92 dvh max (4.9), grabber; header: monogram 64, title t2 (`dir=auto`, 2 lines max), host callout `--ink-2`; end: star toggle
 (`aria-pressed`, 44) and Edit (`pencil`, 44). Then the **action area** (4.2), then an inset group "details": Username (copy), Password (masked
 `••••••••••`, eye, copy), Website (copy), Notes (expandable 3 lines). Revealing a password: `GET /api/entries/{id}` is called on sheet open
 (secrets live only in component state; cleared on close/lock). **D:** identical content as the right pane, no grabber/scrim.
@@ -765,7 +705,7 @@ Camera/QR scanning is **out of scope** (no secure context over `http://keyra.loc
 | new / use | واحدة جديدة / استخدم هذه | New one / Use this password |
 
 ### 5.7 Import
-**M:** full-height sheet (via Settings → Data, or the empty-state ghost button). Step A: four source cards (2 × 2 grid, 96 px high, radius 20,
+**M:** full-height sheet (via Device → Backup → Import from another app, search "import", or the empty-state ghost button). Step A: four source cards (2 × 2 grid, 96 px high, radius 20,
 surface, name 17/600 + tiny file-type caption; Latin product names stay Latin in Arabic). Tap a card → Step B in the same sheet (push): numbered
 instructions (≤ 4 lines, steps as callout list), a primary "Choose file" (`<input type=file accept=".csv,text/csv">`). Step C preview: summary card
 with counts and a list of the first 5 titles; primary "Import {n}". Step D progress (progress bar, batches of 50 → `POST /api/entries/import`),
@@ -794,7 +734,8 @@ duplicates (same title+username+url) as `skipped`. **ASSUMPTION:** exact export 
 | bad file | هذا الملف لا يشبه تصدير كلمات مرور. جرّب مصدراً آخر. | This doesn't look like a password export. Try another source. |
 
 ### 5.8 Backup & Restore
-**M:** sheet from Settings → Data. Two group cards. **Backup:** explanatory callout; secret field (backup passphrase, ≥ 12, strength meter, **separate** from
+**M:** two separate screens from Device → Backup: **Back up now** (`#/backup`) and **Restore from a backup** (`#/restore`),
+so the destructive one is never next to the routine one. **Backup:** explanatory callout; secret field (backup passphrase, ≥ 12, strength meter, **separate** from
 the master passphrase — helper says so); primary "Download backup" → `POST /api/backup` → browser saves `keyra-backup-YYYYMMDD.json`
 (iOS Safari asks "Download?" → Files). Use a `Blob` + `<a download>` click inside the gesture. **Restore:** file picker (`.json`), secret field, segmented
 Merge | Replace (default Merge; helper text switches), primary "Restore". Replace → alert → presence Ready → result. Errors: wrong passphrase / damaged file.
@@ -815,17 +756,18 @@ Merge | Replace (default Merge; helper text switches), primary "Restore". Replac
 | result | أُضيف {a} وحُدِّث {u} | Added {a}, updated {u} |
 | wrong | العبارة غير صحيحة أو الملف تالف. | Wrong passphrase, or the file is damaged. |
 
-### 5.9 Settings
-**M:** full-screen push (back chevron + t1 title), inset group cards in this order; **D:** centred dialog 560 with the same groups. Every
+### 5.9 Settings (now split across Type, Security and Device — §5.0)
+There is no Settings screen any more; its groups live in the tab they belong to (table below keeps the copy). Each tab is
+a page with a large title; rows carry an icon tile (§4.0); sub-screens are routed sheets. Every
 change saves immediately (`PUT /api/settings`, optimistic); no success toast; on error: revert + error toast "Couldn't save. Try again.". Wi-Fi name/password edits happen in a
-sub-sheet with an explicit "Save" because they need presence → Ready → "Keyra's Wi-Fi will restart; rejoin it" (same reconnect card as 5.2).
+sub-sheet ("Keyra's Wi‑Fi", Device) with an explicit sticky "Save" because they need presence → Ready → "Keyra's Wi-Fi will restart; rejoin it" (same reconnect card as 5.2).
 Auto-lock opens a radio list sheet (1, 5, 15, 30, 60, 120 min). Typing speed segmented maps Slow/Normal/Fast → `keyDelayMs` 30/12/5
 (**ASSUMPTION**; default 12 = firmware default). LED brightness slider 10–100 % → `ledBrightness` scaled to the firmware range (**ASSUMPTION** — confirm
 range with firmware; UI never offers 0 so the "ready" light can't be turned off).
 **Type test** (`{test:true}`): Ready component with the copy below. Language/theme apply instantly.
 | Group | Row → control | العربية | English |
 |---|---|---|---|
-| title | | الإعدادات | Settings |
+| tab titles | | الكتابة · الأمان · الجهاز | Type · Security · Device |
 | Keyra | name (text) | اسم الجهاز | Device name |
 | | Wi-Fi (sub-sheet) | شبكة Wi‑Fi | Wi‑Fi network |
 | Security | Auto-lock (list) | القفل التلقائي — بعد {n} دقيقة | Auto-lock — after {n} min |
@@ -859,7 +801,7 @@ range with firmware; UI never offers 0 so the "ready" light can't be turned off)
 ### 5.10 Add-to-Home-Screen hint
 Shown **once**, 1.2 s after the first successful unlock, only if not standalone (`navigator.standalone` false and
 `matchMedia('(display-mode: standalone)')` false) and not dismissed. Bottom sheet (compact, no scrim blocking the list). iOS (UA `iPhone|iPad`): 3 numbered steps with the real
-`share` icon rendered inline; others: 2 steps. "Not now" hides it for 7 days (`localStorage["keyra.a2hs"]=timestamp`); "Got it" hides forever. Also reachable from Settings → About.
+`share` icon rendered inline; others: 2 steps. "Not now" hides it for 7 days (`localStorage["keyra.a2hs"]=timestamp`); "Got it" hides forever. Also reachable from Device → About and the Accounts checklist.
 **D:** never shown.
 | Key | العربية | English |
 |---|---|---|
@@ -870,8 +812,8 @@ Shown **once**, 1.2 s after the first successful unlock, only if not standalone 
 | buttons | فهمت / ليس الآن | Got it / Not now |
 
 ### 5.11 Locked
-Reached by auto-lock, long press on the button, session expiry (401) or manual Lock. Same layout as Unlock but calmer: no glow, glyph 72 px
-`--text-3`, title, reason line (callout `--text-2`), primary "Unlock" which reveals the passphrase field inline (field + button) with focus.
+Reached by auto-lock, long press on the button, session expiry (401) or manual Lock. Same layout as Unlock but calmer: no grain, the bare Contour 72 px
+`--ink-3`, title, reason line (callout `--ink-2`), primary "Unlock" which reveals the passphrase field inline (field + button) with focus.
 In-flight Ready/forms are discarded; Add/Edit drafts are **not** saved anywhere (secrets never touch storage).
 | Key | العربية | English |
 |---|---|---|
@@ -896,24 +838,24 @@ In-flight Ready/forms are discarded; Add/Edit drafts are **not** saved anywhere 
 
 - **Contrast:** all text tokens ≥ 4.5:1 on their allowed backgrounds (tables in §2.1); UI boundaries (inputs, switch off-track, slider thumb) ≥ 3:1.
   Never convey state by colour alone (strength = label; errors = icon + text; ring warning = countdown text + colour).
-- **Focus:** visible 2 px ring + 2 px offset on every focusable (`--focus`, ≥ 5.26:1 light / 9.55:1 dark); order = DOM order = visual order in both directions;
+- **Focus:** visible 2 px ring + 2 px offset on every focusable (`--focus` = ink: 16.9 : 1 light / 17.5 : 1 dark); order = DOM order = visual order in both directions;
   sheets/dialogs trap focus, set `inert` on the rest, restore focus on close; skip link "Skip to accounts" on desktop.
 - **Targets:** ≥ 44 × 44 CSS px for every interactive element (visual smaller icons get padded hit areas); ≥ 8 px between adjacent targets.
 - **Semantics:** list = `ul/li` with each row a single `<button>` (or `<a href="#/a/id">`); sheets `role=dialog aria-modal aria-labelledby`; switch `role=switch`;
   segmented `role=radiogroup`; progress `role=progressbar` with `aria-valuenow`; the Ready state `role=group aria-labelledby=title`, with the sr-only
   live line at 30/10/5 s and an assertive `role=status` for Typed/errors; toasts per 4.10; page title (`document.title`) updates per route; `lang` set on `<html>` and on
   inline foreign-script runs.
-- **Reduced motion** (`@media (prefers-reduced-motion:reduce)` and an in-app override is **not** needed): all springs → 120 ms linear; no translate/scale/shake/ripple/morph; halo breathing off
-  (ring shows static accent; the physical LED still breathes and the copy says so); countdown ring steps once per second instead of animating; skeleton shimmer off; orbit dots static;
-  page transitions = crossfade. Information-bearing motion (the countdown value) is kept as text.
-- **Reduced transparency / high contrast:** `.glass` → solid (2.3). `prefers-contrast:more`: `--line` becomes `--line-strong`, `--text-3` → `--text-2`.
+- **Reduced motion** (`@media (prefers-reduced-motion:reduce)` and an in-app override is **not** needed): every duration → 120 ms linear, `--d-draw` → 0; no translate/scale/shake/draw/breath. The Contour stays legible without
+  motion (static blue line with a lit gap while waiting, closed ink when typed, retracted err when refused); the countdown arc is static and the
+  time stays as text; the Welcome/Unlock draw-in is skipped; skeleton shimmer off; the "Ready" pill's dot is steady. Information-bearing motion (the countdown value) is kept as text.
+- **Reduced transparency / high contrast:** `.glass` → solid and the paper grain off (2.3). `prefers-contrast:more`: `--hair` becomes `--hair-strong`, `--ink-3` → `--ink-2`.
 - **Zoom/Dynamic Type:** root font-size stays `100%`/`106.25%` (never px on `html`); layouts verified at 200 % text and 320 px width without horizontal scroll;
   sheet content scrolls, buttons wrap labels (min-height, not height).
 - **Touch & input:** `inputmode`, `enterkeyhint`, `autocomplete` per field; don't block paste; `autocapitalize=off` on credentials; no timeouts shorter than 60 s except the
   intentional pending-action expiry (announced, extendable by tapping again).
 - **RTL rules.** Use only logical properties (`margin-inline`, `padding-inline`, `inset-inline`, `text-align:start`, `border-start-start-radius`; `float`/`left`/`right` banned);
   `<html dir>` drives everything. **Mirror:** layout order, chevrons/back arrows, slide transitions, segmented order, step-dot order, switch/slider direction (native), sheet
-  header actions (Save on the start side stays "start"), `translateX` animations (multiply by `--dir`). **Never mirror:** the logo and key glyph, check/clock/ring (the countdown is
+  header actions (Save on the start side stays "start"), `translateX` animations (multiply by `--dir`). **Never mirror:** the Contour (mark, tile, press indicator), check/clock/ring (the countdown is
   clockwise in both), digits and anything `dir=ltr` (passwords, usernames, URLs, SSIDs, codes, version numbers), the `share` icon, phone/USB metaphors, images.
   Numbers inside Arabic sentences stay Western digits. A static test: render every screen at 390 px with `dir=rtl` and `dir=ltr`; the pixel-mirror of one must equal the other
   except the never-mirror items.
@@ -921,86 +863,12 @@ In-flight Ready/forms are discarded; Add/Edit drafts are **not** saved anywhere 
 
 ---
 
-## 7. Image-generation prompts (paste into ChatGPT; save files exactly as named)
+## 7. Imagery
 
-How to use: paste each prompt in a **new** chat message, attach nothing. ChatGPT's native sizes are 1024², 1536×1024 and 1024×1536;
-where the final aspect differs (b, d) the prompt asks for a wide composition with a safe centre band and the lead crops/resizes
-(`magick in.png -gravity center -crop 1536x614+0+0 -resize 1600x640 out.png`). If any text comes out garbled, answer with:
-"Remove all text and lettering from the image completely; keep everything else identical." — real headings are added later in Figma/HTML.
-Keep the same chat for all six so the product design stays consistent; start each with "Using the same Keyra product design:" after (c).
-
-**Shared style block** (already inside every prompt below, do not edit): palette — Keyra Blue `#0B57F0`, light blue `#6C9CFF`, LED blue `#2F6BFF`,
-ink black `#080A10`, panel `#12151D`, paper `#F3F4F8`, white `#FFFFFF`, success green `#4ADE80` (only for the "typed" moment). Look: calm,
-premium, Apple-product-page restraint; soft studio light; matte materials; subtle frosted glass only on small accents; generous empty space.
-Avoid: padlock/shield/hacker clichés, neon clutter, circuit-board textures, stock people, real brand logos (Apple, Google, Microsoft), watermarks.
-
-### (a) App icon → `docs/images/icon.png` (1024 × 1024, square)
-```
-Design a 1024×1024 app icon, full-bleed square (no rounded corners, no border, no mockup, no shadow outside the canvas).
-Background: a smooth diagonal gradient from #4B86FF at the top-left to #0A47D8 at the bottom-right, very subtle, no noise.
-Centre: a single bold white key glyph made of simple geometric strokes with perfectly round line caps — a ring-shaped bow (a circle outline) at the top,
-a straight vertical shaft descending from the ring, and two short rectangular teeth pointing to the right, the lower tooth slightly shorter.
-The glyph is about 52% of the canvas height, optically centred, stroke thickness about 11.5% of the glyph height, pure white #FFFFFF.
-Add a very soft drop shadow under the glyph (dark blue, 35% opacity, large blur) and a faint white highlight fading from the top edge over the top 40% of the canvas (14% opacity).
-Flat, crisp vector look like a modern iOS app icon. ABSOLUTELY NO TEXT, letters, numbers or extra symbols anywhere.
-```
-
-### (b) README hero banner → `docs/images/hero.png` (final 1600 × 640; generate wide 1536×1024)
-```
-Wide cinematic hero banner for a product called Keyra, generated in landscape. IMPORTANT composition rule: keep every important element inside the horizontal
-centre band that is 60% of the image height (the top and bottom 20% will be cropped away) and leave the left 22% and right 22% of the width calm and almost empty,
-because a headline will be placed there later.
-Scene: a deep ink background (#080A10) fading to #12151D with one soft blue glow (#2F6BFF at 25% opacity, very large radius) behind the product.
-Centre-right: a small matte graphite USB security key (a slim rounded-rectangle device about the size of a lighter, colour #1B1F2A, USB-C plug at one end,
-a single round translucent button on top with a gently glowing ring of blue light #2F6BFF, a tiny debossed key glyph — a circle with a vertical stem and two teeth — next to it),
-plugged into the side of a thin silver laptop (generic, no logo) that is only partly visible at the edge. Centre-left of the device, a floating smartphone
-(generic black glass phone, no logo) seen from a slight angle, its screen showing an abstract dark interface: a large blue ring #6C9CFF with a white key symbol inside
-and a few soft grey rounded bars as placeholder rows — NO readable text on the screen, only abstract shapes.
-Thin light-blue curved line (#6C9CFF, 1.5 px) linking phone, device and laptop to suggest "wireless setup, typed into your computer".
-Style: realistic soft 3D product render, shallow depth of field, very soft reflections, premium and calm. NO text, NO letters, NO logos, NO watermark anywhere in the image.
-```
-
-### (c) Product render of the device → `docs/images/device.png` (1536 × 1024, landscape)
-```
-Studio product photograph-style 3D render of a tiny hardware password key named Keyra, on a seamless light background (#F3F4F8) with a soft long contact shadow, 3/4 front view slightly from above.
-The device: a minimal slim capsule-shaped enclosure about 55 mm long, matte anodised graphite (#1B1F2A) with ultra-fine texture, softly rounded corners, one flush USB-C plug (silver) protruding from one end.
-On top: ONE round pill-shaped translucent button, frosted milky-white glass, with a soft ring of electric blue light (#2F6BFF) glowing around it and a faint glow cast on the surface below.
-Beside the button, a small debossed key symbol (a circle outline with a vertical stem and two small teeth to the right), and on the lower edge the single word "Keyra" debossed in a clean rounded geometric sans-serif,
-spelled exactly K-e-y-r-a, small and subtle. No other text, no markings, no screws, no extra ports, no cable, no logo other than this.
-Lighting: large softbox from top-left, gentle rim light, realistic materials, crisp but soft edges, 50 mm lens look, shallow depth of field.
-Compose with the device filling about 60% of the width, centred, plenty of clean background around it. If the word "Keyra" cannot be spelled correctly, leave the surface blank instead of guessing.
-```
-
-### (d) Social preview → `docs/images/social.png` (final 1280 × 640; generate wide 1536×1024)
-```
-Social-sharing card background in landscape, generated wide. Composition rule: all important content inside the central 2:1 band (the top and bottom 17% of the image will be cropped);
-keep a 10% margin from the left and right edges.
-Left half: a large rounded-square app tile (squircle) coloured with a diagonal blue gradient #4B86FF → #0A47D8, containing a bold white key glyph (a ring-shaped bow, a vertical shaft, two small teeth to the right, round line caps), with a soft shadow.
-Right half: the matte graphite (#1B1F2A) slim USB key with a glowing blue (#2F6BFF) ring button on top, tilted 12 degrees, floating slightly above a very soft blue glow; behind it a very faint, large, thin blue ring (#6C9CFF at 20% opacity) as a motif.
-Background: deep ink #080A10 with a subtle radial glow of #0B57F0 at 15% opacity from the top-centre. Between the two halves leave empty space — a title will be placed there later.
-Style: crisp, premium, minimal, soft 3D with matte materials. NO text, NO letters, NO numbers, NO watermark.
-```
-
-### (e) How-it-works illustration → `docs/images/how-it-works.png` (1536 × 1024, landscape; used full-width in README)
-```
-A clean three-step explainer illustration, landscape, three equal rounded panels side by side (radius large, panel colour #12151D on a #080A10 background, 1 px hairline border rgba(255,255,255,0.09), thin gaps between panels).
-Style: soft matte 3D "clay" objects, calm, minimal, consistent lighting from the top-left, palette limited to #0B57F0, #6C9CFF, #2F6BFF, #F3F4F8, #12151D and a touch of success green #4ADE80 in panel 3 only.
-Panel 1 — "Plug in": a small slim graphite USB key with a pulsing blue ring button plugged into the side of a thin silver laptop (generic, no logo); on the laptop screen a blank login form with an empty field and a cursor.
-Panel 2 — "Pick": a generic black phone shown upright; its screen shows an abstract dark list of rounded rows with coloured square avatars, and a big blue pill button highlighted with a fingertip about to tap it. NO readable text on the screen — only abstract bars.
-Panel 3 — "Press": a close view of a finger pressing the round glowing button of the Keyra key; above it the laptop's login field now filled with a row of dots (●●●●●●●●) and a small green check badge #4ADE80.
-At the top-centre of each panel place only a small circled digit: 1, 2, 3 (white digit in a #0B57F0 circle). Use NO other text anywhere — no words, no captions, no labels, no logos. If any digit is malformed, regenerate with the digits removed.
-Thin light-blue connector arrows (#6C9CFF) between the panels, pointing left to right.
-```
-
-### (f) Dark-mode phone mockup → `docs/images/phone-dark.png` (1024 × 1536, portrait)
-```
-Portrait product mockup: a single generic modern smartphone (black glass, thin bezels, no brand, no logo, no visible notch text) floating at a slight 8-degree angle, centred, on a deep ink background (#080A10) with a soft blue radial glow (#2F6BFF at 20% opacity) behind it and a gentle floor reflection.
-The phone screen shows a dark-mode app (screen background #080A10, card surfaces #12151D): at the top a small centred rounded-square blue logo tile with a white key glyph;
-in the middle a large circular progress ring (stroke 10 px, #6C9CFF, about 70% filled, clockwise) with a soft pulsing blue halo (#2F6BFF), a white-blue key glyph in its centre;
-below the ring two short horizontal rounded bars in light grey (#B1B8C8 and #8D95A8) as placeholder title and subtitle, then a small pill chip (#202B41 fill) with a short bar inside, and a full-width ghost-style rounded button outline.
-CRITICAL: the screen must contain NO readable text, NO letters, NO numbers — only abstract bars and shapes (real screenshots with real Arabic/English text will be composited later).
-Style: photorealistic 3D render, crisp screen, subtle glass reflections, premium and calm. NO watermark.
-```
+Brand imagery follows BRAND.md §6 (real photographs of the board or labelled renders, graphite studio light, the LED as
+the only colour; no neon, no blue gradients, no padlocks). The asset list (README banner, hero photo, press video, LED
+states strip, screen mosaics, social card) and its sizes are in `docs/research/design-references-2026.md` §4.5. The
+earlier ChatGPT prompts for a blue key icon are retired with the old mark.
 
 ---
 
@@ -1041,23 +909,23 @@ Arabic / RTL
 
 ## Appendix A — Byte budget (gzip -9 bytes over the air; `web/scripts/postbuild.mjs` enforces both)
 
-| Budget | Limit | Measured (0.3.1 → now) | What it means |
+| Budget | Limit | Measured (0.3.1 → 0.4.3 → Graphite & Ivory redesign) | What it means |
 |---|---|---|---|
-| **Initial load** | **≤ 130 KB** (133,120 B) | 189.5 KB → **109.5 KB** | Everything a phone downloads to open the app, unlock and see the vault list: `index.html`, the entry script and the chunks it imports statically, the stylesheet and the preloaded font. |
-| **Total** | **≤ 400 KB** (409,600 B) | 189.5 KB → **204.5 KB** | `index.html.gz` plus every file in `assets.pack`: what the firmware embeds for the web app (the PNG icons, manifest and tap page are extra, about 20 KB). |
+| **Initial load** | **≤ 130 KB** (133,120 B) | 189.5 KB → 110.1 KB → **116.7 KB** | Everything a phone downloads to open the app, unlock and see the vault list: `index.html`, the entry script and the chunks it imports statically, the stylesheet and the preloaded font. |
+| **Total** | **≤ 400 KB** (409,600 B) | 189.5 KB → 205.4 KB → **214.7 KB** | `index.html.gz` plus every file in `assets.pack`: what the firmware embeds for the web app (the PNG icons, manifest and tap page are extra, about 20 KB). |
 
-Initial load, measured:
+Initial load, measured (after the redesign):
 | Item | KB |
 |---|---|
-| Shared chunk (Preact, i18n AR+EN, API client, store, UI kit, Unlock, vault list, account view) | 47.4 |
-| Entry chunk (app shell, router, windowed list, account, ready/typing UI) | 21.4 |
-| CSS (tokens twice-themed, components, screens) | 11.0 |
+| Shared chunk (Preact, i18n AR+EN, API client, store, UI kit, Unlock, Accounts tab, account view, action index) | 49.6 |
+| Entry chunk (app shell, tab bar/rail, router, windowed list, Ready/Contour) | 24.6 |
+| CSS (tokens twice-themed, components, screens) | 12.8 |
 | Font `keyra-sans.woff2` (stored, not gzipped) | 28.8 |
 | `index.html` + loader runtime | 1.0 |
-| **Total** | **109.5** |
+| **Total** | **116.7** |
 
 Loaded on first use, then kept by the browser (hashed name, `Cache-Control: immutable`): onboarding (Setup),
-add/edit, import, backup, Settings and each of its sheets (home Wi‑Fi, passkeys, password health, activity,
+add/edit, import, backup/restore, the Type, Security and Device tabs and each of their sheets (home Wi‑Fi, passkeys, password health, activity,
 firmware update, trusted browsers, apps/tokens, NFC tags, keyboard layouts and Layout Doctor, typing order,
 recovery kit with its QR encoder), the generator sheet, type text, pairing, the QR reader (`jsQR`, 45 KB) and
 the Shamir library (2 KB). A load that fails says so with a retry; when Keyra answers but the file still will
@@ -1069,7 +937,7 @@ History: 150 KB (one file), 170 KB (recovery kit, SPEC §12.2), 190 KB (health, 
 then split into the two budgets above when the single file reached 189.5 KB.
 
 ## Appendix B — Assumptions the lead must confirm (flagged `ASSUMPTION` above)
-1. **LED patterns** (4.11.1): Pending = blue breathe 1600 ms period; Success green 700 ms; Error red 3 blinks. Tell the firmware owner or change `--d-breath`.
+1. **LED patterns** (4.11.1): Pending = blue breathe 1200 ms period (confirmed in `led_anim.cpp`); Success green 700 ms; Error red 3 blinks. Tell the firmware owner or change `--d-breath`.
 2. **Typing speed** presets map to `keyDelayMs` 30 / 12 / 5; default 12 (firmware default).
 3. **`ledBrightness`** range is unspecified in SPEC §5 — UI offers 10–100 % and scales to the firmware range; never 0.
 4. **Presence-gated settings** (Wi-Fi change, restore-replace, factory reset) reuse the Ready component; the UI relies on `state.presence.{awaiting,op,expiresIn}`.

@@ -269,7 +269,7 @@ export function ConnectSheet({ ext, n }: { ext: string; n: string }) {
 
   let body;
   if (!NONCE.test(n) || !nameOk(name) || /[\x00-\x1f\x7f]/.test(name)) body = <Notice tone="warn">{t('connectBad')}</Notice>;
-  else if (step === 'done') body = <Notice tone="accent">{t('connectDone')}</Notice>;
+  else if (step === 'done') body = <Notice tone="info">{t('connectDone')}</Notice>;
   else if (step === 'failed') body = <Notice tone="warn">{t('connectFail')}</Notice>;
   else if (step === 'wait') body = <Spinner />;
   else

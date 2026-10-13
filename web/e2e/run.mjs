@@ -177,7 +177,7 @@ async function firstRunFlow(base, opts) {
   }
 
   // Import a CSV (Chrome format)
-  await page.evaluate(() => (location.hash = '#/import'));
+  await goTo(page, '/import');
   await page.locator('.source-card').nth(1).click();
   await page.locator('input[type=file]').setInputFiles({
     name: 'Chrome Passwords.csv',
@@ -200,7 +200,7 @@ async function firstRunFlow(base, opts) {
   check((await page.locator('.acc-row').count()) >= 4, 'list shows imported rows');
 
   // 2FA from a QR photo: a plain otpauth:// QR in the Edit form …
-  await page.evaluate(() => (location.hash = '#/new'));
+  await goTo(page, '/new');
   await page.locator('.edit-form').waitFor();
   await page.locator('.edit-form input[type=file]').setInputFiles({
     name: 'qr.png',
@@ -219,7 +219,7 @@ async function firstRunFlow(base, opts) {
   await page.locator('.layer .sheet').waitFor({ state: 'detached' });
 
   // … and a Google Authenticator export QR (one existing account to attach to, one new, one HOTP that is skipped).
-  await page.evaluate(() => (location.hash = '#/import'));
+  await goTo(page, '/import');
   await page.locator('.source-wide').click();
   await page.locator('.import input[type=file]').setInputFiles({
     name: 'export.png',
@@ -246,9 +246,10 @@ async function firstRunFlow(base, opts) {
   await row(page, 'GitHub').click();
   await page.locator('.code-card .code').waitFor();
   await page.keyboard.press('Escape');
+  await page.locator('.layer .sheet').waitFor({ state: 'detached' });
 
   // Backup download
-  await page.evaluate(() => (location.hash = '#/backup'));
+  await goTo(page, '/backup');
   await page.locator('.backup input[type=password]').first().fill('backup passphrase 2026');
   // A backup is handed over only after a press on Keyra (SPEC §12.3).
   const [download] = await Promise.all([
@@ -297,10 +298,37 @@ async function vaultShots(base, opts) {
   await shot(page, `search${tag}`, 300);
   await page.locator('.search input').fill('');
 
-  await page.evaluate(() => (location.hash = '#/settings'));
-  await page.locator('.settings .seg').first().waitFor();
-  await shot(page, `settings${tag}`);
-  await page.evaluate(() => (location.hash = '#/import'));
+  // Search finds actions and settings too.
+  await page.locator('.search input').fill(opts.lang === 'en' ? 'backup' : 'النسخ');
+  await page.locator('.action-results .action-row').first().waitFor();
+  check((await page.locator('.action-results .action-row').count()) >= 1, 'search offers actions');
+  await shot(page, `search-actions${tag}`, 300);
+  await page.locator('.action-results .action-row').first().click();
+  await page.locator('.backup input[type=password]').waitFor();
+  check(page.url().endsWith('#/backup'), `the Backup action opens #/backup (${page.url()})`);
+  await page.keyboard.press('Escape');
+  await page.locator('.layer .sheet').waitFor({ state: 'detached' });
+  await page.locator('.search input').fill('');
+
+  // "Typing to" chip → the target sheet.
+  await page.locator('.target-chip').click();
+  await page.locator('.target-row').first().waitFor();
+  await shot(page, `target${tag}`, 450);
+  await page.keyboard.press('Escape');
+  await page.locator('.layer .sheet').waitFor({ state: 'detached' });
+
+  // The tabs: the bar on phones, the rail on desktop, each a real route.
+  for (const [tab, name] of [['typing', 'typing'], ['security', 'security'], ['device', 'settings']]) {
+    await page.locator(`nav .tab[href="#/${tab}"]`).click();
+    await page.locator(`.tab-page.${tab}[data-loaded]`).waitFor();
+    check(page.url().endsWith(`#/${tab}`), `tab ${tab} is routed (${page.url()})`);
+    check((await page.locator(`nav .tab[href="#/${tab}"]`).getAttribute('aria-current')) === 'page', `tab ${tab} is current`);
+    if (tab === 'security') await page.locator('.stat-n', { hasText: /\d/ }).first().waitFor();
+    await shot(page, `${name}${tag}`);
+  }
+  await page.locator('nav .tab[href="#/"]').click();
+  await page.locator('.list-pane').waitFor();
+  await goTo(page, '/import');
   await page.locator('.source-card').first().waitFor();
   await shot(page, `import${tag}`);
   await page.evaluate(() => (location.hash = '#/'));
@@ -319,7 +347,7 @@ async function bleFlow(base, opts) {
   console.log(`bluetooth ${tag || '(phone, ar, light)'}`);
   await page.locator('input[type=password]').waitFor();
   await unlockUi(page);
-  await page.evaluate(() => (location.hash = '#/settings'));
+  await openTab(page, 'device');
   const section = page.locator('section.group:has(#bluetooth)');
   await section.locator('.bond-row').first().waitFor();
   await section.scrollIntoViewIfNeeded();
@@ -346,7 +374,8 @@ async function bleFlow(base, opts) {
   await page.locator('button', { hasText: /^(Unlock|فتح)$/ }).click({ timeout: 8000 });
   await page.evaluate(() => (location.hash = '#/'));
   await unlockUi(page);
-  await page.locator('.top-bar .chip', { hasText: /Bluetooth|بلوتوث/ }).waitFor({ timeout: 8000 });
+  // USB is gone: the "Typing to" chip now names a paired Bluetooth device instead of USB.
+  await page.locator('.target-chip .target-chip-v', { hasText: /\S/, hasNotText: /USB|Not connected|غير متصل/ }).waitFor({ timeout: 8000 });
   await row(page, 'GitHub').click();
   // Pick the iPad in the account sheet's "Type into" picker (remembered per browser).
   await page.locator('.target-picker button', { hasText: "Hasan's iPad" }).click();
@@ -366,7 +395,7 @@ async function bleFlow(base, opts) {
 
   // The generator and Type text offer the same "Type into" choice, sharing the remembered pick.
   for (const hash of ['#/generate', '#/type']) {
-    await page.evaluate((h) => (location.hash = h), hash);
+    await goTo(page, hash.slice(1));
     const picker = page.locator('.layer .target-picker');
     await picker.waitFor({ timeout: 5000 });
     check((await picker.locator('button[aria-checked=true]').first().textContent())?.includes("Hasan's iPad") ?? false, `${hash}: the iPad is preselected`);
@@ -378,7 +407,7 @@ async function bleFlow(base, opts) {
   }
 
   // Forget it again.
-  await page.evaluate(() => (location.hash = '#/settings'));
+  await openTab(page, 'device');
   const ipad = section.locator('.bond-row', { hasText: "Hasan's iPad" });
   await ipad.waitFor();
   await page.waitForTimeout(400); // let the page transition finish before opening the alert
@@ -403,7 +432,7 @@ async function homeFlow(base, opts) {
   check((await button(base)) === 'approved trust_browser', 'button approves trust');
   await page.locator('.list-pane').waitFor({ timeout: 10000 }); // retried unlock succeeds
 
-  await page.evaluate(() => (location.hash = '#/settings'));
+  await openTab(page, 'device');
   await page.locator('.nav-row', { hasText: /Home Wi.Fi/ }).click();
   await page.getByRole('switch', { name: /Use home Wi.Fi/ }).click(); // off → pick a network
   await page.locator('.net-row', { hasText: 'Al-Rashid Home' }).first().waitFor({ timeout: 8000 });
@@ -420,7 +449,7 @@ async function homeFlow(base, opts) {
   await page.keyboard.press('Escape');
 
   await page.locator('.nav-row', { hasText: 'Trusted browsers' }).click();
-  await page.locator('.trusted-row .chip-accent').waitFor();
+  await page.locator('.trusted-row .chip-ink').waitFor();
   await shot(page, `trusted${tag}`);
   console.log('  ✓ flow passed');
   await ctx.close();
@@ -435,9 +464,12 @@ async function healthFlow(base, opts) {
   console.log(`health ${tag || '(phone, ar, light)'}`);
   await page.locator('input[type=password]').waitFor();
   await unlockUi(page);
-  await page.evaluate(() => (location.hash = '#/settings'));
-  await page.locator('.settings .seg').first().waitFor();
-  await page.locator('.nav-row', { hasText: opts.lang === 'en' ? 'Password health' : 'صحة كلمات السر' }).click();
+  await openTab(page, 'security');
+  // The dashboard counts before the press: only "old" is known (Zain's), reused and weak wait.
+  const stats = page.locator('.dash-health .stat-n');
+  await stats.nth(2).filter({ hasText: '1' }).waitFor();
+  check((await stats.nth(0).textContent()) === '–' && (await stats.nth(1).textContent()) === '–', 'reused and weak unknown before the press');
+  await page.locator('.dash-health', { hasText: opts.lang === 'en' ? 'Password health' : 'صحة كلمات المرور' }).click();
   await page.locator('.health-summary').waitFor();
   // SPEC §13: with protectReveal, reused and weak wait for the reveal press; "old" does not.
   check(!(await page.locator('.health-summary').textContent()).match(/look good|بحالة جيدة/), 'before the press it does not say all is well');
@@ -483,9 +515,9 @@ async function activityFlow(base, opts) {
   const warn = page.locator('.toast-error');
   await warn.waitFor({ timeout: 5000 });
   check(/1/.test((await warn.textContent()) ?? ''), 'unlock reports the wrong attempt');
-  await page.evaluate(() => (location.hash = '#/settings'));
-  await page.locator('.settings .seg').first().waitFor();
-  await page.locator('.nav-row', { hasText: opts.lang === 'en' ? 'Activity' : 'سجل النشاط' }).click();
+  await openTab(page, 'security');
+  await page.locator('.dash-activity .dash-latest-text').waitFor(); // the newest event, on the dashboard
+  await page.locator('.dash-activity', { hasText: opts.lang === 'en' ? 'Activity' : 'سجل النشاط' }).click();
   await page.locator('.activity-row').first().waitFor();
   const rows = await page.locator('.activity-row bdi').allTextContents();
   check(/Unlocked|فُتحت/.test(rows[0]), `newest first is the unlock (got "${rows[0]}")`);
@@ -502,7 +534,7 @@ async function burnFlow(base, opts) {
   console.log(`burn ${tag || '(phone, ar, light)'}`);
   await page.locator('input[type=password]').waitFor();
   await unlockUi(page);
-  await page.evaluate(() => (location.hash = '#/new'));
+  await goTo(page, '/new');
   const form = page.locator('.edit-form');
   await form.waitFor();
   const inputs = form.locator('input');
@@ -602,18 +634,18 @@ async function nvsFlow(base, opts) {
   check((await pageApi(page, 'GET', '/api/state')).body.nvsReset === undefined, 'the unlock logged it: state no longer carries it');
   const ev = (await pageApi(page, 'GET', '/api/activity')).body.events.find((e) => e.kind === 'nvs_reset');
   check(ev?.detail === 1, 'activity has nvs_reset (newer NVS format)');
-  await settingsRow(page, L(opts, 'Activity', 'سجل النشاط'));
+  await settingsRow(page, 'security', L(opts, 'Activity', 'سجل النشاط'));
   await page.locator('.activity-row.warn', { hasText: L(opts, 'newer Keyra', 'إصدار أحدث') }).first().waitFor();
   await page.keyboard.press('Escape');
   await page.locator('.toast-error').waitFor({ state: 'detached', timeout: 10000 }); // out of the screenshot
 
   // Token and tag records saved by a newer firmware: said, and nothing offered that would write over them.
-  await settingsRow(page, L(opts, 'Apps and agents', 'التطبيقات والوكلاء'));
+  await settingsRow(page, 'device', L(opts, 'Apps and agents', 'التطبيقات والوكلاء'));
   await page.locator('.notice', { hasText: L(opts, 'Update Keyra', 'حدّث Keyra') }).waitFor();
   check(await page.locator('.sheet button', { hasText: L(opts, 'New access token', 'رمز وصول جديد') }).isDisabled(), 'no new token over an unreadable record');
   await shot(page, `apps-newer-record${tag}`);
   await page.keyboard.press('Escape');
-  await settingsRow(page, L(opts, 'NFC tags', 'وسوم NFC'));
+  await settingsRow(page, 'device', L(opts, 'NFC tags', 'وسوم NFC'));
   await page.locator('.notice', { hasText: L(opts, 'Update Keyra', 'حدّث Keyra') }).waitFor();
   check(await page.locator('.sheet button', { hasText: L(opts, 'New tag', 'وسم جديد') }).isDisabled(), 'no new tag over an unreadable record');
   expectErrors(before, 429, 500);
@@ -629,7 +661,7 @@ async function sequenceFlow(base, opts) {
   console.log(`sequence ${tag || '(phone, ar, light)'}`);
   await page.locator('input[type=password]').waitFor();
   await unlockUi(page);
-  await page.evaluate(() => (location.hash = '#/new'));
+  await goTo(page, '/new');
   const form = page.locator('.edit-form');
   await form.waitFor();
   const inputs = form.locator('input');
@@ -667,9 +699,8 @@ async function sequenceFlow(base, opts) {
   await page.locator('.ready-typed').waitFor({ timeout: 8000 });
   await page.locator('.ready-typed').waitFor({ state: 'detached', timeout: 8000 });
 
-  // Settings → Typing → the order "Both" types.
-  await page.evaluate(() => (location.hash = '#/settings'));
-  await page.locator('.settings .seg').first().waitFor();
+  // Type → the order "Both" types.
+  await openTab(page, 'typing');
   const orderRow = page.locator('.nav-row', { hasText: en ? 'Order for "Both"' : 'ترتيب «الاثنان معاً»' });
   await orderRow.click();
   const sheet = page.locator('.both-seq');
@@ -692,7 +723,7 @@ async function sequenceFlow(base, opts) {
   check((await button(base)) === 'typing sequence part 1/1 · Microsoft', '"Both" uses the custom order');
   await page.locator('.ready-typed').waitFor({ timeout: 8000 });
 
-  await page.evaluate(() => (location.hash = '#/settings'));
+  await openTab(page, 'typing');
   await orderRow.click();
   await sheet.locator('.btn-ghost', { hasText: en ? 'Reset to default' : 'أعد الافتراضي' }).click();
   await sheet.waitFor({ state: 'detached' });
@@ -720,8 +751,7 @@ async function updateFlow(base, opts) {
   console.log(`update ${tag || '(phone, ar, light)'}`);
   await page.locator('input[type=password]').waitFor();
   await unlockUi(page);
-  await page.evaluate(() => (location.hash = '#/settings'));
-  await page.locator('.settings .seg').first().waitFor();
+  await openTab(page, 'device');
   await page.locator('.nav-row', { hasText: opts.lang === 'en' ? 'Firmware update' : 'تحديث البرنامج' }).click();
   await page.locator('.update-summary').waitFor();
   // From GitHub (the mock's release is 1.1.0, the device 1.0.0).
@@ -740,8 +770,7 @@ async function updateFlow(base, opts) {
   const v = await (await fetch(`${base}/api/state`)).json();
   check(v.device.version === '1.1.0', `running the new version (got ${v.device.version})`);
   // From a file: an older image is refused, the same version is taken.
-  await page.evaluate(() => (location.hash = '#/settings'));
-  await page.locator('.settings .seg').first().waitFor();
+  await openTab(page, 'device');
   await page.locator('.nav-row', { hasText: opts.lang === 'en' ? 'Firmware update' : 'تحديث البرنامج' }).click();
   const before = errors.length;
   await page.locator('.update input[type=file]').setInputFiles({ name: 'keyra-firmware.bin', mimeType: 'application/octet-stream', buffer: fakeFirmware('1.0.0') });
@@ -758,9 +787,9 @@ async function passkeysFlow(base, opts) {
   console.log(`passkeys ${tag || '(phone, ar, light)'}`);
   await page.locator('input[type=password]').waitFor();
   await unlockUi(page);
-  await page.evaluate(() => (location.hash = '#/settings'));
-  await page.locator('.settings .seg').first().waitFor();
-  await page.locator('.nav-row', { hasText: opts.lang === 'en' ? 'Passkeys' : 'مفاتيح المرور' }).click();
+  await openTab(page, 'security');
+  await page.locator('.dash-tile', { hasText: opts.lang === 'en' ? '3 passkeys' : '3 مفاتيح مرور' }).waitFor(); // the count, on the dashboard
+  await page.locator('.dash-tile', { hasText: opts.lang === 'en' ? 'Passkeys' : 'مفاتيح المرور' }).click();
   await page.locator('.passkey-row').first().waitFor();
   check((await page.locator('.passkey-row').count()) === 3, 'three seeded passkeys listed');
   check((await page.locator('.passkey-row bdi').first().textContent()) === 'www.amazon.com', 'newest first');
@@ -796,7 +825,7 @@ async function passkeysFlow(base, opts) {
   const fido = await (await authed(ctx, `${base}/api/fido`)).json();
   check(fido.pinSet === true && fido.pinRetries === 5, 'GET /api/fido reports the PIN');
   await page.keyboard.press('Escape');
-  await page.locator('.nav-row', { hasText: opts.lang === 'en' ? 'Passkeys' : 'مفاتيح المرور' }).click();
+  await page.locator('.dash-tile', { hasText: opts.lang === 'en' ? 'Passkeys' : 'مفاتيح المرور' }).click();
   await page.locator('.passkey-row').first().waitFor();
   const shown = (await pinText.textContent()) ?? '';
   check(shown.includes(L(opts, 'A PIN is set', 'رمز PIN مُعيَّن')) && shown.includes('5'), 'PIN set, 5 tries left shown');
@@ -814,7 +843,7 @@ async function deleteFlow(base, opts) {
   const entries = async () => (await (await authed(ctx, `${base}/api/entries`)).json()).entries;
   const victim = (await entries())[0];
   const there = async () => (await entries()).some((e) => e.id === victim.id);
-  await page.evaluate((id) => (location.hash = `#/a/${id}/edit`), victim.id);
+  await goTo(page, `/a/${victim.id}/edit`);
   await page.locator('.ready-ready').waitFor(); // editing reveals the password: one press
   check((await button(base)) === 'approved reveal', 'button approves the reveal');
   const form = page.locator('.edit-form');
@@ -855,8 +884,7 @@ async function keyboardFlow(base, opts) {
   const usbRow = page.locator('.nav-row', { hasText: en ? 'USB keyboard layout' : 'تخطيط مفاتيح USB' });
 
   // Pick from the list: German (Windows).
-  await page.evaluate(() => (location.hash = '#/settings'));
-  await page.locator('.settings .seg').first().waitFor();
+  await openTab(page, 'device');
   await usbRow.click();
   await page.locator('.layout-row').first().waitFor();
   check((await page.locator('.layout-row').count()) === 16, 'every layout of the firmware table is offered');
@@ -892,7 +920,7 @@ async function keyboardFlow(base, opts) {
   // Generator: a custom symbol set, then only characters the same on UK (USB) and US (Bluetooth).
   const bodies = [];
   page.on('request', (r) => r.url().endsWith('/api/generate') && bodies.push(JSON.parse(r.postData() ?? '{}')));
-  await page.evaluate(() => (location.hash = '#/generate'));
+  await goTo(page, '/generate');
   await page.waitForFunction(() => (document.querySelector('.gen-preview')?.textContent ?? '').trim().length === 20);
   await page.locator('.symbol-input').fill('-_.-');
   await page.locator('.symbol-input').press('Enter');
@@ -929,13 +957,14 @@ async function generatorFlow(base, opts) {
   const preview = page.locator('.gen-preview');
   const pwNow = async () => ((await preview.textContent()) ?? '').trim();
 
-  await page.locator('.top-bar .gen-btn').click();
+  await page.locator('nav .tab[href="#/typing"]').click();
+  await page.locator('.hero-action', { hasText: L(opts, 'Generate password', 'توليد كلمة مرور') }).click();
   await page.waitForFunction(() => (document.querySelector('.gen-preview')?.textContent ?? '').trim().length === 20);
   check(/bits/.test((await page.locator('.meter-label').textContent()) ?? '') || /بت/.test((await page.locator('.meter-label').textContent()) ?? ''), 'entropy shown');
   await page.locator('.len-input').fill('32');
   await page.locator('.len-input').press('Enter');
   await page.waitForFunction(() => (document.querySelector('.gen-preview')?.textContent ?? '').trim().length === 32);
-  const symbols = page.getByRole('switch').nth(3);
+  const symbols = page.locator('.layer').getByRole('switch').nth(3);
   await symbols.click(); // symbols off
   await page.waitForFunction(() => /^[A-Za-z0-9]{32}$/.test((document.querySelector('.gen-preview')?.textContent ?? '').trim()));
   await symbols.click(); // back on
@@ -964,7 +993,8 @@ async function generatorFlow(base, opts) {
   await page.locator('.layer .sheet').waitFor({ state: 'detached' });
 
   // A second password replaces it: the first moves to the account's history.
-  await page.locator('.top-bar .gen-btn').click();
+  await page.locator('nav .tab[href="#/typing"]').click();
+  await page.locator('.hero-action', { hasText: L(opts, 'Generate password', 'توليد كلمة مرور') }).click();
   await page.waitForFunction((old) => {
     const v = (document.querySelector('.gen-preview')?.textContent ?? '').trim();
     return v.length === 32 && v !== old;
@@ -1000,9 +1030,9 @@ async function generatorFlow(base, opts) {
   await page.evaluate(() => (location.hash = '#/'));
   await page.locator('.layer .sheet').waitFor({ state: 'detached' });
 
-  // Type text… from the menu.
-  await page.locator('.top-bar .more-btn').click();
-  await page.locator('.menu-row').first().click();
+  // Type text, from the Type tab.
+  await page.locator('nav .tab[href="#/typing"]').click();
+  await page.locator('.hero-action', { hasText: L(opts, 'Type text', 'كتابة نص') }).click();
   await page.locator('.type-text textarea').fill('hello world');
   await shot(page, `type-text${tag}`);
   await page.locator('.type-text button[type=submit]').click();
@@ -1038,11 +1068,25 @@ function pageApi(page, method, path, body) {
   );
 }
 
-async function settingsRow(page, label) {
-  await page.evaluate(() => (location.hash = '#/settings'));
-  await page.locator('.settings .seg').first().waitFor();
+/** Opens an in-app route the way a tap does (lib/router.ts go): pushed, so closing it goes back. */
+async function goTo(page, path) {
+  await page.evaluate((p) => {
+    history.pushState({ k: (history.state?.k ?? 0) + 1 }, '', `#${p}`);
+    dispatchEvent(new HashChangeEvent('hashchange'));
+  }, path);
+}
+
+/** Opens a tab (#/typing, #/security, #/device) and waits until its settings have loaded. */
+async function openTab(page, tab) {
+  await page.evaluate((t) => (location.hash = `#/${t}`), tab);
+  await page.locator(`.tab-page.${tab}[data-loaded]`).waitFor();
+}
+
+/** Opens a row or dashboard tile of a tab by its label. */
+async function settingsRow(page, tab, label) {
+  await openTab(page, tab);
   await page.waitForTimeout(400); // let the page transition finish before opening a sheet
-  await page.locator('.nav-row', { hasText: label }).click();
+  await page.locator(`.tab-page.${tab}`).locator('.nav-row, .dash-card', { hasText: label }).first().click();
 }
 
 /** Locks from the top bar and opens the unlock form again. */
@@ -1071,7 +1115,7 @@ async function recoveryFlow(base, opts) {
   console.log(`recovery ${tag || '(phone, ar, light)'}`);
   await page.locator('input[type=password]').waitFor();
   await unlockUi(page);
-  await settingsRow(page, L(opts, 'Recovery kit', 'عدّة الاسترداد'));
+  await settingsRow(page, 'security', L(opts, 'Recovery kit', 'عدّة الاسترداد'));
   await page.locator('.recovery .btn', { hasText: L(opts, 'Create recovery kit', 'أنشئ عدّة الاسترداد') }).click();
   await page.locator('.recovery .ready-ready').waitFor();
   check((await button(base)) === 'approved recovery', 'button approves the recovery key');
@@ -1118,14 +1162,14 @@ async function restoreFlow(base, opts) {
   check((await setting()) === true, 'passkeys are in backups by default');
   const backupText = page.locator('.backup .callout').first();
   const openBackup = async (withPasskeys) => {
-    await page.evaluate(() => (location.hash = '#/backup'));
+    await goTo(page, '/backup');
     const left = L(opts, 'Passkeys are left out', 'ولا يحوي مفاتيح المرور');
     await backupText.waitFor();
     check(((await backupText.textContent()) ?? '').includes(left) === !withPasskeys, `backup text says passkeys ${withPasskeys ? 'in' : 'out'}`);
   };
   const pkSwitch = page.locator('.switch-row', { hasText: L(opts, 'Passkeys in backups', 'مفاتيح المرور في النسخ الاحتياطية') });
   const openSettings = async () => {
-    await page.evaluate(() => (location.hash = '#/settings'));
+    await page.evaluate(() => (location.hash = '#/security'));
     await pkSwitch.waitFor();
   };
 
@@ -1158,8 +1202,10 @@ async function restoreFlow(base, opts) {
   // An account added after the backup: a merge keeps it, a replace drops it.
   check((await pageApi(page, 'POST', '/api/entries', { title: 'After the backup', username: 'later', password: 'Later-Password-77' })).status === 201, 'entry added');
 
+  // Restore is its own screen (Device → Restore from a backup).
+  await goTo(page, '/restore');
   const file = page.locator('.backup input[type=file]');
-  const pass = page.locator('.backup input[type=password]').nth(1);
+  const pass = page.locator('.backup input[type=password]').first();
   const restoreBtn = page.locator('.backup .btn', { hasText: L(opts, /^Restore$/, /^استعادة$/) });
   const seg = (label) => page.locator('.backup .seg-item', { hasText: label });
 
@@ -1244,10 +1290,10 @@ async function restorePasskeysFlow(base, opts, { backup, backupNoPasskeys, backu
   const passkeys = async () => (await pageApi(page, 'GET', '/api/fido')).body.passkeys.length;
   check((await passkeys()) === 0, 'a new Keyra has no passkeys');
 
-  await page.evaluate(() => (location.hash = '#/backup'));
+  await goTo(page, '/restore');
   const restore = async (buffer, mode, toastText) => {
     await page.locator('.backup input[type=file]').setInputFiles({ name: 'keyra-backup.json', mimeType: 'application/json', buffer });
-    await page.locator('.backup input[type=password]').nth(1).fill(backupPass);
+    await page.locator('.backup input[type=password]').first().fill(backupPass);
     await page.locator('.backup .seg-item', { hasText: mode === 'merge' ? L(opts, 'Merge', 'دمج') : L(opts, 'Replace', 'استبدال') }).click();
     await page.locator('.backup .btn', { hasText: L(opts, /^Restore$/, /^استعادة$/) }).click();
     if (mode === 'replace') {
@@ -1299,8 +1345,7 @@ async function resetFlow(base, opts) {
   console.log(`factory reset ${tag || '(phone, ar, light)'}`);
   await page.locator('input[type=password]').waitFor();
   await unlockUi(page);
-  await page.evaluate(() => (location.hash = '#/settings'));
-  await page.locator('.settings .seg').first().waitFor();
+  await openTab(page, 'device');
   await page.waitForTimeout(400);
   await page.locator('.danger-group .nav-row').click();
   await page.locator('.alert .btn-danger-confirm').click();
@@ -1321,7 +1366,7 @@ async function passphraseFlow(base, opts) {
   console.log(`passphrase ${tag || '(phone, ar, light)'}`);
   await page.locator('input[type=password]').waitFor();
   await unlockUi(page);
-  await settingsRow(page, L(opts, 'Change master passphrase', 'تغيير العبارة الرئيسية'));
+  await settingsRow(page, 'security', L(opts, 'Change master passphrase', 'تغيير العبارة الرئيسية'));
   const sheet = page.locator('.layer .sheet form');
   await sheet.waitFor();
   const fields = sheet.locator('input[type=password]');
@@ -1367,16 +1412,16 @@ async function settingsFlow(base, opts) {
   check('usbOs' in (await pageApi(page, 'GET', '/api/state')).body.host, 'host.usbOs is shown to a session');
 
   const autoLock = L(opts, 'Auto-lock', 'القفل التلقائي');
-  await settingsRow(page, autoLock);
+  await settingsRow(page, 'security', autoLock);
   const put = page.waitForRequest((q) => q.url().endsWith('/api/settings') && q.method() === 'PUT');
   await page.locator('[role=radio]', { hasText: L(opts, '30 min', '30 دقيقة') }).click();
   check(JSON.parse((await put).postData() ?? '{}').autoLockMin === 30, 'PUT /api/settings carries autoLockMin');
   await page.locator('.nav-row', { hasText: autoLock }).locator('.row-value', { hasText: '30' }).waitFor();
 
   await page.reload();
-  await settingsRow(page, autoLock).catch(async () => {
+  await settingsRow(page, 'security', autoLock).catch(async () => {
     await unlockUi(page); // a reload may land on the unlock screen; the setting lives on the device either way
-    await settingsRow(page, autoLock);
+    await settingsRow(page, 'security', autoLock);
   });
   await page.locator('[role=radio][aria-checked=true]', { hasText: '30' }).waitFor();
   check((await pageApi(page, 'GET', '/api/settings')).body.autoLockMin === 30, 'autoLockMin persisted');
@@ -1402,7 +1447,7 @@ async function settingsFlow(base, opts) {
   check(charsOf('de').includes('ü') && !charsOf('ar').includes('a'), 'German has ü, Arabic 101 has no Latin letters');
   const typeScreen = async (text) => {
     await page.evaluate(() => (location.hash = '#/'));
-    await page.evaluate(() => (location.hash = '#/type'));
+    await goTo(page, '/type');
     await page.locator('.type-text textarea').fill(text);
     await page.waitForTimeout(300); // GET /api/keyboard
     return page.locator('.type-text .notice').count();
@@ -1427,7 +1472,7 @@ async function tokensFlow(base, opts) {
   console.log(`tokens ${tag || '(phone, ar, light)'}`);
   await unlockUi(page);
   const github = (await pageApi(page, 'GET', '/api/entries')).body.entries.find((e) => e.title === 'GitHub');
-  await settingsRow(page, L(opts, 'Apps and agents', 'التطبيقات والوكلاء'));
+  await settingsRow(page, 'device', L(opts, 'Apps and agents', 'التطبيقات والوكلاء'));
   await page.locator('.sheet button', { hasText: L(opts, 'New access token', 'رمز وصول جديد') }).click();
   await page.locator('.tokens-new input:not([type=checkbox])').first().fill('Claude');
   const create = page.locator('.tokens-new button', { hasText: L(opts, 'Create token', 'أنشئ الرمز') });
@@ -1469,7 +1514,7 @@ async function tokensFlow(base, opts) {
   await waitFor(async () => (await agent('GET', '/status')).body.state === 'typed', 'status: typed');
 
   // Revoke in Settings (no press): the token stops at once.
-  await settingsRow(page, L(opts, 'Apps and agents', 'التطبيقات والوكلاء'));
+  await settingsRow(page, 'device', L(opts, 'Apps and agents', 'التطبيقات والوكلاء'));
   await page.locator('[data-testid=token-list] .trusted-row', { hasText: 'Claude' }).locator('.icon-btn').click();
   await page.locator('.alert .btn-danger-confirm').click();
   await page.locator('.sheet .callout.center').waitFor();
@@ -1520,7 +1565,7 @@ async function tagsFlow(base, opts) {
   const typed = L(opts, 'Typed', 'تمّت الكتابة');
 
   // Simple tag: the URL carries a secret, shown once.
-  await settingsRow(page, sheetRow);
+  await settingsRow(page, 'device', sheetRow);
   const url = await createTag('Desk', 'simple', `tags-new${tag}`);
   const simple = /^http:\/\/keyra\.local\/t\/(\d+)\/([a-z2-7]{24})$/.exec(url);
   check(simple, `simple tag URL (${url})`);
@@ -1598,8 +1643,8 @@ async function trustedFlow(base, opts) {
   };
   await page.locator('input[type=password]').waitFor();
   await trustAndUnlock();
-  await settingsRow(page, L(opts, 'Trusted browsers', 'المتصفحات الموثوقة'));
-  const mine = page.locator('.trusted-row', { has: page.locator('.chip-accent') });
+  await settingsRow(page, 'device', L(opts, 'Trusted browsers', 'المتصفحات الموثوقة'));
+  const mine = page.locator('.trusted-row', { has: page.locator(".chip-ink") });
   await mine.waitFor();
   check((await page.locator('.trusted-row').count()) === 1, 'one trusted browser');
   const before = errors.length;
@@ -1610,7 +1655,7 @@ async function trustedFlow(base, opts) {
   expectErrors(before, 401);
   if (await page.locator('.locked-glyph').count()) await page.locator('button', { hasText: /^(Unlock|فتح)$/ }).click();
   await trustAndUnlock();
-  await settingsRow(page, L(opts, 'Trusted browsers', 'المتصفحات الموثوقة'));
+  await settingsRow(page, 'device', L(opts, 'Trusted browsers', 'المتصفحات الموثوقة'));
   await mine.waitFor();
   check((await page.locator('.trusted-row').count()) === 1, 'trusted again (the removed one is gone)');
   console.log('  ✓ trusted flow passed');
@@ -1627,20 +1672,20 @@ async function lazyFlow(base, opts) {
   const loaded = [];
   page.on('request', (r) => r.url().includes('/assets/') && loaded.push(new URL(r.url()).pathname.slice(8)));
   await unlockUi(page);
-  const lazyNames = /^(Settings|Edit|Import|Backup|Generate|TypeText|Tokens|Tags|Recovery|Setup|Update|Activity|Health|Keyboard|HomeWifi|Passkeys|Trusted|BothSequence|jsQR|esm)-/;
+  const lazyNames = /^(Typing|Security|Device|Edit|Import|Backup|Generate|TypeText|Tokens|Tags|Recovery|Setup|Update|Activity|Health|Keyboard|HomeWifi|Passkeys|Trusted|BothSequence|jsQR|esm)-/;
   check(!loaded.some((f) => lazyNames.test(f)), `opening the vault loads no lazy screen (${loaded.join(', ')})`);
 
   // The first try fails (Keyra out of reach): a clear message, not a blank sheet; the retry opens it.
   let fail = true;
-  await page.route(/\/assets\/Settings-[^/]+\.js$/, (route) => (fail ? route.abort('connectionrefused') : route.continue()));
+  await page.route(/\/assets\/Device-[^/]+\.js$/, (route) => (fail ? route.abort('connectionrefused') : route.continue()));
   const before = errors.length;
-  await page.locator(`.top-bar .icon-btn[aria-label="${L(opts, 'Settings', 'الإعدادات')}"]`).click();
+  await page.locator('nav .tab[href="#/device"]').click();
   await page.locator('.alert', { hasText: L(opts, "Couldn't open this", 'تعذّر فتح هذه الصفحة') }).waitFor();
   errors.splice(before); // the refused request itself is logged by the browser
   fail = false;
   await page.locator('.alert .btn-primary').click();
-  await page.locator('.settings').first().waitFor({ timeout: 8000 });
-  check((await page.locator('.alert').count()) === 0, 'the message is gone once Settings opened');
+  await page.locator('.tab-page.device').first().waitFor({ timeout: 8000 });
+  check((await page.locator('.alert').count()) === 0, 'the message is gone once the Device tab opened');
   console.log('  ✓ lazy loading flow passed');
   await ctx.close();
 }

@@ -1,31 +1,34 @@
-import { Icon, LogoTile, type IconName } from '../components/Icon';
+import { useState } from 'preact/hooks';
+import { Contour, drawOnce } from '../components/Icon';
 import { Button, Rich } from '../components/ui';
 import { t, type Key } from '../lib/i18n';
 import { go } from '../lib/router';
 import { LangButton } from './common';
 
-const STEPS: [IconName, Key][] = [
-  ['usb', 'welcomeStep1'],
-  ['user', 'welcomeStep2'],
-  ['key-round', 'welcomeStep3'],
-];
+const STEPS: Key[] = ['welcomeStep1', 'welcomeStep2', 'welcomeStep3'];
 
 export function Welcome() {
+  const [draw] = useState(drawOnce);
   return (
-    <div class="page glow-page">
+    <div class="page hero-page paper">
       <div class="top-actions">
         <LangButton />
       </div>
       <div class="hero-col">
         <div class="hero-card welcome">
-          <LogoTile size={88} />
-          <h1 class="display">{t('welcomeTitle')}</h1>
+          <div class="lockup" role="img" aria-label="Keyra">
+            <Contour size={112} draw={draw} class="hero-mark" />
+            <span class="wordmark" aria-hidden="true">
+              Keyra
+            </span>
+          </div>
+          <h1 class="display hero-title">{t('welcomeTitle')}</h1>
           <p class="subtitle">{t('welcomeSub')}</p>
-          <ol class="card steps">
-            {STEPS.map(([icon, key]) => (
+          <ol class="steps">
+            {STEPS.map((key, i) => (
               <li key={key} class="step-row">
-                <span class="step-icon">
-                  <Icon name={icon} size={22} />
+                <span class="step-n mono" aria-hidden="true">
+                  {`0${i + 1}`}
                 </span>
                 <span class="step-text">
                   <Rich text={t(key)} />

@@ -1,8 +1,8 @@
 // Deterministic monogram letter + colour (DESIGN §4.3).
 
 export const PALETTE = [
-  '#C2410C', '#B45309', '#4D7C0F', '#15803D', '#0F766E', '#0E7490',
-  '#1D4ED8', '#6D28D9', '#A21CAF', '#BE185D', '#B91C1C', '#475569',
+  '#8C4A2F', '#7D5A1C', '#5B6A2C', '#2F6A4E', '#2D6366', '#4A5160',
+  '#5F4C7C', '#7C3D5E', '#8C3A35', '#45503F', '#6E5542', '#3A3B40',
 ];
 
 export function fnv1a32(s: string): number {

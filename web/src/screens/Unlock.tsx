@@ -1,7 +1,7 @@
 // Unlock and Locked (DESIGN §5.3, §5.11), plus "Forgot passphrase?" → factory reset with the button.
 import { passphraseOk } from '../lib/limits';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { KeyGlyph, LogoTile } from '../components/Icon';
+import { Contour, ContourTile, drawOnce } from '../components/Icon';
 import { Button, SecretField, TextField, Notice } from '../components/ui';
 import { QrPhoto } from '../components/QrPhoto';
 import { combineShares, parseKey, parseShare, toHex } from '../lib/recovery';
@@ -21,6 +21,7 @@ export function Unlock({ reason }: { reason: LockReason }) {
   const [erase, setErase] = useState<'idle' | 'confirm' | 'wait'>('idle');
   const [recover, setRecover] = useState(false);
   const presence = usePresence('factory_reset', { doneOnDisconnect: true });
+  const [draw] = useState(drawOnce);
 
   useEffect(() => {
     const k = presence.phase.kind;
@@ -34,7 +35,7 @@ export function Unlock({ reason }: { reason: LockReason }) {
 
   if (erase === 'wait' && presence.phase.kind === 'ready') {
     return (
-      <div class="page glow-page">
+      <div class="page hero-page paper">
         <div class="hero-col">
           <div class="hero-card">
             <Ready
@@ -68,13 +69,13 @@ export function Unlock({ reason }: { reason: LockReason }) {
               : null;
 
   return (
-    <div class={`page ${reason ? 'locked-page' : 'glow-page'}`}>
+    <div class={`page hero-page ${reason ? 'locked-page' : 'paper'}`}>
       <div class="top-actions">
         <LangButton />
       </div>
       <div class="hero-col">
         <div class="hero-card unlock">
-          {reason ? <KeyGlyph size={72} class="locked-glyph" /> : <LogoTile size={72} />}
+          {reason ? <Contour size={72} class="locked-glyph" /> : <ContourTile size={80} draw={draw} />}
           <h1 class="display">{reason ? t('lockedTitle') : t('unlockTitle')}</h1>
           {reasonText && <p class="subtitle">{reasonText}</p>}
           {app.device?.nvsReset && (

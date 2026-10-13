@@ -127,7 +127,8 @@ function SheetBody({ title, onClose, canClose, start, size = 'md', tall, modal =
   if (ctl) ctl.current = { close };
 
   useEffect(() => focusFirst(panel.current?.querySelector<HTMLElement>('.sheet-body') ?? null, panel.current), []);
-  useEffect(() => {
+  // Listening from the first paint: an Escape pressed the moment the sheet appears still closes it.
+  useLayoutEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && stack[stack.length - 1]?.contains(panel.current)) {
         e.preventDefault();

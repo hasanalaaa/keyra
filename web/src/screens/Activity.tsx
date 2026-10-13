@@ -1,4 +1,4 @@
-// Settings → Activity (SPEC §15): what happened on this Keyra, newest first.
+// Security → Activity (SPEC §15): what happened on this Keyra, newest first.
 // The device keeps it encrypted, never with a password in it, and offers no way
 // to clear it, so a borrowed session cannot hide what it did.
 import { useEffect, useState } from 'preact/hooks';
@@ -93,7 +93,7 @@ function iconOf(e: ActivityEvent): IconName {
   }
 }
 
-function when(at: number, lang: 'ar' | 'en'): string {
+export function when(at: number, lang: 'ar' | 'en'): string {
   if (!at) return t('actNoClock');
   return new Date(at * 1000).toLocaleString(lang === 'ar' ? 'ar-u-nu-latn' : 'en', {
     day: 'numeric',

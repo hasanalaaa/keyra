@@ -19,7 +19,7 @@ describe('nvs reset', () => {
   it('the banner says what is safe, what is lost and the delay', () => {
     setLang('ar');
     expect(t('nvsResetBanner')).toBe(
-      'اضطر Keyra لمسح تخزين الإعدادات. كلمات السر ومفاتيح المرور سليمة؛ ضاعت الإعدادات والاقترانات والمتصفحات الموثوقة. الفتح متأخر حتى 15 دقيقة.',
+      'اضطر Keyra لمسح تخزين الإعدادات. كلمات المرور ومفاتيح المرور سليمة؛ ضاعت الإعدادات والاقترانات والمتصفحات الموثوقة. الفتح متأخر حتى 15 دقيقة.',
     );
     setLang('en');
     expect(t('nvsResetBanner')).toMatch(/passkeys are safe.*trusted browsers are lost.*15 minutes/);

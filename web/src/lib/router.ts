@@ -1,5 +1,6 @@
-// Hash routes (DESIGN §5): #/welcome, #/setup/1..3, #/unlock, #/, #/a/:id, #/a/:id/edit, #/new,
-// #/import, #/backup, #/settings, #/generate, #/type (SPEC §9.1–9.2). Hash routing keeps Back working and sheets deep-linkable.
+// Hash routes (DESIGN §5): #/welcome, #/setup/1..3, #/unlock, #/ (Accounts), #/a/:id, #/a/:id/edit, #/new,
+// #/import, #/backup, #/restore, #/generate, #/type (SPEC §9.1–9.2), and the tabs #/typing, #/security, #/device
+// with their sub-screens (#/security/health …). Hash routing keeps Back working and sheets deep-linkable.
 import { useEffect, useState } from 'preact/hooks';
 
 export type Route =
@@ -12,10 +13,23 @@ export type Route =
   | { name: 'new' }
   | { name: 'import' }
   | { name: 'backup' }
-  | { name: 'settings' }
+  | { name: 'restore' }
+  | { name: 'tab'; tab: Tab; sub: string | null }
   | { name: 'generate' }
   | { name: 'typeText' }
   | { name: 'connect'; ext: string; n: string };
+
+export type Tab = 'accounts' | 'typing' | 'security' | 'device';
+
+/** The tab a route lives in: sheets open over their own tab, so Back lands where they came from. */
+export function tabOf(r: Route): Tab {
+  if (r.name === 'tab') return r.tab;
+  if (r.name === 'generate' || r.name === 'typeText') return 'typing';
+  if (r.name === 'import' || r.name === 'backup' || r.name === 'restore') return 'device';
+  return 'accounts';
+}
+
+export const TAB_PATH: Record<Tab, string> = { accounts: '/', typing: '/typing', security: '/security', device: '/device' };
 
 export function parseRoute(hash: string): Route {
   const [path, query = ''] = hash.replace(/^#\/?/, '').split('?');
@@ -38,8 +52,12 @@ export function parseRoute(hash: string): Route {
       return { name: 'import' };
     case 'backup':
       return { name: 'backup' };
-    case 'settings':
-      return { name: 'settings' };
+    case 'restore':
+      return { name: 'restore' };
+    case 'typing':
+    case 'security':
+    case 'device':
+      return { name: 'tab', tab: a, sub: b ?? null };
     case 'generate':
       return { name: 'generate' };
     case 'type':

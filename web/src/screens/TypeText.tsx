@@ -55,7 +55,7 @@ export function TypeTextSheet() {
   };
 
   return (
-    <Sheet title={t('typeTextTitle')} size="md" onClose={() => back('/')} dismissible={phase.kind !== 'ready'}>
+    <Sheet title={t('typeTextTitle')} size="md" onClose={() => back('/typing')} dismissible={phase.kind !== 'ready'}>
       {phase.kind !== 'idle' ? (
         <FreeTextStatus
           phase={phase}

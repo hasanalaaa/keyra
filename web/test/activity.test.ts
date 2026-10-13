@@ -25,7 +25,7 @@ describe('activity event text', () => {
   });
   it('speaks Arabic', () => {
     setLang('ar');
-    expect(eventText({ kind: 'revealed', at: 1, detail: 0, id: 2, title: 'بنك' })).toBe('أظهر كلمة سر «بنك»');
+    expect(eventText({ kind: 'revealed', at: 1, detail: 0, id: 2, title: 'بنك' })).toBe('أظهر كلمة مرور «بنك»');
     setLang('en');
   });
 });

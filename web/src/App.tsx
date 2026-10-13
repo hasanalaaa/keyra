@@ -1,5 +1,5 @@
 import { useEffect } from 'preact/hooks';
-import { IconSprite, Icon, LogoTile } from './components/Icon';
+import { IconSprite, Icon, ContourTile } from './components/Icon';
 import { Spinner } from './components/ui';
 import { dismissToast, useApp } from './lib/store';
 import { replace, useRoute, type Route } from './lib/router';
@@ -18,12 +18,14 @@ const TITLES: Partial<Record<Route['name'], Key>> = {
   list: 'accounts',
   new: 'newAccount',
   import: 'importTitle',
-  backup: 'backupTitle',
-  settings: 'settings',
+  backup: 'backupHead',
+  restore: 'restoreHead',
   generate: 'genTitle',
   typeText: 'typeTextTitle',
   connect: 'connectTitle',
 };
+
+const TAB_TITLES = { accounts: 'tabAccounts', typing: 'tabType', security: 'tabSecurity', device: 'tabDevice' } as const;
 
 export function App() {
   const app = useApp();
@@ -31,16 +33,16 @@ export function App() {
   const d = app.device;
 
   useEffect(() => {
-    const k = TITLES[route.name];
+    const k = route.name === 'tab' ? TAB_TITLES[route.tab] : TITLES[route.name];
     document.title = k ? `${t(k)} · Keyra` : 'Keyra';
-  }, [route.name, app.lang]);
+  }, [route, app.lang]);
 
   let screen;
   let banner = !app.online;
   if (!d) {
     screen = (
       <div class="splash">
-        <LogoTile size={72} />
+        <ContourTile size={72} />
         {app.online && <Spinner size={24} />}
       </div>
     );

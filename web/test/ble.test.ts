@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { defaultTarget, deviceLabel, newBond, sortBonds, validTarget } from '../src/lib/ble';
+import { defaultTarget, deviceLabel, newBond, sortBonds, targetName, validTarget } from '../src/lib/ble';
 
 const bond = (addr: string, name = '', lastSeen = 0) => ({ addr, name, lastSeen, os: '' as const });
 
@@ -49,5 +49,11 @@ describe('targets', () => {
     expect(defaultTarget('ble', info(two))).toBe('B');
     expect(defaultTarget('ble', info(two, 'A'))).toBe('A');
     expect(defaultTarget(null, info(two))).toBeNull();
+  });
+  it('names a target for the "Typing to" chip and the receipt', () => {
+    expect(targetName('usb', null, 'Bluetooth device')).toBe('USB');
+    expect(targetName('B', info(two), 'Bluetooth device')).toBe('iPad');
+    expect(targetName('C', info(two), 'Bluetooth device')).toBe('Bluetooth device'); // not (yet) known by name
+    expect(targetName(null, info(two), 'Bluetooth device')).toBe('');
   });
 });

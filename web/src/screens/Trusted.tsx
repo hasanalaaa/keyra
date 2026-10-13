@@ -55,7 +55,7 @@ export function TrustedSheet({ onClose }: { onClose: () => void }) {
                     <bdi dir="ltr">{b.name}</bdi>
                     <span class="caption">{t('trustedSeen', { date: shortDate(b.lastSeen || b.created, app.lang) })}</span>
                   </span>
-                  {b.current && <span class="chip chip-accent">{t('trustedThis')}</span>}
+                  {b.current && <span class="chip chip-ink">{t('trustedThis')}</span>}
                   <IconButton icon="trash-2" label={`${t('trustedRemove')} ${b.name}`} onClick={() => setConfirm(b)} />
                 </div>
               </li>

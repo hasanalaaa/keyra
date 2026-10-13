@@ -9,7 +9,7 @@ body {
   margin:0;
   min-block-size:100dvh;
   background:var(--bg);
-  color:var(--text);
+  color:var(--ink);
   font-family:var(--font);
   font-size:var(--fs-body);
   line-height:var(--lh-body);
@@ -24,11 +24,14 @@ ol, ul { padding:0; list-style:none; }
 button, input, textarea, select { font:inherit; color:inherit; }
 button { cursor:pointer; background:none; border:0; padding:0; }
 button:disabled { cursor:default; }
+a { color:inherit; }
 strong { font-weight:600; }
-mark { background:var(--accent-soft); color:inherit; border-radius:4px; }
+mark { background:var(--fill-press); color:inherit; border-radius:4px; box-shadow:0 0 0 2px var(--fill-press); }
 bdi { unicode-bidi:isolate; }
 [hidden] { display:none !important; }
+::selection { background:var(--ink); color:var(--on-ink); }
 
+/* Focus: ink ring with a paper gap, never blue (BRAND §1). */
 :focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
 
 .sr-only {
@@ -36,46 +39,49 @@ bdi { unicode-bidi:isolate; }
   clip-path:inset(50%); white-space:nowrap; margin:-1px; padding:0; border:0;
 }
 
-/* Type scale (DESIGN §3.2) */
-.display { font-size:var(--fs-display); line-height:var(--lh-display); font-weight:700; text-wrap:balance; }
-.t1 { font-size:var(--fs-t1); line-height:var(--lh-t1); font-weight:700; text-wrap:balance; }
+/* Type scale (DESIGN §3.2): Latin display sizes tight, Arabic never tracked. */
+.display { font-size:var(--fs-display); line-height:var(--lh-display); font-weight:500; text-wrap:balance; }
+.t1 { font-size:var(--fs-t1); line-height:var(--lh-t1); font-weight:600; text-wrap:balance; }
 .t2 { font-size:var(--fs-t2); line-height:var(--lh-t2); font-weight:600; text-wrap:balance; }
+.t3 { font-size:var(--fs-headline); line-height:var(--lh-headline); font-weight:600; }
 .headline { font-size:var(--fs-headline); line-height:var(--lh-headline); font-weight:600; }
-.callout { font-size:var(--fs-callout); line-height:var(--lh-callout); color:var(--text-2); text-wrap:pretty; }
-.caption { font-size:var(--fs-caption); line-height:var(--lh-caption); font-weight:500; color:var(--text-3); }
-.subtitle { font-size:var(--fs-callout); line-height:var(--lh-callout); color:var(--text-2); max-inline-size:300px; text-wrap:pretty; }
-:lang(en) .display, :lang(en) .t1 { letter-spacing:-.02em; }
-:lang(en) .headline { letter-spacing:-.01em; }
+.callout { font-size:var(--fs-callout); line-height:var(--lh-callout); color:var(--ink-2); text-wrap:pretty; }
+.caption { font-size:var(--fs-caption); line-height:var(--lh-caption); font-weight:500; color:var(--ink-3); }
+.subtitle { font-size:var(--fs-callout); line-height:var(--lh-callout); color:var(--ink-2); max-inline-size:300px; text-wrap:pretty; }
+:lang(en) .display { letter-spacing:-.022em; }
+:lang(en) .t1 { letter-spacing:-.02em; }
+:lang(en) .t2 { letter-spacing:-.015em; }
+:lang(en) .headline, :lang(en) .t3 { letter-spacing:-.011em; }
 .mono { font-family:var(--font-mono); }
 .center { text-align:center; }
-.accent { color:var(--accent); }
+.strong-ink { color:var(--ink); }
 .ltr { direction:ltr; text-align:start; }
 .pad { padding:var(--s-4); }
 
-/* Icons */
+/* Icons: the logo's pen — 1.75 stroke, round caps and joins */
 .i { flex:none; fill:none; stroke:currentColor; stroke-width:1.75; stroke-linecap:round; stroke-linejoin:round; }
 .i-fill { fill:currentColor; }
 [dir="rtl"] .i-dir { transform:scaleX(-1); }
 
-/* Glass (DESIGN §2.3) */
+/* Glass only where content scrolls beneath (top bar, tab bar). */
 .glass { background:var(--glass-solid); }
 @supports ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
   .glass {
     background:var(--glass-bg);
     -webkit-backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-sat));
     backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-sat));
-    box-shadow:inset 0 0 0 1px var(--glass-edge),var(--sh-1);
   }
 }
 @media (prefers-reduced-transparency:reduce),(prefers-contrast:more) {
-  .glass { background:var(--glass-solid); -webkit-backdrop-filter:none; backdrop-filter:none; box-shadow:inset 0 0 0 1px var(--line),var(--sh-1); }
+  .glass { background:var(--glass-solid); -webkit-backdrop-filter:none; backdrop-filter:none; }
 }
 
-/* Reduced motion (DESIGN §6): springs → short linear, no translate/scale/shake/ripple. */
+/* Reduced motion (DESIGN §6): no translate/scale/shake/draw/breath; states fade in 120 ms. */
 @media (prefers-reduced-motion:reduce) {
   *, *::before, *::after {
     animation-duration:120ms !important;
     animation-iteration-count:1 !important;
+    animation-delay:0ms !important;
     transition-duration:120ms !important;
     transition-timing-function:linear !important;
   }

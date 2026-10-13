@@ -85,9 +85,13 @@ export function setState(patch: Partial<AppState>): void {
 
 export function useApp(): AppState {
   const [, force] = useState(0);
+  const seen = state;
   useEffect(() => {
     const l = () => force((n) => n + 1);
     listeners.add(l);
+    // A change between this render and the subscription (e.g. the first /api/state answering while the
+    // font loads) would otherwise wait for the next poll, 5 s later, to show.
+    if (state !== seen) l();
     return () => void listeners.delete(l);
   }, []);
   return state;

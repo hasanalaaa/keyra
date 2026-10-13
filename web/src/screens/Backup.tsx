@@ -1,4 +1,4 @@
-// Backup & restore (DESIGN §5.8).
+// Backup and restore (DESIGN §5.8): two screens, #/backup and #/restore, both under Device.
 import { useEffect, useState } from 'preact/hooks';
 import { Button, Notice, SecretField, Segmented, StrengthMeter } from '../components/ui';
 import { Alert, Sheet } from '../components/Sheet';
@@ -11,13 +11,10 @@ import { back } from '../lib/router';
 import { getState, loadEntries, setState, toast } from '../lib/store';
 import { minHint } from './common';
 
-export function BackupSheet() {
+export function BackupSheet({ part }: { part: 'backup' | 'restore' }) {
   return (
-    <Sheet title={t('backupTitle')} size="md" onClose={() => back('/')}>
-      <div class="backup">
-        <BackupPart />
-        <RestorePart />
-      </div>
+    <Sheet title={part === 'backup' ? t('backupHead') : t('restoreHead')} size="md" onClose={() => back('/device')}>
+      <div class="backup">{part === 'backup' ? <BackupPart /> : <RestorePart />}</div>
     </Sheet>
   );
 }
@@ -77,7 +74,6 @@ function BackupPart() {
 
   return (
     <section class="group">
-      <h3 class="section-head">{t('backupHead')}</h3>
       <div class="card pad form">
         {passkeys !== null && <p class="callout">{t(passkeys ? 'backupBody' : 'backupBodyNoPasskeys')}</p>}
         <SecretField
@@ -181,7 +177,6 @@ function RestorePart() {
 
   return (
     <section class="group">
-      <h3 class="section-head">{t('restoreHead')}</h3>
       <div class="card pad form">
         <label class="btn btn-secondary btn-md btn-full file-btn">
           {file ? <span dir="ltr">{file.name}</span> : t('chooseBackup')}

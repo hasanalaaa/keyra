@@ -1,7 +1,7 @@
 // Primitives from DESIGN §4: buttons, fields, switch, segmented control, notices, meters, monogram.
 import type { ComponentChildren, CSSProperties, InputHTMLAttributes, Ref } from 'preact';
 import { useEffect, useId, useRef, useState } from 'preact/hooks';
-import { Icon, KeyGlyph, type IconName } from './Icon';
+import { Contour, Icon, type IconName } from './Icon';
 import { t, type Key } from '../lib/i18n';
 import { copyText } from '../lib/clipboard';
 import { toast } from '../lib/store';
@@ -247,9 +247,14 @@ export function ColoredSecret({ value, class: cls }: { value: string; class?: st
 
 // ---------- switch / segmented / slider ----------
 
-export function SwitchRow({ label, checked, onChange, disabled }: { label: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+export function SwitchRow({ label, checked, onChange, disabled, icon }: { label: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; icon?: IconName }) {
   return (
-    <button type="button" role="switch" aria-checked={checked} class="row switch-row" disabled={disabled} onClick={() => onChange(!checked)}>
+    <button type="button" role="switch" aria-checked={checked} class={`row switch-row${icon ? ' has-icon' : ''}`} disabled={disabled} onClick={() => onChange(!checked)}>
+      {icon && (
+        <span class="row-glyph">
+          <Icon name={icon} size={18} />
+        </span>
+      )}
       <span class="row-label">{label}</span>
       <span class="switch" aria-hidden="true">
         <span class="knob" />
@@ -335,10 +340,10 @@ export function Slider({ value, min, max, step = 1, onInput, onCommit, label }: 
 
 // ---------- notices, chips, meters ----------
 
-export function Notice({ tone, icon, children, action }: { tone: 'warn' | 'err' | 'accent'; icon?: IconName; children: ComponentChildren; action?: ComponentChildren }) {
+export function Notice({ tone, icon, children, action }: { tone: 'warn' | 'err' | 'info'; icon?: IconName; children: ComponentChildren; action?: ComponentChildren }) {
   return (
     <div class={`notice notice-${tone}`}>
-      <Icon name={icon ?? (tone === 'accent' ? 'shield-check' : 'triangle-alert')} size={20} />
+      <Icon name={icon ?? (tone === 'info' ? 'info' : 'triangle-alert')} size={20} />
       <div class="notice-text">{children}</div>
       {action}
     </div>
@@ -373,7 +378,7 @@ export function Monogram({ title, size = 40 }: { title: string; size?: number })
       aria-hidden="true"
       style={{ '--mg': monogramColor(title), inlineSize: `${size}px`, blockSize: `${size}px`, fontSize: `${Math.round(size * 0.45)}px` } as CSSProperties}
     >
-      {letter || <KeyGlyph size={Math.round(size * 0.6)} />}
+      {letter || <Contour size={Math.round(size * 0.62)} />}
     </span>
   );
 }
