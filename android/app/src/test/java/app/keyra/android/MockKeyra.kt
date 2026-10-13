@@ -48,6 +48,18 @@ class MockKeyra private constructor(private val process: Process, val port: Int)
         check(c.first == 200) { "button: ${c.first} ${c.second}" }
     }
 
+    /** Waits for the pairing window a press opens, through the browser session (no token rate limit). */
+    fun awaitPairingWindow(timeoutMs: Long = 5000): Boolean {
+        val until = System.currentTimeMillis() + timeoutMs
+        while (true) {
+            val c = request("GET", "/api/ble", null)
+            check(c.first == 200) { "ble: ${c.first} ${c.second}" }
+            if (c.second.getJSONObject("pairing").getBoolean("active")) return true
+            if (System.currentTimeMillis() >= until) return false
+            Thread.sleep(50)
+        }
+    }
+
     /** A phone or computer pairs while Keyra's pairing window is open; false when it is closed. */
     fun pairDevice(name: String): Boolean =
         request("POST", "/__mock/ble", JSONObject().put("pair", name), session = false).first == 200

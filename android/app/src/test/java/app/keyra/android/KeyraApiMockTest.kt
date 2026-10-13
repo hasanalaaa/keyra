@@ -183,8 +183,9 @@ class KeyraApiMockTest {
         assertTrue(armed.requestId!!.matches(Regex("^[0-9a-f]{32}$")))
         assertFalse(api.targets().pairingActive) // only after the press
         mock.press()
-        Thread.sleep(300) // the press is handled asynchronously
-        assertTrue("window opens after the press", api.targets().pairingActive)
+        // The press is handled asynchronously: a fixed wait was too short on a slow CI runner.
+        assertTrue("window opens after the press", mock.awaitPairingWindow())
+        assertTrue(api.targets().pairingActive)
         assertTrue(mock.pairDevice("Pixel 9"))
         val phone = newBond(before.bonds, api.targets().bonds)
         assertNotNull(phone)
