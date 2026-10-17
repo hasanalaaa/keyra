@@ -25,16 +25,17 @@ reports are welcome.
 
 Each board has a profile, `firmware/boards/<id>.defaults` (listed in
 [`firmware/boards/boards.json`](../firmware/boards/boards.json), with the vendor
-source of every pin in the profile's comments). Every profile is built by CI. Only
-the default build has been tested on hardware so far (it runs daily on a VCC-GND
-YD-ESP32-S3, a DevKitC-1 clone); if you run Keyra on another board, please report
-how it went.
+source of every pin in the profile's comments). Every profile is built by CI. So far
+Keyra runs daily on one board, the owner's VCC-GND YD-ESP32-S3 (a DevKitC-1 clone),
+with the default image: everything works there except the LED, which that board has
+on GPIO48, so the `yd-esp32-s3` profile exists for it. If you run Keyra on another
+board, please report how it went.
 
 | Board (`id`) | Flash / PSRAM | Button | Status LED | Buy | Tested on hardware |
 |---|---|---|---|---|---|
-| Espressif ESP32-S3-DevKitC-1 v1.1 (`devkitc1`, default) | 8 or 16 MB / none or 8 MB octal | GPIO0 (BOOT) | WS2812, GPIO38 | [Espressif](https://www.espressif.com/en/dev-board/esp32-s3-devkitc-1-en) | **Yes** (the default build, on a YD-ESP32-S3 clone) |
+| Espressif ESP32-S3-DevKitC-1 v1.1 (`devkitc1`, default) | 8 or 16 MB / none or 8 MB octal | GPIO0 (BOOT) | WS2812, GPIO38 | [Espressif](https://www.espressif.com/en/dev-board/esp32-s3-devkitc-1-en) | Its image runs on a YD-ESP32-S3 clone (all but the LED); not yet on a genuine DevKitC-1 |
 | Espressif ESP32-S3-DevKitC-1 v1.0 (`devkitc1-v10`) | 8 or 16 MB / none or 8 MB octal | GPIO0 (BOOT) | WS2812, GPIO48 | [Espressif](https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32s3/esp32-s3-devkitc-1/user_guide_v1.0.html) | No |
-| VCC-GND YD-ESP32-S3 (`yd-esp32-s3`) | 8 or 16 MB / none or 8 MB octal | GPIO0 (BOOT) | WS2812, GPIO48 | [VCC-GND (OEM docs)](https://github.com/vcc-gnd/YD-ESP32-S3) | No |
+| VCC-GND YD-ESP32-S3 (`yd-esp32-s3`) | 8 or 16 MB / none or 8 MB octal | GPIO0 (BOOT) | WS2812, GPIO48 | [VCC-GND (OEM docs)](https://github.com/vcc-gnd/YD-ESP32-S3) | The owner's board: runs daily with the default image; this profile's LED pin is the one change, not yet confirmed on the board |
 | M5Stack AtomS3U (`atoms3u`), USB-A stick | 8 MB / none | GPIO41 (top button) | WS2812, GPIO35 | [M5Stack](https://shop.m5stack.com/products/atoms3u) | No |
 | M5Stack AtomS3 Lite (`atoms3-lite`) | 8 MB / none | GPIO41 (top button) | WS2812, GPIO35 | [M5Stack](https://shop.m5stack.com/products/atoms3-lite-esp32s3-dev-kit) | No |
 | Seeed Studio XIAO ESP32S3 (`xiao-esp32s3`) | 8 MB / 8 MB octal | GPIO0 (BOOT) | plain LED, GPIO21, active low | [Seeed Studio](https://www.seeedstudio.com/XIAO-ESP32S3-p-5627.html) | No |

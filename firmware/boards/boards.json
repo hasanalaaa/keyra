@@ -9,9 +9,9 @@
     "button": "GPIO0 (BOOT), active low",
     "led": "WS2812 on GPIO38",
     "usb": "USB-C, native USB port labelled USB",
-    "tested": true,
+    "tested": false,
     "default": true,
-    "notes": "Reference board. Tested on hardware with the default build on a VCC-GND YD-ESP32-S3 (a DevKitC-1 clone, N16R8). WROOM-1 modules with 8 or 16 MB quad flash; WROOM-2 (octal flash) variants are not supported."
+    "notes": "Reference board (Espressif's own). Builds in CI; not yet tested on a genuine DevKitC-1. Its image runs daily on the owner's YD-ESP32-S3 clone, where everything but the LED (GPIO48 there) works. WROOM-1 modules with 8 or 16 MB quad flash; WROOM-2 (octal flash) variants are not supported."
   },
   {
     "id": "devkitc1-v10",
@@ -39,7 +39,7 @@
     "usb": "USB-C, native USB port labelled USB",
     "tested": false,
     "default": false,
-    "notes": "Builds in CI, not yet tested on hardware. A DevKitC-1 clone; revisions differ: if the LED already works with the default image (GPIO38), keep devkitc1."
+    "notes": "A DevKitC-1 clone with two USB-C ports (the owner's board, and the one the printable case fits). The default image runs on it daily except its RGB LED, which is on GPIO48 on the owner's revision; this profile only moves the LED. Revisions differ: if the LED already works with the default image (GPIO38), keep devkitc1."
   },
   {
     "id": "atoms3u",
