@@ -37,9 +37,9 @@
     "button": "GPIO0 (BOOT), active low",
     "led": "WS2812 on GPIO48",
     "usb": "USB-C, native USB port labelled USB",
-    "tested": false,
+    "tested": true,
     "default": false,
-    "notes": "A DevKitC-1 clone with two USB-C ports (the owner's board, and the one the printable case fits). The default image runs on it daily except its RGB LED, which is on GPIO48 on the owner's revision; this profile only moves the LED. Revisions differ: if the LED already works with the default image (GPIO38), keep devkitc1."
+    "notes": "A DevKitC-1 clone with two USB-C ports (the owner's board, and the one the printable case fits). Keyra runs on it daily with this image since 0.4.5, LED included (GPIO48 on the owner's revision); the default image runs there too, all but the LED. Revisions differ: if the LED already works with the default image (GPIO38), keep devkitc1."
   },
   {
     "id": "atoms3u",
