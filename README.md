@@ -188,7 +188,13 @@ Keyra runs on a stock **ESP32-S3** dev board with at least **8 MB flash**. No so
 | **Status LED** | WS2812 on **GPIO38** (DevKitC-1 v1.1) or **GPIO48** (v1.0), set with `CONFIG_KEYRA_LED_GPIO` |
 | **USB** | Plug the board's native **USB** port into the computer (not the UART port) |
 
-Pin details, flashing options, enclosure ideas and the optional hardening steps: **[docs/HARDWARE.md](docs/HARDWARE.md)**.
+Pin details, flashing options and the optional hardening steps: **[docs/HARDWARE.md](docs/HARDWARE.md)**.
+
+### Enclosure
+
+<p align="center"><img src="hardware/enclosure/previews/Cable.jpg" width="70%" alt="The printed Keyra case: a big mechanical button with a light ring, and the Contour debossed in the lid"></p>
+
+A printable case for the dual USB-C YD-ESP32-S3 board: five parts, a big mechanical button that presses the board's own BOOT switch, a clear ring that carries the LED's light around it, and the Contour debossed in the lid. No screws, no extra electronics. Cable and USB-C dongle versions, the parametric OpenSCAD source and print settings: **[hardware/enclosure](hardware/enclosure)**.
 
 ## Quick start
 
@@ -359,7 +365,8 @@ The current work plan, with what is done and what comes next, is in [docs/resear
 - [x] 0.3.0: Android app, Keyra Companion browser extension, access tokens and the agent gate (`tools/keyra-mcp`), NFC tap tags
 - [ ] Tested board matrix and a prebuilt release for each
 - [ ] Browser-based flashing from the release page
-- [ ] Printable enclosure and a purpose-built PCB
+- [x] Printable enclosure ([hardware/enclosure](hardware/enclosure))
+- [ ] A purpose-built PCB
 - [ ] Independent security review
 
 ## FAQ

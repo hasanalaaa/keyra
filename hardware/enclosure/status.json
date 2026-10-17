@@ -1,0 +1,48 @@
+{
+  "release": "Keyra Refined",
+  "date_local": "2026-10-15",
+  "source_SHA256": "66f12fcfdacca9758a709593e4ed44704cc14f7a2fc7753ced7a6ca7808eb6ac",
+  "state": "OWNER_REPORTED_BODY_ACCEPTANCE_WITH_EXACT_PREVIOUS_RING_REUSE",
+  "variants": [
+    "Cable",
+    "Dongle - conditional coupler envelope"
+  ],
+  "parts_each": 5,
+  "nominal_pre_contact_gap_mm": 0.7,
+  "nominal_total_travel_mm": 0.9,
+  "switch_tip_at_nominal_stop_preserved_from_accepted_print": true,
+  "prior_revision_owner_accepted": [
+    "PCB fit",
+    "native USB aperture",
+    "BOOT actuation",
+    "light collector"
+  ],
+  "digital_geometry_paths_toolpaths_and_FEA_component_checks": "passed with stated numerical tolerances and model assumptions",
+  "pdf_visual_review": "all four pages inspected after final CAD render",
+  "open_items": [
+    "Actual owner PETG tolerances, friction, bonding and fatigue not calibrated",
+    "Actual dongle adapter not selected or physically fitted",
+    "Full nonlinear assembly/contact and month endurance not certified",
+    "Top retains NON_CRITICAL slicer floating-region warning; no whole new unsupported island found by current CAD/bead audits"
+  ],
+  "printer_job_started": false,
+  "global_profiles_modified": false,
+  "owner_feedback_after_refined_print": {
+    "shell_closure": "accepted; no gap",
+    "fixing": "accepted",
+    "other_function": "reported working",
+    "new_physical_ring": "did not enter",
+    "previous_physical_ring_in_current_lid": "owner reported snug fit without movement"
+  },
+  "ring_reuse": {
+    "date_local": "2026-10-15",
+    "source": "Keyra_Corrected/STL/Light_Ring.stl",
+    "STL_sha256": "570ce4a16e28ce22000782270cba71b562e3f0d07a4b1e416b410bc7214f8d95",
+    "byte_identical_reuse": true,
+    "nominal_geometry_changed": false,
+    "ring_project_settings_changed": false,
+    "cause_of_different_physical_fits": "unresolved",
+    "fresh_insertion_motion_source_and_toolpath_checks": "passed within recorded numerical tolerances",
+    "new_print_by_agent": false
+  }
+}
