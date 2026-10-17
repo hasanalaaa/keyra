@@ -40,6 +40,9 @@ export function EditAccount({ id }: { id?: number }) {
   // Editing shows the password: one press of Keyra's button (SPEC §12.3, §12.5b), unless the
   // account sheet that opened this editor had just revealed it.
   const gate = usePressGate('reveal');
+  // A new password is a press too unless this session was just shown the old one (SPEC §12.5b):
+  // the editor normally was, so this asks only when the account changed meanwhile.
+  const saveGate = usePressGate('reveal');
   useEffect(() => {
     if (!id) return;
     let live = true;
@@ -106,7 +109,7 @@ export function EditAccount({ id }: { id?: number }) {
       if (id) {
         const patch: Partial<EntryInput> = {};
         for (const k of Object.keys(body) as (keyof EntryInput)[]) if (body[k] !== initial[k]) (patch as Record<string, unknown>)[k] = body[k];
-        await api.update(id, patch);
+        if (!(await saveGate.run(() => api.update(id, patch)))) return setSaving(false);
       } else newId = (await api.create(body)).id;
       toast(t('saved'), 'ok');
       await loadEntries();
@@ -164,7 +167,9 @@ export function EditAccount({ id }: { id?: number }) {
         </Button>
       }
     >
-      {del.phase.kind === 'ready' ? (
+      {saveGate.phase.kind === 'ready' ? (
+        <Ready state="ready" deadline={saveGate.phase.deadline} total={saveGate.phase.total} title={t('editSaveTitle')} body={t('editSaveBody')} onCancel={saveGate.cancel} />
+      ) : del.phase.kind === 'ready' ? (
         <Ready state="ready" deadline={del.phase.deadline} total={del.phase.total} title={t('deleteAccountPress')} body={t('deletePressBody')} onCancel={del.abandon} />
       ) : gate.phase.kind === 'ready' ? (
         <Ready

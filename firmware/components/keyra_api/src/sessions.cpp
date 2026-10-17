@@ -41,6 +41,7 @@ Sessions::Issued Sessions::create(int64_t nowMs, uint32_t trustId, uint32_t gene
   target->generation = generation;
   target->approval.reset();
   target->approvalUntil = 0;
+  target->revealed = false;
   lastActivity_ = nowMs;
   return {target->token, target->csrf, std::move(evicted)};
 }
@@ -78,6 +79,21 @@ Sessions::Redeem Sessions::redeem(std::string_view token, int64_t nowMs, const A
   const bool same = a.revision == want.revision;
   s->approval.reset();
   return same ? Redeem::Ok : Redeem::Changed;
+}
+
+void Sessions::noteRevealed(std::string_view token, uint32_t entry, uint32_t revision) {
+  std::lock_guard<std::mutex> lock(mu_);
+  if (Slot* s = findLocked(token)) {
+    s->revealed = true;
+    s->revealedEntry = entry;
+    s->revealedRevision = revision;
+  }
+}
+
+bool Sessions::knows(std::string_view token, uint32_t entry, uint32_t revision) {
+  std::lock_guard<std::mutex> lock(mu_);
+  const Slot* s = findLocked(token);
+  return s && s->revealed && s->revealedEntry == entry && s->revealedRevision == revision;
 }
 
 std::optional<std::string> Sessions::csrfFor(std::string_view token, int64_t nowMs, uint32_t generation) {

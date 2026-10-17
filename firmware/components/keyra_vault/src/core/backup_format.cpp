@@ -207,7 +207,7 @@ bool readPasskeys(const json::Value& v, Passkeys& out) {
   const json::Value* counter = v.find("counter");
   if (!keys || keys->type != Type::Array || keys->items.size() > kMaxPasskeyWrapKeys) return false;
   if (!records || records->type != Type::Array || records->items.size() > kMaxPasskeys) return false;
-  if (!counter || counter->type != Type::Int || counter->i < 0 || counter->i > int64_t(UINT32_MAX)) return false;
+  if (!counter || counter->type != Type::Int || counter->i < 0 || counter->i > int64_t(kMaxBackupFidoCounter)) return false;
   out.keys.reserve(keys->items.size());  // no regrowth: the allocator wipes, but only what it frees
   for (const json::Value& k : keys->items) {
     if (k.type != Type::String) return false;

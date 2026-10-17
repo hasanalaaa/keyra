@@ -195,6 +195,18 @@ unlocked. A flash dump without the passphrase reveals no credential key.
   The PIN token has no 2.1 permissions; `FIDO_2_1` is not claimed.
 - **A blocked PIN costs your passkeys**: only `authenticatorReset` clears it
   (within 10 s of power-up), and that deletes them. Keep a backup.
+- **`setPIN` needs no press** (CTAP 2.0 allows it). A process with raw HID
+  access on the computer, while Keyra is unlocked and has no PIN, can set a
+  PIN you do not know; with or without a PIN it can send wrong PINs, three per
+  power cycle, until the 8 retries are gone. Either way only a reset (which
+  deletes every passkey) gets you back. Requiring a press for `setPIN` and
+  `changePIN` is planned (internal review F7). Until then: keep a backup with
+  passkeys, and treat a PIN prompt you did not expect as a sign of malware.
+- **Requests are parsed within a value budget.** The CBOR decoder refuses any
+  item with more than 512 values (`cbor::kMaxValues`) before it allocates for
+  them, so a host that declares huge arrays or maps cannot exhaust RAM on a
+  board without PSRAM (review F9). The largest real request within maxMsgSize
+  holds about 200.
 - **hmac-secret, PIN protocols and ECDH were checked on the host only** (spec
   derivations, OpenSSL as the platform); the device runs the same core over
   PSA crypto, not yet tried against a real browser or `systemd-cryptenroll`.
@@ -224,6 +236,9 @@ unlocked. A flash dump without the passphrase reveals no credential key.
 | Lost Keyra, locked | No signature possible; credential keys are encrypted under the DEK. |
 | Lost Keyra, unlocked | Whoever holds it can sign in where you have passkeys, until auto-lock. With a security key PIN set, sites that require user verification also need the PIN (8 tries, then blocked). |
 | Flash dump | Offline passphrase guessing (PBKDF2, ≈1.2 s per guess on the device); same as the password vault. |
+| Malware burns or sets the PIN | Possible without a press while unlocked (`setPIN`, wrong `getPINToken`, three per power cycle); a blocked PIN needs a reset that deletes the passkeys. See Honest limits. |
+| A press for a legacy U2F prompt is taken by another app | A press latched for U2F goes to the next U2F poll from any application for 3 s; CTAP2 requests are never handed on. |
+| Crafted backup with a huge signature counter | Refused: a backup's counter must be at most 2^31 − 1 (`kMaxBackupFidoCounter`), and restoring (merge or replace) needs a press (SPEC §5). |
 | Cloned credential | The global counter lets RPs that check it notice a clone only if both copies are used; Keyra cannot export keys, so a clone needs the flash and the passphrase. |
 
 ## Code map

@@ -184,8 +184,8 @@ Conventions
 - Requests/responses `application/json; charset=utf-8`. Errors: `{"error":"<code>","message":"<english>"}` with a proper HTTP status.
 - Session: `POST /api/unlock` sets cookie `ks=<token>; HttpOnly; SameSite=Strict; Path=/`
   and returns `{"csrf":"…"}`. Every non-GET request except `/api/unlock`,
-  `/api/setup` and `/api/factory-reset` must send header `X-Keyra-CSRF: <csrf>`.
-  Missing/invalid → 403 `csrf`.
+  `/api/setup` and `/api/factory-reset` on a locked vault must send header
+  `X-Keyra-CSRF: <csrf>`. Missing/invalid → 403 `csrf`.
 - Locked vault or missing session on a protected route → 401 `locked`.
 - Clock: clients send `X-Keyra-Time: <unix ms>` on every request; the device
   adopts it if it has no time or drifts > 5 s (device has no RTC), but only
@@ -194,6 +194,21 @@ Conventions
   `POST /api/unlock` / `/api/unlock/recovery` once the passphrase or key was
   right (before the unlock is logged). Requests without a session, access
   tokens and tag taps never set it (`routes.cpp` `adoptsClientClock`).
+  Setup and unlock are the trusted moments: they may move the clock any
+  distance. Once the clock is valid, a session request may only correct it
+  within ±5 minutes of the *trusted time* — the time the last setup, unlock,
+  SNTP sync or first setting gave, run forward on the monotonic clock
+  (`clock.cpp` `Trust`). It is measured from that, never from what an earlier
+  session request set, so repeated requests cannot walk the clock to harvest
+  future 2FA codes (`/totp`, §12.5a) or shift activity-log times; at most the
+  codes of the next 5 minutes can be had.
+- Auto-lock idle time: a session request counts as the user being there,
+  except what the web app also sends on its own — `GET /api/entries` (refreshed
+  when its tab comes back and after an action), `GET /api/entries/{id}/totp`
+  (every 30 s while a code is shown) and `GET /api/ble` (polled while pairing)
+  (`routes.cpp` `countsAsActivity`). `GET /api/state` needs no session and
+  never counts; nor do access tokens (§17) and tag taps (§18). A button press
+  counts.
 - Max 4 concurrent sessions; `lock` (or auto-lock) ends all.
 - Request bodies > 64 KiB → 413 `too_large` (import uses batches). Exception:
   `/api/restore` accepts up to 2 MiB when PSRAM is present (128 KiB without).
@@ -214,18 +229,18 @@ Conventions
 | GET `/api/entries/{id}` | session | → the entry with `hasPassword`, `hasTotp`, `hasSequence`, `hasNotes`; `password`, `totp`, `notes`, old passwords and `sequence` only when `revealed` (only with `protectReveal` off, §12.3) |
 | POST `/api/entries/{id}/reveal` | session | → 200 the revealed entry, or 202 press first, then the same call once more (§12.3, §12.5b); 409 `entry_changed` when the account was edited between the request and the call that uses the press |
 | POST `/api/entries` | session | entry (no id) → 201 `{id}` |
-| PUT `/api/entries/{id}` | session | partial entry → 200 `{id}` |
+| PUT `/api/entries/{id}` | session | partial entry → 200 `{id}`. With `protectReveal` on, a body with `password` (whatever its value) also needs what a reveal needs: this session was shown this version of the account (a used `…/reveal` press), or else 202 `{awaiting:"button", op:"reveal", …}` and the same PUT once more after the press; 409 `entry_changed` as for reveal. Otherwise the vault's history would tell a session whether a guessed password was right (§9.3) |
 | DELETE `/api/entries/{id}` | session | → 202 `{awaiting:"button", op:"delete_entry", expiresIn, cancel}` (404 if unknown, 409 `busy` §12.5a); the press removes it (only if still unlocked and still there, else `failed`) |
 | POST `/api/entries/import` | session | `{entries:[…≤50]}` → `{added, skipped}` (duplicate = same title+username+url) |
 | GET `/api/entries/{id}/totp` | session | → `{code, period, remaining}` / 409 `no_time` / 404 |
 | POST `/api/type` | session | `{id, what:"username"\|"password"\|"both"\|"totp"\|"sequence", submit?, target?, switchLang?}`, `{text, repeat?, separator?}` (§9.2), `{test:true}` or `{probe:true}` (§10.3) → 202 `{pending, requestId}`; replaces this session's own pending item, 409 `busy` while another session's waits (§12.5a). An entry action types the version of the account it was armed for: edited before the press (by anyone), it types nothing and ends `entry_changed` |
 | POST `/api/type/cancel` | session | optional `{requestId}` (§12.6a; no body as before) → 204 when it withdrew this session's own waiting action or one an access token or tap tag armed — with `requestId` only that very action; 409 `superseded` when that request had been replaced by a newer one; 409 `not_cancelled` otherwise (another session's action stays armed) |
 | GET `/api/settings` | session | → `{deviceName, wifiSsid, autoLockMin, keyDelayMs, bothSeparator:"tab"\|"enter", submitAfterBoth:bool, ledBrightness, bleEnabled, output, bleConnect, protectReveal, passkeysInBackup, lockOnUsb, lockOnBle, lastBackupAt, homeWifi:{enabled, ssid}, apMode, osUsb, layoutUsb, layoutBle, bothSequence}` |
-| PUT `/api/settings` | session | partial of the above (+ optional `wifiPassword`; `homeWifi` goes through `/api/wifi/home`, `lastBackupAt` is set by backups) → 200 settings. Changing `wifiSsid`/`wifiPassword`, turning `protectReveal` off or `passkeysInBackup` on (op `passkeys_backup_on`), requires presence → 202 `{awaiting:"button"}` |
+| PUT `/api/settings` | session | partial of the above (+ optional `wifiPassword`; `homeWifi` goes through `/api/wifi/home`, `lastBackupAt` is set by backups) → 200 settings. Changing `wifiSsid`, sending `wifiPassword` (also the current one: the answer never says whether a guess was right), turning `protectReveal` off or `passkeysInBackup` on (op `passkeys_backup_on`), requires presence → 202 `{awaiting:"button"}` |
 | POST `/api/passphrase` | session | `{current, next}` → 204 / 401 `{error:"wrong", retryAfterMs}` / 429 `rate_limited` |
 | POST `/api/backup` | session | `{passphrase}` (≥12 chars) → 200 `application/json` attachment `keyra-backup-YYYYMMDD.json` (format v3; carries the passkeys when the `passkeysInBackup` setting is on, §11) |
-| POST `/api/restore` | session | `{passphrase, backup:<object>, mode:"merge"\|"replace"}` → `{added, updated, passkeys}` (`passkeys` = passkey records added); `replace` requires presence (202); 409 `passkeys_full` when the passkeys would not fit (§11) |
-| POST `/api/factory-reset` | none (must work when passphrase is forgotten) | → 202 `{awaiting:"button"}`; on button press: wipe vault + settings, restart into setup |
+| POST `/api/restore` | session | `{passphrase, backup:<object>, mode:"merge"\|"replace"}` → 202 `{awaiting:"button", op:"restore", …}`: both modes are committed by the press (a merge can overwrite accounts and add passkey keys and records); 409 `passkeys_full` when the passkeys would not fit (§11), 401 `wrong` / 400 `invalid` at once, before the press. A merge no longer answers 200 `{added, updated, passkeys}` (it did before the October 2026 review); the activity log keeps the count |
+| POST `/api/factory-reset` | none while the vault is locked (must work when the passphrase is forgotten); session + CSRF while it is unlocked (401 `session_required` otherwise) | → 202 `{awaiting:"button"}`; on button press: wipe vault + settings, restart into setup |
 
 `Pending` = `{kind:"type", id, title, what, submit, expiresIn, target, preview?, part?, parts?}` (expires after
 **60 s**; `preview`/`part`/`parts` for sequences, §10.4). `Result` = `{ok:bool, code:"typed"|"cancelled"|"expired"|"no_usb"|"no_host"|"host_changed"|"unsupported_char"|"entry_changed"|"failed", at:ms_ago, title?, what?}`
@@ -265,8 +280,13 @@ Settings storage reset (NVS, `main.cpp` `initNvs`):
 
 Restore (`/api/restore`):
 - The backup passphrase and the file are checked before anything changes, and
-  for `replace` before the press is requested (401 `wrong` / 400 invalid / 507 `full`
-  / 409 `passkeys_full`).
+  for both modes before the press is requested (401 `wrong` / 400 invalid / 409
+  `passkeys_full`); a vault that would pass its entry limit makes the press end
+  `failed` (507 `full` no longer comes back at once for a merge).
+- A backup's passkey `counter` must be at most 2^31 − 1 (`kMaxBackupFidoCounter`):
+  a hand-made file with a counter near 2^32 would leave the restored counter
+  nowhere to go and stop every passkey signing until a factory reset. Larger
+  is 400 `invalid`. A real Keyra never signs that often.
 - `replace` is atomic: the new entries are staged next to the old ones and
   committed by one marker file. A power cut or a write failure (storage full)
   leaves either every old entry or every restored one, never a mix; an
@@ -574,6 +594,14 @@ null for free text.
 Each entry keeps up to 10 previous passwords `{password, changedAt}` inside the
 encrypted entry (no plaintext metadata on flash). `PUT /api/entries/{id}` with a
 new `password` pushes the old one. `GET /api/entries/{id}` returns `history`.
+Because only a *different* password is pushed, a session that could set a
+password without a press could learn whether a guess equalled the stored one
+from `history`, `changedAt`, Health's `old` or `rotate.pending`. With
+`protectReveal` on, every write that can change a password therefore needs a
+press or a session that already saw it: `PUT` with `password` (§5), restore
+(merge and replace), the extension's save (§17). `history` dates and
+`rotate.pending` stay visible without a reveal, since nothing unpressed can move
+them in answer to a guess.
 
 Implementation notes (v1.2): only an update that changes the password adds to
 the history (`changedAt` = the update time, 0 when the device has no clock);
@@ -888,7 +916,9 @@ A press grants what it was asked for, to that session only, once (§12.5b).
 Deliberate exception: `GET /api/entries/{id}/totp` (the current 2FA code)
 needs a session but no press. A code lives 30 s and is useless without the
 password, which does need one; asking for a press every 30 s would make the
-account screen unusable.
+account screen unusable. "Current" holds because a session cannot move the
+clock more than 5 minutes from the trusted time (§5 Clock): it can see at most
+the codes of the next 5 minutes, never a day's worth.
 
 ### 12.5b One press, one request
 
@@ -1232,7 +1262,10 @@ NFC tags build on.
     unknown or revoked token;
   - 429 `rate_limited` `{retryAfterMs}` + `Retry-After` beyond **10 requests
     in any 10 s** per token (all unrecognised tokens share one more such
-    budget).
+    budget). Once this unlock has read `tokens.bin`, a token whose hash it
+    does not hold is refused against that shared budget before any flash
+    read or GCM open (`records::loadFor`); only a token that may be stored
+    is read and checked. A malformed one costs no hash either.
   Token requests do not count as user activity for auto-lock.
 
 | Method & path | Kinds | Body → Response |
@@ -1326,9 +1359,12 @@ Keyra's network that arms **one account** for typing — exactly like
     chip), 409 `replayed` (a counter not above the last one), 429
     `rate_limited` `{retryAfterMs}` + `Retry-After` beyond **10 taps in any
     10 s** per tag (unknown tags and wrong secrets/MACs share one more such
-    budget). A known tag's budget is spent before its secret or MAC is
-    checked and before anything is logged, so right, wrong and replayed taps
-    all count and a flood past it costs no crypto and no log write. 409 `busy`, 404 `not_found` (the account is gone), 400 `invalid`
+    budget). Once this unlock has read `tags.bin`, an unknown tag id (or one
+    of the other kind) is refused against the shared budget before any flash
+    read or GCM open (`records::loadFor`). A known tag's budget is spent
+    before its secret or MAC is checked and before anything is logged, so
+    right, wrong and replayed taps all count and a flood past it costs no
+    MAC check and no log write (only the record's read). 409 `busy`, 404 `not_found` (the account is gone), 400 `invalid`
     (it lost the field), 409 `no_time` (a code without a clock), 409
     `ble_disabled`.
   - `POST /api/tag/status {id, ticket, requestId?}` → `{state, code?, expiresIn?}` for that

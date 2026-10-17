@@ -258,3 +258,17 @@ export function submitterOf(target: Element | null): Element | null {
   const text = `${el.textContent ?? ''} ${el instanceof HTMLInputElement ? el.value : ''} ${el.getAttribute('aria-label') ?? ''}`;
   return LOGIN_HINT.test(text) || SIGNUP_HINT.test(text) ? el : null;
 }
+
+/** Longest account title the extension proposes from a page, in characters. */
+export const MAX_SITE_TITLE = 64;
+
+/**
+ * An account title from what the page chose (og:site_name, application-name), or `fallback`
+ * (the page host). The page is untrusted and the title later reaches AI agents through the vault
+ * (F6, keyra_list_logins): control and format characters (bidi overrides, zero-width marks,
+ * line separators) are dropped, whitespace collapses to single spaces, and it is capped.
+ */
+export function siteTitleFrom(raw: string | null | undefined, fallback: string): string {
+  const clean = (raw ?? '').replace(/\s+/g, ' ').replace(/[\p{Cc}\p{Cf}]/gu, '').replace(/ +/g, ' ').trim();
+  return Array.from(clean || fallback).slice(0, MAX_SITE_TITLE).join('').trim();
+}

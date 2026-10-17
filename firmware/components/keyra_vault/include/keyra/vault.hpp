@@ -227,6 +227,11 @@ Status tagsWrite(const std::vector<uint8_t>& data);
 inline constexpr uint32_t kFidoCounterBlock = 1024, kFidoRestoreMargin = 1000;
 Status fidoCounterRead(uint32_t& out);
 Status fidoCounterRaise(uint32_t atLeast);
+// The highest signature counter a backup may carry (F3). A real Keyra signs far
+// fewer times; a hand-made file with a counter near UINT32_MAX would leave the
+// restored counter nowhere to go ("never wraps"), so every passkey would stop
+// signing until a factory reset. A backup above it is refused as invalid.
+inline constexpr uint32_t kMaxBackupFidoCounter = 0x7FFFFFFF;
 // What a restore raises it to: the backup's counter + kFidoRestoreMargin, then
 // a whole block on, so the counter goes past it whatever NVS holds.
 constexpr uint32_t fidoCounterAfterRestore(uint32_t backupCounter) {

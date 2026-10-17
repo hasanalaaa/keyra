@@ -50,6 +50,7 @@ void rememberLocked(uint32_t tokenId, LastRequest req) {
   while (q.size() > kKeptRequests) q.pop_front();
 }
 std::map<uint32_t, std::string> g_names;  // for state.pending.by, without a vault read per poll
+records::KnownTokens g_known;             // F10: unknown tokens are refused before any flash read
 
 bool sha256(std::string_view s, tokens::Digest& out) {
   size_t len = 0;
@@ -59,6 +60,13 @@ bool sha256(std::string_view s, tokens::Digest& out) {
          len == out.size();
 }
 
+// Caller holds g_mu.
+void indexLocked(const tokens::Store& s) {
+  g_names.clear();
+  for (const Token& t : s.all()) g_names[t.id] = t.name;
+  records::remember(s, g_known);
+}
+
 // Caller holds g_mu. A record this firmware cannot read is an error, never "no tokens".
 records::Status loadLocked(tokens::Store& out) {
   const records::Status st = records::load(out);
@@ -66,8 +74,7 @@ records::Status loadLocked(tokens::Store& out) {
     ESP_LOGE(TAG, "reading tokens: %s", records::code(st));
     return st;
   }
-  g_names.clear();
-  for (const Token& t : out.all()) g_names[t.id] = t.name;
+  indexLocked(out);
   return st;
 }
 
@@ -77,8 +84,7 @@ records::Status saveLocked(const tokens::Store& s) {
     ESP_LOGE(TAG, "saving tokens: %s", records::code(st));
     return st;
   }
-  g_names.clear();
-  for (const Token& t : s.all()) g_names[t.id] = t.name;
+  indexLocked(s);
   return st;
 }
 
@@ -555,10 +561,14 @@ std::optional<Token> authenticate(httpd_req_t* r, esp_err_t& err) {
   {
     std::lock_guard<std::mutex> lock(g_mu);
     tokens::Store s;
-    if (const records::Status st = loadLocked(s); st != records::Status::Ok) {
+    // A token this unlock has not seen stored is refused below without a flash read or GCM open.
+    const records::Status st = records::loadFor(d, s, g_known);
+    if (st != records::Status::Ok && st != records::Status::Absent) {
+      ESP_LOGE(TAG, "reading tokens: %s", records::code(st));
       err = sendRecordError(r, st);
       return std::nullopt;
     }
+    if (st == records::Status::Ok) indexLocked(s);
     if (const auto i = s.find(d)) {
       allowed = g_rate.allow(s.all()[*i].id, monoMs(), retry);
       if (allowed && s.touch(*i, unixSecondsOrZero())) saveLocked(s);

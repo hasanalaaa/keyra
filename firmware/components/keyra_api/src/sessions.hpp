@@ -60,6 +60,12 @@ class Sessions {
   // after the press was asked for. None otherwise; an approval for something
   // else stays for its own request.
   Redeem redeem(std::string_view token, int64_t nowMs, const Approval& want);
+  // The account version this session was last shown with its secrets (a
+  // redeemed RevealEntry, SPEC §12.5b): it knows that password, so it may
+  // replace it without another press. One per session: revealing another
+  // account replaces it; any change to the account (a new revision) ends it.
+  void noteRevealed(std::string_view token, uint32_t entry, uint32_t revision);
+  bool knows(std::string_view token, uint32_t entry, uint32_t revision);
   // Revoking a trusted browser ends the sessions it opened; returns their
   // tokens, so what they left waiting for the button can be withdrawn too.
   std::vector<std::string> endTrusted(uint32_t trustId);
@@ -82,6 +88,8 @@ class Sessions {
     uint32_t generation = 0;
     std::optional<Approval> approval;
     int64_t approvalUntil = 0;
+    bool revealed = false;  // noteRevealed: revealedEntry at revealedRevision
+    uint32_t revealedEntry = 0, revealedRevision = 0;
   };
   Slot* findLocked(std::string_view token);
   std::string randomHex();

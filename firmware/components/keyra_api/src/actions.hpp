@@ -45,7 +45,7 @@ enum class What { Username, Password, Both, Totp, Test, Text, Sequence, Probe };
 // TokenCreate: let this session create one access token (SPEC §17).
 // AgentSave: store the account an app token sent (owned by that token, SPEC §17).
 // TagCreate: let this session create one NFC tap tag (SPEC §18).
-enum class Op { Setup, Wifi, RestoreReplace, FactoryReset, HomeWifi, TrustBrowser, BlePair,
+enum class Op { Setup, Wifi, Restore, FactoryReset, HomeWifi, TrustBrowser, BlePair,
                 Reveal, Backup, Recovery, Unprotect, Update, DeleteEntry, DeletePasskey, PasskeysBackupOn,
                 TokenCreate, AgentSave, TagCreate };
 // NoUsb: output is USB-only and no computer is plugged in. NoHost: nothing

@@ -42,8 +42,18 @@ struct Match {
 Match matchApi(Method m, std::string_view path);
 // "%3A" → ':'. False on a malformed escape or a decoded NUL or '/'.
 bool percentDecode(std::string_view in, std::string& out);
-bool needsSession(Route r);
-bool needsCsrf(Method m, Route r);
+// `unlocked`: the vault is open. /api/factory-reset needs no session while it is
+// locked (a forgotten passphrase), but a session and its CSRF token once it is
+// open, so another client on the network cannot arm a wipe under the owner's
+// hands (SPEC §5).
+bool needsSession(Route r, bool unlocked);
+bool needsCsrf(Method m, Route r, bool unlocked);
+// Whether a session request counts as the user being there for auto-lock
+// (SPEC §5). Not what the web app also sends on its own: the account list it
+// refreshes when its tab comes back or after an action, the 2FA code it
+// renews every 30 s and the Bluetooth list it polls while pairing. GET
+// /api/state needs no session and never counts; neither do tokens or tags.
+bool countsAsActivity(Method m, Route r);
 // /api/agent/…: authorised by `Authorization: Bearer <token>`, never by a session.
 bool isAgent(Route r);
 // Whether a request's X-Keyra-Time may set the clock (SPEC §5): only from a

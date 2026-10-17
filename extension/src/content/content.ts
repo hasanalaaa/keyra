@@ -3,7 +3,7 @@
 // "Save to Keyra?" card after a form is sent. Everything lives in one closed shadow root.
 import type { Failure, Hello, Login, PageConfig, SaveCard, Status, TabMsg, What } from '../messages';
 import { ext } from '../ext';
-import { findForms, roleOf, snapshot, submitterOf, whatFor, type FieldRole, type LoginForm } from '../forms';
+import { findForms, roleOf, siteTitleFrom, snapshot, submitterOf, whatFor, type FieldRole, type LoginForm } from '../forms';
 import { hostMatches, isKeyraHost, normalizeHost } from '../host';
 import { t, uiDir, uiLang, type Key } from '../i18n';
 import { contour, h, icon, logo, monogram, type IconName } from '../ui/dom';
@@ -829,8 +829,7 @@ let offered = '';
 
 function siteTitle(): string {
   const meta = (sel: string) => document.querySelector<HTMLMetaElement>(sel)?.content?.trim();
-  const name = meta('meta[property="og:site_name"]') || meta('meta[name="application-name"]') || pageHost();
-  return Array.from(name).slice(0, 64).join('');
+  return siteTitleFrom(meta('meta[property="og:site_name"]') || meta('meta[name="application-name"]'), pageHost());
 }
 
 async function trigger(root: Element | null): Promise<void> {

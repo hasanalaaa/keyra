@@ -28,10 +28,10 @@ void apiRoutes() {
   CHECK(is(matchApi(Method::Post, "/api/type"), Route::Type));
   CHECK(is(matchApi(Method::Post, "/api/generate"), Route::Generate));
   CHECK(matchApi(Method::Get, "/api/generate").kind == Match::Kind::MethodNotAllowed);
-  CHECK(needsSession(Route::Generate) && needsCsrf(Method::Post, Route::Generate));
+  CHECK(needsSession(Route::Generate, true) && needsCsrf(Method::Post, Route::Generate, true));
   CHECK(is(matchApi(Method::Get, "/api/keyboard"), Route::Keyboard));
   CHECK(matchApi(Method::Put, "/api/keyboard").kind == Match::Kind::MethodNotAllowed);
-  CHECK(needsSession(Route::Keyboard));
+  CHECK(needsSession(Route::Keyboard, true));
   CHECK(is(matchApi(Method::Post, "/api/type/cancel"), Route::TypeCancel));
   CHECK(is(matchApi(Method::Get, "/api/settings"), Route::GetSettings));
   CHECK(is(matchApi(Method::Put, "/api/settings"), Route::PutSettings));
@@ -54,8 +54,8 @@ void apiRoutes() {
   CHECK(matchApi(Method::Get, "/api/fido/5").kind == K::MethodNotAllowed);
   CHECK(matchApi(Method::Delete, "/api/fido/0").kind == K::NotFound);
   CHECK(matchApi(Method::Delete, "/api/fido/4294967296").kind == K::NotFound);
-  CHECK(needsSession(Route::ListPasskeys) && needsSession(Route::DeletePasskey));
-  CHECK(needsCsrf(Method::Delete, Route::DeletePasskey));
+  CHECK(needsSession(Route::ListPasskeys, true) && needsSession(Route::DeletePasskey, true));
+  CHECK(needsCsrf(Method::Delete, Route::DeletePasskey, true));
 
   // X-Keyra-Time sets the clock only with a live session (setup and unlock
   // adopt it in their handlers, once the vault is empty or the passphrase right).
@@ -68,23 +68,23 @@ void apiRoutes() {
 
   CHECK(is(matchApi(Method::Get, "/api/health"), Route::Health));
   CHECK(matchApi(Method::Post, "/api/health").kind == K::MethodNotAllowed);
-  CHECK(needsSession(Route::Health));
+  CHECK(needsSession(Route::Health, true));
   CHECK(is(matchApi(Method::Post, "/api/health/rotate"), Route::HealthRotate));
   CHECK(is(matchApi(Method::Post, "/api/health/reveal"), Route::HealthReveal));
   CHECK(matchApi(Method::Get, "/api/health/reveal").kind == K::MethodNotAllowed);
-  CHECK(needsSession(Route::HealthReveal) && needsCsrf(Method::Post, Route::HealthReveal));
-  CHECK(needsCsrf(Method::Post, Route::HealthRotate));
+  CHECK(needsSession(Route::HealthReveal, true) && needsCsrf(Method::Post, Route::HealthReveal, true));
+  CHECK(needsCsrf(Method::Post, Route::HealthRotate, true));
   CHECK(is(matchApi(Method::Get, "/api/activity"), Route::Activity));
   CHECK(matchApi(Method::Delete, "/api/activity").kind == K::MethodNotAllowed);  // the log cannot be wiped
-  CHECK(needsSession(Route::Activity));
+  CHECK(needsSession(Route::Activity, true));
   CHECK(is(matchApi(Method::Post, "/api/update"), Route::Update));
   CHECK(matchApi(Method::Get, "/api/update").kind == K::MethodNotAllowed);
-  CHECK(needsSession(Route::Update) && needsCsrf(Method::Post, Route::Update));
+  CHECK(needsSession(Route::Update, true) && needsCsrf(Method::Post, Route::Update, true));
   CHECK(is(matchApi(Method::Post, "/api/update/check"), Route::UpdateCheck));
   CHECK(is(matchApi(Method::Post, "/api/update/download"), Route::UpdateDownload));
   CHECK(is(matchApi(Method::Post, "/api/update/apply"), Route::UpdateApply));
   CHECK(matchApi(Method::Get, "/api/update/apply").kind == K::MethodNotAllowed);
-  CHECK(needsCsrf(Method::Post, Route::UpdateApply) && needsSession(Route::UpdateDownload));
+  CHECK(needsCsrf(Method::Post, Route::UpdateApply, true) && needsSession(Route::UpdateDownload, true));
 
   CHECK(is(matchApi(Method::Get, "/api/ble"), Route::GetBle));
   CHECK(is(matchApi(Method::Post, "/api/ble/pair"), Route::BlePair));
@@ -125,10 +125,10 @@ void apiRoutes() {
   CHECK(is(matchApi(Method::Delete, "/api/recovery"), Route::DeleteRecovery));
   CHECK(matchApi(Method::Put, "/api/recovery").kind == K::MethodNotAllowed);
   CHECK(is(matchApi(Method::Post, "/api/unlock/recovery"), Route::UnlockRecovery));
-  CHECK(!needsSession(Route::UnlockRecovery) && !needsCsrf(Method::Post, Route::UnlockRecovery));
-  CHECK(needsSession(Route::RevealEntry) && needsCsrf(Method::Post, Route::RevealEntry));
-  CHECK(needsSession(Route::GetRecovery) && needsCsrf(Method::Post, Route::CreateRecovery));
-  CHECK(needsCsrf(Method::Delete, Route::DeleteRecovery));
+  CHECK(!needsSession(Route::UnlockRecovery, true) && !needsCsrf(Method::Post, Route::UnlockRecovery, true));
+  CHECK(needsSession(Route::RevealEntry, true) && needsCsrf(Method::Post, Route::RevealEntry, true));
+  CHECK(needsSession(Route::GetRecovery, true) && needsCsrf(Method::Post, Route::CreateRecovery, true));
+  CHECK(needsCsrf(Method::Delete, Route::DeleteRecovery, true));
 
   CHECK(matchApi(Method::Get, "/api/lock").kind == K::MethodNotAllowed);
   CHECK(matchApi(Method::Get, "/api/entries/import").kind == K::MethodNotAllowed);
@@ -145,28 +145,39 @@ void apiRoutes() {
 }
 
 void policy() {
-  CHECK(!needsSession(Route::State));
-  CHECK(!needsSession(Route::Setup));
-  CHECK(!needsSession(Route::Unlock));
-  CHECK(!needsSession(Route::FactoryReset));
-  CHECK(needsSession(Route::Lock));
-  CHECK(needsSession(Route::GetEntry));
-  CHECK(needsSession(Route::TypeCancel));
-  CHECK(!needsCsrf(Method::Get, Route::ListEntries));
-  CHECK(!needsCsrf(Method::Post, Route::Unlock));
-  CHECK(!needsCsrf(Method::Post, Route::Setup));
-  CHECK(!needsCsrf(Method::Post, Route::FactoryReset));
-  CHECK(needsCsrf(Method::Post, Route::Lock));
-  CHECK(needsCsrf(Method::Delete, Route::DeleteEntry));
-  CHECK(needsCsrf(Method::Put, Route::PutSettings));
-  CHECK(needsSession(Route::GetBle) && needsSession(Route::BlePair) && needsSession(Route::BleForget));
-  CHECK(needsCsrf(Method::Post, Route::BlePair));
-  CHECK(needsCsrf(Method::Delete, Route::BleForget));
-  CHECK(needsSession(Route::BleSetOs) && needsCsrf(Method::Put, Route::BleSetOs));
-  CHECK(needsSession(Route::WifiScan) && needsSession(Route::WifiHome));
-  CHECK(needsSession(Route::ListTrusted) && needsSession(Route::DeleteTrusted));
-  CHECK(needsCsrf(Method::Put, Route::WifiHome) && needsCsrf(Method::Delete, Route::DeleteTrusted));
-  CHECK(!needsCsrf(Method::Get, Route::WifiScan));
+  CHECK(!needsSession(Route::State, true));
+  CHECK(!needsSession(Route::Setup, true));
+  CHECK(!needsSession(Route::Unlock, true));
+  // F11: a forgotten passphrase (locked) needs no session; an open vault does, with CSRF.
+  CHECK(!needsSession(Route::FactoryReset, false) && !needsCsrf(Method::Post, Route::FactoryReset, false));
+  CHECK(needsSession(Route::FactoryReset, true) && needsCsrf(Method::Post, Route::FactoryReset, true));
+  CHECK(!needsSession(Route::Unlock, false) && needsSession(Route::Lock, false));
+  CHECK(needsSession(Route::Lock, true));
+  CHECK(needsSession(Route::GetEntry, true));
+  CHECK(needsSession(Route::TypeCancel, true));
+  CHECK(!needsCsrf(Method::Get, Route::ListEntries, true));
+  CHECK(!needsCsrf(Method::Post, Route::Unlock, true));
+  CHECK(!needsCsrf(Method::Post, Route::Setup, true));
+  CHECK(needsCsrf(Method::Post, Route::Lock, true));
+  CHECK(needsCsrf(Method::Delete, Route::DeleteEntry, true));
+  CHECK(needsCsrf(Method::Put, Route::PutSettings, true));
+  CHECK(needsSession(Route::GetBle, true) && needsSession(Route::BlePair, true) && needsSession(Route::BleForget, true));
+  CHECK(needsCsrf(Method::Post, Route::BlePair, true));
+  CHECK(needsCsrf(Method::Delete, Route::BleForget, true));
+  CHECK(needsSession(Route::BleSetOs, true) && needsCsrf(Method::Put, Route::BleSetOs, true));
+  CHECK(needsSession(Route::WifiScan, true) && needsSession(Route::WifiHome, true));
+  CHECK(needsSession(Route::ListTrusted, true) && needsSession(Route::DeleteTrusted, true));
+  CHECK(needsCsrf(Method::Put, Route::WifiHome, true) && needsCsrf(Method::Delete, Route::DeleteTrusted, true));
+  CHECK(!needsCsrf(Method::Get, Route::WifiScan, true));
+
+  // F8: what the web app sends on its own never keeps the vault open; the user's requests do.
+  CHECK(!countsAsActivity(Method::Get, Route::ListEntries));
+  CHECK(!countsAsActivity(Method::Get, Route::EntryTotp));
+  CHECK(!countsAsActivity(Method::Get, Route::GetBle));
+  CHECK(countsAsActivity(Method::Get, Route::GetEntry) && countsAsActivity(Method::Post, Route::RevealEntry));
+  CHECK(countsAsActivity(Method::Get, Route::GetSettings) && countsAsActivity(Method::Put, Route::PutSettings));
+  CHECK(countsAsActivity(Method::Post, Route::Type) && countsAsActivity(Method::Put, Route::UpdateEntry));
+  CHECK(countsAsActivity(Method::Post, Route::BlePair) && countsAsActivity(Method::Post, Route::CreateEntry));
 }
 
 // SPEC §17: tokens are managed by a session; /api/agent/… takes a bearer token only.
@@ -177,8 +188,8 @@ void tokenRoutes() {
   CHECK(matchApi(Method::Get, "/api/tokens/77").kind == K::MethodNotAllowed);
   CHECK(matchApi(Method::Delete, "/api/tokens/0").kind == K::NotFound);
   CHECK(matchApi(Method::Delete, "/api/tokens/x").kind == K::NotFound);
-  CHECK(needsSession(Route::ListTokens) && needsSession(Route::CreateToken) && needsSession(Route::DeleteToken));
-  CHECK(needsCsrf(Method::Post, Route::CreateToken) && needsCsrf(Method::Delete, Route::DeleteToken));
+  CHECK(needsSession(Route::ListTokens, true) && needsSession(Route::CreateToken, true) && needsSession(Route::DeleteToken, true));
+  CHECK(needsCsrf(Method::Post, Route::CreateToken, true) && needsCsrf(Method::Delete, Route::DeleteToken, true));
   CHECK(!isAgent(Route::CreateToken) && !isAgent(Route::Type));
 
   CHECK(is(matchApi(Method::Get, "/api/agent/entries"), Route::AgentEntries));
@@ -198,8 +209,8 @@ void tokenRoutes() {
   for (Route r : {Route::AgentEntries, Route::AgentType, Route::AgentStatus, Route::AgentCancel, Route::AgentSave,
                   Route::AgentGenerate, Route::AgentMatch, Route::AgentTargets, Route::AgentBlePair}) {
     CHECK(isAgent(r));
-    CHECK(!needsSession(r));
-    CHECK(!needsCsrf(Method::Post, r));
+    CHECK(!needsSession(r, true));
+    CHECK(!needsCsrf(Method::Post, r, true));
   }
 }
 
@@ -211,14 +222,14 @@ void tagRoutes() {
   CHECK(matchApi(Method::Put, "/api/tags").kind == K::MethodNotAllowed);
   CHECK(matchApi(Method::Get, "/api/tags/9").kind == K::MethodNotAllowed);
   CHECK(matchApi(Method::Delete, "/api/tags/0").kind == K::NotFound);
-  CHECK(needsSession(Route::ListTags) && needsSession(Route::CreateTag) && needsSession(Route::DeleteTag));
-  CHECK(needsCsrf(Method::Post, Route::CreateTag) && needsCsrf(Method::Delete, Route::DeleteTag));
+  CHECK(needsSession(Route::ListTags, true) && needsSession(Route::CreateTag, true) && needsSession(Route::DeleteTag, true));
+  CHECK(needsCsrf(Method::Post, Route::CreateTag, true) && needsCsrf(Method::Delete, Route::DeleteTag, true));
   CHECK(is(matchApi(Method::Post, "/api/tag/tap"), Route::TagTap));
   CHECK(is(matchApi(Method::Post, "/api/tag/status"), Route::TagStatus));
   CHECK(matchApi(Method::Get, "/api/tag/tap").kind == K::MethodNotAllowed);
   for (Route r : {Route::TagTap, Route::TagStatus}) {
     CHECK(isTagTap(r) && !isAgent(r));
-    CHECK(!needsSession(r) && !needsCsrf(Method::Post, r));
+    CHECK(!needsSession(r, true) && !needsCsrf(Method::Post, r, true));
   }
   CHECK(!isTagTap(Route::CreateTag) && !isTagTap(Route::Type));
   CHECK(isTapPage("/t/123/abc") && isTapPage("/t/123"));
@@ -302,20 +313,63 @@ void probes() {
 
 void clockAdoption() {
   const int64_t t = 1790000000000LL;  // 2026
-  CHECK(clock::shouldAdopt(0, t));
-  CHECK(!clock::shouldAdopt(t, t + clock::kMaxDriftMs));
-  CHECK(clock::shouldAdopt(t, t + clock::kMaxDriftMs + 1));
-  CHECK(clock::shouldAdopt(t, t - clock::kMaxDriftMs - 1));
-  CHECK(!clock::shouldAdopt(0, 1000));  // client clock obviously wrong
-  CHECK(!clock::shouldAdopt(0, clock::kValidBeforeMs));
+  const int64_t m = 5000;             // monotonic ms at the first request
+  {
+    clock::Trust c;  // trusted moments (setup, unlock) and a clock never set: as before
+    CHECK(c.adopt(0, m, t, false, false));                // nothing better known: anyone sets it
+    CHECK(!c.adopt(t, m, t + clock::kMaxDriftMs, false, true));
+    CHECK(c.adopt(t, m, t + clock::kMaxDriftMs + 1, false, true));
+    CHECK(c.adopt(t, m, t - clock::kMaxDriftMs - 1, false, true));
+    CHECK(c.adopt(t, m, t + 86400000, false, true));      // an unlock may move it any distance
+    CHECK(!c.adopt(0, m, 1000, false, true));             // client clock obviously wrong
+    CHECK(!c.adopt(0, m, clock::kValidBeforeMs, false, true));
+  }
   CHECK(clock::parse("1790000000000") == t);
   CHECK(!clock::parse("").has_value());
   CHECK(!clock::parse("-5").has_value());
   CHECK(!clock::parse("17900000000001234").has_value());
   CHECK(!clock::parse("12.5").has_value());
-  // Once SNTP has set the clock, the phone's clock is only a fallback.
-  CHECK(!clock::shouldAdopt(t, t + 60000, true));
-  CHECK(clock::shouldAdopt(0, t, true));  // synced flag without a valid clock: still adopt
+  {
+    // Once SNTP has set the clock, the phone's clock is only a fallback.
+    clock::Trust c;
+    CHECK(!c.adopt(t, m, t + 60000, true, true));
+    CHECK(c.adopt(0, m, t, true, false));  // synced flag without a valid clock: still adopt
+  }
+  {
+    // A session (F2): within kMaxSessionSkewMs of the trusted time, never further,
+    // and measured from the trusted time, so steps cannot walk the clock.
+    clock::Trust c;
+    CHECK(c.adopt(0, m, t, false, true));  // the unlock set it to t at monotonic m
+    const int64_t later = m + 60000;       // a minute on, the trusted time is t + 60 s
+    CHECK(c.adopt(t + 60000, later, t + 60000 + 4 * 60000, false, false));   // 4 min off: corrected
+    CHECK(!c.adopt(t + 300000, later, t + 60000 + 8 * 60000, false, false)); // 8 min off the trusted time
+    CHECK(!c.adopt(t + 300000, later, t + 60000 + clock::kMaxSessionSkewMs + 1, false, false));
+    CHECK(c.adopt(t + 300000, later, t + 60000, false, false));              // back to the trusted time
+    CHECK(!c.adopt(t + 60000, later, t + 60000 - clock::kMaxSessionSkewMs - 1, false, false));
+    // Two /totp calls 60 s apart in header time an hour ahead: neither moves the clock.
+    CHECK(!c.adopt(t + 60000, later, t + 3600000, false, false));
+    CHECK(!c.adopt(t + 60000, later, t + 3660000, false, false));
+    // Walking forward 4 minutes per request stops at the bound.
+    int64_t device = t + 60000;
+    int steps = 0;
+    for (int i = 1; i <= 100; ++i) {
+      const int64_t want = device + 4 * 60000;
+      if (c.adopt(device, later, want, false, false)) {
+        device = want;
+        ++steps;
+      }
+    }
+    CHECK(steps == 1 && device - (t + 60000) <= clock::kMaxSessionSkewMs);
+    // A new unlock is trusted again and becomes the reference.
+    CHECK(c.adopt(device, later, t + 7200000, false, true));
+    CHECK(c.adopt(t + 7200000, later, t + 7200000 + 60000, false, false));
+  }
+  {
+    // A clock that was valid before any request (SNTP, or kept across a reboot) is the reference.
+    clock::Trust c;
+    CHECK(!c.adopt(t, m, t + 10 * 60000, false, false));
+    CHECK(c.adopt(t, m, t + 60000, false, false));
+  }
 }
 
 void inputRules() {

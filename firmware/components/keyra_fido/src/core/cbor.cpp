@@ -120,14 +120,15 @@ class Reader {
         i_ += static_cast<size_t>(arg);
         return major == 2 || validUtf8(v.str);
       case 4:
-        if (arg > n_ - i_) return false;  // every item takes at least one byte
+        // Every item takes at least one byte; and the whole item's budget.
+        if (arg > n_ - i_ || !take(arg)) return false;
         v.type = Value::Type::Array;
         v.items.resize(static_cast<size_t>(arg));
         for (auto& x : v.items)
           if (!item(x, depth + 1)) return false;
         return true;
       case 5:
-        if (arg > (n_ - i_) / 2) return false;
+        if (arg > (n_ - i_) / 2 || !take(2 * arg)) return false;
         v.type = Value::Type::Map;
         v.entries.resize(static_cast<size_t>(arg));
         for (size_t k = 0; k < v.entries.size(); ++k) {
@@ -155,9 +156,17 @@ class Reader {
     return true;
   }
 
+  // Reserves `count` values of the kMaxValues budget (the root is one).
+  bool take(uint64_t count) {
+    if (count > budget_) return false;
+    budget_ -= static_cast<size_t>(count);
+    return true;
+  }
+
   const uint8_t* p_;
   size_t n_;
   size_t i_ = 0;
+  size_t budget_ = kMaxValues - 1;
 };
 
 }  // namespace

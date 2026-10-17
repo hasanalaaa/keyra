@@ -105,11 +105,47 @@ void malformed() {
   CHECK(dec("8181818181818100", v));  // depth 7 is fine
 }
 
+// F9: sizes a host declares are checked against the input and a value budget
+// before anything is allocated.
+void declaredSizes() {
+  Value v;
+  // 7000 one-byte items: well-formed, inside a CTAPHID message, but over budget.
+  std::vector<uint8_t> big = {0x99, 0x1B, 0x58};
+  big.resize(3 + 7000, 0x00);
+  CHECK(!decode(big.data(), big.size(), v));
+  // The same for a map of 3500 pairs.
+  std::vector<uint8_t> map = {0xB9, 0x0D, 0xAC};
+  for (int k = 0; k < 3500; ++k) map.push_back(0x00), map.push_back(0x00);
+  CHECK(!decode(map.data(), map.size(), v));
+  // Nested arrays each declaring nearly the whole input: refused at the first.
+  std::vector<uint8_t> nest;
+  for (int d = 0; d < 8; ++d) nest.insert(nest.end(), {0x99, 0x1D, 0x00});
+  nest.resize(7600, 0x00);
+  CHECK(!decode(nest.data(), nest.size(), v));
+  // Counts far beyond the input, in every argument width.
+  for (const char* h : {"9b00000000ffffffff", "9bffffffffffffffff", "bb7fffffffffffffff", "5bffffffffffffffff",
+                        "7a7fffffff", "b9ffff"})
+    CHECK(!dec(h, v));
+  // The budget is for the whole item, not per container.
+  std::vector<uint8_t> two = {0x82, 0x99, 0x01, 0x2C};  // [ [300 x 0], [300 x 0] ]
+  two.resize(two.size() + 300, 0x00);
+  two.insert(two.end(), {0x99, 0x01, 0x2C});
+  two.resize(two.size() + 300, 0x00);
+  CHECK(!decode(two.data(), two.size(), v));
+  // Within the budget it still decodes.
+  std::vector<uint8_t> ok = {0x99, 0x01, 0xFF};  // 511 items + the array itself
+  ok.resize(3 + 511, 0x00);
+  CHECK(decode(ok.data(), ok.size(), v) && v.items.size() == 511);
+  ok[1] = 0x02, ok[2] = 0x00, ok.push_back(0x00);  // 512 items: one more than the budget leaves
+  CHECK(!decode(ok.data(), ok.size(), v));
+}
+
 }  // namespace
 
 int main() {
   encodeVectors();
   decodeStructures();
   malformed();
+  declaredSizes();
   return KEYRA_TEST_RESULT();
 }

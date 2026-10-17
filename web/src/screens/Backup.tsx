@@ -3,7 +3,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { Button, Notice, SecretField, Segmented, StrengthMeter } from '../components/ui';
 import { Alert, Sheet } from '../components/Sheet';
 import { Ready } from '../components/Ready';
-import { ApiError, api, isAwaiting } from '../lib/api';
+import { ApiError, api } from '../lib/api';
 import { usePresence, usePressGate } from '../lib/actions';
 import { errorText, isLockedError } from '../lib/errors';
 import { accountCount, passkeyCount, t } from '../lib/i18n';
@@ -110,8 +110,8 @@ function RestorePart() {
   useEffect(() => {
     const k = presence.phase.kind;
     if (k === 'done') {
-      // Replace: the vault now is exactly the backup. Passkeys are the backup's only when it
-      // had them, so name how many Keyra holds rather than claim they were restored.
+      // Merge or replace: name how many accounts and passkeys Keyra holds now rather than
+      // claim what the backup brought in (the press commits it; SPEC §5).
       void Promise.all([loadEntries(), api.passkeys().catch(() => null)]).then(([, pk]) => {
         const c = accountCount(getState().entries?.length ?? 0);
         const n = pk?.passkeys.length ?? 0;
@@ -144,15 +144,7 @@ function RestorePart() {
     setFull(false);
     const sent = Date.now();
     try {
-      const r = await api.restore(pass, file.data, mode);
-      if (isAwaiting(r)) presence.watch(sent, r);
-      else {
-        await loadEntries();
-        const counts = { a: r.added, u: r.updated, p: passkeyCount(r.passkeys) };
-        toast(t(r.passkeys > 0 ? 'restoreResultPasskeys' : 'restoreResult', counts), 'ok');
-        setPass('');
-        setFile(null);
-      }
+      presence.watch(sent, await api.restore(pass, file.data, mode));
     } catch (e) {
       if (e instanceof ApiError && ['wrong', 'corrupt', 'invalid'].includes(e.code)) setError(t('restoreWrong'));
       else if (e instanceof ApiError && e.code === 'passkeys_full') setFull(true);
@@ -169,7 +161,7 @@ function RestorePart() {
         deadline={presence.phase.deadline}
         total={presence.phase.total}
         title={t('pressToConfirm')}
-        body={t('replaceHelper')}
+        body={t(mode === 'merge' ? 'mergeHelper' : 'replaceHelper')}
         onCancel={presence.abandon}
       />
     );

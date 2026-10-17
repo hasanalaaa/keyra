@@ -212,6 +212,8 @@ TEST(malformed_passkeys_sections_are_invalid) {
       section({}, {b64(std::vector<uint8_t>(kMaxPasskeyRecord + 1, 1))}),
       section({}, {}, "-1"),
       section({}, {}, "4294967296"),
+      section({}, {}, "4294967295"),  // F3: above kMaxBackupFidoCounter
+      section({}, {}, "2147483648"),
       "{\"entries\":[],\"passkeys\":{\"keys\":[],\"records\":[]}}",  // no counter
       "{\"entries\":[],\"passkeys\":[]}",
       "{\"passkeys\":{\"keys\":[],\"records\":[],\"counter\":0}}",     // no entries
@@ -230,6 +232,33 @@ TEST(malformed_passkeys_sections_are_invalid) {
   CHECK((*r)->checkBackup(kBackupPass, seal(r->crypto, "[{\"title\":\"old\"}]", 2), true) == Status::Ok);
   // Unknown members next to entries and passkeys are ignored (forward compatible).
   CHECK((*r)->checkBackup(kBackupPass, seal(r->crypto, "{\"entries\":[],\"later\":1}"), true) == Status::Ok);
+}
+
+// F3: a backup's counter is bounded. One near UINT32_MAX would leave the
+// restored counter nowhere to go, and every passkey would stop signing.
+TEST(counter_above_the_bound_is_refused_and_changes_nothing) {
+  for (const bool replace : {false, true}) {
+    for (const uint32_t bad : {0xFFFFFFFFu, kMaxBackupFidoCounter + 1}) {
+      const Source src = source("c", 1, bad);
+      auto dst = Rig::ready();
+      uint32_t before = 0, after = 0;
+      CHECK((*dst)->fidoCounterRead(before) == Status::Ok);
+      const auto files = dst->storage.files;
+      PasskeyRestore pk;
+      CHECK((*dst)->checkBackup(kBackupPass, src.backup, replace) == Status::Invalid);
+      CHECK((*dst)->importBackup(kBackupPass, src.backup, replace, nullptr, nullptr, &pk) == Status::Invalid);
+      CHECK((*dst)->fidoCounterRead(after) == Status::Ok && after == before);
+      CHECK(dst->storage.files == files);  // nothing written
+      CHECK(recordsOf(*dst->v).empty());
+    }
+    // The bound itself restores, and the counter can still go on from there.
+    const Source src = source("c", 1, kMaxBackupFidoCounter);
+    auto dst = Rig::ready();
+    CHECK((*dst)->importBackup(kBackupPass, src.backup, replace, nullptr, nullptr) == Status::Ok);
+    uint32_t reserved = 0;
+    CHECK((*dst)->fidoCounterRead(reserved) == Status::Ok);
+    CHECK(reserved == fidoCounterAfterRestore(kMaxBackupFidoCounter) && reserved < UINT32_MAX - (1u << 30));
+  }
 }
 
 // A passkey-carrying replace cut at every storage operation: after the reboot

@@ -146,6 +146,32 @@ let failures = 0;
 let failedBefore = 0; // wrong guesses before the latest successful unlock (Vault::failedBeforeUnlock)
 let lockedUntil = 0;
 let timeValid = false;
+// SPEC §5, clock.cpp Trust: the device clock as an offset from this machine's. Setup, unlock, SNTP and
+// the first setting are trusted; a session request may then move it only within SESSION_SKEW_MS of
+// the trusted time (run forward), so it cannot walk the clock to future 2FA codes (F2).
+const DRIFT_MS = 5000;
+const SESSION_SKEW_MS = 5 * 60000;
+let skew = 0; // device clock − Date.now()
+let trustedSkew = null; // the trusted time − Date.now()
+const deviceNow = () => Date.now() + skew;
+function adoptClock(req, trusted) {
+  const h = String(req.headers['x-keyra-time'] ?? '');
+  const t = Number(h);
+  if (homeLink.connected && timeValid) {
+    trustedSkew = skew; // SNTP keeps it; no client is trusted over it
+    return;
+  }
+  if (!/^\d{1,15}$/.test(h) || t < 1704067200000 || t >= 4102444800000) return;
+  if (!timeValid || trusted) {
+    const adopt = !timeValid || Math.abs(deviceNow() - t) > DRIFT_MS;
+    trustedSkew = t - Date.now();
+    if (adopt) skew = trustedSkew;
+    timeValid = true;
+    return;
+  }
+  trustedSkew ??= skew;
+  if (Math.abs(deviceNow() - t) > DRIFT_MS && Math.abs(Date.now() + trustedSkew - t) <= SESSION_SKEW_MS) skew = t - Date.now();
+}
 // SPEC §5: MOCK_NVS_RESET=no_free_pages|new_version plays a boot that had to erase NVS: the vault
 // assumes 14 failed unlocks (the longest delay; MOCK_NVS_DELAY_MS shortens it for e2e), and
 // state carries nvsReset until an unlock logs it.
@@ -479,7 +505,7 @@ function base32(s) {
   return out.length ? Buffer.from(out) : null;
 }
 
-function totpCode(secretOrUri, nowMs = Date.now()) {
+function totpCode(secretOrUri, nowMs = deviceNow()) {
   let secret = secretOrUri;
   let digits = 6;
   let period = 30;
@@ -511,6 +537,7 @@ function totpCode(secretOrUri, nowMs = Date.now()) {
 const BACKUP_ITER = 20000;
 const MAX_PASSKEYS = 50;
 const MAX_FIDO_KEYS = 4;
+const MAX_BACKUP_COUNTER = 0x7fffffff; // vault::kMaxBackupFidoCounter (F3)
 
 function exportBackup(pass, withPasskeys) {
   const salt = randomBytes(16);
@@ -539,7 +566,7 @@ function readPasskeys(pk) {
   if (!pk || typeof pk !== 'object' || Array.isArray(pk)) return 'invalid';
   const { keys, records, counter } = pk;
   if (!Array.isArray(keys) || keys.length > MAX_FIDO_KEYS || !Array.isArray(records) || records.length > MAX_PASSKEYS) return 'invalid';
-  if (!Number.isInteger(counter) || counter < 0 || counter > 0xffffffff) return 'invalid';
+  if (!Number.isInteger(counter) || counter < 0 || counter > MAX_BACKUP_COUNTER) return 'invalid';
   if (keys.some((k) => typeof k !== 'string' || Buffer.from(k, 'base64').length !== 32)) return 'invalid';
   const out = [];
   for (const r of records) {
@@ -830,7 +857,7 @@ function generate(b) {
 
 // ---------- entries ----------
 
-const nowSec = () => Math.floor(Date.now() / 1000);
+const nowSec = () => Math.floor(deviceNow() / 1000);
 const dedupeKey = (e) => `${e.title}\u001f${e.username}\u001f${e.url}`;
 
 function freshId(map = vault.entries) {
@@ -1335,6 +1362,8 @@ function applyHome() {
     const net = NETWORKS.find((n) => n.ssid === h.ssid);
     Object.assign(homeLink, { connected: true, ip: '192.168.1.42', rssi: net?.rssi ?? -60 });
     timeValid = true; // SNTP
+    skew = 0;
+    trustedSkew = 0;
     console.log(`[mock] joined ${h.ssid} as 192.168.1.42`);
   }, 2000);
 }
@@ -1828,11 +1857,20 @@ async function api(req, res, path) {
   const sess = token ? sessions.get(token) : undefined;
   if (sess) sess.lastUsed = Date.now();
   const session = !!sess && unlocked;
+  // routes.cpp needsSession: factory-reset needs none while locked (a forgotten passphrase), but a
+  // session and its CSRF token once the vault is open (F11).
+  if (m.route === 'factoryReset' && unlocked) {
+    if (!session) fail(401, 'session_required', 'Keyra is unlocked: erase it from a signed-in browser, or lock Keyra first');
+    if (!safeEqual(req.headers['x-keyra-csrf'], sess.csrf)) fail(403, 'csrf', 'Missing or invalid CSRF token');
+  }
   if (!OPEN.has(m.route) && !bearer) {
     if (!session) fail(401, 'locked', 'Vault is locked');
     if (method !== 'GET' && !safeEqual(req.headers['x-keyra-csrf'], sess.csrf)) fail(403, 'csrf', 'Missing or invalid CSRF token');
-    if (m.route !== 'totp' && m.route !== 'ble') lastActivity = Date.now(); // polls are not the user (handleApi)
+    // routes.cpp countsAsActivity: what the app sends on its own is not the user (F8).
+    if (!['list', 'totp', 'ble'].includes(m.route)) lastActivity = Date.now();
   }
+  // routes.cpp adoptsClientClock: a live session, never a token or a tag.
+  if (session && !bearer && m.route !== 'tagTap' && m.route !== 'tagStatus') adoptClock(req, false);
 
   let b = {};
   // Cancels take an optional body (a requestId, SPEC §12.6a); older clients send none.
@@ -1905,6 +1943,7 @@ async function api(req, res, path) {
 
     case 'setup': {
       if (vault) fail(409, 'already_initialized', 'Keyra is already set up');
+      adoptClock(req, true); // an empty Keyra: nothing a wrong clock could harm yet
       const passphrase = str(b, 'passphrase');
       const wifiPassword = str(b, 'wifiPassword');
       if (b.deviceName !== undefined && !validName(b.deviceName)) bad('deviceName must be 1-32 bytes without control characters');
@@ -1938,6 +1977,7 @@ async function api(req, res, path) {
       const known = knownBrowser(req);
       // SPEC §8.2: right passphrase, unknown browser on the home network → the button first.
       if (via === 'home' && !known) return trustRequest(res, req);
+      adoptClock(req, true); // the right passphrase
       if (known) known.lastSeen = nowSec();
       return issueSession(res, req, known);
     }
@@ -1958,6 +1998,7 @@ async function api(req, res, path) {
       const known = knownBrowser(req);
       if (via === 'home' && !known) return trustRequest(res, req);
       vault.passphrase = next;
+      adoptClock(req, true);
       console.log('[mock] unlocked with the recovery key; passphrase replaced');
       return issueSession(res, req, known, 1);
     }
@@ -1997,6 +2038,7 @@ async function api(req, res, path) {
         const got = redeem(sess, want);
         if (got === 'changed') fail(409, 'entry_changed', 'The account changed after the press was asked for');
         if (got === 'none') return requestPress(res, 'reveal', token, want);
+        sess.revealed = e; // Sessions::noteRevealed: this version of this account
       }
       logEvent('revealed', { id: e.id, title: e.title });
       return send(res, 200, entryView(e, true));
@@ -2020,6 +2062,14 @@ async function api(req, res, path) {
       const e = readEntry(b, false, old);
       if (typeof e === 'string') bad(e);
       if (!validEntry(e)) bad('Invalid data');
+      // updateEntry (F1): with protectReveal a new password needs what a reveal needs, whatever its
+      // value — unless this session was shown this version of the account.
+      if ('password' in b && !unprotected() && sess.revealed !== old) {
+        const want = { purpose: 'reveal_entry', resource: old.id, entry: old };
+        const got = redeem(sess, want);
+        if (got === 'changed') fail(409, 'entry_changed', 'The account changed after the press was asked for');
+        if (got === 'none') return requestPress(res, 'reveal', token, want);
+      }
       e.updated = nowSec();
       // Like Vault::put: a changed password moves the old one to the front of the history.
       e.history = old.password && e.password !== old.password ? [{ password: old.password, changedAt: e.updated }, ...old.history].slice(0, MAX_HISTORY) : old.history;
@@ -2507,7 +2557,7 @@ async function api(req, res, path) {
       }
       if (b.wifiPassword !== undefined) {
         if (!validWifi(b.wifiPassword)) bad('wifiPassword must be 8-63 printable ASCII characters and not the default');
-        if (b.wifiPassword !== settings.wifiPassword) pw = b.wifiPassword;
+        pw = b.wifiPassword; // the same one arms the press too: a 200 would confirm a guess (F13)
       }
       settings = next;
       if (unprotect && !(ssid || pw)) {
@@ -2579,38 +2629,26 @@ async function api(req, res, path) {
       const mode = str(b, 'mode');
       if (mode !== 'merge' && mode !== 'replace') bad('mode must be "merge" or "replace"');
       if (!b.backup || typeof b.backup !== 'object' || Array.isArray(b.backup)) bad('"backup" (object) is required');
-      if (mode === 'replace') {
-        // postRestore: a wrong passphrase or a bad file is reported now (vault::checkBackup), not after the press.
-        await sleep(KDF_MS);
-        const checked = openBackup(pass, b.backup);
-        if (checked === 'wrong') fail(401, 'wrong', 'Wrong passphrase');
-        if (checked === 'invalid') bad('Invalid data');
-        return awaiting(
-          res,
-          awaitPresence('restore', () => {
-            const file = openBackup(pass, b.backup);
-            if (typeof file === 'string') return false;
-            const pk = restorePasskeys(file.passkeys, true);
-            const r = importBackup(file.entries, true);
-            if (typeof r === 'string') return false;
-            commitPasskeys(pk);
-            logEvent('restore', { detail: 1, n: r.added });
-            return true;
-          }),
-        );
-      }
+      // postRestore (F3): merge and replace both wait for the press. A wrong passphrase or a bad
+      // file (and, vault::checkPreparedBackup, passkeys that do not fit) is reported now.
+      const replace = mode === 'replace';
       await sleep(KDF_MS);
-      const file = openBackup(pass, b.backup);
-      if (file === 'wrong') fail(401, 'wrong', 'Wrong passphrase');
-      if (file === 'invalid') bad('Invalid data');
-      // Refused before anything changes.
-      const pk = restorePasskeys(file.passkeys, false);
-      if (pk === 'passkeys_full') fail(409, 'passkeys_full', 'Keyra holds at most 50 passkeys and 4 wrap keys');
-      const r = importBackup(file.entries, false);
-      if (r === 'full') fail(507, 'full', 'Vault is full');
-      commitPasskeys(pk);
-      logEvent('restore', { n: r.added + r.updated });
-      return send(res, 200, { ...r, passkeys: pk.added });
+      const checked = openBackup(pass, b.backup);
+      if (checked === 'wrong') fail(401, 'wrong', 'Wrong passphrase');
+      if (checked === 'invalid') bad('Invalid data');
+      if (restorePasskeys(checked.passkeys, replace) === 'passkeys_full') fail(409, 'passkeys_full', 'Keyra holds at most 50 passkeys and 4 wrap keys');
+      const exp = awaitPresence('restore', () => {
+        const file = openBackup(pass, b.backup);
+        if (typeof file === 'string') return false;
+        const pk = restorePasskeys(file.passkeys, replace);
+        if (pk === 'passkeys_full') return false;
+        const r = importBackup(file.entries, replace);
+        if (typeof r === 'string') return false;
+        commitPasskeys(pk);
+        logEvent('restore', replace ? { detail: 1, n: r.added } : { n: r.added + r.updated });
+        return true;
+      });
+      return send(res, 202, { awaiting: 'button', op: 'restore', expiresIn: exp, cancel: machine.slot?.cancel ?? '', requestId: machine.slot?.requestId ?? '' });
     }
 
     case 'wifiScan':
@@ -2957,8 +2995,6 @@ async function mockControl(req, res, path) {
 
 const server = createServer(async (req, res) => {
   const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-  const t = Number(req.headers['x-keyra-time']);
-  if (Number.isFinite(t) && t > 1.6e12) timeValid = true; // the device adopts the client clock
   try {
     if (path.startsWith('/api/')) await api(req, res, path);
     else if (path.startsWith('/__mock/')) await mockControl(req, res, path);

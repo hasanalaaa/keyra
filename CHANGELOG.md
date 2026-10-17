@@ -18,9 +18,59 @@ All notable changes to Keyra are documented here. The format follows
   is in docs/HARDWARE.md. CI builds every profile. Releases add `keyra-firmware-<id>.bin` for each board other
   than the default and `boards.json`; the default board keeps
   `keyra-firmware.bin`, so existing devices update exactly as before, and
-  each board's updates fetch that board's image. Only the default build has
-  been tested on hardware.
+  each board's updates fetch that board's image. Only the default image has
+  run on hardware, on a YD-ESP32-S3 (everything but its LED, which is on
+  GPIO48: devices like that one move to `keyra-firmware-yd-esp32-s3.bin` with
+  Device → Firmware update → Install from a file).
 - `GET /api/state` reports the board id as `device.board`.
+
+### Changed
+
+- **Merge restores wait for the button too**, like replace (`POST /api/restore`
+  answers 202 for both). The app shows the press screen and then how many
+  accounts and passkeys Keyra holds; the old "added/updated" counts are in the
+  activity log.
+- **Saving a new password asks for a press** when this browser was not shown
+  the old one (the editor reveals it first, so editing stays one press; the
+  Generate sheet's "new password for an account" now asks).
+
+### Security
+
+Fixes from the internal review of October 2026
+(docs/research/SECURITY-REVIEW-2026-10.md):
+
+- With "Protect reveal" on, `PUT /api/entries/{id}` with a `password` needs the
+  reveal press for that account and version, or a session that was shown it.
+  Before, a stolen session could set a guessed password and learn from the
+  password history (or "change every password") whether it was right (F1).
+- A session request can move Keyra's clock at most 5 minutes from the time
+  the last unlock, setup or SNTP sync gave, measured from that time, so it can
+  no longer step the clock to collect future 2FA codes from `/totp` or shift
+  activity times (F2).
+- Merge restores need the button (F3); a backup whose passkey counter is above
+  2^31 − 1 is refused, so a crafted file can no longer stop every passkey from
+  signing (F3).
+- The extension cleans the site name it proposes as an account title (control
+  and format characters, line breaks, length), and `keyra_list_logins` in
+  keyra-mcp returns titles as quoted JSON under a note that they are untrusted
+  data (F6).
+- Requests the web app sends on its own (the account list refresh, the 2FA
+  code, the Bluetooth list) no longer keep the vault from auto-locking (F8).
+- The FIDO CBOR decoder refuses requests with more than 512 values before
+  allocating for them; a crafted request could exhaust RAM on boards without
+  PSRAM (F9).
+- Unknown access tokens and NFC tags are refused before any flash read or
+  decryption once the record was read in this unlock (F10).
+- `POST /api/factory-reset` needs a session and its CSRF token while the vault
+  is unlocked; it stays open while locked, for a forgotten passphrase (F11).
+- `PUT /api/settings` with the current Wi-Fi password arms the press like any
+  other value instead of answering 200 at once (F13).
+- SECURITY.md and docs/FIDO.md list the limits the review found and that stay
+  open: plain HTTP and spoofable `keyra.local` for the extension and app (F4),
+  the public factory Wi-Fi password during setup (F5), `setPIN` without a press
+  (F7), PBKDF2 backups (F12), what `/api/state` shows (F14), no rollback
+  protection on sealed records (F15), the U2F press latch (F16), the developer
+  build default (F17) and the single release signing key (F18).
 
 ## [0.4.4] - 2026-10-13
 

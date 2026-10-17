@@ -164,7 +164,7 @@ void lockDropsSessionItemsOnly() {
   CHECK(!m.pending().has_value());
   CHECK(m.last()->code == Code::Cancelled);
 
-  m.awaitPresence(Op::RestoreReplace, [] { return true; }, "s");
+  m.awaitPresence(Op::Restore, [] { return true; }, "s");
   m.dropSessionItems();
   CHECK(!m.presence().has_value());
 
@@ -212,10 +212,10 @@ void presenceOutcomesAreReported() {
   g_now += 250;
   CHECK_EQ(m.opResult()->agoMs, 250);
 
-  m.awaitPresence(Op::RestoreReplace, [] { return true; }, "s");
+  m.awaitPresence(Op::Restore, [] { return true; }, "s");
   g_now += kExpiryMs;
   r = m.opResult();
-  CHECK(r && r->op == Op::RestoreReplace && r->code == OpCode::Expired && r->agoMs == 0);
+  CHECK(r && r->op == Op::Restore && r->code == OpCode::Expired && r->agoMs == 0);
 
   m.awaitPresence(Op::FactoryReset, [] { return true; }, "s");
   m.onButton(Button::Long, true, g_now);
@@ -648,7 +648,7 @@ void pressIsBoundToItsRequester() {
   int mine = 0, theirs = 0;
   const auto armed = m.awaitPresence(Op::Reveal, [&] { ++mine; return true; }, "alice");
   CHECK(armed && armed->cancel == "tok1" && armed->expiresIn == kExpiryMs);
-  CHECK(!m.awaitPresence(Op::RestoreReplace, [&] { ++theirs; return true; }, "mallory"));
+  CHECK(!m.awaitPresence(Op::Restore, [&] { ++theirs; return true; }, "mallory"));
   CHECK(!m.arm(req(1), "mallory"));  // nor with a type action
   CHECK(!m.tryAwaitPresence(Op::FactoryReset, [&] { ++theirs; return true; }));
   CHECK(m.presence() && m.presence()->op == Op::Reveal);

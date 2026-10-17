@@ -117,9 +117,11 @@ off needs a button press, because it changes who can reach the device.
   tag. NTP is
   unauthenticated, so a network attacker could shift the clock and with it the
   2FA codes Keyra shows or types.
-- **Denial of service from the home network.** Any device there can request a
-  factory reset, which waits for a button press that you can refuse with a long
-  press.
+- **Denial of service from the home network.** While Keyra is locked, any
+  device there can request a factory reset (it must work for a forgotten
+  passphrase), which waits for a button press that you can refuse with a long
+  press. While it is unlocked, only a signed-in browser can (SPEC §5), so a
+  stranger cannot arm a wipe right after your own press.
 
 ### Forgotten passphrase and the recovery key
 
@@ -208,7 +210,7 @@ Nothing is typed without a button press, and the press must happen within 60
 seconds of the request. Setup, Wi-Fi credential changes, joining, changing or
 leaving the home network, trusting a browser on the home network, opening the
 Bluetooth pairing window, creating an access token or an NFC tag, saving an account an app sent,
-a replacing restore, installing a firmware update, factory reset and every
+every restore (merge or replace), installing a firmware update, factory reset and every
 passkey or security-key registration and sign-in also need a button press. The
 button is GPIO0 (the BOOT button), and the firmware never restarts while it is
 held low, to avoid latching ROM download mode.
@@ -227,12 +229,20 @@ is used up by that one answer). A press of its own is needed for:
 - **seeing which accounts share a password or have a weak one** in Password
   health (one answer per press; otherwise a stolen session could save a
   guess and ask whether it matches another account's password),
+- **setting a new password on an account** unless this session was shown its
+  current one (the editor reveals it first, so editing stays one press). The
+  vault keeps the old password in the history only when it differs, so an
+  unpressed change would tell a stolen session whether a guess was right
+  (SPEC §5, §9.3). Every other write that can change a password needs a press
+  too: restores, and saves from the extension or an app,
 - **turning `protectReveal` off**, and **turning "Passkeys in backups" on**.
 
 Typing itself needs no extra step: the press that types is already the
 confirmation. The one deliberate exception is the current 2FA code, which needs
 a session but no press (a code lives 30 s and is useless without the password;
-SPEC §12.5a). Every pending press belongs to the session that armed it, so a
+SPEC §12.5a). A session cannot move Keyra's clock more than 5 minutes from the
+time the last unlock, setup or SNTP sync gave it, so it cannot collect the codes
+of later hours (SPEC §5 Clock). Every pending press belongs to the session that armed it, so a
 second browser or a stolen session cannot swap what you are about to approve
 (409 `busy`); this holds for every part of an auto-type sequence, not only the
 first. A type action is bound to the version of the account it was armed for:
@@ -403,10 +413,21 @@ and cannot do:
   extension keeps it in its own extension storage. A stored token list this
   firmware cannot read (a newer format after a rollback, or damage) is
   reported, never replaced by a new empty one; the same holds for tags.
-- **Plain HTTP.** On the home network a token can be sniffed. The thief gets
-  the same arm-only power — and the owner's press is still required, the
-  phone shows which token asked, and the activity log records it. Revoke a
-  token you doubt; give each one only the accounts it needs.
+- **Plain HTTP and a spoofable name.** The extension and the Android app talk
+  to `http://keyra.local` (or a private IP) without TLS. mDNS has no
+  authentication: any host on the same network can answer for `keyra.local`,
+  with no ARP-level interception needed, and the client cannot tell. On a
+  network you do not control (or one with a hostile device on it), that host
+  receives in clear the bearer token on every call, the host names of pages
+  you visit, the **new password** of a sign-up or change-password form when you
+  tap Save (`POST /api/agent/save`, sent before any press), and every password
+  Keyra generates for a form (`/api/agent/generate`). With a sniffed or stolen
+  token the thief gets the same arm-only power — the owner's press is still
+  required, the phone shows which token asked, and the activity log records
+  it. Use the extension and the app only on your own network or Keyra's own
+  Wi-Fi; revoke a token you doubt; give each one only the accounts it needs.
+  Authenticating the device and encrypting these fields with a key from
+  pairing is planned, not built.
 - **Approval hijack ("Loopjacking").** Someone who holds a token could arm a
   login right before the owner expects one. One item waits at a time and
   nobody can replace another's (409 `busy`), the phone names the account and
@@ -441,6 +462,80 @@ design and threat model in [docs/research/NFC-TAGS.md](docs/research/NFC-TAGS.md
   none and withdraws anything it armed. Taps are rate limited (10 per 10 s per
   tag, counted before the check, so wrong and replayed taps count too, plus
   one shared budget for unknown tags and wrong codes) and logged.
+
+## Known limits (internal review, October 2026)
+
+An internal review ([docs/research/SECURITY-REVIEW-2026-10.md](docs/research/SECURITY-REVIEW-2026-10.md),
+not an independent audit) found these; they are accepted for now and listed
+so you can decide for yourself.
+
+- **The factory Wi-Fi password is public during setup.** Until setup finishes
+  the access point uses the published `keyra1234` (WPA2-PSK, no PMF). Anyone in
+  range who captures your phone's handshake can read the setup traffic,
+  including the master passphrase and the new Wi-Fi password you choose; a
+  rogue access point with the same name and password can serve its own setup
+  page; and anyone with the password can arm `POST /api/setup` first (your own
+  setup then answers `busy`, and if you press the button for their request the
+  vault is created with their passphrase). Set Keyra up where nobody else is in
+  Wi-Fi range, press the button only for the setup you just sent, and if the
+  vault does not open with your passphrase afterwards, erase it and start
+  again. A per-device setup secret is planned.
+- **The bearer token, saved and generated passwords go over plain HTTP to a
+  name anyone on the LAN can claim.** See *Plain HTTP and a spoofable name*
+  under access tokens above.
+- **A stolen session can still keep the vault open.** Auto-lock counts what a
+  person does; requests the web app sends on its own (the account list
+  refresh, the 2FA code, the Bluetooth list) no longer count (SPEC §5), so a
+  browser tab left open lets the vault lock. But a thief who holds your
+  session can send the same requests a person would, and no request can prove
+  a person sent it. Unplugging USB, a long press, or locking from the app ends
+  every session.
+- **The security key PIN can be set or burned without a press** (FIDO.md,
+  ClientPIN). Software with raw HID access on the computer, while Keyra is
+  unlocked and has no PIN, can set a PIN you do not know, or use up the 8 PIN
+  retries; only an `authenticatorReset` then clears it, and that deletes every
+  passkey. CTAP 2.0 allows `setPIN` without user presence; requiring a press is
+  planned.
+- **A backup file is only as strong as its passphrase.** The backup key comes
+  from PBKDF2-HMAC-SHA256 at the device-calibrated count (at least 60 000
+  iterations, about 1.2 s on Keyra), not a memory-hard KDF. A file that leaves
+  the device (phone, cloud, mail) can be attacked offline on GPUs. Use a long,
+  unique backup passphrase (the minimum is 12 characters; four or more random
+  words are better) and keep the file where you keep other secrets.
+- **`/api/state` answers anyone who can reach Keyra.** It shows the home
+  Wi-Fi name, Keyra's IP and signal strength, and the name of the operation
+  waiting for the button (for example `token_create` or `factory_reset`), but
+  never an account title or a secret.
+- **Sealed records have no rollback protection.** `tokens.bin`, `tags.bin`
+  and the counter records are bound to their path, not to a version. Someone
+  who can write the flash can put back an older copy: a revoked token works
+  again, or an NFC tag's replay counter goes back. This needs physical access
+  (flash encryption off makes it easy); with physical access the passphrase is
+  attacked offline anyway.
+- **A U2F press is not bound to one site.** A press latched for a legacy U2F
+  request is handed to the next U2F poll from any application for 3 s. CTAP2
+  (passkeys, all current browsers) is not affected: one request at a time,
+  never handed on (FIDO.md, threat model).
+- **A plain `idf.py build` is a developer build.** Its default
+  (`KEYRA_DEV_CDC=y`) adds a USB serial port through which any process on the
+  computer can restart Keyra into ROM download mode. Released images are built
+  with `sdkconfig.release`, which turns it off; flash only released images, or
+  build with `-D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.release"`.
+- **One signing key is the update trust anchor of every Keyra.** Releases are
+  signed by one RSA-3072 key (`tools/sign_release.sh`), and a Keyra accepts an
+  update signed with the key its running firmware was signed with. Whoever
+  holds it can make firmware every Keyra installs (still only after a press on
+  each device); losing it means updates by USB only. Key rotation is not
+  implemented. The maintainer keeps the key off the repository and offline:
+  on an encrypted volume that is mounted only to sign a release, with at least
+  two encrypted copies on separate offline media (for example two USB drives in
+  different places) and the passphrase stored apart from them; the key is never
+  copied to a CI runner or a cloud service. A leaked key would be announced in
+  a security advisory.
+- **Denial of service** stays out of scope: one HTTP server task serves every
+  client, so a flood from the network slows Keyra down. Unknown tokens and tags
+  are now refused before any flash read or decryption (SPEC §17, §18), which
+  removes the cheapest such flood.
 
 ## Optional hardening (not enabled by default)
 

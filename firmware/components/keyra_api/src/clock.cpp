@@ -1,6 +1,11 @@
 #include "clock.hpp"
 
 namespace keyra::api::clock {
+namespace {
+
+int64_t distance(int64_t a, int64_t b) { return a > b ? a - b : b - a; }
+
+}  // namespace
 
 bool valid(int64_t unixMs) { return unixMs >= kValidAfterMs && unixMs < kValidBeforeMs; }
 
@@ -14,11 +19,23 @@ std::optional<int64_t> parse(std::string_view h) {
   return v;
 }
 
-bool shouldAdopt(int64_t deviceMs, int64_t clientMs, bool networkSynced) {
-  if (!valid(clientMs) || (networkSynced && valid(deviceMs))) return false;
-  if (!valid(deviceMs)) return true;
-  const int64_t drift = deviceMs > clientMs ? deviceMs - clientMs : clientMs - deviceMs;
-  return drift > kMaxDriftMs;
+bool Trust::adopt(int64_t deviceMs, int64_t monoMs, int64_t clientMs, bool networkSynced, bool trusted) {
+  if (networkSynced && valid(deviceMs)) {
+    set_ = true;
+    offsetMs_ = deviceMs - monoMs;
+    return false;
+  }
+  if (!valid(clientMs)) return false;
+  if (!valid(deviceMs) || trusted) {
+    set_ = true;
+    offsetMs_ = clientMs - monoMs;
+    return !valid(deviceMs) || distance(deviceMs, clientMs) > kMaxDriftMs;
+  }
+  if (!set_) {  // set by SNTP before any request saw it synced
+    set_ = true;
+    offsetMs_ = deviceMs - monoMs;
+  }
+  return distance(deviceMs, clientMs) > kMaxDriftMs && distance(offsetMs_ + monoMs, clientMs) <= kMaxSessionSkewMs;
 }
 
 }  // namespace keyra::api::clock

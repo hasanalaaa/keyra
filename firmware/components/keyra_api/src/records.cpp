@@ -50,12 +50,39 @@ Status save(const tokens::Store& s) { return saveWith(vault::tokensRead, vault::
 Status load(tags::Store& out) { return loadWith(vault::tagsRead, out); }
 Status save(const tags::Store& s) { return saveWith(vault::tagsRead, vault::tagsWrite, s); }
 
+void remember(const tokens::Store& s, KnownTokens& known) {
+  std::vector<tokens::Digest> keys;
+  for (const tokens::Token& t : s.all()) keys.push_back(t.hash);
+  known.set(std::move(keys), vault::unlockGeneration());
+}
+
+void remember(const tags::Store& s, KnownTags& known) {
+  std::vector<std::pair<uint32_t, tags::Kind>> keys;
+  for (const tags::Tag& t : s.all()) keys.emplace_back(t.id, t.kind);
+  known.set(std::move(keys), vault::unlockGeneration());
+}
+
+Status loadFor(const tokens::Digest& key, tokens::Store& out, KnownTokens& known) {
+  if (known.absent(key, vault::unlockGeneration())) return Status::Absent;
+  const Status st = load(out);
+  if (st == Status::Ok) remember(out, known);
+  return st;
+}
+
+Status loadFor(uint32_t id, tags::Kind kind, tags::Store& out, KnownTags& known) {
+  if (known.absent({id, kind}, vault::unlockGeneration())) return Status::Absent;
+  const Status st = load(out);
+  if (st == Status::Ok) remember(out, known);
+  return st;
+}
+
 const char* code(Status s) {
   switch (s) {
     case Status::Ok: return "ok";
     case Status::Locked: return "locked";
     case Status::Unsupported: return "unsupported_format";
     case Status::Corrupt: return "corrupt";
+    case Status::Absent:
     case Status::Storage: break;
   }
   return "storage";

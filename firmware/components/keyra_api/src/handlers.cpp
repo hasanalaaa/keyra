@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <ctime>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <vector>
@@ -70,10 +71,16 @@ struct Ctx {
 // ---------- small helpers ----------
 
 // X-Keyra-Time (SPEC §5): the device has no RTC. Callers decide whether this
-// request may set it (adoptsClientClock, or a right passphrase).
-void adoptClientClock(httpd_req_t* r) {
+// request may set it (adoptsClientClock, or a right passphrase: `trusted`).
+// Unlock runs on the slow worker, session requests on the server task.
+std::mutex g_clockMu;
+clock::Trust g_clockTrust;
+
+void adoptClientClock(httpd_req_t* r, bool trusted) {
   const auto client = clock::parse(http::header(r, "X-Keyra-Time", 20));
-  if (!client || !clock::shouldAdopt(unixMs(), *client, net::timeSynced())) return;
+  if (!client) return;
+  std::lock_guard<std::mutex> lock(g_clockMu);
+  if (!g_clockTrust.adopt(unixMs(), monoMs(), *client, net::timeSynced(), trusted)) return;
   const timeval tv{static_cast<time_t>(*client / 1000), static_cast<suseconds_t>((*client % 1000) * 1000)};
   if (settimeofday(&tv, nullptr) == 0) {
     ESP_LOGI(TAG, "clock set from client");
@@ -329,18 +336,20 @@ struct RestoreJob {
   vault::BackupImport backup;
 };
 
-bool commitRestoreReplace(RestoreJob& j) {
+bool commitRestore(RestoreJob& j, bool replace) {
   size_t added = 0, updated = 0;
   vault::PasskeyRestore pk;
   // A restore with passkeys raises the FIDO counter's reservation before
   // writing anything; if it cannot, it fails with nothing changed.
-  const Status st = vault::commitPreparedBackup(j.backup, true, &added, &updated, &pk);
+  const Status st = vault::commitPreparedBackup(j.backup, replace, &added, &updated, &pk);
+  const char* mode = replace ? "replace" : "merge";
   if (st != Status::Ok) {
-    ESP_LOGE(TAG, "restore(replace): %s", vault::statusName(st));
+    ESP_LOGE(TAG, "restore(%s): %s", mode, vault::statusName(st));
     return false;
   }
-  ESP_LOGI(TAG, "restore(replace): %u added, %u passkeys", unsigned(added), unsigned(pk.added));
-  activity::log(activity::Kind::Restore, 0, {}, 1, static_cast<uint32_t>(added));
+  ESP_LOGI(TAG, "restore(%s): %u added, %u updated, %u passkeys", mode, unsigned(added), unsigned(updated),
+           unsigned(pk.added));
+  activity::log(activity::Kind::Restore, 0, {}, replace ? 1 : 0, static_cast<uint32_t>(added + updated));
   return true;
 }
 
@@ -469,7 +478,7 @@ esp_err_t getState(Ctx& c) {
 
 esp_err_t postSetup(Ctx& c) {
   if (vault::initialized()) return sendVaultError(c.r, Status::AlreadyInitialized);
-  adoptClientClock(c.r);  // an empty Keyra: nothing a wrong clock could harm yet
+  adoptClientClock(c.r, true);  // an empty Keyra: nothing a wrong clock could harm yet
   auto job = std::make_shared<SetupJob>();
   esp_err_t err = ESP_OK;
   if (!requireString(c, "passphrase", job->passphrase.s, err) ||
@@ -552,7 +561,7 @@ esp_err_t postUnlock(Ctx& c) {
     return trust::requestApproval(c.r);
   }
 
-  adoptClientClock(c.r);  // the right passphrase: before the unlock is logged
+  adoptClientClock(c.r, true);  // the right passphrase: before the unlock is logged
   return sendSession(c.r, trustId, ktToken, onUnlocked(0));
 }
 
@@ -581,7 +590,7 @@ esp_err_t postUnlockRecovery(Ctx& c) {
   if (st == Status::RateLimited) return sendRetry(c.r, http::k429, "rate_limited", "Too many attempts", retryMs);
   if (st != Status::Ok) return sendVaultError(c.r, st);
   ESP_LOGI(TAG, "unlocked with the recovery key; passphrase replaced");
-  adoptClientClock(c.r);
+  adoptClientClock(c.r, true);
   return sendSession(c.r, trustId, ktToken, onUnlocked(1));
 }
 
@@ -727,6 +736,7 @@ esp_err_t getEntry(Ctx& c, bool ask) {
       return http::sendError(c.r, http::k409, "entry_changed", "The account changed after the press was asked for");
     if (got == Sessions::Redeem::None) return protect::requestPress(c.r, actions::Op::Reveal, c.token, want);
     revealed = true;
+    sessions().noteRevealed(c.token, e.id, e.revision);
   }
   if (ask) activity::log(activity::Kind::Revealed, e.id, e.title);
   json::Ptr o(cJSON_CreateObject());
@@ -752,7 +762,13 @@ esp_err_t createEntry(Ctx& c) {
   return sendId(c.r, http::k201, id);
 }
 
+// With protectReveal, a new password needs what a reveal needs (F1): the
+// vault keeps the old password in the history only when it differs, so an
+// unpressed change would answer whether a guess was right. A session that was
+// shown this version of the account already knows it; any other asks for the
+// press first, whatever the value sent, and then sends the same PUT again.
 esp_err_t updateEntry(Ctx& c) {
+  using protect::Purpose;
   vault::Entry e;
   Status st = vault::get(c.match.id, e);
   if (st != Status::Ok) return sendVaultError(c.r, st);
@@ -760,6 +776,15 @@ esp_err_t updateEntry(Ctx& c) {
   if (!readEntry(c.body.get(), e, false, err)) {
     vault::wipe(e);
     return badRequest(c.r, err.c_str());
+  }
+  if (cJSON_GetObjectItemCaseSensitive(c.body.get(), "password") && !protect::unprotected() &&
+      !sessions().knows(c.token, e.id, e.revision)) {
+    const protect::Approval want{Purpose::RevealEntry, e.id, e.revision, {}};
+    const Sessions::Redeem got = protect::redeem(c.token, want);
+    if (got != Sessions::Redeem::Ok) vault::wipe(e);
+    if (got == Sessions::Redeem::Changed)
+      return http::sendError(c.r, http::k409, "entry_changed", "The account changed after the press was asked for");
+    if (got == Sessions::Redeem::None) return protect::requestPress(c.r, actions::Op::Reveal, c.token, want);
   }
   e.id = c.match.id;
   e.updated = unixSecondsOrZero();
@@ -1030,7 +1055,7 @@ esp_err_t putSettings(Ctx& c) {
   if ((f = json::getString(b, "wifiPassword", wifi->password.s)) == Field::BadType ||
       (f == Field::Ok && !validate::wifiPassword(wifi->password.s)))
     return badRequest(c.r, "wifiPassword must be 8-63 printable ASCII characters and not the default");
-  if (wifi->password.s == cur.wifiPassword) vault::wipe(wifi->password.s);
+  // The same password as now arms the press too (F13): a 200 would confirm a guess.
 
   if (settings::save(next) != ESP_OK) return http::sendError(c.r, http::k500, "storage", "Could not save settings");
   if (next.ledBrightness != cur.ledBrightness) io::brightness(next.ledBrightness);
@@ -1267,23 +1292,16 @@ esp_err_t postRestore(Ctx& c) {
   }
   if (mode != "merge" && mode != "replace") return badRequest(c.r, "mode must be \"merge\" or \"replace\"");
 
-  if (mode == "replace") {
-    // A wrong passphrase or a bad file is reported now, not after the press.
-    if (const Status st = vault::checkPreparedBackup(job->backup, true); st != Status::Ok)
-      return sendVaultError(c.r, st);
-    return sendAwaitingButton(
-        c.r, machine().awaitPresence(actions::Op::RestoreReplace, [job] { return commitRestoreReplace(*job); }, c.token));
-  }
-  size_t added = 0, updated = 0;
-  vault::PasskeyRestore pk;
-  const Status st = vault::commitPreparedBackup(job->backup, false, &added, &updated, &pk);
-  if (st != Status::Ok) return sendVaultError(c.r, st);
-  activity::log(activity::Kind::Restore, 0, {}, 0, static_cast<uint32_t>(added + updated));
-  json::Ptr o(cJSON_CreateObject());
-  cJSON_AddNumberToObject(o.get(), "added", static_cast<double>(added));
-  cJSON_AddNumberToObject(o.get(), "updated", static_cast<double>(updated));
-  cJSON_AddNumberToObject(o.get(), "passkeys", static_cast<double>(pk.added));
-  return http::sendJson(c.r, http::k200, o.get());
+  // Merge or replace, only on the press (F3): a merge can overwrite accounts,
+  // add passkey keys and raise the passkey counter. A wrong passphrase or a bad
+  // file is reported now, not after the press.
+  const bool replace = mode == "replace";
+  if (const Status st = vault::checkPreparedBackup(job->backup, replace); st != Status::Ok)
+    return sendVaultError(c.r, st);
+  return sendAwaitingButton(
+      c.r,
+      machine().awaitPresence(actions::Op::Restore, [job, replace] { return commitRestore(*job, replace); }, c.token),
+      actions::opName(actions::Op::Restore));
 }
 
 esp_err_t postFactoryReset(Ctx& c) {
@@ -1411,7 +1429,7 @@ void slowWorker(void*) {
     httpd_req_t* r = job->r;
     // The request may have waited behind another (a restore runs seconds of
     // PBKDF2): its session may have ended, or the vault locked, since then.
-    const bool stale = needsSession(job->match.route) &&
+    const bool stale = needsSession(job->match.route, vault::unlocked()) &&
                        !sessions().stillValid(job->token, job->generation, vault::unlockGeneration(), vault::unlocked());
     const esp_err_t sent = stale ? http::sendError(r, http::k401, "locked", "Vault is locked") : dispatch(*job);
     if (sent != ESP_OK) ESP_LOGW(TAG, "slow request failed to send");
@@ -1654,7 +1672,11 @@ esp_err_t handleApi(httpd_req_t* r, Method method, std::string_view path) {
     csrf = sessions().csrfFor(c.token, monoMs(), c.generation);
   }
   c.session = csrf.has_value() && vault::unlocked();
-  if (needsSession(c.match.route)) {
+  const bool unlocked = vault::unlocked();
+  if (needsSession(c.match.route, unlocked)) {
+    if (!c.session && c.match.route == Route::FactoryReset)
+      return http::sendError(r, http::k401, "session_required",
+                             "Keyra is unlocked: erase it from a signed-in browser, or lock Keyra first");
     if (!c.session) {
       // Why a client got bounced to the unlock screen; no secrets in the line.
       ESP_LOGW(TAG, "401 %s %.*s: cookie=%s session=%s vault=%s", r->method == HTTP_GET ? "GET" : "write",
@@ -1662,15 +1684,13 @@ esp_err_t handleApi(httpd_req_t* r, Method method, std::string_view path) {
                vault::unlocked() ? "unlocked" : "locked");
       return http::sendError(r, http::k401, "locked", "Vault is locked");
     }
-    if (needsCsrf(method, c.match.route) &&
+    if (needsCsrf(method, c.match.route, unlocked) &&
         !constantTimeEqual(http::header(r, "X-Keyra-CSRF", 2 * kTokenBytes), *csrf))
       return http::sendError(r, http::k403, "csrf", "Missing or invalid CSRF token");
-    // What the app polls on its own (a 2FA code refreshing every 30 s, the
-    // Bluetooth device list) is not the user being there: it would keep an
-    // open account from ever auto-locking.
-    if (c.match.route != Route::EntryTotp && c.match.route != Route::GetBle) sessions().activity(monoMs());
+    // What the app sends on its own would keep an open vault from ever auto-locking.
+    if (countsAsActivity(method, c.match.route)) sessions().activity(monoMs());
   }
-  if (adoptsClientClock(c.match.route, c.session)) adoptClientClock(r);
+  if (adoptsClientClock(c.match.route, c.session)) adoptClientClock(r, false);
 
   if (takesBody(c.match.route) || (optionalBody(c.match.route) && r->content_len > 0)) {
     json::Secret raw;

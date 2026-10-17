@@ -183,6 +183,29 @@ void evictionNamesTheEvicted() {
   CHECK(e.evicted == a.token);
 }
 
+// F1: a session that was shown an account's password may replace it without
+// another press; nobody else, and not after the account changed.
+void revealedMarkIsPerSessionAndRevision() {
+  Sessions s(fakeRandom);
+  const auto a = s.create(1), b = s.create(2);
+  CHECK(!s.knows(a.token, 5, 1));
+  s.noteRevealed(a.token, 5, 1);
+  CHECK(s.knows(a.token, 5, 1));
+  CHECK(s.knows(a.token, 5, 1));       // not used up: the session still knows it
+  CHECK(!s.knows(b.token, 5, 1));      // another session does not
+  CHECK(!s.knows(a.token, 5, 2));      // the account changed since
+  CHECK(!s.knows(a.token, 6, 1));
+  CHECK(!s.knows("nope", 5, 1));
+  s.noteRevealed(a.token, 6, 4);       // revealing another account replaces it
+  CHECK(!s.knows(a.token, 5, 1) && s.knows(a.token, 6, 4));
+  s.noteRevealed("nope", 7, 1);        // an unknown session marks nothing
+  CHECK(!s.knows("nope", 7, 1));
+  s.clear();                           // lock
+  CHECK(!s.knows(a.token, 6, 4));
+  const auto c = s.create(3);          // a reused slot starts without it
+  CHECK(!s.knows(c.token, 6, 4));
+}
+
 }  // namespace
 
 // A session belongs to the unlock it was made in: after the vault locked
@@ -210,5 +233,6 @@ int main() {
   revokingATrustedBrowserEndsOnlyItsSessions();
   deferredWorkRechecksTheSession();
   evictionNamesTheEvicted();
+  revealedMarkIsPerSessionAndRevision();
   return KEYRA_TEST_RESULT();
 }

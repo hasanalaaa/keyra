@@ -11,6 +11,7 @@ export function errorText(e: unknown, fallback: Key = 'genericError'): string {
     if (e.code === 'bonds_full') return t('bondsFull');
     if (e.code === 'ble_unavailable') return t('bleUnavailable');
     if (e.code === 'entry_changed') return t('revealChanged');
+    if (e.code === 'session_required') return t('eraseSessionRequired');
   }
   return t(fallback);
 }

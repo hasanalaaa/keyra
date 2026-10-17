@@ -213,13 +213,6 @@ export interface PasskeyList {
   pinRetries: number | null;
 }
 
-/** POST /api/restore (merge): counts of what the backup brought in; `passkeys` = passkey records added. */
-export interface RestoreResult {
-  added: number;
-  updated: number;
-  passkeys: number;
-}
-
 /** An access token for an app or AI agent (SPEC §17). The secret itself is shown once, at creation. */
 export interface AccessToken {
   id: number;

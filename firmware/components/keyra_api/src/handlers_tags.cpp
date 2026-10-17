@@ -66,9 +66,12 @@ bool aesEncrypt(const uint8_t key[16], const uint8_t in[16], uint8_t out[16]) { 
 bool aesDecrypt(const uint8_t key[16], const uint8_t in[16], uint8_t out[16]) { return aesBlock(false, key, in, out); }
 const tags::Cipher kAes{aesEncrypt, aesDecrypt};
 
+records::KnownTags g_known;  // F10: unknown tags are refused before any flash read
+
 void remember(const tags::Store& s) {
   g_names.clear();
   for (const Tag& t : s.all()) g_names[t.id] = t.name;
+  records::remember(s, g_known);
 }
 
 // Caller holds g_mu. A record this firmware cannot read is an error, never "no tags".
@@ -312,7 +315,13 @@ esp_err_t tap(httpd_req_t* r, const cJSON* body) {
   {
     std::lock_guard<std::mutex> lock(g_mu);
     tags::Store s;
-    if (const records::Status st = loadLocked(s); st != records::Status::Ok) return sendRecordError(r, st);
+    // A tag this unlock has not seen stored is refused below without a flash read or GCM open.
+    const records::Status st = records::loadFor(id, simple ? tags::Kind::Simple : tags::Kind::Secure, s, g_known);
+    if (st != records::Status::Ok && st != records::Status::Absent) {
+      ESP_LOGE(TAG, "reading tags: %s", records::code(st));
+      return sendRecordError(r, st);
+    }
+    if (st == records::Status::Ok) remember(s);
     Tag* stored = s.find(id);
     if (!stored || stored->kind != (simple ? tags::Kind::Simple : tags::Kind::Secure)) {
       // fall through to the shared refusal below, outside the lock

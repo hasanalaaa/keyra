@@ -6,7 +6,8 @@ describe('passkey count (restore result)', () => {
     setLang('en');
     expect(passkeyCount(1)).toBe('1 passkey');
     expect(passkeyCount(3)).toBe('3 passkeys');
-    expect(t('restoreResultPasskeys', { a: 0, u: 12, p: passkeyCount(3) })).toBe('Added 0, updated 12, plus 3 passkeys');
+    // After a merge or a replace (both on the press), what Keyra holds now.
+    expect(t('restoreReplacedPasskeys', { c: '12 accounts', p: passkeyCount(3) })).toBe('Restored: 12 accounts. Keyra now has 3 passkeys.');
   });
   it('uses the Arabic plural forms', () => {
     setLang('ar');

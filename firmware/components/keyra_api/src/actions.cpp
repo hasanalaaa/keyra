@@ -550,7 +550,7 @@ const char* opName(Op op) {
   switch (op) {
     case Op::Setup: return "setup";
     case Op::Wifi: return "wifi";
-    case Op::RestoreReplace: return "restore";
+    case Op::Restore: return "restore";
     case Op::FactoryReset: return "factory_reset";
     case Op::HomeWifi: return "home_wifi";
     case Op::TrustBrowser: return "trust_browser";
@@ -571,7 +571,7 @@ const char* opName(Op op) {
 }
 
 std::optional<Op> parseOp(const std::string& s) {
-  for (Op op : {Op::Setup, Op::Wifi, Op::RestoreReplace, Op::FactoryReset, Op::HomeWifi, Op::TrustBrowser,
+  for (Op op : {Op::Setup, Op::Wifi, Op::Restore, Op::FactoryReset, Op::HomeWifi, Op::TrustBrowser,
                 Op::BlePair, Op::Reveal, Op::Backup, Op::Recovery, Op::Unprotect, Op::Update,
                 Op::DeleteEntry, Op::DeletePasskey, Op::PasskeysBackupOn, Op::TokenCreate, Op::AgentSave,
                 Op::TagCreate}) {

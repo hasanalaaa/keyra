@@ -1,4 +1,4 @@
-import type { AccessToken, NfcTag, NewNfcTag, BleInfo, DeviceState, Keyboard, Entry, HostOs, EntryInput, ActivityEvent, EntrySummary, Health, Network, PasskeyList, RestoreResult, UpdateCheck, RecoveryInfo, Settings, Totp, TrustedBrowser, TypeTextRequest, TypeWhat, Pending, PresenceOp, NvsReset } from './types';
+import type { AccessToken, NfcTag, NewNfcTag, BleInfo, DeviceState, Keyboard, Entry, HostOs, EntryInput, ActivityEvent, EntrySummary, Health, Network, PasskeyList, UpdateCheck, RecoveryInfo, Settings, Totp, TrustedBrowser, TypeTextRequest, TypeWhat, Pending, PresenceOp, NvsReset } from './types';
 import { generateRequest, type GenSettings } from './generator';
 
 export class ApiError extends Error {
@@ -47,7 +47,8 @@ const OPEN = new Set(['/unlock', '/unlock/recovery', '/setup', '/factory-reset',
 async function request(method: string, path: string, body?: unknown, timeoutMs = 15000): Promise<Response> {
   const headers: Record<string, string> = { 'X-Keyra-Time': String(Date.now()) };
   if (body !== undefined) headers['Content-Type'] = 'application/json; charset=utf-8';
-  if (method !== 'GET' && !OPEN.has(path) && csrf) headers['X-Keyra-CSRF'] = csrf;
+  // factory-reset: open while locked (a forgotten passphrase), a session's request once unlocked (SPEC §5).
+  if (method !== 'GET' && csrf && (!OPEN.has(path) || path === '/factory-reset')) headers['X-Keyra-CSRF'] = csrf;
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
   let res: Response;
@@ -190,7 +191,8 @@ export const api = {
   createRecovery: () => json<{ recoveryKey: string; created: number } | Awaiting>('POST', '/recovery'),
   removeRecovery: () => json<void | Awaiting>('DELETE', '/recovery'),
   create: (e: EntryInput) => json<{ id: number }>('POST', '/entries', e),
-  update: (id: number, e: Partial<EntryInput>) => json<{ id: number }>('PUT', `/entries/${id}`, e),
+  /** 202 → a new password with protectReveal needs a press first (unless this session revealed this version); then call again (SPEC §12.5b). */
+  update: (id: number, e: Partial<EntryInput>) => json<{ id: number } | Awaiting>('PUT', `/entries/${id}`, e),
   remove: (id: number) => json<Awaiting>('DELETE', `/entries/${id}`),
   importBatch: (entries: Partial<EntryInput>[]) =>
     json<{ added: number; skipped: number }>('POST', '/entries/import', { entries }, 30000),
@@ -225,9 +227,9 @@ export const api = {
     if (res.status === 202) return (await res.json()) as Awaiting;
     return res.blob();
   },
-  /** Merge → counts; replace → Awaiting (press Keyra's button). 409 passkeys_full: refused before anything changed. */
+  /** Merge or replace → Awaiting (press Keyra's button, SPEC §5). 409 passkeys_full: refused before anything changed. */
   restore: (passphrase: string, backup: unknown, mode: 'merge' | 'replace') =>
-    json<RestoreResult | Awaiting>('POST', '/restore', { passphrase, backup, mode }, 60000),
+    json<Awaiting>('POST', '/restore', { passphrase, backup, mode }, 60000),
   factoryReset: () => json<Awaiting>('POST', '/factory-reset'),
   ble: () => json<BleInfo>('GET', '/ble'),
   blePair: () => json<Awaiting>('POST', '/ble/pair'),

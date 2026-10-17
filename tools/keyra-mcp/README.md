@@ -54,7 +54,7 @@ If `keyra.local` does not resolve on your network, use Keyra's IP address
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `keyra_list_logins` | `query?` | One line per login in the token's scope: `id: title (host)`. No usernames, no passwords. |
+| `keyra_list_logins` | `query?` | A note that the labels are untrusted, then one line of JSON: `[{"id":…,"title":…,"host":…}]` for the logins in the token's scope. Titles may come from websites (the extension saves a page's site name), so they are stripped of control and format characters, capped at 64 characters and quoted as data. No usernames, no passwords. |
 | `keyra_type_login` | `id`, `what?` (`username` \| `password` \| `both` \| `totp`, default `both`), `submit?`, `target?` (`usb` or a Bluetooth address) | `typed`, `denied` (long press, or Keyra could not type, with the reason) or `expired` (no press within 60 s). |
 
 Before `keyra_type_login`, the agent must put the keyboard focus in the login

@@ -57,9 +57,16 @@ struct Value {
 };
 
 constexpr int kMaxDepth = 8;
+// At most this many values in one decoded item, counted when an array or map
+// declares its size and before anything is allocated (F9): the largest CTAP2
+// request within maxMsgSize (1200 bytes, 8 descriptors per list) holds about
+// 200. Bounds the decoder's memory to kMaxValues * sizeof(Value) whatever a
+// host declares, on boards without PSRAM too.
+constexpr size_t kMaxValues = 512;
 
 // Decodes exactly one item that fills [p, p+n). False on malformed input,
-// trailing bytes, unsupported types, invalid UTF-8 or duplicate map keys.
+// trailing bytes, unsupported types, invalid UTF-8, duplicate map keys or more
+// than kMaxValues values.
 bool decode(const uint8_t* p, size_t n, Value& out);
 
 }  // namespace keyra::fido::cbor

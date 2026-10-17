@@ -1004,6 +1004,9 @@ async function generatorFlow(base, opts) {
   await page.locator('.save-update').click();
   await page.locator('.pick .acc-row', { hasText: 'Shop' }).click();
   await page.locator('.alert .btn-primary').click();
+  // This sheet never saw the old password: replacing it is a press (protectReveal, SPEC §12.5b).
+  await page.locator('.ready-ready').waitFor();
+  check((await button(base)) === 'approved reveal', 'button approves the new password');
   await page.locator('.history-row').waitFor();
   check((await page.locator('.history-row').count()) === 1, 'one old password');
   await page.locator('.history-row .icon-btn').first().click(); // reveal
@@ -1209,15 +1212,18 @@ async function restoreFlow(base, opts) {
   const restoreBtn = page.locator('.backup .btn', { hasText: L(opts, /^Restore$/, /^استعادة$/) });
   const seg = (label) => page.locator('.backup .seg-item', { hasText: label });
 
-  // Merge: no press, every entry of the file matches one here.
+  // Merge: on the press too (a merge can overwrite accounts and add passkey keys); every entry
+  // of the file matches one here, so the newer account stays.
   await file.setInputFiles({ name: 'keyra-backup.json', mimeType: 'application/json', buffer: backup });
   await pass.fill(backupPass);
   await seg(L(opts, 'Merge', 'دمج')).click();
   await restoreBtn.click();
-  const merged = page.locator('.toast-ok', { hasText: L(opts, 'Added 0, updated', 'أُضيف 0 وحُدِّث') });
+  await page.locator('.backup .ready-ready').waitFor();
+  check((await count()) === seeded + 1, 'nothing merged before the press');
+  check((await button(base)) === 'approved restore', 'button approves the merge');
+  const merged = page.locator('.toast-ok', { hasText: L(opts, 'Restored', 'استُعيد') });
   await merged.waitFor({ timeout: 8000 });
-  check(new RegExp(`\\b${seeded}\\b`).test((await merged.textContent()) ?? ''), `merge updated all ${seeded}`);
-  check(!/passkey|مرور/.test((await merged.textContent()) ?? ''), 'no passkeys named when none were added');
+  check(new RegExp(`\\b${seeded + 1}\\b`).test((await merged.textContent()) ?? ''), `merge leaves ${seeded + 1} accounts`);
   check((await count()) === seeded + 1, 'merge keeps the newer account');
   check((await passkeys()) === 3, 'merge does not duplicate passkeys');
   await merged.waitFor({ state: 'detached', timeout: 8000 });
@@ -1296,12 +1302,10 @@ async function restorePasskeysFlow(base, opts, { backup, backupNoPasskeys, backu
     await page.locator('.backup input[type=password]').first().fill(backupPass);
     await page.locator('.backup .seg-item', { hasText: mode === 'merge' ? L(opts, 'Merge', 'دمج') : L(opts, 'Replace', 'استبدال') }).click();
     await page.locator('.backup .btn', { hasText: L(opts, /^Restore$/, /^استعادة$/) }).click();
-    if (mode === 'replace') {
-      await page.locator('.alert .btn-danger-confirm').click();
-      await page.locator('.backup .ready-ready').waitFor();
-      check((await button(base)) === 'approved restore', 'button approves the replace');
-    }
-    if (!toastText) return '';
+    if (mode === 'replace') await page.locator('.alert .btn-danger-confirm').click();
+    if (!toastText) return ''; // refused before the press
+    await page.locator('.backup .ready-ready').waitFor();
+    check((await button(base)) === 'approved restore', `button approves the ${mode}`);
     const toast = page.locator('.toast-ok', { hasText: toastText });
     await toast.waitFor({ timeout: 8000 });
     const text = (await toast.textContent()) ?? '';
@@ -1319,12 +1323,11 @@ async function restorePasskeysFlow(base, opts, { backup, backupNoPasskeys, backu
   check((await passkeys()) === 3, 'replace brings the passkeys back');
 
   // Merging the same file again adds nothing.
-  const again = await restore(backup, 'merge', L(opts, 'Added 0, updated', 'أُضيف 0 وحُدِّث'));
-  check(!/passkey|مرور/.test(again), `merge adds no passkey twice: ${again}`);
-  check((await passkeys()) === 3, 'merge does not duplicate passkeys');
+  const again = await restore(backup, 'merge', L(opts, 'Keyra now has 3 passkeys', 'في Keyra الآن 3 مفاتيح مرور'));
+  check((await passkeys()) === 3, `merge does not duplicate passkeys: ${again}`);
 
   // Passkeys this Keyra lacks are added and named.
-  await restore(craftBackup(backupPass, 2), 'merge', L(opts, 'plus 2 passkeys', 'وأُضيف مفتاحا مرور'));
+  await restore(craftBackup(backupPass, 2), 'merge', L(opts, 'Keyra now has 5 passkeys', 'في Keyra الآن 5 مفاتيح مرور'));
   check((await passkeys()) === 5, 'merge adds the new passkeys');
 
   // Over 50: refused before anything changes, with a clear message.

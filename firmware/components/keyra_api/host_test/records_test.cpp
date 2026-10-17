@@ -99,12 +99,58 @@ void readableRecordsWork() {
   CHECK(records::save(tk) == records::Status::Locked);
 }
 
+// F10: once this unlock has read the record, a token or tag it does not hold
+// is refused before any read. A damaged record underneath proves the order: a
+// read would answer Corrupt, the index answers Absent without one.
+void unknownKeysAreRefusedBeforeAnyRead() {
+  CHECK(vault::tokensWrite({}) == vault::Status::Ok && vault::tagsWrite({}) == vault::Status::Ok);
+  tokens::Store tk;
+  CHECK(tk.add(token(3)) && records::save(tk) == records::Status::Ok);
+  tags::Store tg;
+  CHECK(tg.add(tag(8)) && records::save(tg) == records::Status::Ok);
+  const tokens::Digest known = token(3).hash;
+  tokens::Digest stranger = known;
+  stranger[31] ^= 1;
+
+  records::KnownTokens kt;
+  records::KnownTags kg;
+  tokens::Store out;
+  tags::Store outTags;
+  // Nothing read yet in this unlock: the index is not trusted, the record is read.
+  CHECK(records::loadFor(stranger, out, kt) == records::Status::Ok && !out.find(stranger));
+  CHECK(records::loadFor(99, tags::Kind::Simple, outTags, kg) == records::Status::Ok && !outTags.find(99));
+
+  const Bytes damaged = {1, 200, 0};
+  CHECK(vault::tokensWrite(damaged) == vault::Status::Ok && vault::tagsWrite({1, 99}) == vault::Status::Ok);
+  tokens::Store none;
+  CHECK(records::loadFor(stranger, none, kt) == records::Status::Absent && none.all().empty());
+  CHECK(records::loadFor(99, tags::Kind::Simple, outTags, kg) == records::Status::Absent);
+  CHECK(records::loadFor(8, tags::Kind::Secure, outTags, kg) == records::Status::Absent);  // wrong kind
+  // What is stored is always read, and a damaged record still fails closed.
+  CHECK(records::loadFor(known, none, kt) == records::Status::Corrupt);
+  CHECK(records::loadFor(8, tags::Kind::Simple, outTags, kg) == records::Status::Corrupt);
+
+  // Another unlock: the index is stale and the record is read again.
+  vault::lock();
+  CHECK(vault::unlock("records test passphrase", nullptr) == vault::Status::Ok);
+  CHECK(records::loadFor(stranger, none, kt) == records::Status::Corrupt);
+  CHECK(records::loadFor(99, tags::Kind::Simple, outTags, kg) == records::Status::Corrupt);
+
+  // A save keeps the index current (a token made or revoked in this unlock).
+  CHECK(vault::tokensWrite({}) == vault::Status::Ok);
+  tokens::Store made;
+  CHECK(made.add(token(5)) && records::save(made) == records::Status::Ok);
+  records::remember(made, kt);
+  CHECK(records::loadFor(token(5).hash, none, kt) == records::Status::Ok && none.find(token(5).hash));
+}
+
 }  // namespace
 
 int main() {
   CHECK(vault::init() == vault::Status::Ok && vault::setup("records test passphrase") == vault::Status::Ok);
   unreadableTokensAreKept();
   unreadableTagsAreKept();
+  unknownKeysAreRefusedBeforeAnyRead();
   readableRecordsWork();
   return KEYRA_TEST_RESULT();
 }

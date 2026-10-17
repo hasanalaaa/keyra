@@ -7,8 +7,9 @@ import { FreeTextStatus, GenOptions, GenPreview, GenStrength, useGenerator } fro
 import { Button, Monogram } from '../components/ui';
 import { HostLangRow, TargetPicker } from '../components/HostOs';
 import { Alert, Sheet, type SheetCtl } from '../components/Sheet';
+import { Ready } from '../components/Ready';
 import { ApiError, api } from '../lib/api';
-import { useTypeAction } from '../lib/actions';
+import { usePressGate, useTypeAction } from '../lib/actions';
 import { storedTarget, validTarget } from '../lib/ble';
 import { osOf, resolveTarget } from '../lib/hostos';
 import { copyText } from '../lib/clipboard';
@@ -36,6 +37,8 @@ export function GenerateSheet() {
   const hostTarget = resolveTarget(validTarget(storedTarget(), app.ble), app.device?.host.output ?? null, app.ble);
   const ctl = useRef<SheetCtl | null>(null);
   const after = useRef<() => void>(() => back('/typing'));
+  // Replacing a saved password is a press with protectReveal (SPEC §12.5b): this sheet never saw the old one.
+  const gate = usePressGate('reveal');
 
   const typeIt = (repeat: 1 | 2) => {
     setTwice(repeat === 2);
@@ -52,13 +55,13 @@ export function GenerateSheet() {
   };
   const update = async () => {
     if (!target || saving) return;
+    const id = target.id;
     setSaving(true);
+    setTarget(null);
     try {
-      await api.update(target.id, { password: toTypeable(gen.password) });
+      if (!(await gate.run(() => api.update(id, { password: toTypeable(gen.password) })))) return setSaving(false);
       await loadEntries();
       toast(t('replaced'), 'ok');
-      const id = target.id;
-      setTarget(null);
       close(() => replace(`/a/${id}`));
     } catch (e) {
       setSaving(false);
@@ -75,7 +78,9 @@ export function GenerateSheet() {
   const phase = action.phase;
   const title = view === 'save' ? t('saveTitle') : view === 'pick' ? t('pickTitle') : t('genTitle');
   let body;
-  if (phase.kind !== 'idle') {
+  if (gate.phase.kind === 'ready') {
+    body = <Ready state="ready" deadline={gate.phase.deadline} total={gate.phase.total} title={t('editSaveTitle')} body={t('swapPressBody')} onCancel={gate.cancel} />;
+  } else if (phase.kind !== 'idle') {
     body = (
       <FreeTextStatus
         phase={phase}

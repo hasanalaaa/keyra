@@ -212,16 +212,22 @@ bool adoptsClientClock(Route r, bool session) {
 
 bool isTapPage(std::string_view path) { return path.size() > 3 && path.substr(0, 3) == "/t/"; }
 
-bool needsSession(Route r) {
+bool needsSession(Route r, bool unlocked) {
+  if (r == Route::FactoryReset) return unlocked;
   return !isAgent(r) && !isTagTap(r) && r != Route::State && r != Route::Setup && r != Route::Unlock &&
-         r != Route::UnlockRecovery && r != Route::FactoryReset && r != Route::PresenceCancel;
+         r != Route::UnlockRecovery && r != Route::PresenceCancel;
 }
 
-bool needsCsrf(Method m, Route r) {
-  // setup/unlock/factory-reset have no session yet (or a forgotten passphrase);
-  // setup and factory-reset are gated by the physical button instead.
+bool needsCsrf(Method m, Route r, bool unlocked) {
+  // setup/unlock have no session yet; setup and a locked factory-reset (a
+  // forgotten passphrase) are gated by the physical button instead.
+  if (r == Route::FactoryReset) return m != Method::Get && unlocked;
   return m != Method::Get && !isAgent(r) && !isTagTap(r) && r != Route::Unlock && r != Route::UnlockRecovery &&
-         r != Route::Setup && r != Route::FactoryReset && r != Route::PresenceCancel;
+         r != Route::Setup && r != Route::PresenceCancel;
+}
+
+bool countsAsActivity(Method m, Route r) {
+  return !(m == Method::Get && (r == Route::ListEntries || r == Route::EntryTotp || r == Route::GetBle));
 }
 
 bool isOwnHost(std::string_view host, std::string_view homeIp) {
