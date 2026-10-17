@@ -6,6 +6,13 @@ All notable changes to Keyra are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-10-17
+
+Highlights:
+- A firmware image for each of seven boards; a YD-ESP32-S3 whose LED stays dark moves to `keyra-firmware-yd-esp32-s3.bin` once, from a file
+- Fixes from an internal security review: password changes, merge restores and a factory reset while unlocked are now protected
+- The 2FA clock can no longer be moved far by a session; background refreshes no longer keep the vault from auto-locking
+
 ### Added
 
 - **Board profiles and a firmware image per board.** Keyra's button and LED
