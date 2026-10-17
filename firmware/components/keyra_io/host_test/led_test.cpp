@@ -120,6 +120,46 @@ void testFidoDoubleBlink() {
   CHECK(a.frame(60).r == 255 && a.frame(180).r == 0 && a.frame(300).r == 255 && a.frame(600).r == 0);
 }
 
+// A plain LED (no colour): on/off with the RGB rhythm.
+void testPlain() {
+  LedAnimator a;
+  for (Pattern p : {Pattern::Off, Pattern::Locked}) {
+    a.set(p, 0);
+    for (uint32_t t = 0; t < 8000; t += 20) CHECK(!a.on(t));
+  }
+  a.set(Pattern::Typing, 0);
+  CHECK(a.on(10) && a.on(5000));
+  a.brightness(0);  // the user turned the light off
+  CHECK(!a.on(20));
+  a.brightness(100);
+  // Waiting for a press: a 1.2 s blink, dark at the start like the RGB pulse, half the time lit.
+  for (Pattern p : {Pattern::Pending, Pattern::AwaitPresence, Pattern::Pairing}) {
+    LedAnimator b;
+    b.set(p, 0);
+    CHECK(!b.on(0) && b.on(600) && !b.on(1200) && b.on(1800));
+    int lit = 0;
+    for (uint32_t t = 0; t < 1200; t += 20) lit += b.on(t);
+    CHECK(lit >= 28 && lit <= 32);
+  }
+  LedAnimator s;
+  s.set(Pattern::Setup, 0);
+  CHECK(!s.on(0) && s.on(1500) && !s.on(3000));
+  LedAnimator i;
+  i.set(Pattern::Idle, 0);
+  CHECK(i.on(40) && !i.on(200) && i.on(4040));
+  LedAnimator f;
+  f.set(Pattern::Fido, 0);
+  CHECK(f.on(60) && !f.on(180) && f.on(300) && !f.on(600));
+  // One-shots blink and settle: Success on Idle, Error back to what was showing.
+  LedAnimator o;
+  o.set(Pattern::Typing, 0);
+  o.set(Pattern::Error, 1000);
+  CHECK(o.on(1010) && !o.on(1000 + LedAnimator::kFlashOnMs + 10));
+  CHECK(o.on(1000 + LedAnimator::kErrorMs + 10));  // Typing again
+  o.set(Pattern::Success, 5000);
+  CHECK(o.on(5010) && !o.on(5000 + LedAnimator::kSuccessMs + 200));  // then Idle, dark between blinks
+}
+
 }  // namespace
 
 int main() {
@@ -131,5 +171,6 @@ int main() {
   testPulsesVary();
   testPairingIsCyan();
   testFidoDoubleBlink();
+  testPlain();
   TEST_MAIN_END();
 }

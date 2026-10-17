@@ -1,6 +1,7 @@
 #pragma once
-// Physical I/O for Keyra (SPEC §2, §4.1): BOOT button (GPIO0) and the onboard
-// WS2812 status LED. One background task owns both.
+// Physical I/O for Keyra (SPEC §2, §4.1): the confirmation button (BOOT, GPIO0,
+// unless the board profile says otherwise) and the status LED (WS2812, a plain
+// LED or none: Kconfig "Keyra I/O"). One background task owns both.
 #include <cstdint>
 #include "freertos/FreeRTOS.h"
 
@@ -16,6 +17,6 @@ void init();                                   // LED + button task
 bool nextButton(Button& out, int64_t& atMs, TickType_t wait);
 void led(Led state);
 void brightness(uint8_t pct);                  // global LED brightness 0..100 (settings.ledBrightness)
-bool bootPinHigh();                            // for safe restarts
+bool bootPinHigh();                            // GPIO0 released (always true when it is not the button): for safe restarts
 
 }  // namespace keyra::io

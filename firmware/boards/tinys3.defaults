@@ -1,0 +1,12 @@
+# Unexpected Maker TinyS3 (ESP32-S3FN8: 8 MB flash, 8 MB quad PSRAM, USB-C on the native USB).
+# Sources: https://esp32s3.com/tinys3.html (8 MB QSPI flash, 8 MB QSPI PSRAM, RGB LED);
+#   UnexpectedMaker/esp32s3 code/micropython/helper libraries/tinys3/tinys3.py: RGB_DATA = 18,
+#   RGB_PWR = 17, set_pixel_power(True) drives it high; arduino-esp32 variants/um_tinys3/pins_arduino.h
+#   agrees (RGB_DATA 18, RGB_PWR 17). Boot button on GPIO0.
+CONFIG_KEYRA_BOARD_ID="tinys3"
+CONFIG_KEYRA_BUTTON_GPIO=0
+CONFIG_KEYRA_BUTTON_ACTIVE_LOW=y
+CONFIG_KEYRA_LED_WS2812=y
+CONFIG_KEYRA_LED_GPIO=18
+CONFIG_KEYRA_LED_POWER_GPIO=17
+CONFIG_SPIRAM_MODE_QUAD=y

@@ -1,0 +1,11 @@
+# M5Stack AtomS3 Lite (USB-C, ESP32-S3FN8: 8 MB flash, no PSRAM).
+# Sources: https://docs.m5stack.com/en/core/AtomS3%20Lite (ESP32-S3FN8, 8 MB flash, WS2812 LED, one button);
+#   M5Unified (M5Stack's library) src/M5Unified.inl: board_M5AtomS3Lite reads
+#   "!m5gfx::gpio_in(GPIO_NUM_41)" (active low) and its RGB LED pin is GPIO_NUM_35.
+CONFIG_KEYRA_BOARD_ID="atoms3-lite"
+CONFIG_KEYRA_BUTTON_GPIO=41
+CONFIG_KEYRA_BUTTON_ACTIVE_LOW=y
+CONFIG_KEYRA_LED_WS2812=y
+CONFIG_KEYRA_LED_GPIO=35
+# No PSRAM in the FN8, and GPIO35 (an octal PSRAM data line) is the LED here.
+CONFIG_SPIRAM=n

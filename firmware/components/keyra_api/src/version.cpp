@@ -39,4 +39,9 @@ std::string fromTag(std::string_view tag) {
   return parse(tag) ? std::string(tag) : std::string();
 }
 
+std::string assetName(std::string_view boardId) {
+  if (boardId == kDefaultBoard) return "keyra-firmware.bin";
+  return "keyra-firmware-" + std::string(boardId) + ".bin";
+}
+
 }  // namespace keyra::api::version

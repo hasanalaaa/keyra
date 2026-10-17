@@ -45,6 +45,9 @@ source "${IDF_PATH:-$HOME/esp/esp-idf-v6.0.2}/export.sh" >/dev/null
 (cd firmware && idf.py -B "$out/fw-release" \
   -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.release" build >/dev/null && echo "release: ok")
 
+step "Board profiles (release, unsigned)"
+tools/build_boards.sh --unsigned --out "$out/boards"
+
 step "Docs links"
 python3 - "$root" <<'EOF'
 import pathlib, re, sys

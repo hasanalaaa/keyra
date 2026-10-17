@@ -27,7 +27,10 @@ bool mayInstallOver(std::string_view next, std::string_view floor);
 // tag is not one.
 std::string fromTag(std::string_view tag);
 
-// The signed app image every release carries (tools/release.sh uploads it).
-inline constexpr std::string_view kAssetName = "keyra-firmware.bin";
+// The signed app image a release carries for a board (CONFIG_KEYRA_BOARD_ID;
+// tools/build_boards.sh uses the same rule): the default board's keeps the
+// name earlier firmware on that board looks for.
+inline constexpr std::string_view kDefaultBoard = "devkitc1";
+std::string assetName(std::string_view boardId);
 
 }  // namespace keyra::api::version

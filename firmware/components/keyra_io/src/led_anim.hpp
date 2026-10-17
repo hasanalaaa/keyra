@@ -23,6 +23,8 @@ class LedAnimator {
   void set(Pattern p, uint32_t nowMs);
   void brightness(uint8_t pct);  // clamped to 0..100
   Rgb frame(uint32_t nowMs);     // gamma-corrected, brightness applied
+  // A single plain LED: on or off with the same rhythm (brightness 0 = off).
+  bool on(uint32_t nowMs);
   Pattern showing(uint32_t nowMs);
 
  private:
@@ -31,6 +33,8 @@ class LedAnimator {
   uint32_t oneShotAt_ = 0;
   uint32_t baseAt_ = 0;
   uint8_t pct_ = 100;
+
+  uint32_t elapsed(uint32_t nowMs) const;  // into the pattern showing()
 };
 
 // Perceptual → PWM: 255 * (v/255)^2.2, rounded. 0 stays 0.

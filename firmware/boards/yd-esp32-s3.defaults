@@ -1,0 +1,10 @@
+# VCC-GND Studio YD-ESP32-S3 (a DevKitC-1 clone: ESP32-S3-WROOM-1, two USB-C ports, native USB on the one
+# labelled USB, a CH343P bridge on COM). Revisions differ: the OEM documents the WS2812 on GPIO48; a board
+# whose LED works with the default build (GPIO38) should stay on devkitc1.
+# Source: https://github.com/vcc-gnd/YD-ESP32-S3 README: "RGB LED | 可寻址 RGB 发光二极管，由 GPIO48 驱动。型号为WS2812"
+#   (addressable RGB LED driven by GPIO48, WS2812) and the Boot button "使用到的IO为GPIO0" (GPIO0).
+CONFIG_KEYRA_BOARD_ID="yd-esp32-s3"
+CONFIG_KEYRA_BUTTON_GPIO=0
+CONFIG_KEYRA_BUTTON_ACTIVE_LOW=y
+CONFIG_KEYRA_LED_WS2812=y
+CONFIG_KEYRA_LED_GPIO=48

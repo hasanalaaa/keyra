@@ -6,6 +6,22 @@ All notable changes to Keyra are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Board profiles and a firmware image per board.** Keyra's button and LED
+  are now set per board (Kconfig *Keyra I/O*: button pin and polarity; a
+  WS2812, a single plain LED that blinks in the same rhythm, or none; an
+  optional LED power pin). `firmware/boards/` holds a profile for the
+  ESP32-S3-DevKitC-1 v1.1 (default) and v1.0, VCC-GND YD-ESP32-S3 (LED on
+  GPIO48), M5Stack AtomS3U and AtomS3 Lite, Seeed Studio XIAO ESP32S3 and
+  Unexpected Maker TinyS3, with the vendor source of every pin; the matrix
+  is in docs/HARDWARE.md. CI builds every profile. Releases add `keyra-firmware-<id>.bin` for each board other
+  than the default and `boards.json`; the default board keeps
+  `keyra-firmware.bin`, so existing devices update exactly as before, and
+  each board's updates fetch that board's image. Only the default build has
+  been tested on hardware.
+- `GET /api/state` reports the board id as `device.board`.
+
 ## [0.4.4] - 2026-10-13
 
 Highlights:

@@ -1,11 +1,56 @@
 menu "Keyra I/O"
 
+    config KEYRA_BUTTON_GPIO
+        int "Confirmation button GPIO"
+        range 0 48
+        default 0
+        help
+            The physical button every secret and every change waits for.
+            Most boards use their BOOT button (GPIO0). Software restarts wait
+            for GPIO0 to be released only when it is this button.
+
+    config KEYRA_BUTTON_ACTIVE_LOW
+        bool "Button pulls the pin low when pressed"
+        default y
+        help
+            Active low gets the internal pull-up, active high the pull-down.
+
+    choice KEYRA_LED_DRIVER
+        prompt "Status LED"
+        default KEYRA_LED_WS2812
+
+        config KEYRA_LED_WS2812
+            bool "Addressable RGB (WS2812)"
+        config KEYRA_LED_PLAIN
+            bool "Single plain LED on a GPIO"
+            help
+                No colours: each state becomes on, off or a blink with the
+                RGB animation's rhythm (a press is awaited: 1.2 s blink).
+        config KEYRA_LED_NONE
+            bool "None"
+    endchoice
+
     config KEYRA_LED_GPIO
-        int "Onboard WS2812 RGB LED GPIO"
+        int "Status LED GPIO"
+        depends on !KEYRA_LED_NONE
         range 0 48
         default 38
         help
-            Data pin of the board's addressable status LED.
+            Data pin of the WS2812, or the plain LED's pin.
             ESP32-S3-DevKitC-1 v1.1 uses GPIO38; v1.0 uses GPIO48.
+
+    config KEYRA_LED_ACTIVE_LOW
+        bool "Plain LED lights when the pin is low"
+        depends on KEYRA_LED_PLAIN
+        default n
+
+    config KEYRA_LED_POWER_GPIO
+        int "GPIO that powers the LED (-1: none)"
+        depends on !KEYRA_LED_NONE
+        range -1 48
+        default -1
+        help
+            Some boards gate the LED's supply; Keyra drives this pin high at
+            start-up (Unexpected Maker TinyS3: GPIO17).
 
 endmenu

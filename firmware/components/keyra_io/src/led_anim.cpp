@@ -94,12 +94,34 @@ Pattern LedAnimator::showing(uint32_t now) {
   return base_;
 }
 
+uint32_t LedAnimator::elapsed(uint32_t now) const { return now - (oneShot_ != Pattern::Off ? oneShotAt_ : baseAt_); }
+
 Rgb LedAnimator::frame(uint32_t now) {
   const Pattern p = showing(now);
-  const uint32_t t = now - (oneShot_ != Pattern::Off ? oneShotAt_ : baseAt_);
+  const uint32_t t = elapsed(now);
   const Level l = levelFor(p, t);
   const float v = l.v * static_cast<float>(pct_) / 100.0f;
   return {gamma8(to8(l.c.r * v)), gamma8(to8(l.c.g * v)), gamma8(to8(l.c.b * v))};
+}
+
+bool LedAnimator::on(uint32_t now) {
+  if (pct_ == 0) return false;
+  const Pattern p = showing(now);
+  const uint32_t t = elapsed(now);
+  switch (p) {
+    case Pattern::Off:
+    case Pattern::Locked:        return false;  // colour told them apart; a plain LED stays dark
+    case Pattern::Idle:          return t % 4000 < 80;
+    case Pattern::Pending:
+    case Pattern::AwaitPresence:
+    case Pattern::Pairing:       return wave(t, 1200) >= 0.5f;  // on while the RGB pulse is bright
+    case Pattern::Setup:         return wave(t, 3000) >= 0.5f;
+    case Pattern::Typing:        return true;
+    case Pattern::Success:
+    case Pattern::Error:         return flash(t) > 0.0f;
+    case Pattern::Fido:          return fidoBlink(t) > 0.0f;
+  }
+  return false;
 }
 
 }  // namespace keyra::io

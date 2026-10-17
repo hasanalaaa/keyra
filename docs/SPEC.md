@@ -42,9 +42,18 @@ Arabic (RTL) and English, auto-detected, switchable.
   (use it when present; never require it). Reference board: N16R8.
 - Button: **GPIO0 (BOOT)**, active-low, internal pull-up. Never hold a restart
   while GPIO0 is low (it would latch download mode): any software restart waits
-  for GPIO0 high first.
+  for GPIO0 high first. Other boards set `KEYRA_BUTTON_GPIO` and
+  `KEYRA_BUTTON_ACTIVE_LOW`; when the button is not GPIO0 there is nothing to
+  wait for.
 - LED: onboard WS2812 RGB. GPIO configurable via Kconfig `KEYRA_LED_GPIO`
-  (default **38**, DevKitC-1 v1.1; v1.0 uses 48).
+  (default **38**, DevKitC-1 v1.1; v1.0 uses 48). Other boards may choose a
+  single plain LED (`KEYRA_LED_PLAIN`, optionally `KEYRA_LED_ACTIVE_LOW`: each
+  state becomes on, off or a blink in the RGB pattern's rhythm) or none, and
+  `KEYRA_LED_POWER_GPIO` for a board that gates the LED's supply.
+- Boards: one profile per board, `firmware/boards/<id>.defaults` (layered on
+  the release profile) listed in `firmware/boards/boards.json`; the profile sets
+  `KEYRA_BOARD_ID` (default `devkitc1`), which picks the update asset (§14).
+  Matrix and pin sources: docs/HARDWARE.md.
 - USB: native USB-OTG port (GPIO19/20) runs TinyUSB.
 
 ## 3. Repository layout
@@ -155,7 +164,7 @@ enum class Led { Off, Locked, Idle, Pending, Typing, Success, Error, AwaitPresen
 void init();                                   // LED + button task
 bool nextButton(Button& out, int64_t& atMs, TickType_t wait); // event queue, stamped
 void led(Led state);
-bool bootPinHigh();                            // for safe restarts
+bool bootPinHigh();                            // for safe restarts (true when GPIO0 is not the button)
 }
 ```
 
@@ -197,7 +206,7 @@ Conventions
 
 | Method & path | Auth | Body → Response |
 |---|---|---|
-| GET `/api/state` | none | `{device:{name,version,model,mac}, initialized, unlocked, maxEntries` (§6.1)`, session:bool, autoLockMin, host:{usb, ble, capsLock, output, bleTarget, connecting, usbOs?}` (§8.1, §10.5; `usbOs` with a session only)`, pending:Pending\|null, last:Result\|null, presence:{awaiting:bool, op:string\|null, expiresIn:ms, result:{op, ok:bool, code:"done"\|"failed"\|"expired"\|"cancelled", at:ms_ago}\|null}, net?` (§8.2)`, timeValid:bool, graceMs` (always 0 since 0.5, §12.5b)`, update?` (§14, session only)`, nvsReset?` (below)`, request?` (§12.6a: only with `?requestId=`)`}` — polled ~1 s while something is pending, else ~5 s |
+| GET `/api/state` | none | `{device:{name,version,model,mac,board}` (`board`: the `KEYRA_BOARD_ID`, §2)`, initialized, unlocked, maxEntries` (§6.1)`, session:bool, autoLockMin, host:{usb, ble, capsLock, output, bleTarget, connecting, usbOs?}` (§8.1, §10.5; `usbOs` with a session only)`, pending:Pending\|null, last:Result\|null, presence:{awaiting:bool, op:string\|null, expiresIn:ms, result:{op, ok:bool, code:"done"\|"failed"\|"expired"\|"cancelled", at:ms_ago}\|null}, net?` (§8.2)`, timeValid:bool, graceMs` (always 0 since 0.5, §12.5b)`, update?` (§14, session only)`, nvsReset?` (below)`, request?` (§12.6a: only with `?requestId=`)`}` — polled ~1 s while something is pending, else ~5 s |
 | POST `/api/setup` | none, only if !initialized | `{passphrase, wifiPassword, deviceName?}` → 202 `{awaiting:"button", expiresIn}`; completes when the button is pressed (watch `state.presence` / `state.initialized`). passphrase 10–128 chars; wifiPassword 8–63 printable ASCII and ≠ `keyra1234`. The client then calls unlock. AP restarts with the new password ~3 s after commit. |
 | POST `/api/unlock` | none | `{passphrase}` → 200 `{csrf, failedAttempts, nvsReset?}` (§15, below) / 401 `{error:"wrong", retryAfterMs}` / 429 `{error:"rate_limited", retryAfterMs}` / 202 trust the browser first (§8.2) |
 | POST `/api/lock` | session | → 204 |
@@ -364,7 +373,9 @@ Measurements and the reasoning: docs/research/CAPACITY.md.
 - `firmware`: `idf.py build` (dev profile: `sdkconfig.defaults`, HID+CDC with
   logs and the 1200-baud reboot-to-ROM hook) and
   `idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.release" build`
-  (HID only, logs off).
+  (HID only, logs off). Another board adds its profile:
+  `SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.release;boards/<id>.defaults"`;
+  `tools/build_boards.sh` builds every profile (CI builds each, unsigned).
 - Partition table (8 MB baseline, works on 16 MB):
   `nvs 0x9000 24K · otadata 8K · phy_init 4K · app0 3M · app1 3M · vault (littlefs) rest (≥1.5 MB)`.
   On a 16 MB board the upper 8 MB is not in the table; the firmware registers
@@ -1062,7 +1073,8 @@ press of its button; a new image that fails its first boot is rolled back.
   partition, 3 MiB), streamed into the idle OTA partition. (b) `POST
   /api/update/check` → `{current, latest, newer, size, notes}` from the latest
   GitHub release of `CONFIG_KEYRA_UPDATE_REPO` (default `hasanalaaa/keyra`,
-  asset `keyra-firmware.bin`; needs home Wi‑Fi, else 409 `offline`); `POST
+  asset `keyra-firmware.bin` for the default board `devkitc1`, else
+  `keyra-firmware-<KEYRA_BOARD_ID>.bin`; needs home Wi‑Fi, else 409 `offline`); `POST
   /api/update/download` → 202 and Keyra fetches that asset itself over HTTPS
   (certificate bundle, redirects followed only to `https://`). The client
   never names a URL. GitHub's hourly limit on unauthenticated calls (HTTP 403
@@ -1095,6 +1107,12 @@ press of its button; a new image that fails its first boot is rolled back.
 - **Releases.** `tools/release.sh` builds the release profile, signs it and
   publishes `v<version>` with `keyra-firmware.bin` plus the files for a first
   USB install; the notes are the version's CHANGELOG section.
+  **Per board:** it also builds and signs every other board in
+  `firmware/boards/boards.json` (`tools/build_boards.sh`) and uploads each as
+  `keyra-firmware-<id>.bin`, plus `boards.json`. The default board's asset
+  name never changes, so devices already in the field keep finding their
+  updates; bootloader, partition table and `ota_data_initial.bin` are shared.
+  A device does not check that an uploaded image was built for its board.
 
 ## 15. Activity log
 

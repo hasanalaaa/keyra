@@ -30,5 +30,10 @@ int main() {
   CHECK(fromTag("latest").empty());
   CHECK(fromTag("vv0.2.0").empty());
   CHECK(fromTag("").empty());
+  // Update asset per board: the default board's name never changes (devices in the field fetch it).
+  CHECK(assetName("devkitc1") == "keyra-firmware.bin");
+  CHECK(assetName(kDefaultBoard) == "keyra-firmware.bin");
+  CHECK(assetName("atoms3u") == "keyra-firmware-atoms3u.bin");
+  CHECK(assetName("devkitc1-v10") == "keyra-firmware-devkitc1-v10.bin");
   return KEYRA_TEST_RESULT();
 }

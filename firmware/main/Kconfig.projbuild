@@ -13,7 +13,14 @@ config KEYRA_UPDATE_REPO
     default "hasanalaaa/keyra"
     help
         "Check for updates" asks this repository's latest GitHub release for
-        keyra-firmware.bin. Only images signed with the key the running
+        this board's image (KEYRA_BOARD_ID). Only images signed with the key the running
         firmware was signed with are installed, whatever the repository serves.
+
+config KEYRA_BOARD_ID
+    string "Board id (firmware/boards/boards.json)"
+    default "devkitc1"
+    help
+        Picks the update asset: the default board installs keyra-firmware.bin,
+        any other keyra-firmware-<id>.bin. Set by firmware/boards/<id>.defaults.
 
 endmenu

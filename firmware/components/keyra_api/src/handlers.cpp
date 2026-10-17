@@ -35,6 +35,7 @@
 #include "keyra/settings.hpp"
 #include "keyra/vault.hpp"
 #include "runtime.hpp"
+#include "sdkconfig.h"
 #include "tags.hpp"
 #include "trusted.hpp"
 #include "type_request.hpp"
@@ -368,6 +369,7 @@ esp_err_t getState(Ctx& c) {
   cJSON_AddStringToObject(dev, "name", s.deviceName.c_str());
   cJSON_AddStringToObject(dev, "version", esp_app_get_description()->version);
   cJSON_AddStringToObject(dev, "model", "ESP32-S3");
+  cJSON_AddStringToObject(dev, "board", CONFIG_KEYRA_BOARD_ID);  // firmware/boards/boards.json id
   cJSON_AddStringToObject(dev, "mac", macString().c_str());
   // The supply dipped below what the chip needs and it restarted: usually a phone's USB port
   // or a thin cable. The app says so; it explains a keyboard that keeps coming and going.

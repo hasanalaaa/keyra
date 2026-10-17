@@ -1,0 +1,7 @@
+# Espressif ESP32-S3-DevKitC-1 v1.0 (the first revision): the RGB LED is on GPIO48.
+# Source: https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32s3/esp32-s3-devkitc-1/user_guide_v1.1.html
+#   "the initial version uses GPIO48, whereas v1.1 uses GPIO38"; Boot button on GPIO0.
+CONFIG_KEYRA_BOARD_ID="devkitc1-v10"
+CONFIG_KEYRA_BUTTON_GPIO=0
+CONFIG_KEYRA_LED_WS2812=y
+CONFIG_KEYRA_LED_GPIO=48

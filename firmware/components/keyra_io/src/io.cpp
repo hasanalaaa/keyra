@@ -1,4 +1,4 @@
-// keyra::io — BOOT button + WS2812 status LED, one task (SPEC §2, §4.1).
+// keyra::io — confirmation button + status LED, one task (SPEC §2, §4.1).
 #include "keyra/io.hpp"
 
 #include <atomic>
@@ -11,14 +11,21 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "led_anim.hpp"
-#include "led_strip.h"
 #include "sdkconfig.h"
+#if CONFIG_KEYRA_LED_WS2812
+#include "led_strip.h"
+#endif
 
 namespace keyra::io {
 namespace {
 
 constexpr const char* TAG = "keyra_io";
-constexpr gpio_num_t kButtonGpio = GPIO_NUM_0;
+constexpr gpio_num_t kButtonGpio = static_cast<gpio_num_t>(CONFIG_KEYRA_BUTTON_GPIO);
+#if CONFIG_KEYRA_BUTTON_ACTIVE_LOW
+constexpr int kPressedLevel = 0;
+#else
+constexpr int kPressedLevel = 1;
+#endif
 constexpr uint32_t kTickMs = 10;        // button sampling period
 constexpr uint32_t kLedEveryTicks = 2;  // LED frame every 20 ms (50 Hz)
 constexpr UBaseType_t kQueueDepth = 8;
@@ -29,7 +36,9 @@ struct ButtonEvent {
 };
 
 QueueHandle_t s_buttons = nullptr;
+#if CONFIG_KEYRA_LED_WS2812
 led_strip_handle_t s_strip = nullptr;
+#endif
 
 // Writers are other tasks; the IO task is the only reader. The sequence
 // number lets a repeated led(Success) restart the flash.
@@ -56,7 +65,24 @@ Pattern toPattern(Led l) {
   return Pattern::Off;
 }
 
+#if !CONFIG_KEYRA_LED_NONE
+// Boards that gate the LED's supply (TinyS3: LDO2 on GPIO17) keep it off until asked.
+void powerLed() {
+#if CONFIG_KEYRA_LED_POWER_GPIO >= 0
+  constexpr gpio_num_t pin = static_cast<gpio_num_t>(CONFIG_KEYRA_LED_POWER_GPIO);
+  gpio_config_t io = {};
+  io.pin_bit_mask = 1ULL << pin;
+  io.mode = GPIO_MODE_OUTPUT;
+  const esp_err_t err = gpio_config(&io);
+  if (err == ESP_OK) gpio_set_level(pin, 1);
+  else ESP_LOGE(TAG, "LED power on GPIO%d unavailable: %s", int(pin), esp_err_to_name(err));
+#endif
+}
+#endif
+
+#if CONFIG_KEYRA_LED_WS2812
 void initLed() {
+  powerLed();
   led_strip_config_t strip = {};
   strip.strip_gpio_num = CONFIG_KEYRA_LED_GPIO;
   strip.max_leds = 1;
@@ -82,19 +108,58 @@ void render(const Rgb& c) {
   }
 }
 
+// Only real changes go out: no redundant RMT traffic.
+void showFrame(LedAnimator& anim, uint32_t now) {
+  static Rgb last{1, 1, 1};  // force the first frame out
+  const Rgb c = anim.frame(now);
+  if (c.r != last.r || c.g != last.g || c.b != last.b) {
+    render(c);
+    last = c;
+  }
+}
+#elif CONFIG_KEYRA_LED_PLAIN
+constexpr gpio_num_t kLedGpio = static_cast<gpio_num_t>(CONFIG_KEYRA_LED_GPIO);
+#if CONFIG_KEYRA_LED_ACTIVE_LOW
+constexpr int kLedOnLevel = 0;
+#else
+constexpr int kLedOnLevel = 1;
+#endif
+bool s_ledOk = false;
+
+void initLed() {
+  powerLed();
+  gpio_config_t io = {};
+  io.pin_bit_mask = 1ULL << kLedGpio;
+  io.mode = GPIO_MODE_OUTPUT;
+  const esp_err_t err = gpio_config(&io);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "status LED on GPIO%d unavailable: %s", CONFIG_KEYRA_LED_GPIO, esp_err_to_name(err));
+    return;
+  }
+  gpio_set_level(kLedGpio, !kLedOnLevel);
+  s_ledOk = true;
+}
+
+void showFrame(LedAnimator& anim, uint32_t now) {
+  if (s_ledOk) gpio_set_level(kLedGpio, anim.on(now) ? kLedOnLevel : !kLedOnLevel);
+}
+#else
+void initLed() {}
+void showFrame(LedAnimator&, uint32_t) {}
+#endif
+
 void ioTask(void*) {
   ButtonClassifier button;
   LedAnimator anim;
   uint32_t seenSeq = s_ledSeq.load();
   uint32_t tick = 0;
-  Rgb last{1, 1, 1};  // force the first frame out
   TickType_t wake = xTaskGetTickCount();
   const TickType_t period = pdMS_TO_TICKS(kTickMs) > 0 ? pdMS_TO_TICKS(kTickMs) : 1;
 
   for (;;) {
     const uint32_t now = nowMs();
 
-    const Press p = button.update(gpio_get_level(kButtonGpio) == 0, now);
+    const Press p = button.update(gpio_get_level(kButtonGpio) == kPressedLevel, now);
     if (p != Press::None) {
       const ButtonEvent ev{p == Press::Short ? Button::Short : Button::Long, esp_timer_get_time() / 1000};
       if (xQueueSend(s_buttons, &ev, 0) != pdTRUE) ESP_LOGW(TAG, "button queue full, press dropped");
@@ -107,11 +172,7 @@ void ioTask(void*) {
         anim.set(static_cast<Pattern>(s_ledReq.load()), now);
       }
       anim.brightness(s_brightness.load());
-      const Rgb c = anim.frame(now);
-      if (c.r != last.r || c.g != last.g || c.b != last.b) {  // skip redundant RMT traffic
-        render(c);
-        last = c;
-      }
+      showFrame(anim, now);
     }
     vTaskDelayUntil(&wake, period);
   }
@@ -127,8 +188,8 @@ void init() {
   gpio_config_t io = {};
   io.pin_bit_mask = 1ULL << kButtonGpio;
   io.mode = GPIO_MODE_INPUT;
-  io.pull_up_en = GPIO_PULLUP_ENABLE;
-  io.pull_down_en = GPIO_PULLDOWN_DISABLE;
+  io.pull_up_en = kPressedLevel == 0 ? GPIO_PULLUP_ENABLE : GPIO_PULLUP_DISABLE;
+  io.pull_down_en = kPressedLevel == 0 ? GPIO_PULLDOWN_DISABLE : GPIO_PULLDOWN_ENABLE;
   io.intr_type = GPIO_INTR_DISABLE;
   ESP_ERROR_CHECK(gpio_config(&io));
 
@@ -160,6 +221,14 @@ void led(Led state) {
 
 void brightness(uint8_t pct) { s_brightness.store(pct > 100 ? 100 : pct); }
 
-bool bootPinHigh() { return gpio_get_level(kButtonGpio) == 1; }
+bool bootPinHigh() {
+#if CONFIG_KEYRA_BUTTON_GPIO == 0
+  return gpio_get_level(kButtonGpio) == 1;
+#else
+  // GPIO0 is not Keyra's button on this board (and not configured as an input), so nothing Keyra
+  // asks the user to hold keeps it low.
+  return true;
+#endif
+}
 
 }  // namespace keyra::io

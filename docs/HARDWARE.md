@@ -1,8 +1,8 @@
 # Hardware
 
 Keyra runs on a stock ESP32-S3 development board. No soldering and no extra parts
-are needed for the basic build: the board's own BOOT button is the "press to type"
-button and its onboard RGB LED is the status light.
+are needed for the basic build: the board's own button (BOOT on most boards) is the
+"press to type" button and its onboard LED is the status light.
 
 ## Supported boards
 
@@ -11,8 +11,8 @@ button and its onboard RGB LED is the status light.
 | ESP32-S3 (not S2, C3, or the original ESP32) | The native USB-OTG controller types as a keyboard, and the project targets `esp32s3`. |
 | 8 MB flash or more | The partition table is an 8 MB layout (two 3 MB app slots plus a vault partition). A 16 MB board runs the same image and leaves the tail unused. 4 MB boards are not supported. |
 | A native USB port (GPIO19/20) wired to a connector | This is the port that talks to the computer as a keyboard. |
-| A BOOT button on GPIO0 | Keyra uses it as the physical confirmation button. |
-| An addressable RGB LED (WS2812) | Status light. Optional in practice: without one, everything works but you lose the visual feedback. |
+| A button (BOOT on GPIO0 on most boards) | Keyra uses it as the physical confirmation button. |
+| An addressable RGB LED (WS2812), or a plain LED | Status light. Optional in practice: without one, everything works but you lose the visual feedback. A plain LED only blinks (no colours). |
 
 PSRAM is optional. The firmware uses it when present (for example larger backup
 restores) and boots without it.
@@ -21,12 +21,64 @@ restores) and boots without it.
 Other DevKitC-1 variants (N8, N8R2, N8R8, N16R8) and compatible clones should work;
 reports are welcome.
 
+### Board matrix
+
+Each board has a profile, `firmware/boards/<id>.defaults` (listed in
+[`firmware/boards/boards.json`](../firmware/boards/boards.json), with the vendor
+source of every pin in the profile's comments). Every profile is built by CI. Only
+the default build has been tested on hardware so far (it runs daily on a VCC-GND
+YD-ESP32-S3, a DevKitC-1 clone); if you run Keyra on another board, please report
+how it went.
+
+| Board (`id`) | Flash / PSRAM | Button | Status LED | Buy | Tested on hardware |
+|---|---|---|---|---|---|
+| Espressif ESP32-S3-DevKitC-1 v1.1 (`devkitc1`, default) | 8 or 16 MB / none or 8 MB octal | GPIO0 (BOOT) | WS2812, GPIO38 | [Espressif](https://www.espressif.com/en/dev-board/esp32-s3-devkitc-1-en) | **Yes** (the default build, on a YD-ESP32-S3 clone) |
+| Espressif ESP32-S3-DevKitC-1 v1.0 (`devkitc1-v10`) | 8 or 16 MB / none or 8 MB octal | GPIO0 (BOOT) | WS2812, GPIO48 | [Espressif](https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32s3/esp32-s3-devkitc-1/user_guide_v1.0.html) | No |
+| VCC-GND YD-ESP32-S3 (`yd-esp32-s3`) | 8 or 16 MB / none or 8 MB octal | GPIO0 (BOOT) | WS2812, GPIO48 | [VCC-GND (OEM docs)](https://github.com/vcc-gnd/YD-ESP32-S3) | No |
+| M5Stack AtomS3U (`atoms3u`), USB-A stick | 8 MB / none | GPIO41 (top button) | WS2812, GPIO35 | [M5Stack](https://shop.m5stack.com/products/atoms3u) | No |
+| M5Stack AtomS3 Lite (`atoms3-lite`) | 8 MB / none | GPIO41 (top button) | WS2812, GPIO35 | [M5Stack](https://shop.m5stack.com/products/atoms3-lite-esp32s3-dev-kit) | No |
+| Seeed Studio XIAO ESP32S3 (`xiao-esp32s3`) | 8 MB / 8 MB octal | GPIO0 (BOOT) | plain LED, GPIO21, active low | [Seeed Studio](https://www.seeedstudio.com/XIAO-ESP32S3-p-5627.html) | No |
+| Unexpected Maker TinyS3 (`tinys3`) | 8 MB / 8 MB quad | GPIO0 (BOOT) | WS2812, GPIO18, powered by GPIO17 | [Unexpected Maker](https://esp32s3.com/tinys3.html) | No |
+
+Every board in the table has 8 MB of flash or more and its USB connector on the
+S3's native USB port, which Keyra needs to be a keyboard.
+
+**DevKitC-1 clones such as the YD-ESP32-S3 differ between revisions and sellers:**
+the RGB LED is on GPIO38 on some and GPIO48 on others (VCC-GND documents GPIO48 for
+the YD-ESP32-S3). Everything else is the same, so try the default image first: if
+the LED shows the patterns below, keep it (`devkitc1`); if it stays dark, use
+`yd-esp32-s3` or `devkitc1-v10` (both GPIO48). Some cheap clones leave the LED's
+data line unconnected, and then no profile lights it.
+
+**Picking the image.** Each release carries `keyra-firmware.bin` for the default
+board and `keyra-firmware-<id>.bin` for each other board; the files for a first
+install (`bootloader.bin`, `partition-table.bin`, `ota_data_initial.bin`) are shared.
+Flash your board's image at `0x20000` (see [Prebuilt images](#prebuilt-images)).
+After that, **Device → Firmware update** fetches the same board's image by itself:
+the board id is built into the firmware and shown as `device.board` in
+`GET /api/state`. Do not install another board's image from a file: on a board
+whose button is on another pin you could not press to approve anything until you
+flash the right image by USB.
+
+**Building one yourself.** Layer the profile on the release profile:
+
+```sh
+cd firmware
+idf.py -B build-tinys3 -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.release;boards/tinys3.defaults" build
+```
+
+`tools/build_boards.sh` builds (and signs) every profile, or the ids you name;
+`--unsigned` skips signing. For a board with no profile, set the pins in
+`idf.py menuconfig` → *Keyra I/O* (`KEYRA_BUTTON_GPIO`, `KEYRA_BUTTON_ACTIVE_LOW`,
+the LED type, `KEYRA_LED_GPIO`, `KEYRA_LED_ACTIVE_LOW`, `KEYRA_LED_POWER_GPIO`) and
+give it its own `KEYRA_BOARD_ID` under *Keyra*.
+
 ## Pins
 
 | Function | GPIO | Notes |
 |---|---|---|
-| Button | **0** (BOOT) | Active low, internal pull-up. The firmware never restarts while it is held low, because a reset with GPIO0 low would enter ROM download mode. |
-| Status LED (WS2812) | **38** by default | ESP32-S3-DevKitC-1 **v1.1** uses GPIO38. **v1.0** boards use GPIO48. Change it with `idf.py menuconfig` under *Keyra I/O* → *Onboard WS2812 RGB LED GPIO* (`CONFIG_KEYRA_LED_GPIO`). |
+| Button | **0** (BOOT) by default | Active low, internal pull-up (`CONFIG_KEYRA_BUTTON_GPIO`, `CONFIG_KEYRA_BUTTON_ACTIVE_LOW`). When the button is GPIO0, the firmware never restarts while it is held low, because a reset with GPIO0 low would enter ROM download mode. |
+| Status LED (WS2812) | **38** by default | ESP32-S3-DevKitC-1 **v1.1** uses GPIO38. **v1.0** boards use GPIO48 (profile `devkitc1-v10`). Change it with `idf.py menuconfig` under *Keyra I/O* → *Status LED GPIO* (`CONFIG_KEYRA_LED_GPIO`). |
 | USB D- / D+ | 19 / 20 | The native USB port. Reserved by the USB peripheral. |
 
 On boards with octal PSRAM (the N16R8 included), GPIO35 to GPIO37 belong to the
@@ -48,6 +100,12 @@ PSRAM, so they are not available for other uses.
 | Amber, slow breathing | First-time setup |
 
 Exact patterns are defined in `firmware/components/keyra_io/` and are the source of truth.
+
+With a **plain LED** (XIAO ESP32S3) the colours are gone and the rhythm stays:
+waiting for a press (typing, approval, pairing) blinks every 1.2 s, setup blinks
+every 3 s, idle gives the same brief blink every 4 s, typing is steady on, success
+and error flash twice and three times, a passkey request double-blinks, and locked
+is dark.
 
 ## The two USB ports
 
@@ -105,11 +163,12 @@ If the app is already running a dev-profile build, you can skip the button dance
 ### Prebuilt images
 
 Each GitHub release (made by `tools/release.sh`) carries `bootloader.bin`,
-`partition-table.bin`, `ota_data_initial.bin`, the signed app image `keyra-firmware.bin`,
-`SHA256SUMS` and `flash-offsets.txt`, which lists the offsets (`0x0`, `0x8000`, `0xf000`,
-`0x20000`). Flash them with `esptool.py` at those offsets. This is needed once; after it,
-**Settings → Firmware update** installs new versions (`keyra-firmware.bin` is the file it
-uses).
+`partition-table.bin`, `ota_data_initial.bin`, the signed app image `keyra-firmware.bin`
+(default board) and `keyra-firmware-<id>.bin` (every other board in the matrix above),
+`boards.json`, `SHA256SUMS` and `flash-offsets.txt`, which lists the offsets (`0x0`,
+`0x8000`, `0xf000`, `0x20000`). Flash them with `esptool.py` at those offsets, with your
+board's app image at `0x20000`. This is needed once; after it, **Settings → Firmware
+update** installs new versions (your board's image is the file it uses).
 
 ## Dev hook: 1200-baud reboot to ROM
 
@@ -141,6 +200,7 @@ There is no official enclosure yet. Ideas, roughly from easiest to most involved
 - **Sleeve or case for the DevKitC-1** (3D printed or off the shelf) with two openings: one for the USB port, one over the BOOT button. The button is tiny, so print a short plunger or use a rubber cap that presses it.
 - **Light pipe.** A small clear pin or a 1.75 mm filament offcut guides the onboard LED to the case surface so the status colour is visible.
 - **Capsule or stick form factor.** A custom PCB with a USB-C plug directly on the S3 module, a large tactile button on top and the LED next to it. Contributions welcome; open an issue first so the pin map stays compatible.
+  A reference design for a USB-C stick (proposal, not built or tested) is in [hardware/pcb/DESIGN.md](../hardware/pcb/DESIGN.md).
 - **Tamper evidence.** A sticker or epoxy over the screws deters casual access. It does not replace flash encryption.
 
 Keep the antenna area free: no metal over the end of the module that carries the PCB antenna.
@@ -185,7 +245,7 @@ you have locked.
 | Computer sees no keyboard | The **USB** port must be connected to the computer, not the UART port. |
 | Browser says "use your security key" but the light does not double-blink | Keyra must be plugged into the computer by USB (Bluetooth cannot carry passkeys). If Keyra is locked, unlock it on the phone within 30 s. |
 | macOS shows "Keyboard Setup Assistant" | Expected the first time any new keyboard connects; closing it is fine. Keyra types US layout regardless of the answer you choose. |
-| LED is the wrong colour or dark | Your board is probably v1.0: set `KEYRA_LED_GPIO` to 48 and rebuild. |
+| LED is the wrong colour or dark | On a DevKitC-1 your board is probably v1.0: flash `keyra-firmware-devkitc1-v10.bin` (or set `KEYRA_LED_GPIO` to 48 and rebuild). On another board, check you flashed that board's image. |
 | Board stuck in download mode after reset | BOOT (GPIO0) was held low at reset. Release it and reset again. |
 | Keyra does not appear in a phone's Bluetooth list | Open the pairing window first (**Settings → Bluetooth → Pair a new device**, then press the button; LED pulses cyan). Outside the window Keyra is invisible to new devices. |
 | A paired device stopped connecting | Forget Keyra on that device and forget the device in Keyra's app, then pair again. |

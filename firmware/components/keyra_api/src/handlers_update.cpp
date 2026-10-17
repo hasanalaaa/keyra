@@ -224,8 +224,9 @@ struct Release {
   size_t size = 0;
 };
 
-// The repository's latest release that carries version::kAssetName.
+// The repository's latest release that carries this board's image.
 const char* latestRelease(Release& out) {
+  const std::string assetName = version::assetName(CONFIG_KEYRA_BOARD_ID);
   const std::string url = std::string("https://api.github.com/repos/") + CONFIG_KEYRA_UPDATE_REPO + "/releases/latest";
   esp_http_client_handle_t c = client(url, false);
   if (!c) return "network";
@@ -266,7 +267,7 @@ const char* latestRelease(Release& out) {
   const cJSON* asset = nullptr;
   cJSON_ArrayForEach(asset, cJSON_GetObjectItemCaseSensitive(j.get(), "assets")) {
     const cJSON* name = cJSON_GetObjectItemCaseSensitive(asset, "name");
-    if (!cJSON_IsString(name) || version::kAssetName != name->valuestring) continue;
+    if (!cJSON_IsString(name) || assetName != name->valuestring) continue;
     const cJSON* link = cJSON_GetObjectItemCaseSensitive(asset, "browser_download_url");
     const cJSON* size = cJSON_GetObjectItemCaseSensitive(asset, "size");
     if (!cJSON_IsString(link) || std::string_view(link->valuestring).rfind("https://", 0) != 0) continue;

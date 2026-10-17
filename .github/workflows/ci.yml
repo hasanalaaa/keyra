@@ -137,3 +137,35 @@ jobs:
             firmware/${{ matrix.build_dir }}/partition_table/partition-table.bin
             firmware/${{ matrix.build_dir }}/ota_data_initial.bin
             firmware/${{ matrix.build_dir }}/flasher_args.json
+
+  board-ids:
+    name: Board profiles (list)
+    runs-on: ubuntu-latest
+    outputs:
+      ids: ${{ steps.ids.outputs.ids }}
+    steps:
+      - uses: actions/checkout@v4
+      # build_boards.sh checks boards.json (ids, one default, a .defaults file each) before listing.
+      - id: ids
+        run: echo "ids=$(tools/build_boards.sh --ids | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().split()))')" >> "$GITHUB_OUTPUT"
+
+  boards:
+    name: Board build (${{ matrix.board }}, release profile)
+    needs: board-ids
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        board: ${{ fromJSON(needs.board-ids.outputs.ids) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build with ESP-IDF v6.0.2
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v6.0.2
+          target: esp32s3
+          path: firmware
+          command: idf.py -B build-${{ matrix.board }} -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.release;boards/${{ matrix.board }}.defaults" build
+      # The image looks for its updates under this id (SPEC §14).
+      - name: Profile names its board
+        run: grep -qx 'CONFIG_KEYRA_BOARD_ID="${{ matrix.board }}"' firmware/build-${{ matrix.board }}/sdkconfig
