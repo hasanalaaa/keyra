@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keyra: the password vault you can hold</title>
+<meta name="description" content="Keyra is an open-source password vault on a few-dollar ESP32-S3 board. Your passwords stay on the device, and it types them for you only when you press its button. Install it from your browser.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#F4F3EF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0B0C0E" media="(prefers-color-scheme: dark)">
+<link rel="canonical" href="https://hasanalaaa.github.io/keyra/">
+<link rel="alternate" hreflang="en" href="https://hasanalaaa.github.io/keyra/">
+<link rel="alternate" hreflang="ar" href="https://hasanalaaa.github.io/keyra/ar/">
+<link rel="alternate" hreflang="x-default" href="https://hasanalaaa.github.io/keyra/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Keyra">
+<meta property="og:title" content="Keyra: the password vault you can hold">
+<meta property="og:description" content="Your passwords stay on the device. Keyra types them for you, only when you press its button. Open source, no cloud, ESP32-S3.">
+<meta property="og:url" content="https://hasanalaaa.github.io/keyra/">
+<meta property="og:image" content="https://hasanalaaa.github.io/keyra/img/social.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="Keyra: the password vault you can hold. It types only when you press its button.">
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="ar">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preload" href="assets/keyra-sans.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/site.css">
+<!-- @esp-web-tools -->
+<script type="module" src="assets/site.js"></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="Keyra, home">
+      <svg viewBox="14 14 72 72" aria-hidden="true"><path d="M73.5 31.98L75.5 33V44C75.5 60 64 73 50 80C36 73 24.5 60 24.5 44V33L50 20L62.5 26.37" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>Keyra</span>
+    </a>
+    <nav class="nav" aria-label="Sections">
+      <a href="#how">How it works</a>
+      <a href="#security">Security</a>
+      <a href="#hardware">Hardware</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <div class="top-actions">
+      <a class="lang" href="ar/" hreflang="ar" lang="ar">العربية</a>
+      <a class="gh" href="https://github.com/hasanalaaa/keyra" aria-label="Keyra on GitHub">
+        <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      </a>
+      <a class="btn btn-primary btn-sm" href="#install">Install</a>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="hero" id="top" aria-labelledby="hero-title">
+  <div class="wrap">
+    <div class="stage">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="img/hero-dark.jpg">
+        <img src="img/hero-light.jpg" width="1672" height="941" fetchpriority="high" alt="Keyra, a graphite stick with one ivory button and a blue light ring">
+      </picture>
+      <div class="hero-copy">
+        <span class="eyebrow">Open-source hardware password vault</span>
+        <h1 class="display" id="hero-title">The password vault you can hold.</h1>
+        <p class="lede">Your passwords stay on the device. Keyra types them for you, only when you press its button.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="#install">Install in your browser</a>
+          <a class="btn btn-ghost" href="https://github.com/hasanalaaa/keyra">View on GitHub</a>
+        </div>
+        <ul class="hero-meta">
+          <li>MIT licensed</li>
+          <li>No cloud, no account</li>
+          <li>ESP32-S3</li>
+        </ul>
+      </div>
+    </div>
+    <p class="caption">Concept render. Today Keyra runs on an ESP32-S3 dev board, bare or in the printable case: see <a href="#hardware">Hardware</a>.</p>
+  </div>
+</section>
+
+<section class="band" id="press" aria-labelledby="press-title">
+  <div class="wrap press-grid">
+    <div class="press-copy reveal">
+      <span class="eyebrow">The press</span>
+      <h2 class="title" id="press-title">Nothing types until you press.</h2>
+      <p class="lede">Pick an account on your phone and Keyra gets ready. Its light breathes blue, at the same 1.2-second rhythm as the LED on the board, until you press the button. Then it types into the field you clicked, and the line closes.</p>
+      <p class="lede">Malware on your computer can’t press a button.</p>
+      <ul class="press-points">
+        <li><span class="k">60 s</span><span><b>Armed once.</b> An action waits a minute, then expires. It runs once.</span></li>
+        <li><span class="k">1.5 s</span><span><b>Long press to cancel,</b> or to lock the vault when nothing is waiting.</span></li>
+        <li><span class="k">USB · BLE</span><span><b>Types like a keyboard,</b> over USB or Bluetooth. No clipboard, nothing to install.</span></li>
+      </ul>
+      <p class="press-film"><a href="https://github.com/hasanalaaa/keyra#how-it-works">Watch the 8-second film</a> (concept render)</p>
+    </div>
+    <div class="demo reveal" data-press data-mode="wait">
+      <svg class="press" viewBox="14 14 72 72" aria-hidden="true" focusable="false">
+        <path class="press-halo" d="M63.8 27.04L72.3 31.37" pathLength="100"/>
+        <path class="press-glow" d="M63.8 27.04L72.3 31.37" pathLength="100"/>
+        <path class="press-gap" d="M63.8 27.04L72.3 31.37" pathLength="100"/>
+        <path class="press-line" d="M72.3 31.37L75.5 33V44C75.5 60 64 73 50 80C36 73 24.5 60 24.5 44V33L50 20L63.8 27.04" pathLength="100"/>
+      </svg>
+      <div class="demo-status">
+        <span class="chip-wait">Waiting for your press</span>
+        <span class="receipt">Typed · USB · GitHub</span>
+      </div>
+      <div class="keycap">
+        <button type="button" data-press-btn aria-describedby="press-hint"><span class="sr-only">Press Keyra’s button</span></button>
+        <span id="press-hint">Try it: press</span>
+      </div>
+      <p class="sr-only" aria-live="polite" data-press-status data-wait="Waiting for your press" data-done="Typed"></p>
+    </div>
+  </div>
+</section>
+
+<section id="how" aria-labelledby="how-title">
+  <div class="wrap">
+    <div class="head reveal">
+      <span class="eyebrow">How it works</span>
+      <h2 class="title" id="how-title">From plug to typed in four steps.</h2>
+      <p class="lede">The computer sees a keyboard typing the one login you chose, at the moment you chose. Your phone is the screen; Keyra is the vault.</p>
+    </div>
+    <ol class="steps">
+      <li class="step reveal">
+        <div class="step-n"><span class="mono">01</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2.5h6v5H9z"/><path d="M7 7.5h10v5a5 5 0 0 1-10 0z"/><path d="M12 17.5v4"/></svg></div>
+        <h3>Plug it in</h3>
+        <p>Connect Keyra’s USB port to the computer. It shows up as a keyboard. Or pair it once over Bluetooth.</p>
+      </li>
+      <li class="step reveal">
+        <div class="step-n"><span class="mono">02</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 9a14 14 0 0 1 19 0"/><path d="M5.5 12.5a9.5 9.5 0 0 1 13 0"/><path d="M8.7 16a5 5 0 0 1 6.6 0"/><path d="M12 19.5h.01"/></svg></div>
+        <h3>Join its Wi-Fi</h3>
+        <p>On your phone, join <b>Keyra-XXXX</b> and open <span class="ltr">keyra.local</span>. Nothing to install, no account.</p>
+      </li>
+      <li class="step reveal">
+        <div class="step-n"><span class="mono">03</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="2.5" width="12" height="19" rx="3"/><path d="M9.5 7.5h5M9.5 11h5M9.5 14.5h3"/></svg></div>
+        <h3>Pick an account</h3>
+        <p>Unlock with your passphrase, tap an account and choose Username, Password, Both or a 2FA code.</p>
+      </li>
+      <li class="step reveal">
+        <div class="step-n"><span class="mono">04</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/></svg></div>
+        <h3>Press the button</h3>
+        <p>Click the login field, press Keyra’s button, and it types. The light flashes green and your phone says <b>Typed</b>.</p>
+      </li>
+    </ol>
+    <figure class="figure-wide reveal">
+      <img src="img/press.jpg" width="1672" height="941" loading="lazy" decoding="async" alt="A finger presses Keyra’s ivory button while its light ring glows blue">
+      <figcaption class="caption">Concept render.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<hr class="hr">
+
+<section id="why" aria-labelledby="why-title">
+  <div class="wrap">
+    <div class="head reveal">
+      <span class="eyebrow">Why Keyra</span>
+      <h2 class="title" id="why-title">Move the secret off the computer.</h2>
+      <p class="lede">Most password managers live in the same computer and browser that attackers target. Keyra keeps the vault somewhere else: in your hand.</p>
+    </div>
+    <ul class="why">
+      <li class="reveal"><h3>Your vault never lives on the computer</h3><p>Nothing is stored or synced there. The computer only sees a keyboard typing the one login you chose. The optional browser extension only asks Keyra to type; it never holds a password.</p></li>
+      <li class="reveal"><h3>Malware cannot make it type</h3><p>Every action needs a physical press of the button on the device. No press, no typing.</p></li>
+      <li class="reveal"><h3>No cloud, no account, no subscription</h3><p>The vault is encrypted on the device and managed over the device’s own Wi-Fi. Nothing leaves your desk.</p></li>
+      <li class="reveal"><h3>Works on any computer</h3><p>If it accepts a USB keyboard (a work laptop, a locked-down kiosk, a TV), Keyra works there. Phones and tablets pair over Bluetooth.</p></li>
+      <li class="reveal"><h3>Passkeys and a security key</h3><p>Over USB, Keyra is also a FIDO2/U2F security key for up to 50 passkeys. Each sign-in waits for your press. Not FIDO certified.</p></li>
+      <li class="reveal"><h3>Open, and a few dollars</h3><p>MIT-licensed firmware for a stock development board. Read it, build it, change it. The app speaks Arabic and English.</p></li>
+    </ul>
+  </div>
+</section>
+
+<section class="screens-sec" id="app" aria-labelledby="app-title">
+  <div class="wrap">
+    <div class="head reveal">
+      <span class="eyebrow">The app</span>
+      <h2 class="title" id="app-title">Your phone is the screen.</h2>
+      <p class="lede">A phone-first app served by Keyra itself at <span class="ltr">keyra.local</span>. These are real screens from the app, in Arabic and English, light and dark.</p>
+    </div>
+    <div class="screens" tabindex="0" role="group" aria-label="App screenshots">
+      <figure class="reveal">
+        <div class="phone"><picture><source media="(prefers-color-scheme: dark)" srcset="img/app/vault-en-dark.png"><img src="img/app/vault-en.png" width="780" height="1688" loading="lazy" decoding="async" alt="The Accounts screen: a searchable list of accounts with favorites"></picture></div>
+        <figcaption>Accounts<span>Search, favorites, recents.</span></figcaption>
+      </figure>
+      <figure class="reveal">
+        <div class="phone"><picture><source media="(prefers-color-scheme: dark)" srcset="img/app/ready-en-dark.png"><img src="img/app/ready-en.png" width="780" height="1688" loading="lazy" decoding="async" alt="Ready: press Keyra’s button. The shield line glows blue with a 58-second countdown"></picture></div>
+        <figcaption>Ready<span>Blue while it waits for you.</span></figcaption>
+      </figure>
+      <figure class="reveal">
+        <div class="phone"><picture><source media="(prefers-color-scheme: dark)" srcset="img/app/typed-en-dark.png"><img src="img/app/typed-en.png" width="780" height="1688" loading="lazy" decoding="async" alt="Typed: the shield line is closed, with a receipt that reads Typed, USB"></picture></div>
+        <figcaption>Typed<span>The line closes. A receipt stays.</span></figcaption>
+      </figure>
+      <figure class="reveal">
+        <div class="phone"><picture><source media="(prefers-color-scheme: dark)" srcset="img/app/security-en-dark.png"><img src="img/app/security-en.png" width="780" height="1688" loading="lazy" decoding="async" alt="The Security screen with password health, activity, passkeys and the recovery kit"></picture></div>
+        <figcaption>Security<span>Health, activity, passkeys, recovery.</span></figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section id="security" aria-labelledby="security-title">
+  <div class="wrap">
+    <div class="head reveal">
+      <span class="eyebrow">Security model</span>
+      <h2 class="title" id="security-title">Honest about what it protects.</h2>
+      <p class="lede">Keyra is a convenience-and-isolation device, not a magic shield. Here is exactly what it does, and what it doesn’t.</p>
+    </div>
+    <div class="ledger">
+      <div class="reveal">
+        <h3><svg viewBox="14 14 72 72" aria-hidden="true"><path d="M73.5 31.98L75.5 33V44C75.5 60 64 73 50 80C36 73 24.5 60 24.5 44V33L50 20L62.5 26.37" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/></svg>What Keyra protects</h3>
+        <ul>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>Every entry is encrypted</b> with AES-256-GCM under a random key, protected by your passphrase (PBKDF2-HMAC-SHA256, about 1.2 s on the device).</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>Unlock attempts are rate-limited</b> and counted durably; restarting doesn’t reset the delay.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>It types only after a physical press.</b> The computer gets no storage or network channel to Keyra.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>Passwords reach your phone only after a press</b> (on by default), so a stolen browser session reads nothing.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>Apps, the extension and AI agents</b> get arm-only tokens: they can ask Keyra to type, never read.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>Bluetooth pairing opens for 2 minutes</b>, only after a press. The rest of the time only paired devices can connect.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>Decrypted data lives in RAM only while unlocked</b>, and is wiped on lock. It locks when the computer is unplugged or sleeps.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>Updates must be signed</b> with your release key, never older, and roll back by themselves if they fail to start.</span></li>
+        </ul>
+      </div>
+      <div class="no reveal">
+        <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5 2.5 20h19z"/><path d="M12 10v4.5M12 17.2h.01"/></svg>What it does not protect</h3>
+        <ul>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"/></svg><span><b>The phone link is plain HTTP over WPA2</b>, not TLS. Someone who knows Keyra’s Wi-Fi password and is on that network can observe the traffic.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"/></svg><span><b>No secure element.</b> With the board in hand, an attacker can dump the flash and guess your passphrase offline. Use a long one.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"/></svg><span><b>Flash encryption and secure boot are optional</b> and off by default. They are irreversible eFuse steps.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"/></svg><span><b>Not independently audited.</b></span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"/></svg><span><b>A keylogger on the computer</b> can see what Keyra types, as with any keyboard.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"/></svg><span><b>The security key is not FIDO certified</b> and uses self attestation; its keys are as safe as your passphrase.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"/></svg><span><b>Bluetooth pairing is “Just Works”.</b> Someone in range during the 2-minute window could pair their own device. Check the device list afterwards.</span></li>
+        </ul>
+      </div>
+    </div>
+    <p class="sec-foot reveal">The full threat model, cryptographic design and rate-limit schedule: <a href="https://github.com/hasanalaaa/keyra/blob/main/SECURITY.md">SECURITY.md</a>. Found a vulnerability? Please use a private GitHub security advisory.</p>
+  </div>
+</section>
+
+<hr class="hr">
+
+<section id="hardware" aria-labelledby="hardware-title">
+  <div class="wrap">
+    <div class="hw">
+      <div class="reveal">
+        <span class="eyebrow">Hardware</span>
+        <h2 class="title" id="hardware-title">Runs on a few-dollar board.</h2>
+        <p class="lede" style="margin-block:20px 40px">A stock ESP32-S3 development board. No soldering: its BOOT button is the press, its RGB LED is the light.</p>
+        <dl class="spec">
+          <dt>Chip</dt><dd>ESP32-S3<span>Not the S2, C3 or the original ESP32.</span></dd>
+          <dt>Flash</dt><dd>8 MB or more<span>4 MB boards are not supported.</span></dd>
+          <dt>USB</dt><dd>The native USB port<span>Wired to GPIO19/20. It types as the keyboard.</span></dd>
+          <dt>Button</dt><dd>BOOT (GPIO0)<span>The physical confirmation.</span></dd>
+          <dt>Light</dt><dd>WS2812 RGB LED<span>Optional, but it’s how Keyra talks to you.</span></dd>
+          <dt>PSRAM</dt><dd>Optional</dd>
+        </dl>
+      </div>
+      <figure class="hw-fig reveal">
+        <img src="img/desk.jpg" width="1672" height="941" loading="lazy" decoding="async" alt="Keyra plugged into a laptop on a wooden desk, its light ring glowing blue, a phone beside it">
+        <figcaption class="caption">Concept render. The board you can use today is listed below.</figcaption>
+      </figure>
+    </div>
+    <div class="enclosure">
+      <div class="enc-head reveal">
+        <div>
+          <span class="eyebrow">Printable enclosure</span>
+          <h3 class="enc-title">A case you can print.</h3>
+        </div>
+        <div>
+          <p>For the VCC-GND YD-ESP32-S3 board, the dual USB-C DevKitC-1 clone, in two versions: on a cable, or as a dongle that plugs straight into the port. Five printed parts, no screws. A captive mechanical button presses the board’s own BOOT switch, a light ring carries the LED’s glow around it, and the Contour is debossed in the lid.</p>
+          <p>The cable version has been printed and fitted; the dongle’s USB-C coupler has not been fitted yet. It does not fit Espressif’s own DevKitC-1, so check your board against the measurements first.</p>
+          <p class="enc-link"><a href="https://github.com/hasanalaaa/keyra/tree/main/hardware/enclosure">Print files, OpenSCAD source and assembly guide on GitHub</a></p>
+        </div>
+      </div>
+      <div class="enc-grid">
+        <figure class="enc-main reveal"><img src="img/enclosure/Cable.jpg" width="1600" height="1257" loading="lazy" decoding="async" alt="The cable version: a white case with the big button, its blue light ring and the Contour on the lid"><figcaption>Cable version</figcaption></figure>
+        <figure class="reveal"><img src="img/enclosure/Assembly.jpg" width="1600" height="1257" loading="lazy" decoding="async" alt="Exploded view: lid, light ring, button and carrier, board, base"><figcaption>Exploded: lid, light ring, button, board, base</figcaption></figure>
+        <figure class="reveal"><img src="img/enclosure/Dongle.jpg" width="1600" height="1257" loading="lazy" decoding="async" alt="The dongle version, which plugs straight into a USB-C port"><figcaption>Dongle version</figcaption></figure>
+        <figure class="reveal"><img src="img/enclosure/Captive_Button.jpg" width="1600" height="1257" loading="lazy" decoding="async" alt="The button held captive on its moving carrier"><figcaption>The button, captive on its carrier</figcaption></figure>
+        <figure class="reveal"><img src="img/enclosure/Cap_Feet.jpg" width="1600" height="1257" loading="lazy" decoding="async" alt="The underside of the button: the flexible feet and the BOOT plunger"><figcaption>Underneath: flexible feet and the BOOT plunger</figcaption></figure>
+      </div>
+    </div>
+    <div class="boards reveal">
+      <h3>Supported boards</h3>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th scope="col">Board</th><th scope="col">Flash</th><th scope="col">PSRAM</th><th scope="col">Button</th><th scope="col">LED</th><th scope="col">Status</th></tr></thead>
+          <tbody>
+<!-- @boards:table -->
+          </tbody>
+        </table>
+      </div>
+      <p class="small" style="margin-block-start:16px">“Tested on hardware” means someone ran this exact build on that board. Other boards are expected to work; <a href="https://github.com/hasanalaaa/keyra/issues">reports are welcome</a>. Pins and options: <a href="https://github.com/hasanalaaa/keyra/blob/main/docs/HARDWARE.md">HARDWARE.md</a>.</p>
+    </div>
+  </div>
+</section>
+
+<section class="install-sec screens-sec" id="install" aria-labelledby="install-title">
+  <div class="wrap">
+    <div class="install">
+      <div class="reveal">
+        <span class="eyebrow">Install</span>
+        <h2 class="title" id="install-title">Install Keyra from your browser.</h2>
+        <p class="lede" style="margin-block:20px 36px">Flash the latest release onto a new board in about a minute. No tools to install.</p>
+        <div class="warn" role="note">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5 2.5 20h19z"/><path d="M12 10v4.5M12 17.2h.01"/></svg>
+          <div>
+            <strong>Installing erases the board.</strong>
+            <p>Everything on it is wiped: any Keyra vault, passkeys and settings. Use this for a new board.</p>
+            <p>Already using Keyra? Don’t install here. It updates itself and keeps your vault: <b>Device → Firmware update</b>.</p>
+          </div>
+        </div>
+        <ol class="how-steps">
+          <li><span><b>Choose your board</b>Not listed? The DevKitC-1 build should run on ESP32-S3 boards with 8 MB flash, a native USB port and a BOOT button.</span></li>
+          <li><span><b>Put it in download mode</b>Unplug the board. Hold <b style="display:inline">BOOT</b>, plug the board’s <b style="display:inline">USB</b> port into this computer, then let go. On the UART port no button is needed.</span></li>
+          <li><span><b>Install</b>Tick the box, click Install, choose the board’s serial port and confirm. Keep the cable in until it says done.</span></li>
+          <li><span><b>Restart and set it up</b>Press RESET, or unplug and plug it back in. When the light breathes amber, join <b style="display:inline">Keyra-XXXX</b> on your phone (password <code>keyra1234</code>) and open <span class="ltr">http://keyra.local</span>.</span></li>
+        </ol>
+        <p class="req"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>Needs Chrome or Edge on a desktop computer (Web Serial) and a USB data cable.</p>
+      </div>
+      <div class="console installer reveal" data-installer>
+        <h3>Keyra {{version}}</h3>
+        <p class="small">The latest release, served from this site.</p>
+        <fieldset class="picker">
+          <legend>Your board</legend>
+<!-- @boards:picker -->
+        </fieldset>
+        <label class="ack"><input type="checkbox" data-ack><span>I understand this erases everything on the board.</span></label>
+        <div class="install-btn">
+          <esp-web-install-button manifest="">
+            <button slot="activate" class="btn btn-primary btn-lg" type="button" data-install-btn disabled><span>Install on <bdi data-board-name>your board</bdi></span></button>
+            <p slot="unsupported" class="unsupported">This browser can’t reach USB devices. Open this page in Chrome or Edge on a Mac, Windows or Linux computer, or use esptool below.</p>
+            <p slot="not-allowed" class="unsupported">Installing needs this page over HTTPS.</p>
+          </esp-web-install-button>
+        </div>
+        <p class="console-foot">Firmware from the <a href="{{release_url}}">GitHub release</a>, checksums in SHA256SUMS. Installing uses <a href="https://esphome.github.io/esp-web-tools/">ESP Web Tools</a>.</p>
+        <details class="cli">
+          <summary>Prefer the command line?</summary>
+          <p class="small" style="margin-block-start:10px">Download the files from the <a href="{{release_url}}">release</a>, then:</p>
+          <pre><code>esptool.py --chip esp32s3 -p &lt;PORT&gt; write_flash \
+  0x0 bootloader.bin 0x8000 partition-table.bin \
+  0xf000 ota_data_initial.bin 0x20000 keyra-firmware.bin</code></pre>
+        </details>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="faq" aria-labelledby="faq-title">
+  <div class="wrap faq-grid">
+    <div class="head">
+      <span class="eyebrow">FAQ</span>
+      <h2 class="title" id="faq-title">Before you start.</h2>
+      <p class="lede">More in the <a href="https://github.com/hasanalaaa/keyra#faq">README</a>.</p>
+    </div>
+    <div class="faq">
+      <details>
+        <summary>Will installing here erase my Keyra?</summary>
+        <p>Yes. The installer is for new boards: it wipes the whole flash, vault included. A Keyra you already use updates from its own app (Device → Firmware update) and keeps your accounts. To move to a new board, make an encrypted backup in the app first, install, then restore it.</p>
+      </details>
+      <details>
+        <summary>Which browsers can install?</summary>
+        <p>Chrome or Edge (and other Chromium browsers with Web Serial) on Windows, macOS or Linux. Firefox, Safari and phones can’t reach USB serial ports; use the esptool command under Install instead.</p>
+      </details>
+      <details>
+        <summary>The installer doesn’t find my board.</summary>
+        <p>Use a USB data cable (some cables only charge), put the board in download mode (hold BOOT, plug in, let go), and close other apps that might hold the port, such as a serial monitor. On Windows the UART port may need the CP210x driver.</p>
+      </details>
+      <details>
+        <summary>Can the computer read my vault?</summary>
+        <p>No. Keyra presents a keyboard and a security key, with no storage interface and no network path. The computer sees what gets typed, and can ask the security key to sign a website’s challenge, which needs your press.</p>
+      </details>
+      <details>
+        <summary>Is Keyra a YubiKey replacement?</summary>
+        <p>No. Keyra can create and use passkeys over USB, and for many personal accounts that works well. A YubiKey keeps its keys in a secure chip, is FIDO certified and works over NFC. Keep a second key or another sign-in method on every account.</p>
+      </details>
+      <details>
+        <summary>Why HTTP and not HTTPS?</summary>
+        <p>A device on its own network can’t get a certificate browsers trust without installing something on each phone, and a browser warning teaches people to ignore warnings. The link is protected by WPA2 and a private Wi-Fi password instead. It’s a real limit, listed above.</p>
+      </details>
+      <details>
+        <summary>Do I need the internet?</summary>
+        <p>No. Keyra makes its own Wi-Fi network. If you let it join your home Wi-Fi, it uses the internet only for the time and to check for firmware updates when you ask.</p>
+      </details>
+      <details>
+        <summary>What does it cost?</summary>
+        <p>A compatible ESP32-S3 board is usually a few dollars to about ten. The firmware is free and MIT licensed.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <div>
+        <a class="brand" href="#top">
+          <svg viewBox="14 14 72 72" aria-hidden="true"><path d="M73.5 31.98L75.5 33V44C75.5 60 64 73 50 80C36 73 24.5 60 24.5 44V33L50 20L62.5 26.37" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>Keyra</span>
+        </a>
+        <p class="foot-tag">The password vault you can hold. It types only when you press its button.</p>
+      </div>
+      <div>
+        <h4>Project</h4>
+        <ul>
+          <li><a href="https://github.com/hasanalaaa/keyra">GitHub</a></li>
+          <li><a href="https://github.com/hasanalaaa/keyra/releases">Releases</a></li>
+          <li><a href="https://github.com/hasanalaaa/keyra/blob/main/CHANGELOG.md">Changelog</a></li>
+          <li><a href="https://github.com/hasanalaaa/keyra/blob/main/CONTRIBUTING.md">Contributing</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Docs</h4>
+        <ul>
+          <li><a href="https://github.com/hasanalaaa/keyra/blob/main/SECURITY.md">Security</a></li>
+          <li><a href="https://github.com/hasanalaaa/keyra/blob/main/docs/HARDWARE.md">Hardware</a></li>
+          <li><a href="https://github.com/hasanalaaa/keyra/blob/main/docs/FIDO.md">Passkeys</a></li>
+          <li><a href="ar/" hreflang="ar" lang="ar">العربية</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="legal">
+      <p>MIT License, 2026 hasanalaaa. The product photos are concept renders; the enclosure pictures are renders of the printable case.</p>
+      <p>Set in <a href="https://fonts.google.com/specimen/Readex+Pro">Readex Pro</a>, SIL Open Font License 1.1.</p>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

@@ -9,7 +9,7 @@
 
 <h3>Your passwords stay on the device.<br>Keyra types them for you, only when you press its button.</h3>
 
-<a href="#how-it-works">How it works</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#quick-start">Quick start</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#security-model">Security</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#hardware">Hardware</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#faq">FAQ</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="README.ar.md">العربية</a>
+<a href="https://hasanalaaa.github.io/keyra/">Website</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#how-it-works">How it works</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#quick-start">Quick start</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#security-model">Security</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#hardware">Hardware</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#faq">FAQ</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="README.ar.md">العربية</a>
 <br><br>
 
 <a href="https://github.com/hasanalaaa/keyra/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/hasanalaaa/keyra/ci.yml?branch=main&style=flat-square&label=CI&labelColor=3A3B40&color=16171A"></a>

@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>كيرا: خزنة كلمات المرور التي تحملها بيدك</title>
+<meta name="description" content="كيرا خزنة كلمات مرور مفتوحة المصدر على لوحة ESP32-S3 سعرها بضعة دولارات. كلماتك تبقى داخل الجهاز، ويكتبها عنك فقط عندما تضغط زرّه. ثبّته من متصفحك.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#F4F3EF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0B0C0E" media="(prefers-color-scheme: dark)">
+<link rel="canonical" href="https://hasanalaaa.github.io/keyra/ar/">
+<link rel="alternate" hreflang="en" href="https://hasanalaaa.github.io/keyra/">
+<link rel="alternate" hreflang="ar" href="https://hasanalaaa.github.io/keyra/ar/">
+<link rel="alternate" hreflang="x-default" href="https://hasanalaaa.github.io/keyra/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Keyra">
+<meta property="og:title" content="كيرا: خزنة كلمات المرور التي تحملها بيدك">
+<meta property="og:description" content="كلمات مرورك تبقى داخل الجهاز، ويكتبها Keyra عنك فقط عندما تضغط زرّه. مفتوح المصدر، بلا سحابة، ESP32-S3.">
+<meta property="og:url" content="https://hasanalaaa.github.io/keyra/ar/">
+<meta property="og:image" content="https://hasanalaaa.github.io/keyra/img/social.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="Keyra: the password vault you can hold. It types only when you press its button.">
+<meta property="og:locale" content="ar">
+<meta property="og:locale:alternate" content="en_US">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="preload" href="../assets/keyra-sans.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../assets/site.css">
+<!-- @esp-web-tools -->
+<script type="module" src="../assets/site.js"></script>
+</head>
+<body>
+<a class="skip" href="#main">انتقل إلى المحتوى</a>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="كيرا، الرئيسية">
+      <svg viewBox="14 14 72 72" aria-hidden="true"><path d="M73.5 31.98L75.5 33V44C75.5 60 64 73 50 80C36 73 24.5 60 24.5 44V33L50 20L62.5 26.37" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>كيرا</span>
+    </a>
+    <nav class="nav" aria-label="الأقسام">
+      <a href="#how">كيف يعمل</a>
+      <a href="#security">الأمان</a>
+      <a href="#hardware">العتاد</a>
+      <a href="#faq">أسئلة شائعة</a>
+    </nav>
+    <div class="top-actions">
+      <a class="lang" href="../" hreflang="en" lang="en">English</a>
+      <a class="gh" href="https://github.com/hasanalaaa/keyra" aria-label="Keyra على GitHub">
+        <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      </a>
+      <a class="btn btn-primary btn-sm" href="#install">التثبيت</a>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="hero" id="top" aria-labelledby="hero-title">
+  <div class="wrap">
+    <div class="stage">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="../img/hero-dark.jpg">
+        <img src="../img/hero-light.jpg" width="1672" height="941" fetchpriority="high" alt="كيرا: جهاز غرافيتي بزر عاجي وحلقة ضوء زرقاء">
+      </picture>
+      <div class="hero-copy">
+        <span class="eyebrow">خزنة كلمات مرور مفتوحة المصدر، في جهاز</span>
+        <h1 class="display" id="hero-title">خزنة كلمات المرور التي تحملها بيدك.</h1>
+        <p class="lede">كلمات مرورك تبقى داخل الجهاز. ويكتبها Keyra عنك، فقط عندما تضغط زرّه بيدك.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="#install">ثبّته من متصفحك</a>
+          <a class="btn btn-ghost" href="https://github.com/hasanalaaa/keyra/blob/main/README.ar.md">على GitHub</a>
+        </div>
+        <ul class="hero-meta">
+          <li>ترخيص MIT</li>
+          <li>بلا سحابة ولا حساب</li>
+          <li><span class="ltr">ESP32-S3</span></li>
+        </ul>
+      </div>
+    </div>
+    <p class="caption">تصوّر تخيّلي. اليوم يعمل Keyra على لوحة تطوير ESP32-S3، مكشوفة أو داخل العلبة القابلة للطباعة: راجع <a href="#hardware">العتاد</a>.</p>
+  </div>
+</section>
+
+<section class="band" id="press" aria-labelledby="press-title">
+  <div class="wrap press-grid">
+    <div class="press-copy reveal">
+      <span class="eyebrow">الضغطة</span>
+      <h2 class="title" id="press-title">لا يُكتب شيء قبل أن تضغط.</h2>
+      <p class="lede">اختر حساباً من هاتفك فيتجهّز Keyra. يتنفّس ضوؤه بالأزرق، على إيقاع ثانية وخُمس مثل ضوء اللوحة تماماً، حتى تضغط الزر. عندها يكتب في الخانة التي اخترتها، ويُغلق الخط.</p>
+      <p class="lede">البرمجيات الخبيثة على كمبيوترك لا تستطيع أن تضغط زراً.</p>
+      <ul class="press-points">
+        <li><span class="k ltr">60 s</span><span><b>جاهز مرة واحدة.</b> تنتظر العملية دقيقة ثم تنتهي، وتُنفَّذ مرة واحدة.</span></li>
+        <li><span class="k ltr">1.5 s</span><span><b>الضغط الطويل يلغي،</b> أو يقفل الخزنة إن لم يكن هناك ما ينتظر.</span></li>
+        <li><span class="k ltr">USB · BLE</span><span><b>يكتب كلوحة مفاتيح</b> عبر USB أو البلوتوث. لا حافظة، ولا شيء للتثبيت.</span></li>
+      </ul>
+      <p class="press-film"><a href="https://github.com/hasanalaaa/keyra/blob/main/README.ar.md#كيف-يعمل">شاهد فيلم الضغطة (8 ثوانٍ)</a> (تصوّر للعلبة)</p>
+    </div>
+    <div class="demo reveal" data-press data-mode="wait">
+      <svg class="press" viewBox="14 14 72 72" aria-hidden="true" focusable="false">
+        <path class="press-halo" d="M63.8 27.04L72.3 31.37" pathLength="100"/>
+        <path class="press-glow" d="M63.8 27.04L72.3 31.37" pathLength="100"/>
+        <path class="press-gap" d="M63.8 27.04L72.3 31.37" pathLength="100"/>
+        <path class="press-line" d="M72.3 31.37L75.5 33V44C75.5 60 64 73 50 80C36 73 24.5 60 24.5 44V33L50 20L63.8 27.04" pathLength="100"/>
+      </svg>
+      <div class="demo-status">
+        <span class="chip-wait">ينتظر ضغطتك</span>
+        <span class="receipt" dir="ltr">Typed · USB · GitHub</span>
+      </div>
+      <div class="keycap">
+        <button type="button" data-press-btn aria-describedby="press-hint"><span class="sr-only">اضغط زر Keyra</span></button>
+        <span id="press-hint">جرّب: اضغط</span>
+      </div>
+      <p class="sr-only" aria-live="polite" data-press-status data-wait="ينتظر ضغطتك" data-done="تمّت الكتابة"></p>
+    </div>
+  </div>
+</section>
+
+<section id="how" aria-labelledby="how-title">
+  <div class="wrap">
+    <div class="head reveal">
+      <span class="eyebrow">كيف يعمل</span>
+      <h2 class="title" id="how-title">من التوصيل إلى الكتابة في أربع خطوات.</h2>
+      <p class="lede">الكمبيوتر يرى لوحة مفاتيح تكتب الحساب الواحد الذي اخترته، في اللحظة التي اخترتها. هاتفك هو الشاشة، وKeyra هو الخزنة.</p>
+    </div>
+    <ol class="steps">
+      <li class="step reveal">
+        <div class="step-n"><span class="mono">01</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2.5h6v5H9z"/><path d="M7 7.5h10v5a5 5 0 0 1-10 0z"/><path d="M12 17.5v4"/></svg></div>
+        <h3>وصّله</h3>
+        <p>وصّل منفذ USB الخاص بـ Keyra بالكمبيوتر فيظهر كلوحة مفاتيح. أو اقرنه مرة واحدة عبر البلوتوث.</p>
+      </li>
+      <li class="step reveal">
+        <div class="step-n"><span class="mono">02</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 9a14 14 0 0 1 19 0"/><path d="M5.5 12.5a9.5 9.5 0 0 1 13 0"/><path d="M8.7 16a5 5 0 0 1 6.6 0"/><path d="M12 19.5h.01"/></svg></div>
+        <h3>ادخل على شبكته</h3>
+        <p>من هاتفك اتصل بشبكة <b class="ltr">Keyra-XXXX</b> وافتح <span class="ltr">keyra.local</span>. لا تطبيق للتثبيت ولا حساب.</p>
+      </li>
+      <li class="step reveal">
+        <div class="step-n"><span class="mono">03</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="2.5" width="12" height="19" rx="3"/><path d="M9.5 7.5h5M9.5 11h5M9.5 14.5h3"/></svg></div>
+        <h3>اختر الحساب</h3>
+        <p>افتح الخزنة بعبارة المرور، واضغط على حساب، واختر اسم المستخدم أو كلمة المرور أو الاثنين معاً أو رمز التحقق.</p>
+      </li>
+      <li class="step reveal">
+        <div class="step-n"><span class="mono">04</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/></svg></div>
+        <h3>اضغط الزر</h3>
+        <p>اضغط على خانة الدخول، ثم اضغط زر Keyra فيكتب. يومض الضوء بالأخضر ويظهر في هاتفك <b>تمّت الكتابة</b>.</p>
+      </li>
+    </ol>
+    <figure class="figure-wide reveal">
+      <img src="../img/press.jpg" width="1672" height="941" loading="lazy" decoding="async" alt="إصبع يضغط زر Keyra العاجي وحلقة الضوء زرقاء">
+      <figcaption class="caption">تصوّر للعلبة.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<hr class="hr">
+
+<section id="why" aria-labelledby="why-title">
+  <div class="wrap">
+    <div class="head reveal">
+      <span class="eyebrow">لماذا Keyra</span>
+      <h2 class="title" id="why-title">انقل السرّ بعيداً عن الكمبيوتر.</h2>
+      <p class="lede">أغلب مدراء كلمات المرور يعيشون داخل نفس الكمبيوتر والمتصفح الذي يستهدفه المخترقون. Keyra يحفظ الخزنة في مكان آخر: في يدك.</p>
+    </div>
+    <ul class="why">
+      <li class="reveal"><h3>خزنتك لا تعيش على الكمبيوتر</h3><p>لا شيء يُخزَّن أو يُزامَن عليه. الكمبيوتر يرى فقط لوحة مفاتيح تكتب الحساب الذي اخترته. إضافة المتصفح الاختيارية تطلب من Keyra أن يكتب فقط، ولا تحمل أي كلمة مرور.</p></li>
+      <li class="reveal"><h3>البرمجيات الخبيثة لا تجعله يكتب</h3><p>كل عملية تحتاج ضغطة فعلية على زر الجهاز. بدون ضغطة لا يُكتب شيء.</p></li>
+      <li class="reveal"><h3>بلا سحابة، بلا حساب، بلا اشتراك</h3><p>الخزنة مشفّرة على الجهاز وتُدار عبر شبكة الواي فاي الخاصة به. لا شيء يخرج من مكتبك.</p></li>
+      <li class="reveal"><h3>يعمل على أي كمبيوتر</h3><p>أي جهاز يقبل لوحة مفاتيح USB (لابتوب العمل، شاشة عامة، تلفزيون) يعمل معه Keyra. والهواتف والأجهزة اللوحية تقترن به عبر البلوتوث.</p></li>
+      <li class="reveal"><h3>مفاتيح المرور ومفتاح أمان</h3><p>عبر USB يعمل Keyra أيضاً مفتاحَ أمان FIDO2/U2F لحتى 50 مفتاح مرور، وكل دخول ينتظر ضغطتك. غير معتمد من FIDO.</p></li>
+      <li class="reveal"><h3>مفتوح، وبضعة دولارات</h3><p>برنامج بترخيص MIT للوحة تطوير جاهزة. اقرأه وابنِه وعدّله. والتطبيق بالعربية والإنجليزية.</p></li>
+    </ul>
+  </div>
+</section>
+
+<section class="screens-sec" id="app" aria-labelledby="app-title">
+  <div class="wrap">
+    <div class="head reveal">
+      <span class="eyebrow">التطبيق</span>
+      <h2 class="title" id="app-title">هاتفك هو الشاشة.</h2>
+      <p class="lede">تطبيق للهاتف أولاً يقدّمه Keyra نفسه على <span class="ltr">keyra.local</span>. هذه شاشات حقيقية من التطبيق، بالعربية والإنجليزية، فاتحة وداكنة.</p>
+    </div>
+    <div class="screens" tabindex="0" role="group" aria-label="لقطات من التطبيق">
+      <figure class="reveal">
+        <div class="phone"><picture><source media="(prefers-color-scheme: dark)" srcset="../img/app/vault-dark.png"><img src="../img/app/vault.png" width="780" height="1688" loading="lazy" decoding="async" alt="شاشة الحسابات: قائمة حسابات مع بحث ومفضلة"></picture></div>
+        <figcaption>الحسابات<span>بحث، مفضلة، الأخيرة.</span></figcaption>
+      </figure>
+      <figure class="reveal">
+        <div class="phone"><picture><source media="(prefers-color-scheme: dark)" srcset="../img/app/ready-dark.png"><img src="../img/app/ready.png" width="780" height="1688" loading="lazy" decoding="async" alt="جاهز: اضغط زر Keyra. خط الدرع أزرق مع عدّ تنازلي"></picture></div>
+        <figcaption>جاهز<span>أزرق وهو ينتظرك.</span></figcaption>
+      </figure>
+      <figure class="reveal">
+        <div class="phone"><picture><source media="(prefers-color-scheme: dark)" srcset="../img/app/typed-dark.png"><img src="../img/app/typed.png" width="780" height="1688" loading="lazy" decoding="async" alt="تمّت الكتابة: خط الدرع مغلق مع إيصال الكتابة عبر USB"></picture></div>
+        <figcaption>تمّت الكتابة<span>يُغلق الخط ويبقى إيصال.</span></figcaption>
+      </figure>
+      <figure class="reveal">
+        <div class="phone"><picture><source media="(prefers-color-scheme: dark)" srcset="../img/app/security-dark.png"><img src="../img/app/security.png" width="780" height="1688" loading="lazy" decoding="async" alt="شاشة الأمان: صحة كلمات المرور وسجل النشاط ومفاتيح المرور وعدّة الاسترداد"></picture></div>
+        <figcaption>الأمان<span>الصحة، النشاط، مفاتيح المرور، الاسترداد.</span></figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section id="security" aria-labelledby="security-title">
+  <div class="wrap">
+    <div class="head reveal">
+      <span class="eyebrow">نموذج الأمان</span>
+      <h2 class="title" id="security-title">صريح فيما يحميه وما لا يحميه.</h2>
+      <p class="lede">Keyra جهاز للراحة والعزل، وليس درعاً سحرياً. هذا بالضبط ما يفعله، وما لا يفعله.</p>
+    </div>
+    <div class="ledger">
+      <div class="reveal">
+        <h3><svg viewBox="14 14 72 72" aria-hidden="true"><path d="M73.5 31.98L75.5 33V44C75.5 60 64 73 50 80C36 73 24.5 60 24.5 44V33L50 20L62.5 26.37" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/></svg>ما يحميه Keyra</h3>
+        <ul>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>كل حساب مشفّر</b> بـ AES-256-GCM بمفتاح عشوائي تحميه عبارة المرور (PBKDF2-HMAC-SHA256، حوالي 1.2 ثانية على الجهاز).</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>محاولات الفتح محدودة</b> وتُحسب بشكل دائم؛ وإعادة التشغيل لا تلغي مدة الانتظار.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>لا يكتب إلا بعد ضغطة فعلية.</b> ولا يعطي الكمبيوتر أي قناة تخزين أو شبكة.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>كلمات المرور لا تصل إلى هاتفك إلا بعد ضغطة</b> (مفعّل افتراضياً)، فجلسة المتصفح المسروقة لا تقرأ شيئاً.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>التطبيقات والإضافة ووكلاء الذكاء الاصطناعي</b> يأخذون رموزاً تُجهّز ولا تقرأ: تطلب الكتابة ولا تقرأ أبداً.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>إقران البلوتوث يُفتح دقيقتين</b> بعد ضغطة فقط. وفي بقية الوقت لا تتصل إلا الأجهزة المقترنة.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>البيانات المفكوكة في الذاكرة فقط وهو مفتوح</b>، وتُمسح عند القفل. ويقفل وحده عند فصل الكمبيوتر أو نومه.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>التحديثات يجب أن تكون موقّعة</b> بمفتاحك، ولا يرجع لنسخة أقدم، وإن فشلت النسخة الجديدة يرجع للقديمة وحده.</span></li>
+        </ul>
+      </div>
+      <div class="no reveal">
+        <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5 2.5 20h19z"/><path d="M12 10v4.5M12 17.2h.01"/></svg>ما لا يحميه</h3>
+        <ul>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"/></svg><span><b>الاتصال بالهاتف HTTP عادي فوق WPA2</b> وليس TLS. من يعرف كلمة سر واي فاي Keyra وهو على الشبكة يستطيع مراقبة الحركة.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"/></svg><span><b>لا يوجد عنصر آمن.</b> من يملك اللوحة بيده يستطيع نسخ الذاكرة وتخمين العبارة دون اتصال. استخدم عبارة طويلة.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"/></svg><span><b>تشفير الفلاش والإقلاع الآمن اختياريان</b> ومطفآن افتراضياً، وهما خطوات eFuse لا رجعة فيها.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"/></svg><span><b>لم تراجعه جهة مستقلة بعد.</b></span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"/></svg><span><b>برنامج تجسس على الكمبيوتر</b> يرى ما يكتبه Keyra، مثل أي لوحة مفاتيح.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"/></svg><span><b>مفتاح الأمان غير معتمد من FIDO</b> ويستخدم إثباتاً ذاتياً؛ مفاتيحه آمنة بقدر عبارة المرور.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"/></svg><span><b>إقران البلوتوث من نوع «Just Works».</b> من يكون قريباً خلال دقيقتي الإقران قد يقرن جهازه. راجع قائمة الأجهزة بعدها.</span></li>
+        </ul>
+      </div>
+    </div>
+    <p class="sec-foot reveal">نموذج التهديدات الكامل وتصميم التشفير وجدول تحديد المحاولات في <a href="https://github.com/hasanalaaa/keyra/blob/main/SECURITY.md">SECURITY.md</a> (بالإنجليزية). وجدت ثغرة؟ أبلغ عنها عبر GitHub Security Advisory خاص.</p>
+  </div>
+</section>
+
+<hr class="hr">
+
+<section id="hardware" aria-labelledby="hardware-title">
+  <div class="wrap">
+    <div class="hw">
+      <div class="reveal">
+        <span class="eyebrow">العتاد</span>
+        <h2 class="title" id="hardware-title">يعمل على لوحة ببضعة دولارات.</h2>
+        <p class="lede" style="margin-block:20px 40px">لوحة تطوير ESP32-S3 جاهزة، بدون لحام: زر BOOT فيها هو الضغطة، وضوء RGB فيها هو ضوء الحالة.</p>
+        <dl class="spec">
+          <dt>الشريحة</dt><dd><bdi>ESP32-S3</bdi><span>وليس S2 أو C3 أو ESP32 الأصلي.</span></dd>
+          <dt>الفلاش</dt><dd>8 ميغابايت أو أكثر<span>لوحات 4 ميغابايت غير مدعومة.</span></dd>
+          <dt>USB</dt><dd>منفذ USB الأصلي<span>الموصول بـ GPIO19/20، وهو الذي يكتب كلوحة مفاتيح.</span></dd>
+          <dt>الزر</dt><dd><bdi>BOOT (GPIO0)</bdi><span>التأكيد الفعلي.</span></dd>
+          <dt>الضوء</dt><dd>WS2812 RGB<span>اختياري، لكنه طريقة Keyra في الكلام معك.</span></dd>
+          <dt>PSRAM</dt><dd>اختيارية</dd>
+        </dl>
+      </div>
+      <figure class="hw-fig reveal">
+        <img src="../img/desk.jpg" width="1672" height="941" loading="lazy" decoding="async" alt="Keyra موصول بلابتوب على مكتب خشبي، وحلقة الضوء زرقاء، وبجانبه هاتف">
+        <figcaption class="caption">تصوّر للعلبة. اللوحات التي تستطيع استخدامها اليوم في الجدول أدناه.</figcaption>
+      </figure>
+    </div>
+    <div class="enclosure">
+      <div class="enc-head reveal">
+        <div>
+          <span class="eyebrow">علبة للطباعة</span>
+          <h3 class="enc-title">علبة تطبعها بنفسك.</h3>
+        </div>
+        <div>
+          <p>للوحة VCC-GND YD-ESP32-S3، النسخة الشبيهة بـ DevKitC-1 بمنفذَي USB-C، وبنسختين: على كابل، أو كقطعة تُركَّب في المنفذ مباشرة. خمس قطع مطبوعة بلا براغي. زر ميكانيكي محبوس يضغط زر BOOT في اللوحة نفسها، وحلقة ضوء تنقل وهج الضوء حوله، والشعار محفور في الغطاء.</p>
+          <p>نسخة الكابل طُبعت وجُرّبت على اللوحة؛ أما وصلة USB-C في النسخة المباشرة فلم تُركَّب بعد. ولا تناسب لوحة DevKitC-1 الأصلية من Espressif، فطابق لوحتك مع القياسات أولاً.</p>
+          <p class="enc-link"><a href="https://github.com/hasanalaaa/keyra/tree/main/hardware/enclosure">ملفات الطباعة ومصدر OpenSCAD ودليل التجميع على GitHub</a></p>
+        </div>
+      </div>
+      <div class="enc-grid">
+        <figure class="enc-main reveal"><img src="../img/enclosure/Cable.jpg" width="1600" height="1257" loading="lazy" decoding="async" alt="نسخة الكابل: علبة بيضاء بالزر الكبير وحلقة ضوئه الزرقاء والشعار على الغطاء"><figcaption>نسخة الكابل</figcaption></figure>
+        <figure class="reveal"><img src="../img/enclosure/Assembly.jpg" width="1600" height="1257" loading="lazy" decoding="async" alt="منظر مفكّك: الغطاء وحلقة الضوء والزر وحامله واللوحة والقاعدة"><figcaption>مفكّكة: الغطاء، حلقة الضوء، الزر، اللوحة، القاعدة</figcaption></figure>
+        <figure class="reveal"><img src="../img/enclosure/Dongle.jpg" width="1600" height="1257" loading="lazy" decoding="async" alt="النسخة التي تُركَّب مباشرة في منفذ USB-C"><figcaption>النسخة المباشرة</figcaption></figure>
+        <figure class="reveal"><img src="../img/enclosure/Captive_Button.jpg" width="1600" height="1257" loading="lazy" decoding="async" alt="الزر محبوساً على حامله المتحرك"><figcaption>الزر محبوساً على حامله</figcaption></figure>
+        <figure class="reveal"><img src="../img/enclosure/Cap_Feet.jpg" width="1600" height="1257" loading="lazy" decoding="async" alt="أسفل الزر: الأرجل المرنة وذراع الضغط على BOOT"><figcaption>من الأسفل: الأرجل المرنة وذراع BOOT</figcaption></figure>
+      </div>
+    </div>
+    <div class="boards reveal">
+      <h3>اللوحات المدعومة</h3>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th scope="col">اللوحة</th><th scope="col">الفلاش</th><th scope="col">PSRAM</th><th scope="col">الزر</th><th scope="col">الضوء</th><th scope="col">الحالة</th></tr></thead>
+          <tbody>
+<!-- @boards:table -->
+          </tbody>
+        </table>
+      </div>
+      <p class="small" style="margin-block-start:16px">«مُجرَّب على العتاد» يعني أن أحداً شغّل هذا البناء نفسه على تلك اللوحة. اللوحات الأخرى يُتوقع أن تعمل، و<a href="https://github.com/hasanalaaa/keyra/issues">تقاريركم مرحّب بها</a>. الأطراف والخيارات: <a href="https://github.com/hasanalaaa/keyra/blob/main/docs/HARDWARE.md">HARDWARE.md</a> (بالإنجليزية).</p>
+    </div>
+  </div>
+</section>
+
+<section class="install-sec screens-sec" id="install" aria-labelledby="install-title">
+  <div class="wrap">
+    <div class="install">
+      <div class="reveal">
+        <span class="eyebrow">التثبيت</span>
+        <h2 class="title" id="install-title">ثبّت Keyra من متصفحك.</h2>
+        <p class="lede" style="margin-block:20px 36px">ثبّت آخر إصدار على لوحة جديدة في دقيقة تقريباً. بلا أدوات تثبّتها.</p>
+        <div class="warn" role="note">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5 2.5 20h19z"/><path d="M12 10v4.5M12 17.2h.01"/></svg>
+          <div>
+            <strong>التثبيت يمسح اللوحة.</strong>
+            <p>يُمسح كل ما عليها: أي خزنة Keyra ومفاتيح المرور والإعدادات. استخدمه للوحة جديدة.</p>
+            <p>تستخدم Keyra من قبل؟ لا تثبّت من هنا. هو يحدّث نفسه ويحتفظ بخزنتك: <b>الجهاز ← تحديث البرنامج</b>.</p>
+          </div>
+        </div>
+        <ol class="how-steps">
+          <li><span><b>اختر لوحتك</b>ليست في القائمة؟ بناء DevKitC-1 يُتوقع أن يعمل على لوحات ESP32-S3 التي فيها 8 ميغابايت فلاش ومنفذ USB أصلي وزر BOOT.</span></li>
+          <li><span><b>ضعها في وضع التحميل</b>افصل اللوحة. اضغط <b style="display:inline">BOOT</b> باستمرار، ووصّل منفذ <b style="display:inline">USB</b> في اللوحة بهذا الكمبيوتر، ثم أفلت الزر. عبر منفذ UART لا حاجة للزر.</span></li>
+          <li><span><b>ثبّت</b>علّم المربع، واضغط «ثبّت»، واختر المنفذ التسلسلي للوحة وأكّد. أبقِ الكابل موصولاً حتى ينتهي.</span></li>
+          <li><span><b>أعد التشغيل وابدأ الإعداد</b>اضغط RESET، أو افصلها ووصّلها من جديد. حين يتنفّس الضوء بالكهرماني اتصل من هاتفك بشبكة <b style="display:inline" class="ltr">Keyra-XXXX</b> (كلمة السر <code>keyra1234</code>) وافتح <span class="ltr">http://keyra.local</span>.</span></li>
+        </ol>
+        <p class="req"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>يحتاج Chrome أو Edge على كمبيوتر مكتبي (Web Serial) وكابل USB للبيانات.</p>
+      </div>
+      <div class="console installer reveal" data-installer>
+        <h3><bdi>Keyra {{version}}</bdi></h3>
+        <p class="small">آخر إصدار، من هذا الموقع مباشرة.</p>
+        <fieldset class="picker">
+          <legend>لوحتك</legend>
+<!-- @boards:picker -->
+        </fieldset>
+        <label class="ack"><input type="checkbox" data-ack><span>أفهم أن هذا يمسح كل ما على اللوحة.</span></label>
+        <div class="install-btn">
+          <esp-web-install-button manifest="">
+            <button slot="activate" class="btn btn-primary btn-lg" type="button" data-install-btn disabled><span>ثبّت على <bdi data-board-name>لوحتك</bdi></span></button>
+            <p slot="unsupported" class="unsupported">هذا المتصفح لا يصل إلى أجهزة USB. افتح الصفحة في Chrome أو Edge على كمبيوتر Mac أو Windows أو Linux، أو استخدم esptool أدناه.</p>
+            <p slot="not-allowed" class="unsupported">التثبيت يحتاج فتح الصفحة عبر HTTPS.</p>
+          </esp-web-install-button>
+        </div>
+        <p class="console-foot">البرنامج من <a href="{{release_url}}">إصدار GitHub</a>، والبصمات في SHA256SUMS. التثبيت يستخدم <a href="https://esphome.github.io/esp-web-tools/">ESP Web Tools</a>.</p>
+        <details class="cli">
+          <summary>تفضّل سطر الأوامر؟</summary>
+          <p class="small" style="margin-block-start:10px">نزّل الملفات من <a href="{{release_url}}">الإصدار</a>، ثم:</p>
+          <pre><code>esptool.py --chip esp32s3 -p &lt;PORT&gt; write_flash \
+  0x0 bootloader.bin 0x8000 partition-table.bin \
+  0xf000 ota_data_initial.bin 0x20000 keyra-firmware.bin</code></pre>
+        </details>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="faq" aria-labelledby="faq-title">
+  <div class="wrap faq-grid">
+    <div class="head">
+      <span class="eyebrow">أسئلة شائعة</span>
+      <h2 class="title" id="faq-title">قبل أن تبدأ.</h2>
+      <p class="lede">المزيد في <a href="https://github.com/hasanalaaa/keyra/blob/main/README.ar.md#أسئلة-شائعة">الشرح الكامل</a>.</p>
+    </div>
+    <div class="faq">
+      <details>
+        <summary>هل التثبيت من هنا يمسح Keyra الذي عندي؟</summary>
+        <p>نعم. المثبّت للوحات الجديدة: يمسح الفلاش كله ومعه الخزنة. Keyra الذي تستخدمه يتحدّث من تطبيقه (الجهاز ← تحديث البرنامج) ويحتفظ بحساباتك. وللانتقال إلى لوحة جديدة: اعمل نسخة احتياطية مشفّرة من التطبيق أولاً، ثم ثبّت، ثم استعدها.</p>
+      </details>
+      <details>
+        <summary>أي متصفح يستطيع التثبيت؟</summary>
+        <p>Chrome أو Edge (ومتصفحات Chromium الأخرى التي فيها Web Serial) على Windows أو macOS أو Linux. أما Firefox وSafari والهواتف فلا تصل إلى منافذ USB التسلسلية؛ استخدم أمر esptool في قسم التثبيت.</p>
+      </details>
+      <details>
+        <summary>المثبّت لا يجد لوحتي.</summary>
+        <p>استخدم كابل USB للبيانات (بعض الكابلات للشحن فقط)، وضع اللوحة في وضع التحميل (اضغط BOOT، وصّل، ثم أفلت)، وأغلق أي برنامج آخر يستخدم المنفذ مثل شاشة المنفذ التسلسلي. وعلى Windows قد يحتاج منفذ UART تعريف CP210x.</p>
+      </details>
+      <details>
+        <summary>هل يستطيع الكمبيوتر قراءة خزنتي؟</summary>
+        <p>لا. Keyra يعرض للكمبيوتر لوحة مفاتيح ومفتاح أمان، بلا واجهة تخزين ولا مسار شبكة. الكمبيوتر يرى ما يُكتب، ويستطيع أن يطلب من مفتاح الأمان توقيع تحدٍّ من موقع، وهذا يحتاج ضغطتك.</p>
+      </details>
+      <details>
+        <summary>هل Keyra بديل عن YubiKey؟</summary>
+        <p>لا. يستطيع Keyra إنشاء مفاتيح المرور واستخدامها عبر USB، وهذا يكفي جيداً لكثير من الحسابات الشخصية. لكن YubiKey يحفظ مفاتيحه في شريحة آمنة، ومعتمد من FIDO، ويعمل عبر NFC. احتفظ بمفتاح ثانٍ أو طريقة دخول أخرى في كل حساب.</p>
+      </details>
+      <details>
+        <summary>لماذا HTTP وليس HTTPS؟</summary>
+        <p>جهاز على شبكته الخاصة لا يستطيع الحصول على شهادة يثق بها المتصفح بدون تثبيت شيء على كل هاتف، وتحذير المتصفح يعوّد الناس على تجاهل التحذيرات. بدلاً من ذلك يُحمى الرابط بـ WPA2 وكلمة سر واي فاي خاصة. هذا حد حقيقي، مذكور أعلاه.</p>
+      </details>
+      <details>
+        <summary>هل أحتاج اتصالاً بالإنترنت؟</summary>
+        <p>لا. Keyra ينشئ شبكة الواي فاي الخاصة به. وإن سمحت له بالانضمام إلى واي فاي المنزل فيستخدم الإنترنت لضبط الوقت ولفحص تحديثات البرنامج حين تطلب ذلك فقط.</p>
+      </details>
+      <details>
+        <summary>كم يكلّف؟</summary>
+        <p>لوحة ESP32-S3 متوافقة تكلّف عادة من بضعة دولارات إلى عشرة تقريباً. والبرنامج مجاني بترخيص MIT.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <div>
+        <a class="brand" href="#top">
+          <svg viewBox="14 14 72 72" aria-hidden="true"><path d="M73.5 31.98L75.5 33V44C75.5 60 64 73 50 80C36 73 24.5 60 24.5 44V33L50 20L62.5 26.37" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>كيرا</span>
+        </a>
+        <p class="foot-tag">خزنة كلمات المرور التي تحملها بيدك. لا تكتب شيئاً إلا عندما تضغط زرّها.</p>
+      </div>
+      <div>
+        <h4>المشروع</h4>
+        <ul>
+          <li><a href="https://github.com/hasanalaaa/keyra">GitHub</a></li>
+          <li><a href="https://github.com/hasanalaaa/keyra/releases">الإصدارات</a></li>
+          <li><a href="https://github.com/hasanalaaa/keyra/blob/main/CHANGELOG.md">سجل التغييرات</a></li>
+          <li><a href="https://github.com/hasanalaaa/keyra/blob/main/CONTRIBUTING.md">المساهمة</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>الوثائق</h4>
+        <ul>
+          <li><a href="https://github.com/hasanalaaa/keyra/blob/main/README.ar.md">الشرح بالعربية</a></li>
+          <li><a href="https://github.com/hasanalaaa/keyra/blob/main/SECURITY.md">الأمان</a></li>
+          <li><a href="https://github.com/hasanalaaa/keyra/blob/main/docs/HARDWARE.md">العتاد</a></li>
+          <li><a href="../" hreflang="en" lang="en">English</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="legal">
+      <p>ترخيص MIT، 2026 hasanalaaa. صور المنتج تصوّرات تخيّلية، وصور العلبة لقطات من تصميم العلبة القابلة للطباعة.</p>
+      <p>الخط <a href="https://fonts.google.com/specimen/Readex+Pro">Readex Pro</a> بترخيص SIL Open Font License 1.1.</p>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

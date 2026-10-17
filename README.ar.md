@@ -9,7 +9,7 @@
 
 <h3 dir="rtl">كلمات مرورك تبقى داخل الجهاز.<br>ويكتبها Keyra عنك، فقط عندما تضغط زرّه بيدك.</h3>
 
-<a href="#كيف-يعمل">كيف يعمل</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#البدء-السريع">البدء السريع</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#نموذج-الأمان">الأمان</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#العتاد">العتاد</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#أسئلة-شائعة">أسئلة شائعة</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="README.md">English</a>
+<a href="https://hasanalaaa.github.io/keyra/ar/">الموقع</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#كيف-يعمل">كيف يعمل</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#البدء-السريع">البدء السريع</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#نموذج-الأمان">الأمان</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#العتاد">العتاد</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#أسئلة-شائعة">أسئلة شائعة</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="README.md">English</a>
 <br><br>
 
 <a href="https://github.com/hasanalaaa/keyra/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/hasanalaaa/keyra/ci.yml?branch=main&style=flat-square&label=CI&labelColor=3A3B40&color=16171A"></a>
