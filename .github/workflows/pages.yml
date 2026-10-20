@@ -44,7 +44,7 @@ jobs:
         env:
           TAG: ${{ steps.release.outputs.tag }}
         run: node site/build.mjs --release "$RUNNER_TEMP/release" --version "$TAG" --out site/dist
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: site/dist
 
