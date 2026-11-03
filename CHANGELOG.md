@@ -6,6 +6,12 @@ All notable changes to Keyra are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-11-03
+
+Highlights:
+- Keyra Stick, Keyra's own USB-C stick: board files ready to order, and its firmware image `keyra-firmware-keyra-stick.bin`
+- No change for existing boards: they run the same as 0.4.5
+
 ### Added
 
 - **Keyra Stick, Keyra's own board** (hardware/pcb/keyra-stick): a 0.8 mm four-layer USB-C stick
