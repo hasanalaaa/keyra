@@ -1,4 +1,5 @@
 // Passkey records and the FIDO wrapping key (vault_passkeys.cpp).
+#include <algorithm>
 #include <cstring>
 
 #include "check.hpp"

@@ -1,6 +1,7 @@
 // Layout 2 itself (core/bucket.hpp, docs/SPEC.md §6.1): the file format, a
 // damaged bucket, bucket rewrites across power cuts and I/O errors, and a
 // vault of kMaxEntriesBuckets entries with its backup and restore.
+#include <algorithm>
 #include <functional>
 #include <memory>
 #include <set>
