@@ -1,6 +1,6 @@
 # Keyra Stick: Keyra's own USB-C stick (hardware/pcb). ESP32-S3-MINI-1-N8: 8 MB flash, no PSRAM.
 # Source: hardware/pcb/keyra-stick (schematic): the main button on GPIO5 to GND (the chip's own pull-up),
-#   the ring of eight SK6805-EC20 (WS2812 protocol) fed through a 74AHCT1G125 from GPIO6, its 5 V
+#   the ring of eight SK6805-EC20 (WS2812 protocol) fed through an SN74LV1T125 from GPIO6, its 5 V
 #   supply switched by GPIO7. GPIO0 is only the recovery (BOOT) jumper, so a press never touches the boot mode.
 CONFIG_KEYRA_BOARD_ID="keyra-stick"
 CONFIG_KEYRA_BUTTON_GPIO=5
