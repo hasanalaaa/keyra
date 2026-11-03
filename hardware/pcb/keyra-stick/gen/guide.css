@@ -1,0 +1,113 @@
+/* The Keyra Stick guide (make_guide.py): A4 pages, one A3 landscape page for the schematic. */
+@page { size: A4; margin: 0; }
+@page sheet { size: A3 landscape; margin: 0; }
+* { box-sizing: border-box; }
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { margin: 0; font-family: -apple-system, "SF Pro Text", "SF Arabic", "Geeza Pro", "Helvetica Neue", Arial, sans-serif;
+       color: #1b1c1e; font-size: 10.2pt; line-height: 1.5; }
+[dir=rtl] body { font-size: 10.6pt; line-height: 1.7; }
+bdi { unicode-bidi: isolate; }
+.lt { white-space: nowrap; }
+code { font-family: "SF Mono", Menlo, monospace; font-size: 0.92em; }
+.page { width: 210mm; height: 297mm; padding: 16mm 16mm 18mm; position: relative; overflow: hidden;
+        break-after: page; background: #fbfaf7; }
+.page.sheetpage { page: sheet; width: 420mm; height: 297mm; padding: 5mm; background: #fff; }
+.sheetpage img { width: 100%; height: 100%; object-fit: contain; display: block; }
+h1 { font-size: 22pt; margin: 0 0 2mm; letter-spacing: -0.01em; line-height: 1.2; }
+h2 { font-size: 12pt; margin: 6mm 0 2.5mm; }
+.kicker { color: #9a7b14; font-weight: 700; font-size: 8.4pt; letter-spacing: .14em; text-transform: uppercase; margin-bottom: 1.5mm; }
+.intro { color: #4b4d52; margin: 0 0 4mm; }
+.foot { position: absolute; bottom: 8mm; inset-inline: 16mm; display: flex; justify-content: space-between;
+        font-size: 7.6pt; color: #8b8d92; border-top: 0.3mm solid #e4e1d8; padding-top: 2mm; }
+
+/* cover */
+.cover { background: radial-gradient(120% 75% at 65% 48%, #2b261b 0%, #141413 55%, #0b0b0b 100%); color: #f4f1e8; padding: 18mm; }
+.cover .brand { font-size: 8.6pt; letter-spacing: .3em; color: #e8b931; font-weight: 700; }
+.cover h1 { font-size: 48pt; margin: 6mm 0 2mm; color: #fff; letter-spacing: -0.02em; }
+.cover .tag { font-size: 14pt; color: #d8d2c2; max-width: 150mm; }
+.cover .hero { position: absolute; left: 10mm; right: 10mm; top: 80mm; height: 105mm; display: flex; align-items: center; justify-content: center; }
+.cover .hero svg.r-hero { width: 190mm; height: 105mm; filter: drop-shadow(0 6mm 8mm rgba(0,0,0,.55)); }
+.cover .stats { position: absolute; bottom: 50mm; inset-inline: 18mm; display: grid; grid-template-columns: repeat(4, 1fr); gap: 5mm; }
+.stat { border-top: 0.5mm solid #e8b931; padding-top: 2.5mm; }
+.stat b { display: block; font-size: 14pt; color: #fff; white-space: nowrap; }
+.stat span { font-size: 8.4pt; color: #b9b3a3; }
+.cover .status { position: absolute; top: 16mm; inset-inline-end: 18mm; font-size: 7.8pt; color: #e8b931;
+                 border: 0.3mm solid #6e5a1a; border-radius: 10mm; padding: 1.2mm 4mm; }
+.cover .contents { position: absolute; bottom: 20mm; inset-inline: 18mm; display: flex; flex-wrap: wrap; gap: 1.5mm 7mm;
+                   font-size: 8.8pt; color: #cfc9b8; }
+.cover .contents b { color: #e8b931; width: 100%; font-size: 7.8pt; letter-spacing: .14em; margin-bottom: 1mm; }
+.cover .contents span::before { content: attr(data-n) "  "; color: #e8b931; font-weight: 700; }
+.cover .lic { position: absolute; bottom: 10mm; inset-inline: 18mm; font-size: 7pt; color: #7d786c; }
+
+/* callouts and legends */
+.callouts { width: 100%; display: block; margin: 0 0 4mm; }
+.legend { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 3mm 8mm; }
+.legend li { display: flex; gap: 2.8mm; align-items: flex-start; break-inside: avoid; }
+.legend p { margin: 0.4mm 0 0; color: #55575c; font-size: 8.9pt; line-height: 1.45; }
+.legend b { font-size: 9.8pt; }
+.refs { color: #9a7b14; font-size: 8.2pt; font-weight: 600; margin-inline-start: 1mm; }
+.badge { flex: none; width: 6.6mm; height: 6.6mm; border-radius: 50%; background: #e8b931; color: #141414; font-weight: 800;
+         display: flex; align-items: center; justify-content: center; font-size: 8.6pt; margin-top: 0.3mm; }
+
+/* size and build */
+.dims { width: 100%; display: block; margin: 0 0 2mm; }
+.dims .dl { stroke: #c9a227; stroke-width: 0.18; }
+.dims .ext { stroke: #b8b2a2; stroke-width: 0.1; stroke-dasharray: 0.6 0.5; }
+/* bk-ignore: tiny-text -- SVG user units in a mm-scale viewBox, about 6 to 9 pt in print */
+.dims .dt { font-size: 1.9px; fill: #33353a; text-anchor: middle; font-weight: 600; font-family: -apple-system, "SF Arabic", Helvetica, Arial; }
+[dir=rtl] .dims, [dir=rtl] .stack, [dir=rtl] .blocks { direction: ltr; }
+svg.r-side { width: 100%; display: block; margin: 2mm 0 3mm; }
+h2.gap { margin-top: 10mm; }
+.sidenotes { display: flex; gap: 12mm; font-size: 9pt; color: #55575c; }
+.sidenotes b { color: #1b1c1e; font-size: 12pt; margin-inline-end: 2mm; }
+.stack { width: 140mm; display: block; margin-bottom: 2mm; }
+/* bk-ignore: tiny-text -- SVG user units in a mm-scale viewBox, about 6 to 9 pt in print */
+.stack .sl { font-size: 5px; fill: #4b4d52; dominant-baseline: middle; font-family: -apple-system, "SF Arabic", Helvetica, Arial; }
+.stack .sn { font-weight: 700; fill: #1b1c1e; }
+table { border-collapse: collapse; width: 100%; font-size: 8.9pt; }
+td, th { padding: 1.6mm 2mm; text-align: start; vertical-align: top; border-bottom: 0.25mm solid #e6e2d8; }
+th { font-size: 7.8pt; letter-spacing: .05em; color: #8a7a4c; text-transform: uppercase; border-bottom: 0.4mm solid #d6cfbd; }
+.kv td:first-child { color: #6a6c71; width: 40%; }
+
+/* how it works */
+.blocks { width: 100%; display: block; margin: 0 0 5mm; }
+.blocks .blk { fill: #fff; stroke: #cfc8b6; stroke-width: 0.4; }
+.blocks .blk.dark { fill: #e4e7eb; }
+.blocks .blk.mcu { fill: #1d1c1a; stroke: #1d1c1a; }
+.blocks .blk.ring { fill: #fff6d6; stroke: #e8b931; }
+/* bk-ignore: tiny-text -- SVG user units in a mm-scale viewBox, about 6 to 9 pt in print */
+.blocks .bt { font-size: 3.9px; text-anchor: middle; fill: #1b1c1e; font-weight: 600; font-family: -apple-system, "SF Arabic", Helvetica, Arial; }
+/* bk-ignore: tiny-text -- SVG user units in a mm-scale viewBox, about 6 to 9 pt in print */
+.blocks .bt.light { fill: #f4f1e8; font-size: 4.6px; font-weight: 700; }
+.blocks .ar { fill: none; stroke: #c9a227; stroke-width: 0.6; }
+.blocks .ar.pw { stroke: #c0503a; }
+/* bk-ignore: tiny-text -- SVG user units in a mm-scale viewBox, about 6 to 9 pt in print */
+.blocks .al { font-size: 3.1px; fill: #6a6c71; text-anchor: middle; font-family: -apple-system, "SF Arabic", Helvetica, Arial; }
+.how { display: grid; grid-template-columns: 1fr 1fr; gap: 3.5mm 9mm; }
+.how div { break-inside: avoid; }
+.how b { display: block; font-size: 10pt; }
+.how p { margin: 0.5mm 0 0; color: #55575c; font-size: 9pt; }
+.pins td:first-child { font-family: "SF Mono", Menlo, monospace; font-size: 8.4pt; color: #1b1c1e; width: 32%; }
+
+/* parts */
+.parts { font-size: 8.5pt; }
+.parts td { padding: 1.3mm 1.8mm; }
+.parts td:nth-child(1), .parts td:nth-child(3), .parts td:nth-child(4), .parts td:nth-child(5) { font-size: 8pt; }
+.parts td:nth-child(3), .parts td:nth-child(4), .parts td:nth-child(5) { white-space: nowrap; }
+.parts td:nth-child(5) { font-family: "SF Mono", Menlo, monospace; color: #6a6c71; }
+.note { background: #f3efe3; border-inline-start: 1mm solid #e8b931; padding: 3mm 4mm; margin-top: 5mm; font-size: 9pt; color: #45474c; }
+
+/* ordering and power-up */
+.files { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3mm; margin: 2mm 0 5mm; }
+.files div { background: #1d1c1a; color: #f4f1e8; border-radius: 2mm; padding: 3mm 3.5mm; }
+.files code { color: #e8b931; font-size: 8.4pt; direction: ltr; unicode-bidi: isolate; }
+.files span { display: block; font-size: 8.4pt; color: #b9b3a3; margin-top: 0.5mm; }
+ol.steps { margin: 0 0 5mm; padding-inline-start: 6mm; }
+ol.steps li { margin: 1.2mm 0; padding-inline-start: 1mm; }
+ol.steps li::marker { color: #9a7b14; font-weight: 700; }
+.opts td:nth-child(1), .opts td:nth-child(2) { white-space: nowrap; }
+.opts td:nth-child(2) { font-weight: 700; }
+.remark { font-family: "SF Mono", Menlo, monospace; font-size: 8.4pt; background: #fff; border: 0.3mm dashed #cfc8b6;
+          padding: 3mm; border-radius: 1.5mm; direction: ltr; text-align: left; }
+ul.checks { margin: 0; padding-inline-start: 5mm; }
+ul.checks li { margin: 1mm 0; }

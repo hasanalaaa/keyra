@@ -40,16 +40,6 @@ def segment(board, a, b, layer, width=0.1):
     board.Add(s)
 
 
-def outline_points():
-    """The board edge, clockwise from the tip: the plug's tongue (DWG001-A401), a flare, the stick."""
-    nw, nl = D.TONGUE_NECK
-    hw, tw, W = nw / 2, D.TONGUE_W / 2, D.BOARD_W / 2
-    c = 0.20                                    # chamfer on the tip's corners
-    return [(0, -hw + c), (c, -hw), (nl, -hw), (nl, -tw), (D.TONGUE_L, -tw), (D.FLARE_END, -W),
-            (D.BOARD_L, -W), (D.BOARD_L, W), (D.FLARE_END, W), (D.TONGUE_L, tw), (nl, tw), (nl, hw),
-            (c, hw), (0, hw - c)]
-
-
 def load_fp(fpid):
     lib, name = fpid.split(':')
     path = HERE / 'lib' / 'keyra.pretty' if lib == 'keyra' else KICAD_FP / f'{lib}.pretty'
@@ -284,7 +274,7 @@ def fanout(board):
     Freerouting only routes signals. Each via takes the first spot round its pad that keeps every
     other net's copper, the board edge, the antenna and the gold mark clear."""
     via_r, gap = 0.3, 0.2
-    edge = outline_points()
+    edge = D.outline_points()
     ant0 = D.BOARD_L - ANTENNA_DEPTH
     keep_out = [(D.MARK[0] - D.MARK[2] / 2 - 0.5, D.MARK[0] + D.MARK[2] / 2 + 0.5)]
     pads = [(p, p.GetEffectivePolygon(p.GetLayer() if p.IsOnLayer(pcbnew.F_Cu) is False else pcbnew.F_Cu,
@@ -425,7 +415,7 @@ def place(netlist):
         nets[name] = n
     if {n.lstrip('/') for n in nets if not n.startswith('unconnected-')} != set(D.NETS):
         raise SystemExit('the netlist and design.py disagree: run gen/make_sch.py first')
-    pts = outline_points()
+    pts = D.outline_points()
     for a, b in zip(pts, pts[1:] + pts[:1]):
         segment(board, a, b, pcbnew.Edge_Cuts, 0.05)
     add_parts(board, nets, pins)

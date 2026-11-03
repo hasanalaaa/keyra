@@ -6,6 +6,20 @@ All notable changes to Keyra are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Keyra Stick documents.** The schematic is redrawn: six framed blocks with real wires, power symbols and
+  notes, its own clean symbols for the plug, module, LEDs, button and buffer (`gen/symbols.py`), and a check
+  that the drawing connects exactly what `gen/design.py` says. The board is unchanged; KiCad's checks still
+  report zero errors and an exact schematic-to-board match.
+
+### Added
+
+- **Keyra Stick guide** (`hardware/pcb/keyra-stick/docs/`, English and Arabic PDF): every part numbered on
+  top and bottom renders, size drawing, layer stack, block diagram, pin table, the schematic, parts list
+  with what each part does, JLCPCB ordering settings, first power-up and troubleshooting. Built by
+  `gen/build.sh` from `design.py` and KiCad's renders.
+
 ## [0.4.6] - 2026-11-03
 
 Highlights:

@@ -50,4 +50,17 @@ rm -f fab/keyra-stick.step fab/keyra-stick.stpZ
 "$CLI" pcb export step --subst-models -f -o fab/keyra-stick.step keyra-stick.kicad_pcb >/dev/null 2>&1 || true
 [ -s fab/keyra-stick.step ] || { echo "STEP export failed"; exit 1; }
 gzip -9 -c fab/keyra-stick.step > fab/keyra-stick.stpZ && rm fab/keyra-stick.step
-echo "fab/: gerbers zip, bom.csv, cpl.csv, schematic PDF, STEP; renders/: top, bottom, angle"
+
+# The illustrated guide (docs/): transparent renders, the schematic as SVG, laid out and printed by Chrome
+mkdir -p "$work/guide"
+for side in top bottom; do
+  "$CLI" pcb render --side "$side" --quality high --use-board-stackup-colors -w 2400 -h 1000 --background transparent \
+    -o "$work/guide/$side.png" keyra-stick.kicad_pcb >/dev/null
+done
+"$CLI" pcb render --side top --quality high --use-board-stackup-colors -w 2400 -h 1500 --rotate '-50,0,-30' --zoom 0.85 \
+  --perspective --background transparent -o "$work/guide/hero.png" keyra-stick.kicad_pcb >/dev/null
+"$CLI" pcb render --side front --quality high --use-board-stackup-colors -w 2400 -h 600 --background transparent \
+  -o "$work/guide/side.png" keyra-stick.kicad_pcb >/dev/null
+"$CLI" sch export svg -o "$work/guide" keyra-stick.kicad_sch >/dev/null
+python3 gen/make_guide.py "$work/guide"
+echo "fab/: gerbers zip, bom.csv, cpl.csv, schematic PDF, STEP; renders/: top, bottom, angle; docs/: the guide (en, ar)"

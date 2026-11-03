@@ -58,7 +58,7 @@ PARTS = [
     # runs, and the ring's capacitance stays off VBUS at plug-in. C16 holds Q1 off while VBUS rises;
     # (R8 || R9) x C16 makes its turn-on take about 1 ms. On: Vgs = -4.5 V (R8 100k / R9 10k); off:
     # even 1 uA of Q2 leakage moves Q1's gate only 0.1 V. All basic parts.
-    ('Q1', 'keyra:AO3401A', 'AO3401A', 'keyra:SOT-23_L2.9-W1.3-P1.90-LS2.4-BR', 'C15127',
+    ('Q1', 'Transistor_FET:AO3401A', 'AO3401A', 'keyra:SOT-23_L2.9-W1.3-P1.90-LS2.4-BR', 'C15127',
      {'1': 'LED_PG', '2': 'VBUS', '3': 'LED_VDD'}, (11.0, 5.3, 0, 'F')),
     ('R8', 'Device:R', '100k', 'Resistor_SMD:R_0402_1005Metric', 'C25741',
      {'1': 'VBUS', '2': 'LED_PG'}, (8.5, 2.9, 90, 'F')),
@@ -66,7 +66,7 @@ PARTS = [
      {'1': 'VBUS', '2': 'LED_PG'}, (9.6, 2.9, 90, 'F')),
     ('R9', 'Device:R', '10k', 'Resistor_SMD:R_0402_1005Metric', 'C25744',
      {'1': 'LED_PG', '2': 'LED_PGN'}, (10.4, 7.6, 0, 'F')),
-    ('Q2', 'keyra:2N7002', '2N7002', 'keyra:SOT-23-3_L2.9-W1.3-P1.90-LS2.4-BR', 'C8545',
+    ('Q2', 'Transistor_FET:2N7002', '2N7002', 'keyra:SOT-23-3_L2.9-W1.3-P1.90-LS2.4-BR', 'C8545',
      {'1': 'LED_PWR_EN', '2': 'GND', '3': 'LED_PGN'}, (14.6, 6.8, 0, 'F')),
     ('R10', 'Device:R', '100k', 'Resistor_SMD:R_0402_1005Metric', 'C25741',
      {'1': 'LED_PWR_EN', '2': 'GND'}, (17.4, 7.4, 0, 'F')),
@@ -131,5 +131,15 @@ for _i in range(8):
                   (round(RING[0] + CAP_R * _m.cos(_m.radians(_c)), 3),
                    round(RING[1] - CAP_R * _m.sin(_m.radians(_c)), 3), _c - 90, 'F')))
 
+
+def outline_points():
+    """The board edge, clockwise from the tip: the plug's tongue (DWG001-A401), a flare, the stick."""
+    nw, nl = TONGUE_NECK
+    hw, tw, W = nw / 2, TONGUE_W / 2, BOARD_W / 2
+    c = 0.20                                    # chamfer on the tip's corners
+    return [(0, -hw + c), (c, -hw), (nl, -hw), (nl, -tw), (TONGUE_L, -tw), (FLARE_END, -W),
+            (BOARD_L, -W), (BOARD_L, W), (FLARE_END, W), (TONGUE_L, tw), (nl, tw), (nl, hw),
+            (c, hw), (0, hw - c)]
+
+
 NETS = sorted({n for p in PARTS for n in p[5].values()})
-POWER = {'GND', 'VBUS', '+3V3'}   # nets drawn with power symbols

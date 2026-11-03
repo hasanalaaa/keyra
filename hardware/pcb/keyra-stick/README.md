@@ -4,6 +4,10 @@ Keyra's own board: a 0.8 mm USB-C stick that plugs straight into a computer. One
 ring of eight RGB LEDs around it, the ESP32-S3 module at the far end. Open hardware (MIT), ready to
 order fully assembled from JLCPCB with the files in [fab/](fab).
 
+**The illustrated guide** walks through every part, the size, how it works, the schematic, the parts
+list, ordering and first power-up: [English](docs/keyra-stick-guide-en.pdf) ·
+[العربية](docs/keyra-stick-guide-ar.pdf) (PDF).
+
 <p align="center">
   <img src="renders/angle.png" width="80%" alt="Keyra Stick: the USB-C plug, the button inside its ring of eight LEDs, the ESP32-S3 module and its antenna at the end, on a black board">
 </p>
@@ -83,11 +87,12 @@ ground: reset), `IO0`, and the UART console `TX`/`RX` (115200 baud).
 | `keyra-stick.kicad_pro`, `.kicad_sch`, `.kicad_pcb`, `.kicad_dru` | KiCad 10 project: schematic, routed board, design rules |
 | `fab/keyra-stick-gerbers.zip` | Gerbers (all four copper layers) and drill files |
 | `fab/bom.csv`, `fab/cpl.csv` | JLCPCB's bill of materials and placement file |
+| `docs/keyra-stick-guide-en.pdf`, `-ar.pdf` | The illustrated guide, in English and Arabic |
 | `fab/keyra-stick-schematic.pdf` | The schematic, readable without KiCad |
 | `fab/keyra-stick.stpZ` | 3D model of the assembled board (compressed STEP; KiCad and FreeCAD open it), for enclosures |
 | `renders/` | Top, back and angled renders |
-| `lib/` | Symbols, footprints and 3D models of the LCSC parts (from LCSC/EasyEDA data) |
-| `gen/` | The generator: `design.py` holds every part, net and position; everything else is built from it |
+| `lib/` | Footprints and 3D models of the LCSC parts (from LCSC/EasyEDA data); their schematic symbols, drawn by `gen/symbols.py` |
+| `gen/` | The generator: `design.py` holds every part, net and position; everything else is built from it, the guide included (`make_guide.py`, words in `guide_text.py`) |
 
 ## Changing the board
 
@@ -96,7 +101,8 @@ the schematic's own netlist), drops a via from every ground and 3.3 V pad into i
 rest with Freerouting, fills the planes, runs the electrical check and the design rules check with
 board-to-schematic parity, and writes every fab file and render. It needs KiCad 10, Java 21 and
 Freerouting 2.1: `FREEROUTING=/path/to/freerouting-2.1.0.jar gen/build.sh`. After editing the board
-by hand in KiCad, `gen/build.sh fab` re-checks it and re-exports the fab files only.
+by hand in KiCad, `gen/build.sh fab` re-checks it and re-exports the fab files only. Both end by
+printing the guide with Google Chrome (`CHROME` overrides its path).
 
 ## Design notes
 
@@ -126,6 +132,9 @@ by hand in KiCad, `gen/build.sh fab` re-checks it and re-exports the fab files o
 **Keyra Stick** هي لوحة Keyra الخاصة: عصا رفيعة بسمك 0.8 ملم تنشك مباشرة بمنفذ USB-C بالكمبيوتر.
 بيها زر كبير بالنص وحوله حلقة من 8 أضواء ملونة، والرقاقة بنهاية العصا. التصميم مفتوح المصدر،
 وجاهز ينطلب مركّب بالكامل من مصنع JLCPCB بملفات مجلد [fab](fab).
+
+**الدليل المصوّر** يشرح كل قطعة، والمقاس، وطريقة العمل، والمخطط، وقائمة القطع، وطريقة الطلب، وأول تشغيل:
+[بالعربي](docs/keyra-stick-guide-ar.pdf) · [English](docs/keyra-stick-guide-en.pdf).
 
 **الحالة:** التصميم مكتمل ومفحوص: المخطط نجح بالفحص الكهربائي، واللوحة نجحت بفحص قواعد التصنيع بدون
 أي خطأ وتطابق المخطط تماماً. بس بعد ما انصنعت ولا جُرّبت أي لوحة.
