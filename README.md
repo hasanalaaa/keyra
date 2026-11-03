@@ -363,11 +363,11 @@ The current work plan, with what is done and what comes next, is in [docs/resear
 - [x] 0.2.0: Bluetooth LE keyboard, USB passkeys / FIDO2 + U2F security key, over-the-air firmware updates (signed, with rollback)
 - [x] 0.3.0: security key PIN (ClientPIN, separate from the master passphrase), `hmac-secret` and `credProtect`, passkeys in encrypted backups (format version 3)
 - [x] 0.3.0: Android app, Keyra Companion browser extension, access tokens and the agent gate (`tools/keyra-mcp`), NFC tap tags
-- [ ] Tested board matrix and a prebuilt release for each
-- [ ] Browser-based flashing from the release page
+- [x] Board matrix and a prebuilt image for each of seven boards (0.4.5; [docs/HARDWARE.md](docs/HARDWARE.md); hardware-tested so far: YD-ESP32-S3)
+- [x] Browser-based flashing for every board from [the website](https://hasanalaaa.github.io/keyra/)
 - [x] Printable enclosure ([hardware/enclosure](hardware/enclosure))
-- [ ] A purpose-built PCB
-- [ ] Independent security review
+- [ ] A purpose-built PCB (proposal: [hardware/pcb/DESIGN.md](hardware/pcb/DESIGN.md))
+- [ ] Independent security review (an internal review and its fixes shipped in 0.4.5: [docs/research/SECURITY-REVIEW-2026-10.md](docs/research/SECURITY-REVIEW-2026-10.md))
 
 ## FAQ
 
