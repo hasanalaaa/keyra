@@ -341,7 +341,7 @@ npm --prefix extension run e2e
 - [x] جدول لوحات ونسخة جاهزة لكل لوحة من سبع (0.4.5؛ [docs/HARDWARE.md](docs/HARDWARE.md)؛ المجرّبة على الجهاز حتى الآن: YD-ESP32-S3)
 - [x] الفلاش من المتصفح لكل لوحة من [الموقع](https://hasanalaaa.github.io/keyra/)
 - [x] علبة قابلة للطباعة ([hardware/enclosure](hardware/enclosure))
-- [ ] لوحة دوائر مخصصة (المقترح: [hardware/pcb/DESIGN.md](hardware/pcb/DESIGN.md))
+- [x] لوحة دوائر مخصصة، مصممة وجاهزة للطلب: [Keyra Stick](hardware/pcb/keyra-stick) (لم تُصنَّع بعد)
 - [ ] مراجعة أمنية مستقلة (مراجعة داخلية وإصلاحاتها في 0.4.5: [docs/research/SECURITY-REVIEW-2026-10.md](docs/research/SECURITY-REVIEW-2026-10.md))
 
 ## أسئلة شائعة

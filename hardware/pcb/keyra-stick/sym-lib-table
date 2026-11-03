@@ -1,0 +1,4 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "keyra")(type "KiCad")(uri "${KIPRJMOD}/lib/keyra.kicad_sym")(options "")(descr "Keyra Stick parts from LCSC/EasyEDA"))
+)

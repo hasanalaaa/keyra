@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "keyra")(type "KiCad")(uri "${KIPRJMOD}/lib/keyra.pretty")(options "")(descr "Keyra Stick parts from LCSC/EasyEDA"))
+)

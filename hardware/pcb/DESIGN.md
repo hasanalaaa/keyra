@@ -1,9 +1,14 @@
-# Keyra Stick: a purpose-built PCB (design proposal)
+# Keyra Stick: a purpose-built PCB (the original proposal)
 
-> **Status: proposal only.** Nothing here has been laid out, built or tested. No schematic or
-> PCB files exist yet. Part numbers, prices and fees were checked against distributor pages in
-> October 2026 and will drift; re-check every line before ordering. Items still marked
-> **open** in the text must be resolved before layout.
+> **Superseded by the finished design in [keyra-stick/](keyra-stick)** (November 2026): schematic,
+> routed board, JLCPCB fab files and renders. This document is kept for its reasoning and sources.
+> What changed on the way: **4 layers** (In1 solid ground, In2 3.3 V) instead of 2; a USB-C plug
+> JLCPCB stocks (SHOU HAN TYPE-C 24P-GTJB 040, LCSC C3151751), which fixes the board at 0.8 mm and
+> the tongue's outline; **SK6805-EC20** LEDs (the WS2812B-2020 is out of stock); the ring's 5 V
+> **switched by GPIO7** (AO3401A + 2N7002), so VBUS stays under 10 µF at plug-in; an SN74LV1T125
+> as the 5 V data buffer; an 18.5 mm board, so the EN RC and the module's decoupling sit at its pins; the button and
+> GPIO0 use the chip's own pull-ups; the BOOT switch became a solder jumper on the back. The
+> firmware's LED-count option (`KEYRA_LED_COUNT`) and the `keyra-stick` board profile now exist.
 
 A USB-C stick that plugs straight into a computer: the ESP32-S3 module at the far end, one
 large button in the middle, a ring of eight addressable LEDs around the button, and a USB-C

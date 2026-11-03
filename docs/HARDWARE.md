@@ -40,6 +40,7 @@ board, please report how it went.
 | M5Stack AtomS3 Lite (`atoms3-lite`) | 8 MB / none | GPIO41 (top button) | WS2812, GPIO35 | [M5Stack](https://shop.m5stack.com/products/atoms3-lite-esp32s3-dev-kit) | No |
 | Seeed Studio XIAO ESP32S3 (`xiao-esp32s3`) | 8 MB / 8 MB octal | GPIO0 (BOOT) | plain LED, GPIO21, active low | [Seeed Studio](https://www.seeedstudio.com/XIAO-ESP32S3-p-5627.html) | No |
 | Unexpected Maker TinyS3 (`tinys3`) | 8 MB / 8 MB quad | GPIO0 (BOOT) | WS2812, GPIO18, powered by GPIO17 | [Unexpected Maker](https://esp32s3.com/tinys3.html) | No |
+| Keyra Stick (`keyra-stick`), Keyra's own USB-C stick | 8 MB / none | GPIO5 (the big button) | 8 × SK6805-EC20 ring, GPIO6, powered by GPIO7 | [Open hardware: order from JLCPCB](../hardware/pcb/keyra-stick) | Not yet built |
 
 Every board in the table has 8 MB of flash or more and its USB connector on the
 S3's native USB port, which Keyra needs to be a keyboard.

@@ -1,0 +1,9 @@
+(version 1)
+
+# The plug's latch pads sit on the tongue's edge by design (SHOU HAN DWG001-A401, "Cable Side PCB
+# Layout"): the plug clamps the board there.
+(rule "plug pads on the tongue edge"
+  (condition "A.Parent == 'J1' || B.Parent == 'J1'")
+  (constraint edge_clearance (min 0mm))
+  (severity ignore))
+

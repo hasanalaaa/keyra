@@ -74,8 +74,12 @@ void powerLed() {
   io.pin_bit_mask = 1ULL << pin;
   io.mode = GPIO_MODE_OUTPUT;
   const esp_err_t err = gpio_config(&io);
-  if (err == ESP_OK) gpio_set_level(pin, 1);
-  else ESP_LOGE(TAG, "LED power on GPIO%d unavailable: %s", int(pin), esp_err_to_name(err));
+  if (err == ESP_OK) {
+    gpio_set_level(pin, 1);
+    vTaskDelay(pdMS_TO_TICKS(5));  // the rail ramps (Keyra Stick: ~1 ms) and the LEDs reset before data
+  } else {
+    ESP_LOGE(TAG, "LED power on GPIO%d unavailable: %s", int(pin), esp_err_to_name(err));
+  }
 #endif
 }
 #endif
@@ -85,7 +89,7 @@ void initLed() {
   powerLed();
   led_strip_config_t strip = {};
   strip.strip_gpio_num = CONFIG_KEYRA_LED_GPIO;
-  strip.max_leds = 1;
+  strip.max_leds = CONFIG_KEYRA_LED_COUNT;
   strip.led_model = LED_MODEL_WS2812;
   strip.color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_GRB;
   led_strip_rmt_config_t rmt = {};
@@ -103,9 +107,10 @@ void initLed() {
 
 void render(const Rgb& c) {
   if (s_strip == nullptr) return;
-  if (led_strip_set_pixel(s_strip, 0, c.r, c.g, c.b) != ESP_OK || led_strip_refresh(s_strip) != ESP_OK) {
-    ESP_LOGW(TAG, "LED refresh failed");
-  }
+  // Every LED of a ring shows the same colour: one status, seen from any side.
+  bool ok = true;
+  for (uint32_t i = 0; i < CONFIG_KEYRA_LED_COUNT; ++i) ok = ok && led_strip_set_pixel(s_strip, i, c.r, c.g, c.b) == ESP_OK;
+  if (!ok || led_strip_refresh(s_strip) != ESP_OK) ESP_LOGW(TAG, "LED refresh failed");
 }
 
 // Only real changes go out: no redundant RMT traffic.

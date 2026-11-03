@@ -6,6 +6,17 @@ All notable changes to Keyra are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Keyra Stick, Keyra's own board** (hardware/pcb/keyra-stick): a 0.8 mm four-layer USB-C stick
+  with the ESP32-S3-MINI-1-N8, one big button and a ring of eight RGB LEDs. KiCad 10 project,
+  JLCPCB fab files (Gerbers, BOM, placement), schematic PDF, 3D model and renders, all rebuilt from
+  one description by `gen/build.sh`, which also runs the electrical and design rule checks with
+  board-to-schematic parity. Designed and checked; no board has been built yet.
+- Firmware: `CONFIG_KEYRA_LED_COUNT` drives a chain of WS2812 LEDs with one colour (default 1),
+  and a `keyra-stick` board profile (button GPIO5, eight LEDs on GPIO6, their supply on GPIO7);
+  releases add `keyra-firmware-keyra-stick.bin`.
+
 ## [0.4.5] - 2026-10-17
 
 Highlights:

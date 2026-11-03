@@ -366,7 +366,7 @@ The current work plan, with what is done and what comes next, is in [docs/resear
 - [x] Board matrix and a prebuilt image for each of seven boards (0.4.5; [docs/HARDWARE.md](docs/HARDWARE.md); hardware-tested so far: YD-ESP32-S3)
 - [x] Browser-based flashing for every board from [the website](https://hasanalaaa.github.io/keyra/)
 - [x] Printable enclosure ([hardware/enclosure](hardware/enclosure))
-- [ ] A purpose-built PCB (proposal: [hardware/pcb/DESIGN.md](hardware/pcb/DESIGN.md))
+- [x] A purpose-built PCB, designed and ready to order: [Keyra Stick](hardware/pcb/keyra-stick) (not yet built)
 - [ ] Independent security review (an internal review and its fixes shipped in 0.4.5: [docs/research/SECURITY-REVIEW-2026-10.md](docs/research/SECURITY-REVIEW-2026-10.md))
 
 ## FAQ

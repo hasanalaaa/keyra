@@ -96,5 +96,19 @@
     "tested": false,
     "default": false,
     "notes": "Builds in CI, not yet tested on hardware."
+  },
+  {
+    "id": "keyra-stick",
+    "name": "Keyra Stick",
+    "vendor": "Keyra (open hardware)",
+    "url": "https://github.com/hasanalaaa/keyra/tree/main/hardware/pcb/keyra-stick",
+    "flash_mb": 8,
+    "psram": "none",
+    "button": "GPIO5, active low (GPIO0 only on the BOOT jumper)",
+    "led": "8 × SK6805-EC20 ring (WS2812 protocol) on GPIO6",
+    "usb": "USB-C plug, native USB",
+    "tested": false,
+    "default": false,
+    "notes": "Keyra's own board: a 0.8 mm, four-layer USB-C stick that plugs straight into the computer. Open hardware in hardware/pcb/keyra-stick, ready to order assembled from JLCPCB; no board has been built yet."
   }
 ]
