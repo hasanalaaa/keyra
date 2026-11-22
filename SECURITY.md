@@ -483,13 +483,14 @@ so you can decide for yourself.
 - **The bearer token, saved and generated passwords go over plain HTTP to a
   name anyone on the LAN can claim.** See *Plain HTTP and a spoofable name*
   under access tokens above.
-- **A stolen session can still keep the vault open.** Auto-lock counts what a
-  person does; requests the web app sends on its own (the account list
-  refresh, the 2FA code, the Bluetooth list) no longer count (SPEC §5), so a
-  browser tab left open lets the vault lock. But a thief who holds your
-  session can send the same requests a person would, and no request can prove
-  a person sent it. Unplugging USB, a long press, or locking from the app ends
-  every session.
+- **A stolen session can keep the vault open for up to 12 hours.** Auto-lock
+  counts what a person does; requests the web app sends on its own (the account
+  list refresh, the 2FA code, the Bluetooth list) do not count (SPEC §5), so a
+  browser tab left open lets the vault lock. A thief who holds your session can
+  send the same requests a person would, but no request can prove a person sent
+  it: without a button press or a new unlock, the vault locks 12 hours after the
+  last one. Unplugging USB, a long press, or locking from the app ends every
+  session at once.
 - **The security key PIN can be set or burned without a press** (FIDO.md,
   ClientPIN). Software with raw HID access on the computer, while Keyra is
   unlocked and has no PIN, can set a PIN you do not know, or use up the 8 PIN

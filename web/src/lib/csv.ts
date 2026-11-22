@@ -65,6 +65,21 @@ export function hostOf(url: string): string {
   }
 }
 
+/** A link the browser may open for a stored website: http(s) only, bare hosts get https. Null = nothing safe to open. */
+export function siteLink(url: string): string | null {
+  const s = url.trim();
+  if (!s) return null;
+  try {
+    const bare = !/^[a-z][a-z0-9+.-]*:/i.test(s);
+    const u = new URL(bare ? `https://${s}` : s);
+    // A bare word ("bank") is a title someone typed, not an address; "http://nas/" was written on purpose.
+    if (bare && !u.hostname.includes('.')) return null;
+    return u.protocol === 'https:' || u.protocol === 'http:' ? u.href : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Detects the exporter from the header row (case-insensitive) and maps rows to entries. Null = not a password export. */
 export function parseExport(text: string): ParsedImport | null {
   const rows = parseCsv(text);

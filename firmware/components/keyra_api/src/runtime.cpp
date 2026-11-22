@@ -273,7 +273,7 @@ void typeTask(void*) {
 void apply(actions::Decision d);
 
 void onButton(io::Button b, int64_t pressedAt) {
-  sessions().activity(monoMs());
+  sessions().attended(monoMs());
   // A website waiting for the security-key touch owns the button (its LED
   // pattern is showing); an armed type action stays armed for the next press.
   // A press that waited in the queue through a commit, or was made before the

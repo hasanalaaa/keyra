@@ -182,6 +182,9 @@ if (nvsReset) {
   lockedUntil = Date.now() + (Number(process.env.MOCK_NVS_DELAY_MS) || 900_000);
 }
 let lastActivity = Date.now();
+// sessions.hpp kMaxUnattendedMs: a press or an unlock proves a person; requests alone do not (F8).
+const MAX_UNATTENDED_MS = 12 * 3600 * 1000;
+let lastAttended = Date.now();
 const sessions = new Map(); // token → { csrf, lastUsed, trustId, approval: { purpose, resource, entry, request, until } | null }
 const APPROVAL_MS = 30000; // SPEC §12.5b: a press approves one request, to be made within this long
 let usbSeen = false; // a computer was plugged in since the unlock (charger-only never locks)
@@ -378,7 +381,7 @@ function press(kind) {
   expire();
   syncDemand();
   const s = machine.slot;
-  lastActivity = Date.now(); // button use counts as activity, like the firmware
+  lastActivity = lastAttended = Date.now(); // button use counts as activity, like the firmware
   if (kind === 'short') {
     if (s?.kind === 'presence') {
       machine.slot = null;
@@ -1520,7 +1523,7 @@ function issueSession(res, req, known, how = 0) {
   if (nvs) logEvent('nvs_reset', { detail: nvs === 'new_version' ? 1 : 0 });
   nvsReset = null; // logged: state stops carrying it, this answer carries it once
   usbSeen = host.usb;
-  lastActivity = Date.now();
+  lastActivity = lastAttended = Date.now();
   if (sessions.size >= MAX_SESSIONS) {
     const oldest = [...sessions.entries()].sort((x, y) => x[1].lastUsed - y[1].lastUsed)[0][0];
     sessions.delete(oldest);
@@ -1843,7 +1846,7 @@ async function api(req, res, path) {
 
   expire();
   syncDemand();
-  if (unlocked && Date.now() - lastActivity > settings.autoLockMin * 60000) {
+  if (unlocked && (Date.now() - lastActivity > settings.autoLockMin * 60000 || Date.now() - lastAttended >= MAX_UNATTENDED_MS)) {
     console.log('[mock] idle auto-lock');
     lockAll('idle');
   }
@@ -1954,7 +1957,7 @@ async function api(req, res, path) {
         () => {
           vault = { passphrase, entries: new Map(), passkeys: new Map(), fidoKeys: [], fidoCounter: 0 };
           unlocked = true; // left unlocked for the client's unlock call
-          lastActivity = Date.now();
+          lastActivity = lastAttended = Date.now();
           settings.wifiPassword = wifiPassword;
           if (b.deviceName) settings.deviceName = b.deviceName;
           console.log(`[mock] set up · Wi-Fi ${defaultSsid()} / ${wifiPassword}`);

@@ -42,7 +42,7 @@ Sessions::Issued Sessions::create(int64_t nowMs, uint32_t trustId, uint32_t gene
   target->approval.reset();
   target->approvalUntil = 0;
   target->revealed = false;
-  lastActivity_ = nowMs;
+  lastActivity_ = lastAttended_ = nowMs;
   return {target->token, target->csrf, std::move(evicted)};
 }
 
@@ -139,9 +139,14 @@ void Sessions::activity(int64_t nowMs) {
   lastActivity_ = nowMs;
 }
 
+void Sessions::attended(int64_t nowMs) {
+  std::lock_guard<std::mutex> lock(mu_);
+  lastActivity_ = lastAttended_ = nowMs;
+}
+
 bool Sessions::idleFor(int64_t nowMs, int64_t limitMs) {
   std::lock_guard<std::mutex> lock(mu_);
-  return nowMs - lastActivity_ >= limitMs;
+  return nowMs - lastActivity_ >= limitMs || nowMs - lastAttended_ >= kMaxUnattendedMs;
 }
 
 }  // namespace keyra::api

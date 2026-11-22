@@ -15,7 +15,7 @@ import { copyText } from '../lib/clipboard';
 import { t, type Key } from '../lib/i18n';
 import { go, replace } from '../lib/router';
 import { setState, toast, useApp } from '../lib/store';
-import { hostOf } from '../lib/csv';
+import { hostOf, siteLink } from '../lib/csv';
 import { handOver } from '../lib/revealed';
 import { shortDate } from '../lib/wifi';
 import type { Entry, OldPassword, Totp, TypeWhat } from '../lib/types';
@@ -355,6 +355,7 @@ function CodeCard({ id, onType, codeRef, timeValid }: { id: number; onType: () =
 function Details({ entry, reveal }: { entry: Entry | null; reveal: () => Promise<Entry | null> }) {
   const [shown, setShown] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
+  const link = entry ? siteLink(entry.url) : null;
   useEffect(() => {
     if (!shown) return;
     const h = setTimeout(() => setShown(false), 30000);
@@ -403,6 +404,11 @@ function Details({ entry, reveal }: { entry: Entry | null; reveal: () => Promise
           <span class="kv-value" dir="ltr">
             {entry.url}
           </span>
+          {link && (
+            <a class="icon-btn" href={link} target="_blank" rel="noopener noreferrer" aria-label={t('openSite')} title={t('openSite')}>
+              <Icon name="external-link" />
+            </a>
+          )}
           <CopyButton value={() => entry.url} />
         </div>
       )}

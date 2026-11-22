@@ -312,7 +312,7 @@ bool commitSetup(SetupJob& j) {
       }) != ESP_OK)
     return false;
   ble::setName(name);
-  sessions().activity(monoMs());  // the vault is left unlocked for the client's unlock call
+  sessions().attended(monoMs());  // the vault is left unlocked for the client's unlock call
   reconfigureNetSoon();
   return true;
 }

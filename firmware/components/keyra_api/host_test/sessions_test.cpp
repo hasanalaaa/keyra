@@ -57,6 +57,24 @@ void idleTracking() {
   CHECK(!s.idleFor(70001, 60000));
 }
 
+// Review F8: requests keep the idle timer fresh, but only a press or an unlock
+// proves a person; without one the vault locks after kMaxUnattendedMs.
+void requestsAloneDoNotKeepItOpenForever() {
+  Sessions s(fakeRandom);
+  const int64_t limit = 15 * 60 * 1000;
+  s.create(0);
+  int64_t t = 0;
+  for (; t < kMaxUnattendedMs - limit; t += limit - 1) s.activity(t);
+  CHECK(!s.idleFor(t, limit));
+  s.activity(kMaxUnattendedMs - 1);
+  CHECK(!s.idleFor(kMaxUnattendedMs - 1, limit));
+  CHECK(s.idleFor(kMaxUnattendedMs, limit));
+  s.attended(kMaxUnattendedMs);
+  CHECK(!s.idleFor(kMaxUnattendedMs + 1, limit));
+  s.activity(2 * kMaxUnattendedMs - 1);
+  CHECK(s.idleFor(2 * kMaxUnattendedMs, limit));
+}
+
 void constantTimeCompare() {
   CHECK(constantTimeEqual("abc", "abc"));
   CHECK(!constantTimeEqual("abc", "abd"));
@@ -229,6 +247,7 @@ int main() {
   evictsLeastRecentlyUsedBeyondFour();
   clearEndsAll();
   idleTracking();
+  requestsAloneDoNotKeepItOpenForever();
   constantTimeCompare();
   revokingATrustedBrowserEndsOnlyItsSessions();
   deferredWorkRechecksTheSession();

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dupKey, hostOf, parseCsv, parseExport } from '../src/lib/csv';
+import { dupKey, hostOf, parseCsv, parseExport, siteLink } from '../src/lib/csv';
 
 describe('parseCsv (RFC 4180)', () => {
   it('splits plain fields and rows', () => {
@@ -122,6 +122,18 @@ describe('helpers', () => {
     expect(hostOf('github.com/login')).toBe('github.com');
     expect(hostOf('')).toBe('');
     expect(hostOf('not a url')).toBe('not a url');
+  });
+
+  it('siteLink opens only http(s), and gives bare hosts https', () => {
+    expect(siteLink('github.com/login')).toBe('https://github.com/login');
+    expect(siteLink(' http://192.168.1.1/ ')).toBe('http://192.168.1.1/');
+    expect(siteLink('javascript:alert(1)')).toBeNull();
+    expect(siteLink('data:text/html,x')).toBeNull();
+    expect(siteLink('android://com.example')).toBeNull();
+    expect(siteLink('not a url')).toBeNull();
+    expect(siteLink('localhost')).toBeNull();
+    expect(siteLink('http://nas/')).toBe('http://nas/');
+    expect(siteLink('')).toBeNull();
   });
 
   it('dupKey matches the device rule (title + username + url)', () => {

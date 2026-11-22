@@ -21,6 +21,8 @@ constexpr int64_t kApprovalMs = 30000;
 // Length-revealing but content-constant-time comparison (tokens have fixed length).
 bool constantTimeEqual(std::string_view a, std::string_view b);
 
+inline constexpr int64_t kMaxUnattendedMs = 12LL * 60 * 60 * 1000;
+
 class Sessions {
  public:
   using Random = std::function<void(uint8_t*, size_t)>;
@@ -77,6 +79,10 @@ class Sessions {
 
   // Idle tracking for auto-lock: any authenticated request or button use counts.
   void activity(int64_t nowMs);
+  // Proof a person is at the device: a button press, or an unlock (create()).
+  void attended(int64_t nowMs);
+  // True after `limitMs` without activity, or kMaxUnattendedMs without proof of
+  // a person: requests alone cannot keep the vault open forever (review F8).
   bool idleFor(int64_t nowMs, int64_t limitMs);
 
  private:
@@ -98,6 +104,7 @@ class Sessions {
   std::mutex mu_;
   std::array<Slot, kMaxSessions> slots_;
   int64_t lastActivity_ = 0;
+  int64_t lastAttended_ = 0;
 };
 
 }  // namespace keyra::api

@@ -6,6 +6,12 @@ All notable changes to Keyra are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.7] - 2026-11-22
+
+Highlights:
+- The vault now locks 12 hours after the last button press or unlock, even if a browser keeps talking to Keyra
+- New "Open website" button next to an account's website
+
 ### Changed
 
 - **Keyra Stick documents.** The schematic is redrawn: six framed blocks with real wires, power symbols and
@@ -13,8 +19,16 @@ All notable changes to Keyra are documented here. The format follows
   that the drawing connects exactly what `gen/design.py` says. The board is unchanged; KiCad's checks still
   report zero errors and an exact schematic-to-board match.
 
+### Security
+
+- **A stolen session can no longer keep the vault open forever** (review F8). Whatever the sessions send,
+  the vault locks 12 hours after the last button press or unlock. Normal use is unchanged: every typing
+  action already needs a press.
+
 ### Added
 
+- **Open website** button next to an account's website in the web app (http and https links only, in a new
+  tab without a referrer).
 - **Keyra Stick guide** (`hardware/pcb/keyra-stick/docs/`, English and Arabic PDF): every part numbered on
   top and bottom renders, size drawing, layer stack, block diagram, pin table, the schematic, parts list
   with what each part does, JLCPCB ordering settings, first power-up and troubleshooting. Built by

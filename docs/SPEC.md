@@ -209,6 +209,9 @@ Conventions
   (`routes.cpp` `countsAsActivity`). `GET /api/state` needs no session and
   never counts; nor do access tokens (§17) and tag taps (§18). A button press
   counts.
+- Unattended limit: whatever the sessions send, the vault locks 12 hours after
+  the last button press or unlock (`sessions.hpp` `kMaxUnattendedMs`), logged
+  as an idle lock. Requests cannot prove a person; a press or the passphrase can.
 - Max 4 concurrent sessions; `lock` (or auto-lock) ends all.
 - Request bodies > 64 KiB → 413 `too_large` (import uses batches). Exception:
   `/api/restore` accepts up to 2 MiB when PSRAM is present (128 KiB without).

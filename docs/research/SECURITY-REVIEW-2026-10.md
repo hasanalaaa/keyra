@@ -45,7 +45,7 @@ CVEs are unchecked.
 | F5 | Medium | First-run Wi-Fi password is public: setup traffic, evil twin, setup hijack | `net.cpp:111`, `handlers.cpp:468-483`, `actions.cpp:65-77` | accepted, documented |
 | F6 | Medium | Indirect prompt injection into AI agents through entry titles | `tools/keyra-mcp/server.mjs:128-134`, `extension/src/content/content.ts:830-834` | fixed |
 | F7 | Low | CTAP `setPIN` needs no press: host malware can force a passkey wipe | `ctap_pin.cpp:121-146, 60-78` | accepted, documented |
-| F8 | Low | Stolen session keeps the vault unlocked indefinitely | `handlers.cpp:1669`, `runtime.cpp:336` | fixed in part |
+| F8 | Low | Stolen session keeps the vault unlocked indefinitely | `handlers.cpp:1669`, `runtime.cpp:336` | fixed |
 | F9 | Low | CBOR decoder allocates before it validates (possible crash without a press, no-PSRAM boards) | `cbor.cpp:112-123`, `ctaphid.hpp:17` | fixed |
 | F10 | Low | Work done before rate limit on unauthenticated token and tag endpoints | `handlers_agent.cpp:539-577`, `handlers_tags.cpp:295-351` | fixed |
 | F11 | Low | Unauthenticated factory-reset can be armed while the vault is unlocked | `handlers.cpp:1287-1292`, `trust.cpp`/`trusted.cpp:129-150` | fixed |
@@ -257,7 +257,7 @@ spec's per-power-cycle limit across channels. Confirm with `fido_harness.py`.
 
 ### F8 Low: a stolen session keeps the vault unlocked
 
-Status (2026-10-17): Fixed in part (Unreleased): `routes.cpp` `countsAsActivity` (GET /entries, /totp, /ble do not count); mock in parity. Test: `routes_test` policy. A thief sending user-like requests can still keep the vault open: documented in SECURITY.md Known limits; no absolute session lifetime was added.
+Status (2026-11-10): Fixed (Unreleased): the vault now also locks 12 hours after the last button press or unlock, whatever the sessions send (`sessions.hpp` `kMaxUnattendedMs`, `sessions_test` `requestsAloneDoNotKeepItOpenForever`). Earlier (2026-10-17), fixed in part: `routes.cpp` `countsAsActivity` (GET /entries, /totp, /ble do not count); mock in parity. Test: `routes_test` policy. A thief sending user-like requests can still keep the vault open: documented in SECURITY.md Known limits; no absolute session lifetime was added.
 
 Location: `handlers.cpp:1669` (every session route except `/totp` and BLE list
 counts as activity), `runtime.cpp:336` (`idleFor`).
