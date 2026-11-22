@@ -164,7 +164,8 @@ describe('F2: a session cannot move the clock to harvest 2FA codes', () => {
     expect(walk.body.code).toBe(near.body.code);
     expect(Math.abs(walk.body.remaining - near.body.remaining)).toBeLessThanOrEqual(1);
     await ahead(0); // back to the right time for the tests after this one
-  });
+    // Up to two waits for a fresh 30 s code (6 s each) plus the KDF: more than vitest's 5 s default.
+  }, 20000);
 });
 
 function craftBackup(passphrase: string, counter: number, title: string): unknown {
